@@ -1,0 +1,13 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/api/supply/receive/route": "/api/supply/receive",
+  "/caja/page": "/caja",
+  "/finanzas/page": "/finanzas",
+  "/login/page": "/login",
+  "/logistica/page": "/logistica",
+  "/page": "/",
+  "/proveedores/page": "/proveedores",
+  "/rrhh/page": "/rrhh",
+  "/settings/page": "/settings"
+}

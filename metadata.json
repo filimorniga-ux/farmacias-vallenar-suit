@@ -1,0 +1,7 @@
+{
+  "name": "Farmacias Vallenar Suit",
+  "description": "Critical Pharmaceutical ERP designed for high-temperature, unstable connectivity environments. Features offline-first architecture, FEFO inventory management, and mining corporate agreement integrations.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
