@@ -5,24 +5,24 @@ import { PurchaseOrder } from '../../../domain/types';
 
 interface BlindReceptionModalProps {
     order: PurchaseOrder;
-    onReceive: (order: PurchaseOrder, receivedItems: { itemId: string; receivedQty: number }[]) => void;
+    onReceive: (order: PurchaseOrder, receivedItems: { sku: string; receivedQty: number }[]) => void;
     onClose: () => void;
 }
 
 const BlindReceptionModal: React.FC<BlindReceptionModalProps> = ({ order, onReceive, onClose }) => {
-    const [receivedQuantities, setReceivedQuantities] = useState<{ [itemId: string]: number }>({});
+    const [receivedQuantities, setReceivedQuantities] = useState<{ [sku: string]: number }>({});
 
-    const handleInputChange = (itemId: string, value: string) => {
+    const handleInputChange = (sku: string, value: string) => {
         setReceivedQuantities(prev => ({
             ...prev,
-            [itemId]: parseInt(value) || 0
+            [sku]: parseInt(value) || 0
         }));
     };
 
-    const totalReceived = order.items.reduce((sum, item) => sum + (receivedQuantities[item.itemId] || 0), 0);
+    const totalReceived = order.items.reduce((sum, item) => sum + (receivedQuantities[item.sku] || 0), 0);
 
     // Comprobar si todas las cantidades han sido ingresadas manualmente
-    const isComplete = order.items.every(item => receivedQuantities[item.itemId] !== undefined && receivedQuantities[item.itemId] >= 0);
+    const isComplete = order.items.every(item => receivedQuantities[item.sku] !== undefined && receivedQuantities[item.sku] >= 0);
 
     const inputStyle = "w-full py-2 border-2 border-slate-400 rounded-lg text-center font-semibold text-lg text-slate-900";
 
@@ -40,15 +40,15 @@ const BlindReceptionModal: React.FC<BlindReceptionModalProps> = ({ order, onRece
 
                 <div className="max-h-80 overflow-y-auto space-y-4 pr-2">
                     {order.items.map((item) => (
-                        <div key={item.itemId} className="flex items-center justify-between border-b pb-3">
+                        <div key={item.sku} className="flex items-center justify-between border-b pb-3">
                             <p className="font-semibold text-slate-700 w-1/2">{item.name}</p>
                             <div className="w-1/3 ml-4">
                                 <input
                                     type="number"
                                     placeholder="Cantidad Real Recibida"
                                     className={inputStyle}
-                                    value={receivedQuantities[item.itemId] || ''}
-                                    onChange={(e) => handleInputChange(item.itemId, e.target.value)}
+                                    value={receivedQuantities[item.sku] || ''}
+                                    onChange={(e) => handleInputChange(item.sku, e.target.value)}
                                 />
                             </div>
                         </div>
@@ -59,7 +59,7 @@ const BlindReceptionModal: React.FC<BlindReceptionModalProps> = ({ order, onRece
                     <p className="text-xl font-bold text-slate-900 mb-4">Total de Unidades Contadas: {totalReceived}</p>
                     <button
                         className="w-full py-3 bg-cyan-700 text-white font-bold rounded-xl hover:bg-cyan-800 transition disabled:opacity-50 flex items-center justify-center"
-                        onClick={() => isComplete && onReceive(order, Object.entries(receivedQuantities).map(([itemId, receivedQty]) => ({ itemId, receivedQty })))}
+                        onClick={() => isComplete && onReceive(order, Object.entries(receivedQuantities).map(([sku, receivedQty]) => ({ sku, receivedQty })))}
                         disabled={!isComplete}
                     >
                         <Save size={20} className="mr-2" /> Confirmar Recepción Ciega

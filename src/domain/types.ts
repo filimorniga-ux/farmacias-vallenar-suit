@@ -1,86 +1,356 @@
 
-export type Role = 'ADMIN' | 'QF' | 'VENDEDOR' | 'WAREHOUSE';
+export type Role = 'MANAGER' | 'QF' | 'CASHIER' | 'WAREHOUSE' | 'ADMIN';
 export type DrugCategory = 'MEDICAMENTO' | 'INSUMO_MEDICO' | 'RETAIL_BELLEZA' | 'SUPLEMENTO';
 export type SaleCondition = 'VD' | 'R' | 'RR' | 'RCH';
+export type StorageCondition = 'AMBIENTE' | 'REFRIGERADO' | 'CONTROLADO';
 
 // --- Inventario y Logística ---
 export interface InventoryBatch {
     id: string;
-    name: string;
-    dci: string;
     sku: string;
-    category: DrugCategory;
-    saleCondition: SaleCondition;
-    isBioequivalent: boolean;
-    isColdChain: boolean;
-    isCommissionable: boolean;
-    stockActual: number;
-    stockMin: number;
-    batchCode: string;
-    expiryDate: string;
-    supplierId: string;
+    name: string;
+    dci: string; // Principle Active
+    laboratory?: string;
+    brand?: string; // Retail brand
+    image_url?: string;
+    is_bioequivalent: boolean;
+    condition: SaleCondition; // VD, R, RR, RCH
+
+    // Logistics
+    location_id: 'BODEGA_CENTRAL' | 'SUCURSAL_CENTRO' | 'SUCURSAL_NORTE' | 'KIOSCO' | 'TRANSIT';
+    aisle?: string; // Shelf/Rack location
+
+    stock_actual: number;
+    stock_min: number;
+    stock_max: number;
+    expiry_date: number; // Timestamp
     price: number;
+    cost_price: number; // For valuation
+    supplier_id?: string; // Optional for now
+
+    category: DrugCategory;
+    allows_commission: boolean;
+    active_ingredients: string[]; // For clinical analysis
 }
 
 // --- Recursos Humanos ---
+export type AttendanceStatus = 'IN' | 'OUT' | 'LUNCH';
+
 export interface EmployeeProfile {
     id: string;
-    name: string;
     rut: string;
+    name: string;
     role: Role;
-    baseSalary: number;
-    commissionRate: number;
-    lastClockIn: number;
-    lastClockOut: number;
-    isClockedIn: boolean;
+    access_pin: string; // 4 dígitos
+    status: 'ACTIVE' | 'ON_LEAVE' | 'TERMINATED';
+
+    // Personal Data
+    contact_phone?: string;
+    emergency_contact?: {
+        name: string;
+        relation: string;
+        phone: string;
+    };
+
+    // Contractual Data (Manager Only)
+    job_title?: string;
+    base_salary?: number;
+    weekly_hours?: number;
+    pension_fund?: string; // AFP
+    health_system?: string; // Isapre/Fonasa
+    mutual_safety?: string;
+
+    // Security
+    allowed_modules?: string[]; // Custom permissions
+
+    // Biometrics & Attendance
+    biometric_credentials?: string[]; // WebAuthn Credential IDs
+    current_status: AttendanceStatus;
 }
+
 export interface AttendanceLog {
     id: string;
-    employeeId: string;
+    employee_id: string;
     timestamp: number;
-    type: 'IN' | 'OUT' | 'BREAK';
+    type: 'CHECK_IN' | 'CHECK_OUT' | 'LUNCH_START' | 'LUNCH_END';
+    overtime_minutes?: number;
+    delay_minutes?: number;
 }
 
 // --- Venta y Clientes ---
-export type HealthTag = 'HYPERTENSION' | 'PREGNANT' | 'DIABETIC';
+export type HealthTag = 'HYPERTENSION' | 'PREGNANT' | 'DIABETIC' | 'ELDERLY' | 'PEDIATRIC';
+
 export interface Customer {
+    id: string; // UUID
     rut: string;
-    name: string;
-    age: number;
-    healthTags: HealthTag[];
+    fullName: string; // Replaces 'name'
+    phone?: string; // WhatsApp
+    email?: string;
+    totalPoints: number;
+    registrationSource: 'KIOSK' | 'POS' | 'ADMIN';
+    lastVisit: number; // Timestamp
+
+    // Legacy/Computed properties for compatibility
+    name: string; // Alias for fullName
+    age: number; // Derived or optional
+    health_tags: HealthTag[];
 }
+
 export interface SaleItem {
-    itemId: string;
+    batch_id: string;
+    sku: string;
     name: string;
     price: number;
     quantity: number;
-    isCommissionable: boolean;
+    allows_commission: boolean;
+    active_ingredients?: string[]; // Optional for backward compatibility or if not loaded
+}
+
+export interface SaleTransaction {
+    id: string;
+    timestamp: number;
+    items: SaleItem[];
+    total: number;
+    payment_method: 'CASH' | 'DEBIT' | 'CREDIT' | 'TRANSFER';
+    transfer_id?: string; // Obligatorio si es TRANSFER
+    prescription_type?: 'SIMPLE' | 'RETENIDA'; // Obligatorio si hay medicamentos R/RR
+    customer?: Customer;
+    seller_id: string;
+    dte_code?: string; // Código SII
 }
 
 // --- Cadena de Suministro ---
+// --- Cadena de Suministro ---
+export interface SupplierContact {
+    name: string;
+    role: string; // 'SALES' | 'BILLING' | 'LOGISTICS' | 'MANAGER'
+    email: string;
+    phone: string;
+    is_primary: boolean;
+}
+
+export interface BankAccount {
+    bank: string;
+    account_type: 'VISTA' | 'CORRIENTE' | 'AHORRO';
+    account_number: string;
+    email_notification: string;
+    rut_holder?: string; // If different from supplier RUT
+}
+
 export interface Supplier {
     id: string;
-    name: string;
-    rut: string;
+    rut: string; // Validated
+    business_name: string; // Razón Social
+    fantasy_name: string; // Nombre Fantasía
+    website?: string;
+    logo_url?: string;
+
+    // Contact
+    contact_email: string; // General email
+    contacts: SupplierContact[];
+
+    // Commercial
+    categories: ('MEDICAMENTOS' | 'INSUMOS' | 'RETAIL' | 'SERVICIOS')[];
+    payment_terms: 'CONTADO' | '30_DIAS' | '60_DIAS' | '90_DIAS';
+    credit_limit?: number;
+    rating: 1 | 2 | 3 | 4 | 5;
+    lead_time_days: number;
+
+    // Banking
+    bank_account?: BankAccount;
 }
+
+export interface SupplierDocument {
+    id: string;
+    supplier_id: string;
+    type: 'FACTURA' | 'NOTA_CREDITO' | 'GUIA_DESPACHO';
+    number: string; // Folio
+    amount: number;
+    issue_date: number;
+    due_date: number;
+    status: 'PENDING' | 'PAID' | 'APPLIED' | 'OVERDUE';
+    pdf_url?: string;
+    related_po_id?: string; // Link to Purchase Order
+}
+
+export type POStatus = 'SUGGESTED' | 'DRAFT' | 'SENT' | 'PARTIAL' | 'COMPLETED';
+
+export interface CartItem {
+    id: string; // Batch ID
+    sku: string;
+    name: string;
+    price: number;
+    quantity: number;
+    is_manual?: boolean;
+    batch_id?: string; // Optional if id is used as batch_id
+    allows_commission?: boolean;
+    active_ingredients?: string[];
+}
+
+export interface PurchaseOrderItem {
+    sku: string;
+    name: string;
+    quantity: number;
+    cost_price: number;
+    received_qty?: number;
+}
+
 export interface PurchaseOrder {
     id: string;
-    supplierId: string;
-    dateCreated: string;
-    status: 'PENDING' | 'ORDERED' | 'RECEIVED' | 'CANCELLED';
-    items: { itemId: string; name: string; quantity: number; expectedQty?: number }[];
+    supplier_id: string;
+    created_at: number;
+    status: POStatus;
+    items: PurchaseOrderItem[];
+    total_estimated: number;
+}
+
+// --- Kiosco y Filas ---
+export interface QueueTicket {
+    id: string;
+    number: string; // A-001
+    status: 'WAITING' | 'CALLING' | 'ATTENDED' | 'SKIPPED';
+    rut?: string; // Identificación opcional
+    timestamp: number;
 }
 
 // --- AI y Compliance ---
 export interface ClinicalAnalysisResult {
     status: 'SAFE' | 'WARNING' | 'BLOCK';
     message: string;
-    blockingItems?: string[];
-    suggestedItems?: string[];
+    blocking_items?: string[];
+    suggested_items?: string[]; // Cross-selling
 }
-export interface QueueTicket {
-    number: string;
-    status: 'WAITING' | 'CALLING' | 'ATTENDED';
-    rut?: string;
+
+// --- Finanzas y Gastos ---
+export type ExpenseCategory = 'MERCADERIA' | 'GASTOS_MENORES' | 'NOMINA' | 'IMPUESTOS' | 'SERVICIOS_BASICOS' | 'ARRIENDO' | 'OTROS';
+
+export interface Expense {
+    id: string;
+    description: string;
+    amount: number;
+    category: ExpenseCategory;
+    date: number; // Timestamp
+    is_deductible: boolean; // Si tiene factura/boleta válida
+    document_type?: 'FACTURA' | 'BOLETA' | 'SIN_RESPALDO';
+}
+
+// --- Gestión de Caja (Cash Flow) ---
+export type CashMovementType = 'IN' | 'OUT';
+export type CashMovementReason = 'SUPPLIES' | 'SERVICES' | 'WITHDRAWAL' | 'OTHER' | 'INITIAL_FUND';
+
+export interface CashMovement {
+    id: string;
+    shift_id: string;
     timestamp: number;
+    type: CashMovementType;
+    amount: number;
+    reason: CashMovementReason;
+    description: string;
+    evidence_url?: string; // URL de la foto
+    is_cash: boolean; // Si afecta el efectivo físico
+    user_id: string;
+}
+
+export interface CashShift {
+    id: string;
+    user_id: string;
+    start_time: number;
+    end_time?: number;
+    opening_amount: number; // Base
+    status: 'OPEN' | 'CLOSED';
+    closing_amount?: number; // Lo que se contó
+    difference?: number; // Sobrante/Faltante
+}
+
+// --- WMS & Logistics ---
+export interface StockTransfer {
+    id: string;
+    origin_location_id: InventoryBatch['location_id'];
+    destination_location_id: InventoryBatch['location_id'];
+    status: 'DRAFT' | 'PACKED' | 'IN_TRANSIT' | 'RECEIVED' | 'DISPUTED';
+    items: {
+        sku: string;
+        batchId: string;
+        quantity: number;
+        productName: string; // Denormalized for UI
+    }[];
+    shipment_data: {
+        carrier_name: string;
+        tracking_number: string;
+        driver_name?: string;
+    };
+    evidence: {
+        photos: string[]; // URLs
+        documents: string[]; // URLs
+    };
+    timeline: {
+        created_at: number;
+        dispatched_at?: number;
+        received_at?: number;
+    };
+    created_by: string; // User ID
+}
+
+export interface WarehouseIncident {
+    id: string;
+    transfer_id?: string;
+    type: 'DAMAGED' | 'MISSING' | 'EXPIRED' | 'EXTRA';
+    description: string;
+    items: {
+        sku: string;
+        quantity: number;
+    }[];
+    status: 'OPEN' | 'RESOLVED';
+    reported_at: number;
+    resolved_at?: number;
+    evidence_urls: string[];
+}
+
+// --- SII (Servicio de Impuestos Internos) ---
+export type SiiAmbiente = 'CERTIFICACION' | 'PRODUCCION';
+export type DteStatus = 'PENDIENTE' | 'ENVIADO' | 'ACEPTADO' | 'RECHAZADO' | 'ACEPTADO_CON_REPAROS';
+export type DteTipo = 33 | 39 | 61 | 56; // 33: Factura, 39: Boleta, 61: NC, 56: ND
+
+export interface SiiConfiguration {
+    id: string;
+    rut_emisor: string;
+    razon_social: string;
+    giro: string;
+    acteco: number;
+
+    // Security (Encrypted/Base64)
+    certificado_pfx_base64: string;
+    certificado_password: string; // Should be encrypted
+    fecha_vencimiento_firma: number; // Timestamp
+
+    ambiente: SiiAmbiente;
+
+    created_at?: number;
+    updated_at?: number;
+}
+
+export interface SiiCaf {
+    id: string;
+    tipo_dte: DteTipo;
+    xml_content: string; // Raw CAF XML
+    rango_desde: number;
+    rango_hasta: number;
+    folios_usados: number;
+    fecha_carga: number;
+    active: boolean;
+}
+
+export interface DteDocument {
+    folio: number;
+    tipo: DteTipo;
+    rut_emisor: string;
+
+    track_id?: string; // SII Track ID
+    status: DteStatus;
+
+    xml_final?: string; // The signed XML
+    pdf_url?: string;
+
+    monto_total: number;
+    fecha_emision: number;
 }
