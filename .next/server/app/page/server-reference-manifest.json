@@ -1,4 +1,20 @@
 {
-  "node": {},
+  "node": {
+    "00f899ff6ea69e0aef88cb6393463c91a8d59018d9": {
+      "workers": {
+        "app/page": {
+          "moduleId": 69403,
+          "async": true,
+          "exportedName": "getDashboardMetrics",
+          "filename": "src/actions/dashboard.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "exportedName": "getDashboardMetrics",
+      "filename": "src/actions/dashboard.ts"
+    }
+  },
   "edge": {}
 }

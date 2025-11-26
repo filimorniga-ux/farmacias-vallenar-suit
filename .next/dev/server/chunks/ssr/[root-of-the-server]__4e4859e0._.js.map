@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 14, "column": 0}, "map": {"version":3,"sources":["file:///Users/miguelperdomoserrato/farmacias-vallenar-suit/src/app/settings/page.tsx"],"sourcesContent":["export default function SettingsPage() {\n    return (\n        <div className=\"min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100\">\n            <div className=\"text-center\">\n                <h1 className=\"text-4xl font-black text-gray-900 mb-4\">\n                    ⚙️ Configuración del Sistema\n                </h1>\n                <p className=\"text-xl text-gray-600\">\n                    Módulo en construcción\n                </p>\n            </div>\n        </div>\n    );\n}\n"],"names":[],"mappings":";;;;;;AAAe,SAAS;IACpB,qBACI,8OAAC;QAAI,WAAU;kBACX,cAAA,8OAAC;YAAI,WAAU;;8BACX,8OAAC;oBAAG,WAAU;8BAAyC;;;;;;8BAGvD,8OAAC;oBAAE,WAAU;8BAAwB;;;;;;;;;;;;;;;;;AAMrD"}}]
+}

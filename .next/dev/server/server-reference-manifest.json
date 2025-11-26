@@ -1,5 +1,247 @@
 {
-  "node": {},
+  "node": {
+    "7075a9ba08d4eef06a940cc288183476d195afcec1": {
+      "workers": {
+        "app/login/page": {
+          "moduleId": "[project]/.next-internal/server/app/login/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/logger-action.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/src/actions/operations.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "logActionServer",
+          "filename": "src/actions/logger-action.ts"
+        },
+        "app/proveedores/page": {
+          "moduleId": "[project]/.next-internal/server/app/proveedores/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/app/proveedores/page.tsx [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/src/actions/logger-action.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "logActionServer",
+          "filename": "src/actions/logger-action.ts"
+        }
+      },
+      "layer": {
+        "app/login/page": "action-browser",
+        "app/proveedores/page": "rsc"
+      },
+      "filename": "src/actions/logger-action.ts",
+      "exportedName": "logActionServer"
+    },
+    "00632a3f0875c4bf901d7a172525d2bb04add39dbb": {
+      "workers": {
+        "app/caja/page": {
+          "moduleId": "[project]/.next-internal/server/app/caja/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/operations.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "getShiftStatus",
+          "filename": "src/actions/operations.ts"
+        },
+        "app/login/page": {
+          "moduleId": "[project]/.next-internal/server/app/login/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/logger-action.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/src/actions/operations.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "getShiftStatus",
+          "filename": "src/actions/operations.ts"
+        },
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/dashboard.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/src/actions/operations.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "getShiftStatus",
+          "filename": "src/actions/operations.ts"
+        }
+      },
+      "layer": {
+        "app/caja/page": "action-browser",
+        "app/login/page": "action-browser",
+        "app/page": "action-browser"
+      },
+      "filename": "src/actions/operations.ts",
+      "exportedName": "getShiftStatus"
+    },
+    "406ac90d3a46e58b5a99b286606ba5d4c8ba36a755": {
+      "workers": {
+        "app/caja/page": {
+          "moduleId": "[project]/.next-internal/server/app/caja/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/operations.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "toggleShift",
+          "filename": "src/actions/operations.ts"
+        },
+        "app/login/page": {
+          "moduleId": "[project]/.next-internal/server/app/login/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/logger-action.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/src/actions/operations.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "toggleShift",
+          "filename": "src/actions/operations.ts"
+        },
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/dashboard.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/src/actions/operations.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "toggleShift",
+          "filename": "src/actions/operations.ts"
+        }
+      },
+      "layer": {
+        "app/caja/page": "action-browser",
+        "app/login/page": "action-browser",
+        "app/page": "action-browser"
+      },
+      "filename": "src/actions/operations.ts",
+      "exportedName": "toggleShift"
+    },
+    "40105bd81065da0ccc3a45a65f5c8d0dd8ab647c13": {
+      "workers": {
+        "app/caja/page": {
+          "moduleId": "[project]/.next-internal/server/app/caja/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/operations.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "clockIn",
+          "filename": "src/actions/operations.ts"
+        },
+        "app/login/page": {
+          "moduleId": "[project]/.next-internal/server/app/login/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/logger-action.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/src/actions/operations.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "clockIn",
+          "filename": "src/actions/operations.ts"
+        },
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/dashboard.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/src/actions/operations.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "clockIn",
+          "filename": "src/actions/operations.ts"
+        }
+      },
+      "layer": {
+        "app/caja/page": "action-browser",
+        "app/login/page": "action-browser",
+        "app/page": "action-browser"
+      },
+      "filename": "src/actions/operations.ts",
+      "exportedName": "clockIn"
+    },
+    "4089f4845c7c8873c905318e97804bd95f7e1fbb40": {
+      "workers": {
+        "app/caja/page": {
+          "moduleId": "[project]/.next-internal/server/app/caja/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/operations.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "clockOut",
+          "filename": "src/actions/operations.ts"
+        },
+        "app/login/page": {
+          "moduleId": "[project]/.next-internal/server/app/login/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/logger-action.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/src/actions/operations.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "clockOut",
+          "filename": "src/actions/operations.ts"
+        },
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/dashboard.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/src/actions/operations.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "clockOut",
+          "filename": "src/actions/operations.ts"
+        }
+      },
+      "layer": {
+        "app/caja/page": "action-browser",
+        "app/login/page": "action-browser",
+        "app/page": "action-browser"
+      },
+      "filename": "src/actions/operations.ts",
+      "exportedName": "clockOut"
+    },
+    "40e42e4061da824f3808174c8bed605b592635ef6f": {
+      "workers": {
+        "app/caja/page": {
+          "moduleId": "[project]/.next-internal/server/app/caja/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/operations.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "generateTicket",
+          "filename": "src/actions/operations.ts"
+        },
+        "app/login/page": {
+          "moduleId": "[project]/.next-internal/server/app/login/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/logger-action.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/src/actions/operations.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "generateTicket",
+          "filename": "src/actions/operations.ts"
+        },
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/dashboard.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/src/actions/operations.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "generateTicket",
+          "filename": "src/actions/operations.ts"
+        }
+      },
+      "layer": {
+        "app/caja/page": "action-browser",
+        "app/login/page": "action-browser",
+        "app/page": "action-browser"
+      },
+      "filename": "src/actions/operations.ts",
+      "exportedName": "generateTicket"
+    },
+    "40f5ca8e08720eb62fda68a1a62a5649468867e81f": {
+      "workers": {
+        "app/caja/page": {
+          "moduleId": "[project]/.next-internal/server/app/caja/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/operations.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "getNextTicket",
+          "filename": "src/actions/operations.ts"
+        },
+        "app/login/page": {
+          "moduleId": "[project]/.next-internal/server/app/login/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/logger-action.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/src/actions/operations.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "getNextTicket",
+          "filename": "src/actions/operations.ts"
+        },
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/dashboard.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/src/actions/operations.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "getNextTicket",
+          "filename": "src/actions/operations.ts"
+        }
+      },
+      "layer": {
+        "app/caja/page": "action-browser",
+        "app/login/page": "action-browser",
+        "app/page": "action-browser"
+      },
+      "filename": "src/actions/operations.ts",
+      "exportedName": "getNextTicket"
+    },
+    "00d3da74548a9b500601edf7f88390a057ffaf3f00": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/dashboard.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/src/actions/operations.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "getDashboardMetrics",
+          "filename": "src/actions/dashboard.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "src/actions/dashboard.ts",
+      "exportedName": "getDashboardMetrics"
+    },
+    "001d3b7f7853d7ed274ad2ec425ccd72cb0a04e901": {
+      "workers": {
+        "app/proveedores/page": {
+          "moduleId": "[project]/.next-internal/server/app/proveedores/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/app/proveedores/page.tsx [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/src/actions/logger-action.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/proveedores/page.tsx"
+        }
+      },
+      "layer": {
+        "app/proveedores/page": "rsc"
+      },
+      "filename": "src/app/proveedores/page.tsx",
+      "exportedName": "$$RSC_SERVER_ACTION_0"
+    },
+    "40bd28365be44e733d5dbc6747a32bb8ce7c3af586": {
+      "workers": {
+        "app/web/page": {
+          "moduleId": "[project]/.next-internal/server/app/web/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/public-search.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "searchPublicProducts",
+          "filename": "src/actions/public-search.ts"
+        }
+      },
+      "layer": {
+        "app/web/page": "action-browser"
+      },
+      "filename": "src/actions/public-search.ts",
+      "exportedName": "searchPublicProducts"
+    }
+  },
   "edge": {},
-  "encryptionKey": "U42nCWaGts+UIPQaMFFoCGEIm2vGzRLZVOC2u48DzS4="
+  "encryptionKey": "GXD6xzLQSTFPAHQs4WqSBeP7hpRbb/QzPDsR0bcQ3PM="
 }

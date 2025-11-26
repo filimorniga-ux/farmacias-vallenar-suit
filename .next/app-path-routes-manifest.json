@@ -9,5 +9,7 @@
   "/page": "/",
   "/proveedores/page": "/proveedores",
   "/rrhh/page": "/rrhh",
-  "/settings/page": "/settings"
+  "/settings/auditoria/page": "/settings/auditoria",
+  "/settings/page": "/settings",
+  "/web/page": "/web"
 }
