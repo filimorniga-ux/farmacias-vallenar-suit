@@ -1,13 +1,23 @@
 import React, { useState } from 'react';
 import { useLocationStore } from '../store/useLocationStore';
-import { MapPin, Warehouse, Store, Plus, Tablet, QrCode, Settings, CheckCircle, XCircle } from 'lucide-react';
-import { Location } from '../../domain/types';
+import { usePharmaStore } from '../store/useStore';
+import { MapPin, Warehouse, Store, Plus, Tablet, QrCode, Settings, CheckCircle, XCircle, Users, Shield, ArrowRightLeft, UserPlus, Monitor } from 'lucide-react';
+import { Location, EmployeeProfile } from '../../domain/types';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const NetworkPage = () => {
     const { locations, kiosks, currentLocation, addLocation, switchLocation, generatePairingCode } = useLocationStore();
+    const { employees, user } = usePharmaStore(); // Need employees for Team Mgmt
+    const [activeTab, setActiveTab] = useState<'BRANCHES' | 'TEAMS' | 'DEVICES' | 'MANAGERS'>('BRANCHES');
+
+    // Wizard State
     const [isWizardOpen, setIsWizardOpen] = useState(false);
     const [newLocation, setNewLocation] = useState<Partial<Location>>({ type: 'STORE', name: '', address: '' });
     const [pairingCode, setPairingCode] = useState<string | null>(null);
+
+    // Manager Promotion State
+    const [promotionTarget, setPromotionTarget] = useState<EmployeeProfile | null>(null);
+    const [managerPin, setManagerPin] = useState('');
 
     const handleCreateLocation = () => {
         if (!newLocation.name || !newLocation.address) return;
@@ -29,6 +39,231 @@ const NetworkPage = () => {
         const code = generatePairingCode(kioskId);
         setPairingCode(code);
     };
+
+    // --- RENDERERS ---
+
+    const renderBranches = () => (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto pb-20">
+            {locations.map(location => (
+                <div key={location.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden group hover:shadow-md transition-all">
+                    <div className="p-6 border-b border-slate-100 flex justify-between items-start">
+                        <div className="flex items-start gap-3">
+                            <div className={`p-3 rounded-xl ${location.type === 'WAREHOUSE' ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'}`}>
+                                {location.type === 'WAREHOUSE' ? <Warehouse size={24} /> : <Store size={24} />}
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-slate-800 text-lg">{location.name}</h3>
+                                <p className="text-xs text-slate-500 font-medium">{location.type === 'HQ' ? 'Casa Matriz' : location.type === 'WAREHOUSE' ? 'Bodega' : 'Sucursal'}</p>
+                            </div>
+                        </div>
+                        <button className="text-slate-300 hover:text-slate-600 transition-colors">
+                            <Settings size={18} />
+                        </button>
+                    </div>
+
+                    {/* KPIs */}
+                    <div className="grid grid-cols-3 gap-2 p-4 border-b border-slate-100 bg-slate-50/50">
+                        <div className="text-center">
+                            <p className="text-xs text-slate-400 font-bold">VENTAS</p>
+                            <p className="text-sm font-bold text-slate-700">$1.2M</p>
+                        </div>
+                        <div className="text-center border-l border-slate-200">
+                            <p className="text-xs text-slate-400 font-bold">PERSONAL</p>
+                            <p className="text-sm font-bold text-slate-700">
+                                {employees.filter(e => e.assigned_location_id === location.id || (!e.assigned_location_id && e.base_location_id === location.id)).length}
+                            </p>
+                        </div>
+                        <div className="text-center border-l border-slate-200">
+                            <p className="text-xs text-slate-400 font-bold">ALERTAS</p>
+                            <p className="text-sm font-bold text-red-500">3</p>
+                        </div>
+                    </div>
+
+                    <div className="p-6 space-y-4">
+                        <div>
+                            <p className="text-xs font-bold text-slate-400 uppercase mb-1">Dirección</p>
+                            <p className="text-sm text-slate-600 flex items-center gap-1">
+                                <MapPin size={14} /> {location.address}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="bg-slate-50 p-4 border-t border-slate-100 flex justify-between items-center">
+                        <span className="text-xs font-bold text-slate-500">ID: {location.id}</span>
+                        {currentLocation?.id === location.id && (
+                            <span className="flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-100 px-2 py-1 rounded-full">
+                                <CheckCircle size={12} /> Contexto Activo
+                            </span>
+                        )}
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+
+    const renderTeams = () => (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full">
+            {/* Source: Available / Other Locations */}
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col">
+                <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                    <Users className="text-slate-400" /> Personal Disponible (Global)
+                </h3>
+                <div className="flex-1 overflow-y-auto space-y-3">
+                    {employees.map(emp => (
+                        <div key={emp.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100 hover:border-cyan-200 transition-colors group">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-500">
+                                    {emp.name.charAt(0)}
+                                </div>
+                                <div>
+                                    <p className="font-bold text-slate-700">{emp.name}</p>
+                                    <p className="text-xs text-slate-500">{emp.job_title}</p>
+                                </div>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-xs font-bold text-slate-400">{emp.assigned_location_id || 'Sin Asignar'}</p>
+                                <button className="text-xs text-cyan-600 font-bold opacity-0 group-hover:opacity-100 transition-opacity">
+                                    Mover a {currentLocation?.name}
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Target: Current Location */}
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col border-l-4 border-l-cyan-500">
+                <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                    <MapPin className="text-cyan-600" /> En {currentLocation?.name}
+                </h3>
+                <div className="flex-1 overflow-y-auto space-y-3">
+                    {employees.filter(e => e.assigned_location_id === currentLocation?.id).length > 0 ? (
+                        employees.filter(e => e.assigned_location_id === currentLocation?.id).map(emp => (
+                            <div key={emp.id} className="flex justify-between items-center p-3 bg-cyan-50 rounded-xl border border-cyan-100">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-cyan-200 flex items-center justify-center font-bold text-cyan-700">
+                                        {emp.name.charAt(0)}
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-slate-700">{emp.name}</p>
+                                        <p className="text-xs text-slate-500">{emp.job_title}</p>
+                                    </div>
+                                </div>
+                                <button className="p-2 text-slate-400 hover:text-red-500 transition-colors">
+                                    <ArrowRightLeft size={16} />
+                                </button>
+                            </div>
+                        ))
+                    ) : (
+                        <div className="text-center py-10 text-slate-400">
+                            <p>No hay personal asignado hoy.</p>
+                            <p className="text-xs">Arrastra o selecciona personal de la izquierda.</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderDevices = () => (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+            <div className="flex justify-between items-center mb-6">
+                <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                    <Monitor className="text-slate-400" /> Kioscos & Dispositivos
+                </h3>
+                <button className="text-sm font-bold text-cyan-600 hover:bg-cyan-50 px-3 py-1 rounded-lg transition">
+                    + Vincular Nuevo
+                </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {kiosks.map(kiosk => (
+                    <div key={kiosk.id} className="border border-slate-200 rounded-xl p-4 hover:shadow-md transition-shadow">
+                        <div className="flex justify-between items-start mb-4">
+                            <div className="p-2 bg-slate-100 rounded-lg">
+                                {kiosk.type === 'QUEUE' ? <Tablet size={20} className="text-slate-600" /> : <Users size={20} className="text-slate-600" />}
+                            </div>
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${kiosk.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
+                                {kiosk.status}
+                            </span>
+                        </div>
+                        <h4 className="font-bold text-slate-800">{kiosk.id}</h4>
+                        <p className="text-xs text-slate-500 mb-4">{kiosk.type === 'QUEUE' ? 'Totem de Filas' : 'Reloj Control'}</p>
+
+                        <div className="flex items-center justify-between text-xs text-slate-400 bg-slate-50 p-2 rounded-lg">
+                            <span>Ubicación:</span>
+                            <span className="font-bold text-slate-600">{locations.find(l => l.id === kiosk.location_id)?.name || 'Desconocida'}</span>
+                        </div>
+
+                        <button
+                            onClick={() => handleGenerateCode(kiosk.id)}
+                            className="w-full mt-4 py-2 border border-cyan-200 text-cyan-600 font-bold rounded-lg hover:bg-cyan-50 transition flex items-center justify-center gap-2"
+                        >
+                            <QrCode size={16} /> Generar Código
+                        </button>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+
+    const renderManagers = () => (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+            <div className="flex justify-between items-center mb-6">
+                <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                    <Shield className="text-slate-400" /> Gestión de Gerentes (Socios)
+                </h3>
+            </div>
+
+            <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                    <thead>
+                        <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase">
+                            <th className="pb-3 pl-4">Empleado</th>
+                            <th className="pb-3">Rol Actual</th>
+                            <th className="pb-3">Sucursal Base</th>
+                            <th className="pb-3 text-right pr-4">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                        {employees.map(emp => (
+                            <tr key={emp.id} className="group hover:bg-slate-50 transition-colors">
+                                <td className="py-3 pl-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-500 text-xs">
+                                            {emp.name.charAt(0)}
+                                        </div>
+                                        <div>
+                                            <p className="font-bold text-slate-700 text-sm">{emp.name}</p>
+                                            <p className="text-xs text-slate-400">{emp.rut}</p>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td className="py-3">
+                                    <span className={`px-2 py-1 rounded-full text-xs font-bold ${emp.role === 'MANAGER' ? 'bg-purple-100 text-purple-600' : 'bg-slate-100 text-slate-500'}`}>
+                                        {emp.role}
+                                    </span>
+                                </td>
+                                <td className="py-3 text-sm text-slate-600">
+                                    {locations.find(l => l.id === emp.base_location_id)?.name || '-'}
+                                </td>
+                                <td className="py-3 text-right pr-4">
+                                    {emp.role !== 'MANAGER' && (
+                                        <button
+                                            onClick={() => setPromotionTarget(emp)}
+                                            className="text-xs font-bold text-cyan-600 hover:bg-cyan-50 px-3 py-1 rounded-lg transition"
+                                        >
+                                            Ascender a Socio
+                                        </button>
+                                    )}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
 
     return (
         <div className="h-full flex flex-col bg-slate-50 p-6 overflow-hidden">
@@ -74,75 +309,40 @@ const NetworkPage = () => {
                 </div>
             </div>
 
-            {/* Locations Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto pb-20">
-                {locations.map(location => (
-                    <div key={location.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden group hover:shadow-md transition-all">
-                        <div className="p-6 border-b border-slate-100 flex justify-between items-start">
-                            <div className="flex items-start gap-3">
-                                <div className={`p-3 rounded-xl ${location.type === 'WAREHOUSE' ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'}`}>
-                                    {location.type === 'WAREHOUSE' ? <Warehouse size={24} /> : <Store size={24} />}
-                                </div>
-                                <div>
-                                    <h3 className="font-bold text-slate-800 text-lg">{location.name}</h3>
-                                    <p className="text-xs text-slate-500 font-medium">{location.type === 'HQ' ? 'Casa Matriz' : location.type === 'WAREHOUSE' ? 'Bodega' : 'Sucursal'}</p>
-                                </div>
-                            </div>
-                            <button className="text-slate-300 hover:text-slate-600 transition-colors">
-                                <Settings size={18} />
-                            </button>
-                        </div>
+            {/* Tabs */}
+            <div className="flex gap-2 mb-6 border-b border-slate-200">
+                <button
+                    onClick={() => setActiveTab('BRANCHES')}
+                    className={`px-4 py-2 font-bold text-sm border-b-2 transition-colors ${activeTab === 'BRANCHES' ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+                >
+                    Sucursales
+                </button>
+                <button
+                    onClick={() => setActiveTab('TEAMS')}
+                    className={`px-4 py-2 font-bold text-sm border-b-2 transition-colors ${activeTab === 'TEAMS' ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+                >
+                    Equipos
+                </button>
+                <button
+                    onClick={() => setActiveTab('DEVICES')}
+                    className={`px-4 py-2 font-bold text-sm border-b-2 transition-colors ${activeTab === 'DEVICES' ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+                >
+                    Dispositivos
+                </button>
+                <button
+                    onClick={() => setActiveTab('MANAGERS')}
+                    className={`px-4 py-2 font-bold text-sm border-b-2 transition-colors ${activeTab === 'MANAGERS' ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+                >
+                    Gerentes
+                </button>
+            </div>
 
-                        <div className="p-6 space-y-4">
-                            <div>
-                                <p className="text-xs font-bold text-slate-400 uppercase mb-1">Dirección</p>
-                                <p className="text-sm text-slate-600 flex items-center gap-1">
-                                    <MapPin size={14} /> {location.address}
-                                </p>
-                            </div>
-
-                            <div>
-                                <p className="text-xs font-bold text-slate-400 uppercase mb-2">Kioscos Asociados</p>
-                                <div className="space-y-2">
-                                    {location.associated_kiosks.length > 0 ? (
-                                        location.associated_kiosks.map(kioskId => {
-                                            const kiosk = kiosks.find(k => k.id === kioskId);
-                                            return (
-                                                <div key={kioskId} className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100">
-                                                    <div className="flex items-center gap-2">
-                                                        <Tablet size={14} className="text-slate-400" />
-                                                        <span className="text-xs font-bold text-slate-700">{kioskId}</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        <span className={`w-2 h-2 rounded-full ${kiosk?.status === 'ACTIVE' ? 'bg-emerald-500' : 'bg-slate-300'}`}></span>
-                                                        <button
-                                                            onClick={() => handleGenerateCode(kioskId)}
-                                                            className="text-cyan-600 hover:bg-cyan-50 p-1 rounded"
-                                                            title="Vincular"
-                                                        >
-                                                            <QrCode size={14} />
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })
-                                    ) : (
-                                        <p className="text-xs text-slate-400 italic">No hay dispositivos vinculados.</p>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="bg-slate-50 p-4 border-t border-slate-100 flex justify-between items-center">
-                            <span className="text-xs font-bold text-slate-500">ID: {location.id}</span>
-                            {currentLocation?.id === location.id && (
-                                <span className="flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-100 px-2 py-1 rounded-full">
-                                    <CheckCircle size={12} /> Activo
-                                </span>
-                            )}
-                        </div>
-                    </div>
-                ))}
+            {/* Content Area */}
+            <div className="flex-1 overflow-hidden">
+                {activeTab === 'BRANCHES' && renderBranches()}
+                {activeTab === 'TEAMS' && renderTeams()}
+                {activeTab === 'DEVICES' && renderDevices()}
+                {activeTab === 'MANAGERS' && renderManagers()}
             </div>
 
             {/* New Location Wizard Modal */}
