@@ -5,6 +5,22 @@ export type SaleCondition = 'VD' | 'R' | 'RR' | 'RCH';
 export type StorageCondition = 'AMBIENTE' | 'REFRIGERADO' | 'CONTROLADO';
 
 // --- Inventario y Logística ---
+export interface Location {
+    id: string;
+    type: 'STORE' | 'WAREHOUSE' | 'HQ';
+    name: string;
+    address: string;
+    associated_kiosks: string[]; // Kiosk IDs
+}
+
+export interface KioskConfig {
+    id: string;
+    type: 'ATTENDANCE' | 'QUEUE';
+    location_id: string;
+    status: 'ACTIVE' | 'INACTIVE';
+    pairing_code?: string; // For setup
+}
+
 export interface InventoryBatch {
     id: string;
     sku: string;
@@ -17,7 +33,7 @@ export interface InventoryBatch {
     condition: SaleCondition; // VD, R, RR, RCH
 
     // Logistics
-    location_id: 'BODEGA_CENTRAL' | 'SUCURSAL_CENTRO' | 'SUCURSAL_NORTE' | 'KIOSCO' | 'TRANSIT';
+    location_id: string; // Changed from strict union to string for dynamic locations
     aisle?: string; // Shelf/Rack location
 
     stock_actual: number;
@@ -31,18 +47,35 @@ export interface InventoryBatch {
     category: DrugCategory;
     allows_commission: boolean;
     active_ingredients: string[]; // For clinical analysis
+
+    // Clinical Metadata (New)
+    therapeutic_tags?: string[]; // ['FIEBRE', 'DOLOR']
+    contraindications?: string[]; // ['EMBARAZO', 'HIPERTENSION']
+    storage_condition?: 'AMBIENTE' | 'REFRIGERADO' | 'CONTROLADO';
 }
 
 // --- Recursos Humanos ---
 export type AttendanceStatus = 'IN' | 'OUT' | 'LUNCH';
 
+export type JobTitle =
+    | 'QUIMICO_FARMACEUTICO'
+    | 'AUXILIAR_FARMACIA'
+    | 'BODEGUERO'
+    | 'ADMINISTRATIVO'
+    | 'ALUMNO_PRACTICA'
+    | 'GERENTE_GENERAL'
+    | 'DIRECTOR_TECNICO'
+    | 'CAJERO_VENDEDOR'
+    | 'ASISTENTE_BODEGA';
+
 export interface EmployeeProfile {
     id: string;
     rut: string;
     name: string;
-    role: Role;
+    role: Role; // System Role (Permissions)
     access_pin: string; // 4 dígitos
     status: 'ACTIVE' | 'ON_LEAVE' | 'TERMINATED';
+    base_location_id?: string; // Sucursal Base
 
     // Personal Data
     contact_phone?: string;
@@ -53,7 +86,7 @@ export interface EmployeeProfile {
     };
 
     // Contractual Data (Manager Only)
-    job_title?: string;
+    job_title: JobTitle; // Contractual Title (Now Required)
     base_salary?: number;
     weekly_hours?: number;
     pension_fund?: string; // AFP
@@ -204,13 +237,25 @@ export interface PurchaseOrder {
     total_estimated: number;
 }
 
-// --- Kiosco y Filas ---
+// --- Configuración de Hardware ---
+export interface PrinterConfig {
+    auto_print_sale: boolean;
+    auto_print_cash: boolean;
+    auto_print_queue: boolean;
+    header_text: string;
+    footer_text: string;
+    printer_ip?: string; // For network printers
+}
+
+// --- Atención y Filas ---
 export interface QueueTicket {
     id: string;
     number: string; // A-001
-    status: 'WAITING' | 'CALLING' | 'ATTENDED' | 'SKIPPED';
-    rut?: string; // Identificación opcional
+    rut: string; // User ID or 'ANON'
     timestamp: number;
+    status: 'WAITING' | 'CALLED' | 'COMPLETED' | 'SKIPPED';
+    counter?: string; // Box 1
+    branch_id: string; // Sucursal
 }
 
 // --- AI y Compliance ---

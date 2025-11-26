@@ -54,6 +54,43 @@ const CONTRAINDICATIONS = {
         'Dextrometorfano (con azúcar)'
     ]
 };
+const SYMPTOM_MAP = {
+    'dolor': [
+        'ANALGESICO',
+        'ANTIINFLAMATORIO'
+    ],
+    'cabeza': [
+        'PARACETAMOL',
+        'IBUPROFENO',
+        'MIGRAÑA'
+    ],
+    'fiebre': [
+        'PARACETAMOL',
+        'ANTIPIRETICO'
+    ],
+    'estomago': [
+        'VIADIL',
+        'OMEPRAZOL',
+        'PROBIOTICO',
+        'SAL DE FRUTA'
+    ],
+    'tos': [
+        'JARABE',
+        'ANTITUSIVO',
+        'EXPECTORANTE'
+    ],
+    'alergia': [
+        'LORATADINA',
+        'CETIRIZINA',
+        'ANTIHISTAMINICO'
+    ],
+    'herida': [
+        'POVIDONA',
+        'PARCHE',
+        'GASA',
+        'CICATRIZANTE'
+    ]
+};
 const CROSS_SELLING_RULES = [
     {
         trigger: 'Antibiótico',
@@ -73,6 +110,34 @@ const CROSS_SELLING_RULES = [
     }
 ];
 class ClinicalAgent {
+    /**
+     * Busca productos en el inventario basados en síntomas.
+     */ static searchBySymptom(query, inventory) {
+        const lowerQuery = query.toLowerCase();
+        let keywords = [];
+        // 1. Identificar palabras clave del mapa de síntomas
+        Object.entries(SYMPTOM_MAP).forEach(([symptom, tags])=>{
+            if (lowerQuery.includes(symptom)) {
+                keywords = [
+                    ...keywords,
+                    ...tags
+                ];
+            }
+        });
+        // Si no hay coincidencias en el mapa, usamos la query directa como keyword
+        if (keywords.length === 0) {
+            keywords = [
+                lowerQuery
+            ];
+        }
+        // 2. Filtrar inventario
+        return inventory.filter((item)=>{
+            if (item.stock_actual <= 0) return false; // Solo con stock
+            const itemText = `${item.name} ${item.dci} ${item.category}`.toLowerCase();
+            // Coincidencia si alguna keyword está en el texto del item
+            return keywords.some((keyword)=>itemText.includes(keyword.toLowerCase()));
+        });
+    }
     /**
      * Analiza el carrito en busca de interacciones peligrosas con el perfil del paciente.
      */ static analyzeCart(cart, customer) {
@@ -565,7 +630,7 @@ var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$re
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$building$2d$2$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Building2$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/building-2.js [app-client] (ecmascript) <export default as Building2>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$store$2f$useStore$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/presentation/store/useStore.ts [app-client] (ecmascript)");
 // Pages
-var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$pages$2f$LandingPage$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/presentation/pages/LandingPage.tsx [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$pages$2f$DashboardPage$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/presentation/pages/DashboardPage.tsx [app-client] (ecmascript)");
 var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$components$2f$POSMainScreen$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/presentation/components/POSMainScreen.tsx [app-client] (ecmascript)");
 var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$pages$2f$SupplyChainPage$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/presentation/pages/SupplyChainPage.tsx [app-client] (ecmascript)");
 var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$pages$2f$AccessControlPage$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/presentation/pages/AccessControlPage.tsx [app-client] (ecmascript)");
@@ -1017,7 +1082,7 @@ const App = ()=>{
             children: [
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$router$2f$dist$2f$development$2f$chunk$2d$4WY6JWTD$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Route"], {
                     path: "/",
-                    element: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$pages$2f$LandingPage$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["default"], {}, void 0, false, {
+                    element: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$pages$2f$DashboardPage$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["default"], {}, void 0, false, {
                         fileName: "[project]/src/App.tsx",
                         lineNumber: 141,
                         columnNumber: 42
@@ -1054,7 +1119,7 @@ const App = ()=>{
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$router$2f$dist$2f$development$2f$chunk$2d$4WY6JWTD$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Route"], {
                     path: "/dashboard",
                     element: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(ProtectedRoute, {
-                        children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$components$2f$POSMainScreen$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["default"], {}, void 0, false, {
+                        children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$pages$2f$DashboardPage$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["default"], {}, void 0, false, {
                             fileName: "[project]/src/App.tsx",
                             lineNumber: 146,
                             columnNumber: 67
@@ -1069,7 +1134,6 @@ const App = ()=>{
                     lineNumber: 146,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0)),
-                " ",
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$router$2f$dist$2f$development$2f$chunk$2d$4WY6JWTD$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Route"], {
                     path: "/pos",
                     element: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(ProtectedRoute, {

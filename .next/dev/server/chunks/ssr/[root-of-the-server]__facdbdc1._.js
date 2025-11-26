@@ -129,18 +129,19 @@ async function fetchEmployees() {
         const res = await (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$db$2e$ts__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__["query"])('SELECT * FROM users');
         return res.rows.map((row)=>({
                 id: row.id?.toString() || `EMP-${Math.random()}`,
-                rut: row.rut || 'UNKNOWN',
-                name: row.nombre || row.name || 'Sin Nombre',
-                role: row.rol || 'CASHIER',
+                rut: row.rut || 'SIN-RUT',
+                name: row.name || 'Usuario Sistema',
+                role: row.role || 'CASHIER',
                 access_pin: row.pin || '0000',
+                status: row.status || 'ACTIVE',
+                current_status: 'OUT',
+                job_title: 'CAJERO_VENDEDOR',
                 labor_data: {
-                    base_salary: parseFloat(row.base_salary),
-                    afp: row.afp,
-                    isapre: row.isapre,
-                    contract_hours: 45 // Default to 45 hours
-                },
-                status: row.status,
-                current_status: 'OUT' // Default status
+                    base_salary: 500000,
+                    afp: 'MODELO',
+                    isapre: 'FONASA',
+                    contract_hours: 45
+                }
             }));
     } catch (error) {
         console.error('Error fetching employees:', error);
