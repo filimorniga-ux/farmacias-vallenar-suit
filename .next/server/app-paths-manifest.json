@@ -9,5 +9,7 @@
   "/page": "app/page.js",
   "/proveedores/page": "app/proveedores/page.js",
   "/rrhh/page": "app/rrhh/page.js",
-  "/settings/page": "app/settings/page.js"
+  "/settings/auditoria/page": "app/settings/auditoria/page.js",
+  "/settings/page": "app/settings/page.js",
+  "/web/page": "app/web/page.js"
 }

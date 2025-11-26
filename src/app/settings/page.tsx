@@ -1,14 +1,226 @@
+'use client';
+
+import { useState } from 'react';
+import RouteGuard from '@/components/auth/RouteGuard';
+import { Save, Upload, Plus, Trash2, Edit, CheckCircle, AlertCircle, Building, Users, FileText, Shield } from 'lucide-react';
+import { useAuthStore, Role } from '@/lib/store/useAuthStore';
+
 export default function SettingsPage() {
+    const [activeTab, setActiveTab] = useState<'sii' | 'users' | 'general'>('sii');
+
+    // Mock Data for Users
+    const [users, setUsers] = useState([
+        { id: 1, name: 'Administrador', username: 'admin', role: 'ADMIN' as Role },
+        { id: 2, name: 'Químico Farmacéutico', username: 'qf', role: 'QF' as Role },
+        { id: 3, name: 'Vendedor de Caja', username: 'caja', role: 'VENDEDOR' as Role },
+    ]);
+
+    // Mock Data for SII
+    const [siiStatus, setSiiStatus] = useState<'connected' | 'disconnected'>('disconnected');
+
+    const handleSaveSii = (e: React.FormEvent) => {
+        e.preventDefault();
+        // Simulate API call
+        setTimeout(() => setSiiStatus('connected'), 1000);
+    };
+
+    const handleRoleChange = (userId: number, newRole: Role) => {
+        setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u));
+    };
+
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
-            <div className="text-center">
-                <h1 className="text-4xl font-black text-gray-900 mb-4">
-                    ⚙️ Configuración del Sistema
-                </h1>
-                <p className="text-xl text-gray-600">
-                    Módulo en construcción
-                </p>
+        <RouteGuard allowedRoles={['ADMIN']}>
+            <div className="min-h-screen bg-gray-50 p-8">
+                <div className="max-w-5xl mx-auto">
+                    <div className="mb-8">
+                        <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
+                            <Shield className="text-blue-600" />
+                            Configuración del Sistema
+                        </h1>
+                        <p className="text-gray-500 mt-1">Gestión centralizada de Farmacias Vallenar.</p>
+                    </div>
+
+                    {/* Tabs */}
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+                        <div className="flex border-b border-gray-200">
+                            <button
+                                onClick={() => setActiveTab('sii')}
+                                className={`flex-1 py-4 text-sm font-medium text-center flex items-center justify-center gap-2 transition-colors ${activeTab === 'sii' ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'
+                                    }`}
+                            >
+                                <FileText size={18} />
+                                Configuración SII
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('users')}
+                                className={`flex-1 py-4 text-sm font-medium text-center flex items-center justify-center gap-2 transition-colors ${activeTab === 'users' ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'
+                                    }`}
+                            >
+                                <Users size={18} />
+                                Gestión de Usuarios
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('general')}
+                                className={`flex-1 py-4 text-sm font-medium text-center flex items-center justify-center gap-2 transition-colors ${activeTab === 'general' ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'
+                                    }`}
+                            >
+                                <Building size={18} />
+                                General
+                            </button>
+                        </div>
+
+                        <div className="p-8">
+                            {/* SII Tab */}
+                            {activeTab === 'sii' && (
+                                <form onSubmit={handleSaveSii} className="space-y-6">
+                                    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+                                        <div>
+                                            <h3 className="font-semibold text-gray-900">Estado de Conexión SII</h3>
+                                            <p className="text-sm text-gray-500">Verificación de certificado digital</p>
+                                        </div>
+                                        <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium ${siiStatus === 'connected' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                            }`}>
+                                            {siiStatus === 'connected' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+                                            {siiStatus === 'connected' ? 'Conectado' : 'Desconectado'}
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">RUT Empresa</label>
+                                            <input type="text" placeholder="76.xxx.xxx-x" className="w-full" required autoComplete="off" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Razón Social</label>
+                                            <input type="text" placeholder="Farmacias Vallenar SpA" className="w-full" required autoComplete="off" />
+                                        </div>
+                                        <div className="md:col-span-2">
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Giro Comercial</label>
+                                            <input type="text" placeholder="Venta al por menor de productos farmacéuticos..." className="w-full" required autoComplete="off" />
+                                        </div>
+                                    </div>
+
+                                    <div className="border-t border-gray-200 pt-6">
+                                        <h3 className="text-lg font-medium text-gray-900 mb-4">Certificado Digital</h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">Archivo .pfx</label>
+                                                <div className="flex items-center gap-2">
+                                                    <label className="flex-1 cursor-pointer bg-white border-2 border-gray-400 border-dashed rounded-lg p-4 text-center hover:bg-gray-50 transition-colors">
+                                                        <Upload className="mx-auto h-6 w-6 text-gray-400" />
+                                                        <span className="mt-2 block text-sm font-medium text-gray-600">Subir certificado</span>
+                                                        <input type="file" className="hidden" accept=".pfx" />
+                                                    </label>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">Contraseña del Certificado</label>
+                                                <input type="password" placeholder="••••••••" className="w-full" autoComplete="new-password" />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex justify-end pt-4">
+                                        <button type="submit" className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors font-medium shadow-sm">
+                                            <Save size={18} />
+                                            Guardar Credenciales
+                                        </button>
+                                    </div>
+                                </form>
+                            )}
+
+                            {/* Users Tab */}
+                            {activeTab === 'users' && (
+                                <div>
+                                    <div className="flex justify-between items-center mb-6">
+                                        <h3 className="text-lg font-medium text-gray-900">Usuarios del Sistema</h3>
+                                        <button className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm font-medium shadow-sm">
+                                            <Plus size={18} />
+                                            Nuevo Usuario
+                                        </button>
+                                    </div>
+
+                                    <div className="overflow-x-auto">
+                                        <table className="min-w-full divide-y divide-gray-200 border border-gray-200 rounded-lg">
+                                            <thead className="bg-gray-50">
+                                                <tr>
+                                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nombre</th>
+                                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Usuario</th>
+                                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rol</th>
+                                                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="bg-white divide-y divide-gray-200">
+                                                {users.map((user) => (
+                                                    <tr key={user.id}>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{user.name}</td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.username}</td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                            <select
+                                                                value={user.role}
+                                                                onChange={(e) => handleRoleChange(user.id, e.target.value as Role)}
+                                                                className="text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                                            >
+                                                                <option value="ADMIN">Admin</option>
+                                                                <option value="QF">QF</option>
+                                                                <option value="VENDEDOR">Vendedor</option>
+                                                            </select>
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                                            <button className="text-blue-600 hover:text-blue-900 mr-3"><Edit size={18} /></button>
+                                                            <button className="text-red-600 hover:text-red-900"><Trash2 size={18} /></button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* General Tab */}
+                            {activeTab === 'general' && (
+                                <div className="space-y-6">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de Fantasía</label>
+                                            <input type="text" defaultValue="Farmacias Vallenar" className="w-full" autoComplete="off" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Dirección Sucursal</label>
+                                            <input type="text" defaultValue="Calle Principal 123, Vallenar" className="w-full" autoComplete="off" />
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Logo de la Empresa</label>
+                                        <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md hover:bg-gray-50 transition-colors cursor-pointer">
+                                            <div className="space-y-1 text-center">
+                                                <Upload className="mx-auto h-12 w-12 text-gray-400" />
+                                                <div className="flex text-sm text-gray-600">
+                                                    <label className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
+                                                        <span>Subir un archivo</span>
+                                                        <input type="file" className="sr-only" />
+                                                    </label>
+                                                    <p className="pl-1">o arrastrar y soltar</p>
+                                                </div>
+                                                <p className="text-xs text-gray-500">PNG, JPG, GIF hasta 10MB</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex justify-end pt-4">
+                                        <button className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors font-medium shadow-sm">
+                                            <Save size={18} />
+                                            Guardar Cambios
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
             </div>
-        </div>
+        </RouteGuard>
     );
 }

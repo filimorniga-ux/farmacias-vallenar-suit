@@ -1,0 +1,20 @@
+{
+  "node": {
+    "40526bf8432a6bd1e640c2ed94f48b9520c50a9499": {
+      "workers": {
+        "app/web/page": {
+          "moduleId": 77865,
+          "async": true,
+          "exportedName": "searchPublicProducts",
+          "filename": "src/actions/public-search.ts"
+        }
+      },
+      "layer": {
+        "app/web/page": "action-browser"
+      },
+      "exportedName": "searchPublicProducts",
+      "filename": "src/actions/public-search.ts"
+    }
+  },
+  "edge": {}
+}

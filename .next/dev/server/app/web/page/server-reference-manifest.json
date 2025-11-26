@@ -1,0 +1,20 @@
+{
+  "node": {
+    "40bd28365be44e733d5dbc6747a32bb8ce7c3af586": {
+      "workers": {
+        "app/web/page": {
+          "moduleId": "[project]/.next-internal/server/app/web/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/actions/public-search.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": true,
+          "exportedName": "searchPublicProducts",
+          "filename": "src/actions/public-search.ts"
+        }
+      },
+      "layer": {
+        "app/web/page": "action-browser"
+      },
+      "exportedName": "searchPublicProducts",
+      "filename": "src/actions/public-search.ts"
+    }
+  },
+  "edge": {}
+}

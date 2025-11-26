@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore, UserRole } from '@/lib/store/auth';
-import { Lock, User, KeyRound } from 'lucide-react';
+import { useAuthStore, Role } from '@/lib/store/useAuthStore';
+import { Lock, User, KeyRound, LogIn } from 'lucide-react';
+import { logActionServer } from '@/actions/logger-action';
 
 export default function LoginPage() {
     const [username, setUsername] = useState('');
@@ -12,114 +13,112 @@ export default function LoginPage() {
     const router = useRouter();
     const login = useAuthStore((state) => state.login);
 
-    const handleLogin = (e: React.FormEvent) => {
+    // Fetch shift status
+    const [isShiftOpen, setIsShiftOpen] = useState(false);
+    useEffect(() => {
+        import('@/actions/operations').then(mod => {
+            mod.getShiftStatus().then(setIsShiftOpen);
+        });
+    }, []);
+
+    const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
 
-        // Mock Auth Logic
+        // Hardcoded credentials for MVP
         if (username === 'admin' && password === 'admin123') {
-            login({ username: 'admin', role: 'ADMIN', name: 'Miguel (Admin)' });
+            login({ id: 1, username, role: 'ADMIN' });
+            await logActionServer(username, 'LOGIN', 'Inicio de sesión exitoso (ADMIN)');
             router.push('/');
         } else if (username === 'qf' && password === 'qf123') {
-            login({ username: 'qf', role: 'QUIMICO', name: 'Químico Farmacéutico' });
+            login({ id: 2, username, role: 'QF' });
+            await logActionServer(username, 'LOGIN', 'Inicio de sesión exitoso (QF)');
             router.push('/');
         } else if (username === 'caja' && password === 'caja123') {
-            login({ username: 'caja', role: 'VENDEDOR', name: 'Vendedor de Caja' });
+            login({ id: 3, username, role: 'VENDEDOR' });
+            await logActionServer(username, 'LOGIN', 'Inicio de sesión exitoso (VENDEDOR)');
             router.push('/');
         } else {
-            setError('Credenciales inválidas. Intente nuevamente.');
+            setError('Credenciales inválidas');
+            // Optional: Log failed attempts?
         }
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4 sm:px-6 lg:px-8">
-            <div className="max-w-md w-full space-y-8 bg-white p-10 rounded-2xl shadow-xl">
-                <div className="text-center">
-                    <div className="mx-auto h-16 w-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
-                        <Lock className="h-8 w-8 text-blue-600" />
-                    </div>
-                    <h2 className="text-3xl font-extrabold text-gray-900">
-                        Farmacias Vallenar
-                    </h2>
-                    <p className="mt-2 text-sm text-gray-600">
-                        Inicie sesión para acceder al sistema
-                    </p>
-                </div>
-                <form className="mt-8 space-y-6" onSubmit={handleLogin}>
-                    <div className="rounded-md shadow-sm -space-y-px">
-                        <div className="relative">
-                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                <User className="h-5 w-5 text-gray-400" />
-                            </div>
-                            <input
-                                id="username"
-                                name="username"
-                                type="text"
-                                required
-                                className="appearance-none rounded-none relative block w-full px-3 py-3 pl-10 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                                placeholder="Usuario"
-                                value={username}
-                                onChange={(e) => setUsername(e.target.value)}
-                            />
-                        </div>
-                        <div className="relative">
-                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                <KeyRound className="h-5 w-5 text-gray-400" />
-                            </div>
-                            <input
-                                id="password"
-                                name="password"
-                                type="password"
-                                required
-                                className="appearance-none rounded-none relative block w-full px-3 py-3 pl-10 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                                placeholder="Contraseña"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                            />
-                        </div>
-                    </div>
+        <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-4 relative overflow-hidden">
+            {/* Public Banner */}
+            <div className={`absolute top-0 left-0 right-0 p-4 text-center text-white font-bold transition-colors ${isShiftOpen ? 'bg-green-600' : 'bg-slate-800'}`}>
+                {isShiftOpen ? '🏥 FARMACIA DE TURNO - ABIERTO 24H' : '🕒 Horario de Atención: 09:00 - 21:00'}
+            </div>
 
+            <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md mt-12">
+                <div className="text-center mb-8">
+                    <div className="bg-blue-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
+                        <Lock className="text-white" size={32} />
+                    </div>
+                    <h1 className="text-2xl font-bold text-gray-800">Farmacias Vallenar</h1>
+                    <p className="text-gray-500">Sistema de Gestión Integral</p>
+                </div>
+
+                <form onSubmit={handleLogin} className="space-y-6">
                     {error && (
-                        <div className="text-red-500 text-sm text-center bg-red-50 p-2 rounded">
+                        <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm text-center font-medium border border-red-100">
                             {error}
                         </div>
                     )}
 
-                    <div>
-                        <button
-                            type="submit"
-                            className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
-                        >
-                            Ingresar
-                        </button>
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-700 block">Usuario</label>
+                        <div className="relative">
+                            <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                            <input
+                                type="text"
+                                value={username}
+                                onChange={(e) => setUsername(e.target.value)}
+                                className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                placeholder="Ingrese su usuario"
+                                required
+                                autoComplete="username"
+                            />
+                        </div>
                     </div>
+
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-700 block">Contraseña</label>
+                        <div className="relative">
+                            <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                            <input
+                                type="password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                placeholder="••••••••"
+                                required
+                                autoComplete="current-password"
+                            />
+                        </div>
+                    </div>
+
+                    <button
+                        type="submit"
+                        className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-blue-200"
+                    >
+                        <LogIn size={20} />
+                        Iniciar Sesión
+                    </button>
                 </form>
 
-                <div className="mt-6">
-                    <div className="relative">
-                        <div className="absolute inset-0 flex items-center">
-                            <div className="w-full border-t border-gray-300" />
-                        </div>
-                        <div className="relative flex justify-center text-sm">
-                            <span className="px-2 bg-white text-gray-500">
-                                Credenciales de Prueba
-                            </span>
-                        </div>
-                    </div>
-                    <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-center text-gray-500">
-                        <div className="bg-gray-50 p-2 rounded">
-                            <span className="font-bold block">Admin</span>
-                            admin / admin123
-                        </div>
-                        <div className="bg-gray-50 p-2 rounded">
-                            <span className="font-bold block">Q.F.</span>
-                            qf / qf123
-                        </div>
-                        <div className="bg-gray-50 p-2 rounded">
-                            <span className="font-bold block">Caja</span>
-                            caja / caja123
-                        </div>
-                    </div>
+                <div className="mt-6 text-center text-xs text-gray-400">
+                    <p>Credenciales de prueba:</p>
+                    <p>admin / admin123</p>
+                    <p>qf / qf123</p>
+                    <p>caja / caja123</p>
+                </div>
+
+                <div className="mt-4 text-center">
+                    <a href="/pantalla" className="text-sm text-blue-500 hover:underline">
+                        Ver Pantalla Pública
+                    </a>
                 </div>
             </div>
         </div>

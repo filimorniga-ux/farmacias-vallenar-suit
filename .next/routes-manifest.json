@@ -86,6 +86,18 @@
       "regex": "^/settings(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/settings(?:/)?$"
+    },
+    {
+      "page": "/settings/auditoria",
+      "regex": "^/settings/auditoria(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/settings/auditoria(?:/)?$"
+    },
+    {
+      "page": "/web",
+      "regex": "^/web(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/web(?:/)?$"
     }
   ],
   "dataRoutes": [],

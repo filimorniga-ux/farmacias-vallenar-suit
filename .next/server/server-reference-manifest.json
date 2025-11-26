@@ -1,5 +1,88 @@
 {
-  "node": {},
+  "node": {
+    "00f899ff6ea69e0aef88cb6393463c91a8d59018d9": {
+      "workers": {
+        "app/page": {
+          "moduleId": 69403,
+          "async": true,
+          "exportedName": "getDashboardMetrics",
+          "filename": "src/actions/dashboard.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "src/actions/dashboard.ts",
+      "exportedName": "getDashboardMetrics"
+    },
+    "70610f9480cb8076820485f1c0bd0020dae47b9cb9": {
+      "workers": {
+        "app/login/page": {
+          "moduleId": 73604,
+          "async": true,
+          "exportedName": "logActionServer",
+          "filename": "src/actions/logger-action.ts"
+        },
+        "app/proveedores/page": {
+          "moduleId": 84105,
+          "async": true,
+          "exportedName": "logActionServer",
+          "filename": "src/actions/logger-action.ts"
+        }
+      },
+      "layer": {
+        "app/login/page": "action-browser",
+        "app/proveedores/page": "rsc"
+      },
+      "filename": "src/actions/logger-action.ts",
+      "exportedName": "logActionServer"
+    },
+    "00e00ff649a3c28d13f68be9addfd3ca593e7d7e05": {
+      "workers": {
+        "app/proveedores/page": {
+          "moduleId": 84105,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/proveedores/page.tsx"
+        }
+      },
+      "layer": {
+        "app/proveedores/page": "rsc"
+      },
+      "filename": "src/app/proveedores/page.tsx",
+      "exportedName": "$$RSC_SERVER_ACTION_0"
+    },
+    "0022f6f4b039191381caef40700af4faa17301536d": {
+      "workers": {
+        "app/settings/auditoria/page": {
+          "moduleId": 19730,
+          "async": true,
+          "exportedName": "getAuditLogs",
+          "filename": "src/actions/audit.ts"
+        }
+      },
+      "layer": {
+        "app/settings/auditoria/page": "action-browser"
+      },
+      "filename": "src/actions/audit.ts",
+      "exportedName": "getAuditLogs"
+    },
+    "40526bf8432a6bd1e640c2ed94f48b9520c50a9499": {
+      "workers": {
+        "app/web/page": {
+          "moduleId": 77865,
+          "async": true,
+          "exportedName": "searchPublicProducts",
+          "filename": "src/actions/public-search.ts"
+        }
+      },
+      "layer": {
+        "app/web/page": "action-browser"
+      },
+      "filename": "src/actions/public-search.ts",
+      "exportedName": "searchPublicProducts"
+    }
+  },
   "edge": {},
-  "encryptionKey": "z6cZK7MtTEWS8AbDVU/9r4PV3D4hc8R7x2bIcKQ1qHk="
+  "encryptionKey": "q+C5rQKpuPrOS8H53GnZHUFjCE7CP7w9Td0QVQ/EI/U="
 }
