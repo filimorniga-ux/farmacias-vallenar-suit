@@ -1,4 +1,20 @@
 {
-  "node": {},
+  "node": {
+    "70610f9480cb8076820485f1c0bd0020dae47b9cb9": {
+      "workers": {
+        "app/login/page": {
+          "moduleId": 73604,
+          "async": true,
+          "exportedName": "logActionServer",
+          "filename": "src/actions/logger-action.ts"
+        }
+      },
+      "layer": {
+        "app/login/page": "action-browser"
+      },
+      "exportedName": "logActionServer",
+      "filename": "src/actions/logger-action.ts"
+    }
+  },
   "edge": {}
 }

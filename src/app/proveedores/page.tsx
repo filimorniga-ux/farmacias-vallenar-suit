@@ -11,7 +11,7 @@ export default async function ProveedoresPage() {
     const products = await getProducts();
 
     return (
-        <RouteGuard allowedRoles={['ADMIN', 'QUIMICO']}>
+        <RouteGuard allowedRoles={['ADMIN', 'QF']}>
             <div className="min-h-screen bg-gray-100 py-8">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="md:flex md:items-center md:justify-between mb-8">
@@ -22,6 +22,20 @@ export default async function ProveedoresPage() {
                             <p className="mt-1 text-sm text-gray-500">
                                 Gestión de proveedores y reposición inteligente.
                             </p>
+                        </div>
+                        <div className="mt-4 flex md:ml-4 md:mt-0">
+                            <form action={async () => {
+                                'use server';
+                                const { logActionServer } = await import('@/actions/logger-action');
+                                await logActionServer('admin', 'AJUSTE_STOCK', 'Ajuste manual de stock simulado: Paracetamol -10');
+                            }}>
+                                <button
+                                    type="submit"
+                                    className="ml-3 inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+                                >
+                                    Simular Ajuste Stock
+                                </button>
+                            </form>
                         </div>
                     </div>
 

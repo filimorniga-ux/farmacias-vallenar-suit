@@ -1,0 +1,20 @@
+{
+  "node": {
+    "0022f6f4b039191381caef40700af4faa17301536d": {
+      "workers": {
+        "app/settings/auditoria/page": {
+          "moduleId": 19730,
+          "async": true,
+          "exportedName": "getAuditLogs",
+          "filename": "src/actions/audit.ts"
+        }
+      },
+      "layer": {
+        "app/settings/auditoria/page": "action-browser"
+      },
+      "exportedName": "getAuditLogs",
+      "filename": "src/actions/audit.ts"
+    }
+  },
+  "edge": {}
+}
