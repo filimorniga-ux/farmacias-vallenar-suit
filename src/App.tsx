@@ -2,7 +2,7 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { LayoutDashboard, ShoppingCart, Users, Settings, LogOut, Menu, X, Stethoscope, Package, Briefcase, BarChart3, Truck, UserCircle, Clock, Building2 } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Users, Settings, LogOut, Menu, X, Stethoscope, Package, Briefcase, BarChart3, Truck, UserCircle, Clock, Building2, MapPin } from 'lucide-react';
 import { usePharmaStore } from './presentation/store/useStore';
 import { Toaster } from 'sonner';
 
@@ -22,6 +22,7 @@ import AttendanceKioskPage from './presentation/pages/AttendanceKioskPage';
 import { WarehouseOps } from './presentation/pages/WarehouseOps';
 import { SuppliersPage } from './presentation/pages/SuppliersPage';
 import { SupplierProfile } from './presentation/pages/SupplierProfile';
+import NetworkPage from './presentation/pages/NetworkPage';
 
 const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
     const { user, logout } = usePharmaStore();
@@ -38,6 +39,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
         { icon: Truck, label: 'Abastecimiento', path: '/supply-chain', roles: ['WAREHOUSE', 'MANAGER'] },
         { icon: UserCircle, label: 'Clientes (CRM)', path: '/clients', roles: ['MANAGER', 'QF', 'CASHIER'] },
         { icon: Users, label: 'Recursos Humanos', path: '/hr', roles: ['MANAGER'] },
+        { icon: MapPin, label: 'Gestión de Red', path: '/network', roles: ['MANAGER'] },
         { icon: Clock, label: 'Control Asistencia', path: '/access', roles: ['MANAGER'] },
         { icon: Settings, label: 'Configuración', path: '/settings', roles: ['MANAGER'] },
     ];
@@ -157,7 +159,9 @@ const App: React.FC = () => {
                 <Route path="/supply-chain" element={<ProtectedRoute><SupplyChainPage /></ProtectedRoute>} />
                 <Route path="/clients" element={<ProtectedRoute><ClientsPage /></ProtectedRoute>} />
                 <Route path="/hr" element={<ProtectedRoute><HRPage /></ProtectedRoute>} />
+                <Route path="/network" element={<ProtectedRoute><NetworkPage /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+                <Route path="/admin" element={<Navigate to="/dashboard" replace />} />
 
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

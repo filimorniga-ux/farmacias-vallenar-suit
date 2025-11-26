@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePharmaStore } from '../store/useStore';
 import { ShoppingCart, Truck, Users, Clock, Lock, ArrowRight, BarChart3, Building2 } from 'lucide-react';
@@ -9,12 +9,6 @@ const DashboardPage: React.FC = () => {
     const navigate = useNavigate();
     const { login, logout, user, employees } = usePharmaStore();
 
-    // Force logout on mount to ensure security in shared environment
-    React.useEffect(() => {
-        if (user) {
-            logout();
-        }
-    }, []);
     const [pin, setPin] = useState('');
     const [error, setError] = useState('');
     const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -34,6 +28,14 @@ const DashboardPage: React.FC = () => {
     const filteredEmployees = targetRoute && ROUTE_TO_ROLES[targetRoute]
         ? employees.filter(emp => ROUTE_TO_ROLES[targetRoute].includes(emp.role) && emp.status === 'ACTIVE')
         : employees.filter(emp => emp.status === 'ACTIVE');
+
+    // Navigate after successful login (when user state updates)
+    useEffect(() => {
+        if (user && targetRoute) {
+            navigate(targetRoute);
+            setTargetRoute(''); // Clear target route
+        }
+    }, [user, targetRoute, navigate]);
 
     const handleCardClick = (route: string) => {
         if (user) {
@@ -60,7 +62,7 @@ const DashboardPage: React.FC = () => {
 
         if (login(selectedEmployee.id, pin)) {
             setIsLoginModalOpen(false);
-            navigate(targetRoute || '/pos');
+            // Navigation will happen via useEffect when user state updates
         } else {
             setError('PIN Incorrecto');
             setPin('');
@@ -215,11 +217,23 @@ const DashboardPage: React.FC = () => {
                                     </div>
 
                                     <form onSubmit={handleLogin} className="space-y-6">
+                                        {/* Hidden username for accessibility */}
+                                        <input
+                                            type="text"
+                                            name="username"
+                                            autoComplete="username"
+                                            className="hidden"
+                                            readOnly
+                                            value={selectedEmployee?.rut || ''}
+                                        />
+
                                         <div>
-                                            <label className="block text-center text-sm font-bold text-slate-600 mb-2">
+                                            <label htmlFor="dashboard-pin-input" className="block text-center text-sm font-bold text-slate-600 mb-2">
                                                 Ingresa tu PIN de 4 dígitos
                                             </label>
                                             <motion.input
+                                                id="dashboard-pin-input"
+                                                name="pin"
                                                 key={error} // This will cause re-mount and trigger animation when error changes
                                                 animate={error ? { x: [-10, 10, -10, 10, 0] } : {}}
                                                 transition={{ duration: 0.4 }}
@@ -233,6 +247,7 @@ const DashboardPage: React.FC = () => {
                                                     setError('');
                                                 }}
                                                 autoFocus
+                                                autoComplete="new-password"
                                             />
                                         </div>
 

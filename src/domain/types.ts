@@ -75,7 +75,8 @@ export interface EmployeeProfile {
     role: Role; // System Role (Permissions)
     access_pin: string; // 4 dígitos
     status: 'ACTIVE' | 'ON_LEAVE' | 'TERMINATED';
-    base_location_id?: string; // Sucursal Base
+    base_location_id?: string; // Sucursal Base (Contractual)
+    assigned_location_id?: string; // Dónde trabaja hoy (Operativo)
 
     // Personal Data
     contact_phone?: string;
@@ -150,6 +151,8 @@ export interface SaleTransaction {
     customer?: Customer;
     seller_id: string;
     dte_code?: string; // Código SII
+    dte_status?: 'CONFIRMED_DTE' | 'FISCALIZED_BY_VOUCHER';
+    dte_folio?: string; // Folio Boleta o N/A
 }
 
 // --- Cadena de Suministro ---
@@ -308,16 +311,52 @@ export interface CashShift {
 }
 
 // --- WMS & Logistics ---
+// --- WMS & Logistics ---
+export interface Shipment {
+    id: string; // UUID
+    type: 'INBOUND_PROVIDER' | 'INTERNAL_TRANSFER' | 'RETURN';
+    origin_location_id: string; // Bodega o Proveedor
+    destination_location_id: string; // Sucursal receptora
+    status: 'PREPARING' | 'IN_TRANSIT' | 'DELIVERED' | 'RECEIVED_WITH_DISCREPANCY';
+
+    transport_data: {
+        carrier: string; // Ej: Starken, Chilexpress
+        tracking_number: string; // OT
+        package_count: number;
+        driver_name?: string;
+    };
+
+    documentation: {
+        invoice_url?: string;
+        dispatch_guide_url?: string;
+        evidence_photos: string[];
+    };
+
+    items: {
+        batchId: string;
+        sku: string;
+        name: string; // Denormalized
+        quantity: number;
+        condition: 'GOOD' | 'DAMAGED';
+    }[];
+
+    valuation: number; // Valor total
+    created_at: number;
+    updated_at: number;
+}
+
 export interface StockTransfer {
+    // Legacy support or alias to Shipment if needed, but keeping separate for now to avoid breaking existing code immediately
+    // In a full refactor, this would be replaced by Shipment
     id: string;
-    origin_location_id: InventoryBatch['location_id'];
-    destination_location_id: InventoryBatch['location_id'];
+    origin_location_id: string;
+    destination_location_id: string;
     status: 'DRAFT' | 'PACKED' | 'IN_TRANSIT' | 'RECEIVED' | 'DISPUTED';
     items: {
         sku: string;
         batchId: string;
         quantity: number;
-        productName: string; // Denormalized for UI
+        productName: string;
     }[];
     shipment_data: {
         carrier_name: string;
@@ -325,15 +364,15 @@ export interface StockTransfer {
         driver_name?: string;
     };
     evidence: {
-        photos: string[]; // URLs
-        documents: string[]; // URLs
+        photos: string[];
+        documents: string[];
     };
     timeline: {
         created_at: number;
         dispatched_at?: number;
         received_at?: number;
     };
-    created_by: string; // User ID
+    created_by: string;
 }
 
 export interface WarehouseIncident {

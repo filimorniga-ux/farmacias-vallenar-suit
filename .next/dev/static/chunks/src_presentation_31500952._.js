@@ -474,9 +474,11 @@ const MOCK_EMPLOYEES = [
         rut: '11.111.111-1',
         name: 'Miguel Pérez',
         role: 'MANAGER',
-        access_pin: '0000',
+        access_pin: '9080',
         status: 'ACTIVE',
         current_status: 'OUT',
+        base_location_id: 'SUCURSAL_CENTRO',
+        assigned_location_id: 'SUCURSAL_CENTRO',
         job_title: 'GERENTE_GENERAL',
         base_salary: 2500000,
         weekly_hours: 44,
@@ -496,9 +498,11 @@ const MOCK_EMPLOYEES = [
         rut: '22.222.222-2',
         name: 'Javiera Rojas',
         role: 'QF',
-        access_pin: '1234',
+        access_pin: '9080',
         status: 'ACTIVE',
         current_status: 'OUT',
+        base_location_id: 'SUCURSAL_CENTRO',
+        assigned_location_id: 'SUCURSAL_CENTRO',
         job_title: 'DIRECTOR_TECNICO',
         base_salary: 1800000,
         weekly_hours: 44,
@@ -516,9 +520,11 @@ const MOCK_EMPLOYEES = [
         rut: '33.333.333-3',
         name: 'Camila Cajera',
         role: 'CASHIER',
-        access_pin: '1111',
+        access_pin: '9080',
         status: 'ACTIVE',
         current_status: 'OUT',
+        base_location_id: 'SUCURSAL_CENTRO',
+        assigned_location_id: 'SUCURSAL_CENTRO',
         job_title: 'CAJERO_VENDEDOR',
         base_salary: 500000,
         weekly_hours: 45,
@@ -534,9 +540,11 @@ const MOCK_EMPLOYEES = [
         rut: '44.444.444-4',
         name: 'Pedro Bodega',
         role: 'WAREHOUSE',
-        access_pin: '2222',
+        access_pin: '9080',
         status: 'ACTIVE',
         current_status: 'OUT',
+        base_location_id: 'BODEGA_CENTRAL',
+        assigned_location_id: 'BODEGA_CENTRAL',
         job_title: 'ASISTENTE_BODEGA',
         base_salary: 550000,
         weekly_hours: 45,
@@ -622,6 +630,140 @@ const MOCK_SUPPLIERS = [
         ],
         payment_terms: 'CONTADO',
         rating: 3
+    }
+];
+// --- MOCK SHIPMENTS FOR WMS ---
+const MOCK_SHIPMENTS = [
+    // INBOUND from Laboratorio Chile
+    {
+        id: 'SHP-001',
+        type: 'INBOUND_PROVIDER',
+        origin_location_id: 'PROVEEDOR_LABCHILE',
+        destination_location_id: 'SUCURSAL_CENTRO',
+        status: 'IN_TRANSIT',
+        transport_data: {
+            carrier: 'STARKEN',
+            tracking_number: 'STK-2024-001',
+            package_count: 3,
+            driver_name: 'Juan Pérez'
+        },
+        documentation: {
+            invoice_url: '/docs/invoice-001.pdf',
+            dispatch_guide_url: '/docs/guide-001.pdf',
+            evidence_photos: []
+        },
+        items: [
+            {
+                batchId: 'P001',
+                sku: '780001',
+                name: 'PARACETAMOL 500MG',
+                quantity: 500,
+                condition: 'GOOD'
+            },
+            {
+                batchId: 'P003',
+                sku: '780003',
+                name: 'IBUPROFENO 600MG',
+                quantity: 300,
+                condition: 'GOOD'
+            }
+        ],
+        valuation: 450000,
+        created_at: Date.now() - 86400000,
+        updated_at: Date.now() - 86400000
+    },
+    // INBOUND from Droguería Ñuñoa
+    {
+        id: 'SHP-002',
+        type: 'INBOUND_PROVIDER',
+        origin_location_id: 'PROVEEDOR_DROGÑUÑOA',
+        destination_location_id: 'SUCURSAL_CENTRO',
+        status: 'PREPARING',
+        transport_data: {
+            carrier: 'CHILEXPRESS',
+            tracking_number: 'CHX-2024-002',
+            package_count: 2
+        },
+        documentation: {
+            evidence_photos: []
+        },
+        items: [
+            {
+                batchId: 'G003',
+                sku: 'LC-003',
+                name: 'OMEPRAZOL 20MG',
+                quantity: 200,
+                condition: 'GOOD'
+            },
+            {
+                batchId: 'R001',
+                sku: 'RET-01',
+                name: 'MAAM CREMA PRENATAL',
+                quantity: 50,
+                condition: 'GOOD'
+            }
+        ],
+        valuation: 850000,
+        created_at: Date.now() - 43200000,
+        updated_at: Date.now() - 43200000
+    },
+    // OUTBOUND to Sucursal Norte
+    {
+        id: 'SHP-003',
+        type: 'INTERNAL_TRANSFER',
+        origin_location_id: 'SUCURSAL_CENTRO',
+        destination_location_id: 'SUCURSAL_NORTE',
+        status: 'IN_TRANSIT',
+        transport_data: {
+            carrier: 'FLOTA_PROPIA',
+            tracking_number: 'FP-2024-003',
+            package_count: 1,
+            driver_name: 'Carlos Muñoz'
+        },
+        documentation: {
+            dispatch_guide_url: '/docs/guide-003.pdf',
+            evidence_photos: []
+        },
+        items: [
+            {
+                batchId: 'P002',
+                sku: '780002',
+                name: 'LOSARTÁN 50MG',
+                quantity: 100,
+                condition: 'GOOD'
+            }
+        ],
+        valuation: 299000,
+        created_at: Date.now() - 7200000,
+        updated_at: Date.now() - 7200000
+    },
+    // RETURN (Logística Inversa)
+    {
+        id: 'SHP-004',
+        type: 'RETURN',
+        origin_location_id: 'SUCURSAL_CENTRO',
+        destination_location_id: 'BODEGA_CENTRAL',
+        status: 'PREPARING',
+        transport_data: {
+            carrier: 'STARKEN',
+            tracking_number: 'STK-RET-001',
+            package_count: 1
+        },
+        documentation: {
+            evidence_photos: []
+        },
+        items: [
+            {
+                batchId: 'G001',
+                sku: 'LC-001',
+                name: 'ACICLOVIR 200MG',
+                quantity: 20,
+                condition: 'DAMAGED'
+            }
+        ],
+        valuation: 43340,
+        created_at: Date.now() - 3600000,
+        updated_at: Date.now() - 3600000
     }
 ];
 const usePharmaStore = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$zustand$2f$esm$2f$react$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["create"])()((0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$zustand$2f$esm$2f$middleware$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["persist"])((set, get)=>({
@@ -1102,7 +1244,154 @@ const usePharmaStore = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_
                 })),
         // --- WMS & Logistics ---
         stockTransfers: [],
+        shipments: MOCK_SHIPMENTS,
         warehouseIncidents: [],
+        createDispatch: (shipmentData)=>set((state)=>{
+                const now = Date.now();
+                const newShipment = {
+                    ...shipmentData,
+                    id: `SHP-${now}`,
+                    status: 'IN_TRANSIT',
+                    created_at: now,
+                    updated_at: now
+                };
+                // Move stock to TRANSIT
+                const updatedInventory = [
+                    ...state.inventory
+                ];
+                shipmentData.items.forEach((item)=>{
+                    const batchIndex = updatedInventory.findIndex((b)=>b.id === item.batchId);
+                    if (batchIndex !== -1) {
+                        // Deduct from origin
+                        updatedInventory[batchIndex] = {
+                            ...updatedInventory[batchIndex],
+                            stock_actual: updatedInventory[batchIndex].stock_actual - item.quantity
+                        };
+                        // Add to TRANSIT (Virtual Location)
+                        // Check if transit batch exists
+                        const transitBatchIndex = updatedInventory.findIndex((b)=>b.sku === item.sku && b.location_id === 'TRANSIT');
+                        if (transitBatchIndex !== -1) {
+                            updatedInventory[transitBatchIndex] = {
+                                ...updatedInventory[transitBatchIndex],
+                                stock_actual: updatedInventory[transitBatchIndex].stock_actual + item.quantity
+                            };
+                        } else {
+                            updatedInventory.push({
+                                ...updatedInventory[batchIndex],
+                                id: `TRANSIT-${item.batchId}-${now}`,
+                                location_id: 'TRANSIT',
+                                stock_actual: item.quantity,
+                                stock_min: 0,
+                                stock_max: 0
+                            });
+                        }
+                    }
+                });
+                return {
+                    shipments: [
+                        ...state.shipments,
+                        newShipment
+                    ],
+                    inventory: updatedInventory
+                };
+            }),
+        confirmReception: (shipmentId, evidenceData)=>set((state)=>{
+                const now = Date.now();
+                const shipmentIndex = state.shipments.findIndex((s)=>s.id === shipmentId);
+                if (shipmentIndex === -1) return {};
+                const shipment = state.shipments[shipmentIndex];
+                let updatedInventory = [
+                    ...state.inventory
+                ];
+                // Process Items
+                evidenceData.receivedItems.forEach((recItem)=>{
+                    // 1. Remove from TRANSIT
+                    const transitBatchIndex = updatedInventory.findIndex((b)=>b.id === `TRANSIT-${recItem.batchId}-${new Date(shipment.created_at).getTime()}` || b.sku === shipment.items.find((i)=>i.batchId === recItem.batchId)?.sku && b.location_id === 'TRANSIT' // Fallback by SKU
+                    );
+                    if (transitBatchIndex !== -1) {
+                        updatedInventory[transitBatchIndex] = {
+                            ...updatedInventory[transitBatchIndex],
+                            stock_actual: Math.max(0, updatedInventory[transitBatchIndex].stock_actual - recItem.quantity)
+                        };
+                    }
+                    // 2. Add to Destination (if GOOD)
+                    if (recItem.condition === 'GOOD') {
+                        const destBatchIndex = updatedInventory.findIndex((b)=>b.sku === shipment.items.find((i)=>i.batchId === recItem.batchId)?.sku && b.location_id === shipment.destination_location_id);
+                        if (destBatchIndex !== -1) {
+                            updatedInventory[destBatchIndex] = {
+                                ...updatedInventory[destBatchIndex],
+                                stock_actual: updatedInventory[destBatchIndex].stock_actual + recItem.quantity
+                            };
+                        } else {
+                            // Clone from original batch info (we'd need to fetch it, but for now we use what we have)
+                            // Ideally we store full product data in shipment items or fetch from master catalog
+                            const originalItem = shipment.items.find((i)=>i.batchId === recItem.batchId);
+                            if (originalItem) {
+                                // Find any batch of this SKU to copy metadata
+                                const templateBatch = state.inventory.find((b)=>b.sku === originalItem.sku);
+                                if (templateBatch) {
+                                    updatedInventory.push({
+                                        ...templateBatch,
+                                        id: `BATCH-${now}-${Math.random().toString(36).substr(2, 5)}`,
+                                        location_id: shipment.destination_location_id,
+                                        stock_actual: recItem.quantity,
+                                        stock_min: 10,
+                                        stock_max: 100 // Default
+                                    });
+                                }
+                            }
+                        }
+                    } else {
+                        // Handle DAMAGED (Log incident, move to quarantine, etc.)
+                        // For now, we just don't add it to available stock
+                        console.log(`Item ${recItem.batchId} received DAMAGED. Quantity: ${recItem.quantity}`);
+                    }
+                });
+                // Update Shipment Status
+                const updatedShipments = [
+                    ...state.shipments
+                ];
+                updatedShipments[shipmentIndex] = {
+                    ...shipment,
+                    status: 'DELIVERED',
+                    updated_at: now,
+                    documentation: {
+                        ...shipment.documentation,
+                        evidence_photos: [
+                            ...shipment.documentation.evidence_photos,
+                            ...evidenceData.photos
+                        ]
+                    }
+                };
+                return {
+                    shipments: updatedShipments,
+                    inventory: updatedInventory
+                };
+            }),
+        uploadLogisticsDocument: (shipmentId, type, url)=>set((state)=>{
+                const shipmentIndex = state.shipments.findIndex((s)=>s.id === shipmentId);
+                if (shipmentIndex === -1) return {};
+                const updatedShipments = [
+                    ...state.shipments
+                ];
+                const doc = {
+                    ...updatedShipments[shipmentIndex].documentation
+                };
+                if (type === 'INVOICE') doc.invoice_url = url;
+                if (type === 'GUIDE') doc.dispatch_guide_url = url;
+                if (type === 'PHOTO') doc.evidence_photos = [
+                    ...doc.evidence_photos,
+                    url
+                ];
+                updatedShipments[shipmentIndex] = {
+                    ...updatedShipments[shipmentIndex],
+                    documentation: doc,
+                    updated_at: Date.now()
+                };
+                return {
+                    shipments: updatedShipments
+                };
+            }),
         dispatchTransfer: (transferData)=>set((state)=>{
                 const now = Date.now();
                 const newTransfer = {
@@ -1265,8 +1554,8 @@ const usePharmaStore = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_
             return caf.rango_hasta - caf.rango_desde - caf.folios_usados;
         }
     }), {
-    name: 'farmacias-vallenar-v4-fix',
-    version: 4,
+    name: 'farmacias-vallenar-v5-manager-fix',
+    version: 5,
     storage: (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$zustand$2f$esm$2f$middleware$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["createJSONStorage"])(()=>localStorage),
     partialize: (state)=>({
             user: state.user,

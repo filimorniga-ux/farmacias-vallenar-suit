@@ -17,6 +17,7 @@ import SafeExitButton from './security/SafeExitButton';
 import { PrinterService } from '../../domain/services/PrinterService';
 import CustomerCaptureModal from './pos/CustomerCaptureModal';
 import { toast } from 'sonner';
+import { shouldGenerateDTE } from '../../domain/logic/sii_dte';
 
 const POSMainScreen: React.FC = () => {
     useKioskGuard(true); // Enable Kiosk Lock
@@ -127,6 +128,10 @@ const POSMainScreen: React.FC = () => {
             return;
         }
 
+        // Determine DTE Status
+        const dteResult = shouldGenerateDTE(paymentMethod);
+        const dteFolio = dteResult.shouldGenerate ? Math.floor(Math.random() * 100000).toString() : undefined; // Mock Folio
+
         // Capture sale data before processing (since cart clears)
         const saleToPrint: any = {
             id: `V-${Date.now()}`, // Mock ID, ideally returned by processSale
@@ -134,7 +139,10 @@ const POSMainScreen: React.FC = () => {
             items: [...cart],
             total: cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
             payment_method: paymentMethod,
-            customer: currentCustomer || undefined
+            customer: currentCustomer || undefined,
+            transfer_id: paymentMethod === 'TRANSFER' ? transferId : undefined,
+            dte_status: dteResult.status,
+            dte_folio: dteFolio
         };
 
         processSale(paymentMethod, currentCustomer || undefined);
@@ -145,7 +153,12 @@ const POSMainScreen: React.FC = () => {
         setIsPaymentModalOpen(false);
         setTransferId('');
         setPaymentMethod('CASH');
-        toast.success('¡Venta Exitosa! Boleta generada.', { duration: 2000 });
+
+        if (dteResult.shouldGenerate) {
+            toast.success(`¡Venta Exitosa! Boleta Nº ${dteFolio} generada.`, { duration: 3000 });
+        } else {
+            toast.success('¡Venta Exitosa! Fiscalizada por Voucher.', { duration: 3000 });
+        }
     };
 
     const getExpiryStatus = (timestamp: number) => {
