@@ -1,15 +1,18 @@
 {
   "/_global-error/page": "app/_global-error/page.js",
   "/_not-found/page": "app/_not-found/page.js",
+  "/api/sii/emitir/route": "app/api/sii/emitir/route.js",
   "/api/supply/receive/route": "app/api/supply/receive/route.js",
   "/caja/page": "app/caja/page.js",
   "/finanzas/page": "app/finanzas/page.js",
   "/login/page": "app/login/page.js",
   "/logistica/page": "app/logistica/page.js",
   "/page": "app/page.js",
+  "/pantalla/page": "app/pantalla/page.js",
   "/proveedores/page": "app/proveedores/page.js",
   "/rrhh/page": "app/rrhh/page.js",
   "/settings/auditoria/page": "app/settings/auditoria/page.js",
   "/settings/page": "app/settings/page.js",
+  "/totem/page": "app/totem/page.js",
   "/web/page": "app/web/page.js"
 }

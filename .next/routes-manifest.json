@@ -40,6 +40,12 @@
       "namedRegex": "^/_not\\-found(?:/)?$"
     },
     {
+      "page": "/api/sii/emitir",
+      "regex": "^/api/sii/emitir(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/sii/emitir(?:/)?$"
+    },
+    {
       "page": "/api/supply/receive",
       "regex": "^/api/supply/receive(?:/)?$",
       "routeKeys": {},
@@ -70,6 +76,12 @@
       "namedRegex": "^/logistica(?:/)?$"
     },
     {
+      "page": "/pantalla",
+      "regex": "^/pantalla(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/pantalla(?:/)?$"
+    },
+    {
       "page": "/proveedores",
       "regex": "^/proveedores(?:/)?$",
       "routeKeys": {},
@@ -92,6 +104,12 @@
       "regex": "^/settings/auditoria(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/settings/auditoria(?:/)?$"
+    },
+    {
+      "page": "/totem",
+      "regex": "^/totem(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/totem(?:/)?$"
     },
     {
       "page": "/web",

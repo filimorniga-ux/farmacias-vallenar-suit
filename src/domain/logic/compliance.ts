@@ -1,80 +1,48 @@
+import { SaleItem, SaleTransaction } from '../types';
 
-import { SaleItem, EmployeeProfile } from '../types';
-
-const IVA_RATE = 0.19;
-const GRATIFICACION_RATE = 0.0475;
-const AFP_HEALTH_TAX_RATE = 0.20;
-
-export const Compliance = {
-
-    // Lógica ANTI-CANELA (Ley de Fármacos II)
-    calculateCommissions(sales: SaleItem[]): { totalCommissionable: number; totalNonCommissionable: number; commission: number } {
-        let totalCommissionable = 0;
-        let totalNonCommissionable = 0;
-        const COMMISSION_PERCENT = 0.05;
-
-        sales.forEach(item => {
-            const totalItemValue = item.price * item.quantity;
-            if (item.isCommissionable) {
-                totalCommissionable += totalItemValue;
-            } else {
-                totalNonCommissionable += totalItemValue;
-            }
-        });
-
-        return {
-            totalCommissionable,
-            totalNonCommissionable,
-            commission: totalCommissionable * COMMISSION_PERCENT,
-        };
+export const ComplianceModule = {
+    /**
+     * Calcula la comisión para el vendedor según la Ley de Fármacos ("Anti-Canela").
+     * Regla: Medicamentos = 0% comisión. Solo Retail/Belleza/Suplementos pueden tener comisión.
+     */
+    calculateCommission(item: SaleItem, employeeCommissionRate: number): number {
+        if (!item.allows_commission) {
+            return 0; // Ley Chilena: Prohibido incentivos por venta de medicamentos
+        }
+        return item.price * item.quantity * employeeCommissionRate;
     },
 
-    // Simulación de Liquidación de Sueldo (Chile)
-    calculateChileanPayroll(profile: EmployeeProfile, grossSalesValue: number): { base: number; gross: number; commission: number; deductions: number; net: number } {
-        const IMM_MONTHLY = 460000;
-        const { commission } = Compliance.calculateCommissions([{
-            itemId: 'mock',
-            name: 'Ventas Totales',
-            price: grossSalesValue,
-            quantity: 1,
-            isCommissionable: profile.role === 'VENDEDOR'
-        } as SaleItem]);
+    /**
+     * Genera la estructura de datos para el Documento Tributario Electrónico (Boleta).
+     * Calcula Neto e IVA (19%).
+     */
+    generateDTEPayload(transaction: SaleTransaction) {
+        const IVA_RATE = 0.19;
 
-        const legalGratification = Math.min(profile.baseSalary * GRATIFICACION_RATE, IMM_MONTHLY * 4.75 / 12);
-
-        const taxableGross = profile.baseSalary + legalGratification + commission;
-        const totalDeductions = taxableGross * AFP_HEALTH_TAX_RATE;
-        const netSalary = taxableGross - totalDeductions;
+        // En Chile, los precios B2C suelen incluir IVA. Desglosamos hacia atrás.
+        const totalGross = transaction.total;
+        const netAmount = Math.round(totalGross / (1 + IVA_RATE));
+        const taxAmount = totalGross - netAmount;
 
         return {
-            base: profile.baseSalary,
-            gross: taxableGross,
-            commission,
-            deductions: totalDeductions,
-            net: netSalary,
-        };
-    },
-
-    // Simulación de Payload para SII (DTE - Documento Tributario Electrónico)
-    generateDTEPayload(saleItems: SaleItem[], total: number, rut: string): any {
-        const net = total / (1 + IVA_RATE);
-        const iva = total - net;
-
-        return {
-            Encabezado: {
-                TipoDTE: 39,
-                RUTEmisor: '76.xxx.xxx-K',
-                RUTReceptor: rut === '66666666-6' ? '66666666-6' : rut,
-                MontoNeto: Math.round(net),
-                MontoIVA: Math.round(iva),
-                MontoTotal: Math.round(total),
+            encabezado: {
+                tipo_dte: 39, // Boleta Electrónica
+                fecha: new Date(transaction.timestamp).toISOString().split('T')[0],
+                total: totalGross,
+                emisor_rut: '76.123.456-7', // RUT Farmacia Mock
             },
-            Detalle: saleItems.map(item => ({
-                NmbItem: item.name,
-                QtyItem: item.quantity,
-                PrcItem: item.price,
+            detalles: transaction.items.map((item, index) => ({
+                nro_linea: index + 1,
+                nombre: item.name,
+                cantidad: item.quantity,
+                precio_unitario: item.price,
+                monto_item: item.price * item.quantity
             })),
-            TimbreDigital: 'MOCK_QR_CODE_SII_VALIDADO',
+            totales: {
+                monto_neto: netAmount,
+                monto_iva: taxAmount,
+                monto_total: totalGross
+            }
         };
     }
 };
