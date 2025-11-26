@@ -1,19 +1,34 @@
 {
   "node": {
-    "00f899ff6ea69e0aef88cb6393463c91a8d59018d9": {
+    "00c615738dee04c926eae6a477946663d417070cbe": {
       "workers": {
         "app/page": {
-          "moduleId": 69403,
+          "moduleId": 30269,
           "async": true,
-          "exportedName": "getDashboardMetrics",
-          "filename": "src/actions/dashboard.ts"
+          "exportedName": "fetchInventory",
+          "filename": "src/actions/sync.ts"
         }
       },
       "layer": {
         "app/page": "action-browser"
       },
-      "exportedName": "getDashboardMetrics",
-      "filename": "src/actions/dashboard.ts"
+      "exportedName": "fetchInventory",
+      "filename": "src/actions/sync.ts"
+    },
+    "00d0672270153964780a8329ffe4e1f0f604b77dd0": {
+      "workers": {
+        "app/page": {
+          "moduleId": 30269,
+          "async": true,
+          "exportedName": "fetchEmployees",
+          "filename": "src/actions/sync.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "exportedName": "fetchEmployees",
+      "filename": "src/actions/sync.ts"
     }
   },
   "edge": {}

@@ -25,11 +25,11 @@ const ClinicalSidebar: React.FC<ClinicalSidebarProps> = ({ analysis, lastChecked
             </div>
 
             {/* Sugerencias */}
-            {analysis?.suggestedItems && analysis.suggestedItems.length > 0 && (
+            {analysis?.suggested_items && analysis.suggested_items.length > 0 && (
                 <div className="p-3 bg-slate-700 rounded-lg mt-auto">
                     <p className="text-xs text-cyan-300 font-semibold mb-1">Sugerencias (Cross-selling):</p>
                     <ul className="text-sm text-white">
-                        {analysis.suggestedItems.map((item, index) => (
+                        {analysis.suggested_items.map((item, index) => (
                             <li key={index} className="flex items-center">
                                 • {item}
                             </li>

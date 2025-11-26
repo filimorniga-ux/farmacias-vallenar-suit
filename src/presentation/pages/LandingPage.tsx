@@ -1,42 +1,271 @@
-
-'use client';
-import React from 'react';
-import { User, DollarSign, Truck, Clock } from 'lucide-react';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { usePharmaStore } from '../store/useStore';
+import { ShoppingCart, Truck, Users, Clock, Lock, ArrowRight, BarChart3, Building2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { EmployeeProfile } from '../../domain/types';
 
 const LandingPage: React.FC = () => {
+    const navigate = useNavigate();
+    const { login, user, employees } = usePharmaStore();
+    const [pin, setPin] = useState('');
+    const [error, setError] = useState('');
+    const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+    const [targetRoute, setTargetRoute] = useState('');
+    const [selectedEmployee, setSelectedEmployee] = useState<EmployeeProfile | null>(null);
+    const [step, setStep] = useState<'select' | 'pin'>('select');
 
-    // Definición de enlaces y colores para el portal
-    const portals = [
-        { name: 'Punto de Venta', role: 'VENDEDOR', href: '/pos', icon: DollarSign, color: 'text-emerald-500', bgColor: 'bg-emerald-600/10' },
-        { name: 'Logística & Inventario', role: 'QF / WAREHOUSE', href: '/supply', icon: Truck, color: 'text-cyan-500', bgColor: 'bg-cyan-600/10' },
-        { name: 'Gerencia & RRHH', role: 'ADMIN', href: '/hr', icon: User, color: 'text-indigo-500', bgColor: 'bg-indigo-600/10' },
-        { name: 'Reloj Control', role: 'EMPLEADO', href: '/access', icon: Clock, color: 'text-amber-500', bgColor: 'bg-amber-600/10' },
-    ];
+    // Role mapping based on which card was clicked
+    const ROUTE_TO_ROLES: Record<string, string[]> = {
+        '/dashboard': ['MANAGER'],                    // Gerencia -> Only Manager
+        '/settings': ['MANAGER', 'ADMIN', 'QF'],     // Administración -> Manager, Admin, QF
+        '/pos': ['CASHIER', 'QF', 'MANAGER'],        // POS -> Cashiers, QF, Manager
+        '/warehouse': ['WAREHOUSE', 'MANAGER'],       // Warehouse -> Warehouse staff, Manager
+    };
 
-    const backgroundStyle = "min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex flex-col items-center justify-center p-8";
+    // Filter employees based on target route
+    const filteredEmployees = targetRoute && ROUTE_TO_ROLES[targetRoute]
+        ? employees.filter(emp => ROUTE_TO_ROLES[targetRoute].includes(emp.role) && emp.status === 'ACTIVE')
+        : employees.filter(emp => emp.status === 'ACTIVE');
+
+    const handleCardClick = (route: string) => {
+        if (user) {
+            navigate(route);
+        } else {
+            setTargetRoute(route);
+            setIsLoginModalOpen(true);
+            setStep('select');
+            setSelectedEmployee(null);
+            setPin('');
+            setError('');
+        }
+    };
+
+    const handleEmployeeSelect = (employee: EmployeeProfile) => {
+        setSelectedEmployee(employee);
+        setStep('pin');
+        setError('');
+    };
+
+    const handleLogin = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedEmployee) return;
+
+        if (login(selectedEmployee.id, pin)) {
+            setIsLoginModalOpen(false);
+            navigate(targetRoute || '/pos');
+        } else {
+            setError('PIN Incorrecto');
+            setPin('');
+            // Shake animation will be handled by AnimatePresence
+        }
+    };
+
+    const handleBack = () => {
+        setStep('select');
+        setSelectedEmployee(null);
+        setPin('');
+        setError('');
+    };
+
+    const BentoCard = ({ title, icon: Icon, color, route, desc }: any) => (
+        <motion.div
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className={`relative overflow-hidden rounded-3xl p-8 cursor-pointer shadow-xl transition-all ${color} text-white group`}
+            onClick={() => handleCardClick(route)}
+        >
+            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                <Icon size={120} />
+            </div>
+            <div className="relative z-10 flex flex-col h-full justify-between">
+                <div>
+                    <div className="bg-white/20 w-12 h-12 rounded-2xl flex items-center justify-center mb-4 backdrop-blur-sm">
+                        <Icon size={24} />
+                    </div>
+                    <h3 className="text-2xl font-bold mb-2">{title}</h3>
+                    <p className="text-white/80 text-sm font-medium">{desc}</p>
+                </div>
+                <div className="flex items-center text-sm font-bold mt-4">
+                    ACCEDER <ArrowRight size={16} className="ml-2" />
+                </div>
+            </div>
+        </motion.div>
+    );
 
     return (
-        <div className={backgroundStyle}>
-            <div className="text-center mb-16">
-                <h1 className="text-6xl font-black text-cyan-400 drop-shadow-lg">Farmacias Vallenar</h1>
-                <p className="text-xl text-slate-300 mt-2">Portal de Acceso v2.1</p>
+        <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
+            <header className="mb-12 text-center">
+                <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight mb-2">
+                    Farmacias <span className="text-cyan-600">Vallenar</span> Suit
+                </h1>
+                <p className="text-slate-500 font-medium">Sistema ERP Clínico Integral v2.1</p>
+            </header>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl w-full">
+                {/* Gerencia */}
+                <BentoCard
+                    title="GERENCIA & BI"
+                    icon={BarChart3}
+                    color="bg-gradient-to-br from-purple-600 to-pink-600"
+                    route="/dashboard"
+                    desc="Reportes y Análisis Ejecutivo"
+                />
+
+                {/* Administración */}
+                <BentoCard
+                    title="ADMINISTRACIÓN"
+                    icon={Building2}
+                    color="bg-gradient-to-br from-blue-500 to-cyan-600"
+                    route="/settings"
+                    desc="Configuración y Gestión"
+                />
+
+                {/* POS */}
+                <BentoCard
+                    title="Punto de Venta"
+                    icon={ShoppingCart}
+                    color="bg-gradient-to-br from-emerald-500 to-teal-600"
+                    route="/pos"
+                    desc="Ventas, Recetas y Caja"
+                />
+
+                {/* Logística */}
+                <BentoCard
+                    title="Logística"
+                    icon={Truck}
+                    color="bg-gradient-to-br from-orange-400 to-red-500"
+                    route="/warehouse"
+                    desc="Inventario y Operaciones WMS"
+                />
             </div>
 
-            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8 w-full max-w-6xl">
-                {portals.map(portal => (
-                    <a key={portal.name} href={portal.href} className={`p-6 rounded-2xl border-2 border-slate-700 backdrop-blur-sm shadow-xl transition hover:border-cyan-500 ${portal.bgColor}`}>
-                        <div className={`p-4 rounded-full w-20 h-20 flex items-center justify-center mb-4 ${portal.bgColor}`}>
-                            <portal.icon size={36} className={`${portal.color}`} />
-                        </div>
-                        <h2 className="text-2xl font-bold text-white mb-1">{portal.name}</h2>
-                        <p className="text-sm text-slate-400">Acceso para: <span className="font-semibold">{portal.role}</span></p>
-                    </a>
-                ))}
-            </div>
+            {/* Login Modal */}
+            <AnimatePresence>
+                {isLoginModalOpen && (
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 20 }}
+                            className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md"
+                        >
+                            {step === 'select' ? (
+                                <>
+                                    <div className="text-center mb-8">
+                                        <div className="bg-cyan-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                                            <Users className="text-cyan-700" size={32} />
+                                        </div>
+                                        <h2 className="text-2xl font-bold text-slate-900">¿Quién eres?</h2>
+                                        <p className="text-slate-500">Selecciona tu perfil</p>
+                                        {/* Debug Info */}
+                                        <div className="mt-2 text-xs text-slate-400 space-y-1">
+                                            <p>📊 Total Empleados: {employees.length}</p>
+                                            <p>🎯 Filtrados: {filteredEmployees.length}</p>
+                                            <p>📍 Ruta: {targetRoute}</p>
+                                        </div>
+                                    </div>
 
-            <p className="text-xs text-slate-600 mt-16">
-                Todos los derechos reservados © {new Date().getFullYear()} Pharma-Synapse Technologies
-            </p>
+                                    <div className="grid grid-cols-2 gap-4 mb-6">
+                                        {filteredEmployees.length > 0 ? (
+                                            filteredEmployees.map(emp => (
+                                                <motion.button
+                                                    key={emp.id}
+                                                    whileHover={{ scale: 1.05 }}
+                                                    whileTap={{ scale: 0.95 }}
+                                                    onClick={() => handleEmployeeSelect(emp)}
+                                                    className="p-4 rounded-2xl border-2 border-slate-200 hover:border-cyan-500 hover:bg-cyan-50 transition-all group"
+                                                >
+                                                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center text-white font-bold text-2xl mx-auto mb-2 group-hover:scale-110 transition-transform">
+                                                        {emp.name.charAt(0)}
+                                                    </div>
+                                                    <p className="font-bold text-slate-800 text-sm">{emp.name}</p>
+                                                    <p className="text-xs text-slate-400">{emp.job_title}</p>
+                                                </motion.button>
+                                            ))
+                                        ) : (
+                                            <div className="col-span-2 text-center py-8 text-slate-400">
+                                                <p>No hay usuarios disponibles para este módulo</p>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <button
+                                        onClick={() => setIsLoginModalOpen(false)}
+                                        className="w-full py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition"
+                                    >
+                                        Cancelar
+                                    </button>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="text-center mb-8">
+                                        <div className="w-20 h-20 rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center text-white font-bold text-3xl mx-auto mb-4">
+                                            {selectedEmployee?.name.charAt(0)}
+                                        </div>
+                                        <h2 className="text-2xl font-bold text-slate-900">{selectedEmployee?.name}</h2>
+                                        <p className="text-slate-500">{selectedEmployee?.job_title}</p>
+                                    </div>
+
+                                    <form onSubmit={handleLogin} className="space-y-6">
+                                        <div>
+                                            <label className="block text-center text-sm font-bold text-slate-600 mb-2">
+                                                Ingresa tu PIN de 4 dígitos
+                                            </label>
+                                            <motion.input
+                                                key={error} // This will cause re-mount and trigger animation when error changes
+                                                animate={error ? { x: [-10, 10, -10, 10, 0] } : {}}
+                                                transition={{ duration: 0.4 }}
+                                                type="password"
+                                                maxLength={4}
+                                                className={`w-full text-center text-4xl tracking-[1em] font-bold py-4 border-b-4 ${error ? 'border-red-500' : 'border-slate-200'} focus:border-cyan-600 focus:outline-none transition-colors text-slate-800 placeholder-slate-300`}
+                                                placeholder="••••"
+                                                value={pin}
+                                                onChange={(e) => {
+                                                    setPin(e.target.value);
+                                                    setError('');
+                                                }}
+                                                autoFocus
+                                            />
+                                        </div>
+
+                                        {error && (
+                                            <motion.p
+                                                initial={{ opacity: 0 }}
+                                                animate={{ opacity: 1 }}
+                                                className="text-red-500 text-center font-medium"
+                                            >
+                                                {error}
+                                            </motion.p>
+                                        )}
+
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <button
+                                                type="button"
+                                                onClick={handleBack}
+                                                className="py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition"
+                                            >
+                                                Atrás
+                                            </button>
+                                            <button
+                                                type="submit"
+                                                disabled={pin.length < 4}
+                                                className="py-3 rounded-xl font-bold bg-cyan-600 text-white hover:bg-cyan-700 shadow-lg shadow-cyan-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                Ingresar
+                                            </button>
+                                        </div>
+                                    </form>
+
+                                    <div className="mt-8 text-center text-xs text-slate-400">
+                                        <p>PIN Demo: Miguel (0000), Javiera (1234)</p>
+                                    </div>
+                                </>
+                            )}
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
         </div>
     );
 };
