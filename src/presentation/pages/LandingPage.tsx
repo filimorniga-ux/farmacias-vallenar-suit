@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePharmaStore } from '../store/useStore';
-import { ShoppingCart, Truck, Users, Clock, Lock, ArrowRight, BarChart3, Building2 } from 'lucide-react';
+import { ShoppingCart, Truck, Users, Clock, Lock, ArrowRight, BarChart3, Building2, Ticket } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { EmployeeProfile } from '../../domain/types';
 
@@ -29,6 +29,12 @@ const LandingPage: React.FC = () => {
         : employees.filter(emp => emp.status === 'ACTIVE');
 
     const handleCardClick = (route: string) => {
+        // Direct access routes (Kiosks)
+        if (route === '/access' || route === '/queue') {
+            navigate(route);
+            return;
+        }
+
         if (user) {
             navigate(route);
         } else {
@@ -137,6 +143,23 @@ const LandingPage: React.FC = () => {
                     color="bg-gradient-to-br from-orange-400 to-red-500"
                     route="/warehouse"
                     desc="Inventario y Operaciones WMS"
+                />
+
+                {/* Kioscos & Terminales */}
+                <BentoCard
+                    title="RELOJ CONTROL"
+                    icon={Clock}
+                    color="bg-amber-500"
+                    route="/access"
+                    desc="Modo Kiosco para asistencia y marcaje biométrico."
+                />
+
+                <BentoCard
+                    title="TOTEM DE FILAS"
+                    icon={Ticket}
+                    color="bg-pink-500"
+                    route="/queue"
+                    desc="Auto-atención de clientes y emisión de números."
                 />
             </div>
 

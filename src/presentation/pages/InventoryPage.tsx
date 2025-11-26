@@ -3,6 +3,7 @@ import { usePharmaStore } from '../store/useStore';
 import { Search, Filter, Plus, ArrowRightLeft, Package, AlertTriangle, Snowflake, Lock, Pill, Trash2, Edit } from 'lucide-react';
 import StockEntryModal from '../components/inventory/StockEntryModal';
 import StockTransferModal from '../components/inventory/StockTransferModal';
+import InventoryEditModal from '../components/inventory/InventoryEditModal';
 import { hasPermission } from '../../domain/security/roles';
 
 const InventoryPage: React.FC = () => {
@@ -11,6 +12,8 @@ const InventoryPage: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'MEDS' | 'RETAIL' | 'CONTROLLED'>('MEDS');
     const [isEntryModalOpen, setIsEntryModalOpen] = useState(false);
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [editingItem, setEditingItem] = useState<any>(null);
 
     // Permissions
     const canManageInventory = hasPermission(user, 'MANAGE_INVENTORY');
@@ -156,16 +159,35 @@ const InventoryPage: React.FC = () => {
                             <tr key={item.id} className="hover:bg-slate-50 transition group">
                                 <td className="p-4">
                                     <div className="font-bold text-slate-800">{item.name}</div>
-                                    <div className="text-xs text-slate-500 font-mono">{item.sku} • {item.dci}</div>
+                                    <div className="text-xs text-slate-500 font-mono mb-1">{item.sku} • {item.dci}</div>
+                                    {/* Clinical Tags */}
+                                    {item.therapeutic_tags && item.therapeutic_tags.length > 0 && (
+                                        <div className="flex gap-1 flex-wrap">
+                                            {item.therapeutic_tags.slice(0, 2).map(tag => (
+                                                <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded border border-slate-200">
+                                                    {tag}
+                                                </span>
+                                            ))}
+                                            {item.therapeutic_tags.length > 2 && (
+                                                <span className="text-[10px] text-slate-400">+{item.therapeutic_tags.length - 2}</span>
+                                            )}
+                                        </div>
+                                    )}
                                 </td>
                                 <td className="p-4">
-                                    <div className="flex gap-1">
+                                    <div className="flex gap-1 flex-wrap">
                                         {item.is_bioequivalent && <span title="Bioequivalente" className="p-1 bg-yellow-100 text-yellow-700 rounded"><Pill size={14} /></span>}
                                         {['R', 'RR', 'RCH'].includes(item.condition) && <span title="Receta Retenida" className="p-1 bg-purple-100 text-purple-700 rounded"><Lock size={14} /></span>}
+                                        {item.storage_condition === 'REFRIGERADO' && (
+                                            <span title="Cadena de Frío (2°C - 8°C)" className="p-1 bg-cyan-100 text-cyan-600 rounded cursor-help">
+                                                <Snowflake size={14} />
+                                            </span>
+                                        )}
                                     </div>
                                 </td>
                                 <td className="p-4 text-slate-600">
                                     <span className="px-2 py-1 bg-slate-100 rounded text-xs font-bold">{item.location_id}</span>
+                                    {item.aisle && <div className="text-[10px] text-slate-400 mt-1">{item.aisle}</div>}
                                 </td>
                                 <td className="p-4">
                                     <span className={`${(item.expiry_date - Date.now()) < (1000 * 60 * 60 * 24 * 30 * 3) ? 'text-red-600 font-bold' : 'text-slate-600'}`}>
@@ -183,7 +205,10 @@ const InventoryPage: React.FC = () => {
                                 <td className="p-4">
                                     <div className="flex items-center justify-center gap-2">
                                         {canManageInventory && (
-                                            <button className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
+                                            <button
+                                                onClick={() => { setEditingItem(item); setIsEditModalOpen(true); }}
+                                                className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                            >
                                                 <Edit size={16} />
                                             </button>
                                         )}
@@ -209,6 +234,7 @@ const InventoryPage: React.FC = () => {
             {/* Modals */}
             <StockEntryModal isOpen={isEntryModalOpen} onClose={() => setIsEntryModalOpen(false)} />
             <StockTransferModal isOpen={isTransferModalOpen} onClose={() => setIsTransferModalOpen(false)} />
+            <InventoryEditModal isOpen={isEditModalOpen} onClose={() => { setIsEditModalOpen(false); setEditingItem(null); }} product={editingItem} />
         </div>
     );
 };

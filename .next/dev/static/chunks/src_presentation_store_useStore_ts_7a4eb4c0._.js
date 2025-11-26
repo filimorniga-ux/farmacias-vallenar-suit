@@ -584,9 +584,11 @@ const usePharmaStore = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_
                 if (employees.length > 0) set({
                     employees
                 });
+                const state = get();
                 console.log('Data Synced:', {
-                    inventoryCount: inventory.length,
-                    employeeCount: employees.length
+                    inventoryCount: state.inventory.length,
+                    employeeCount: state.employees.length,
+                    source: inventory.length > 0 ? 'DB' : 'MOCK/CACHE'
                 });
             } catch (error) {
                 console.error('Sync failed:', error);
@@ -891,6 +893,15 @@ const usePharmaStore = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_
                         status: 'CLOSED',
                         closing_amount: finalAmount,
                         difference: finalAmount - metrics.expectedCash
+                    }
+                };
+            }),
+        updateOpeningAmount: (newAmount)=>set((state)=>{
+                if (!state.currentShift) return state;
+                return {
+                    currentShift: {
+                        ...state.currentShift,
+                        opening_amount: newAmount
                     }
                 };
             }),

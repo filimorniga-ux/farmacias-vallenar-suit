@@ -1,10 +1,20 @@
-import { Customer, SaleItem, ClinicalAnalysisResult, CartItem } from '../types';
+import { Customer, SaleItem, ClinicalAnalysisResult, CartItem, InventoryBatch } from '../types';
 
 // Base de conocimientos simplificada para MVP
 const CONTRAINDICATIONS = {
     HYPERTENSION: ['Pseudoefedrina', 'Fenilefrina', 'Sodio'],
     PREGNANT: ['Ibuprofeno', 'Naproxeno', 'Isotretinoína', 'Warfarina'],
     DIABETIC: ['Jarabe con Azúcar', 'Dextrometorfano (con azúcar)'],
+};
+
+const SYMPTOM_MAP: Record<string, string[]> = {
+    'dolor': ['ANALGESICO', 'ANTIINFLAMATORIO'],
+    'cabeza': ['PARACETAMOL', 'IBUPROFENO', 'MIGRAÑA'],
+    'fiebre': ['PARACETAMOL', 'ANTIPIRETICO'],
+    'estomago': ['VIADIL', 'OMEPRAZOL', 'PROBIOTICO', 'SAL DE FRUTA'],
+    'tos': ['JARABE', 'ANTITUSIVO', 'EXPECTORANTE'],
+    'alergia': ['LORATADINA', 'CETIRIZINA', 'ANTIHISTAMINICO'],
+    'herida': ['POVIDONA', 'PARCHE', 'GASA', 'CICATRIZANTE']
 };
 
 const CROSS_SELLING_RULES = [
@@ -15,6 +25,35 @@ const CROSS_SELLING_RULES = [
 ];
 
 export class ClinicalAgent {
+    /**
+     * Busca productos en el inventario basados en síntomas.
+     */
+    static searchBySymptom(query: string, inventory: InventoryBatch[]): InventoryBatch[] {
+        const lowerQuery = query.toLowerCase();
+        let keywords: string[] = [];
+
+        // 1. Identificar palabras clave del mapa de síntomas
+        Object.entries(SYMPTOM_MAP).forEach(([symptom, tags]) => {
+            if (lowerQuery.includes(symptom)) {
+                keywords = [...keywords, ...tags];
+            }
+        });
+
+        // Si no hay coincidencias en el mapa, usamos la query directa como keyword
+        if (keywords.length === 0) {
+            keywords = [lowerQuery];
+        }
+
+        // 2. Filtrar inventario
+        return inventory.filter(item => {
+            if (item.stock_actual <= 0) return false; // Solo con stock
+
+            const itemText = `${item.name} ${item.dci} ${item.category}`.toLowerCase();
+            // Coincidencia si alguna keyword está en el texto del item
+            return keywords.some(keyword => itemText.includes(keyword.toLowerCase()));
+        });
+    }
+
     /**
      * Analiza el carrito en busca de interacciones peligrosas con el perfil del paciente.
      */

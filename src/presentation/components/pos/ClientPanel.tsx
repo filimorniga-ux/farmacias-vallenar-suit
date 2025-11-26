@@ -133,50 +133,50 @@ const ClientPanel: React.FC = () => {
                 </div>
             )}
 
-            {/* Modal de Creación Rápida */}
-            {isCreateModalOpen && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in duration-200">
-                        <div className="p-4 border-b border-slate-100 flex justify-between items-center">
-                            <h3 className="font-bold text-slate-800">Nuevo Cliente</h3>
-                            <button onClick={() => setIsCreateModalOpen(false)}><X size={20} className="text-slate-400" /></button>
+            {/* Quick Create Form (Inline) */}
+            {isCreateModalOpen ? (
+                <div className="mt-4 p-4 bg-cyan-50 rounded-xl border border-cyan-100 animate-in fade-in slide-in-from-top-2">
+                    <div className="flex justify-between items-center mb-3">
+                        <h4 className="font-bold text-cyan-800 text-sm">Alta Rápida de Cliente</h4>
+                        <button onClick={() => setIsCreateModalOpen(false)}><X size={16} className="text-cyan-400 hover:text-cyan-700" /></button>
+                    </div>
+
+                    <div className="space-y-3">
+                        <div>
+                            <label className="block text-[10px] font-bold text-cyan-600 uppercase mb-1">RUT</label>
+                            <input type="text" value={rutInput} disabled className="w-full p-2 bg-white rounded-lg border border-cyan-200 text-slate-500 font-mono text-xs" />
                         </div>
-                        <div className="p-6 space-y-4">
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 mb-1">RUT</label>
-                                <input type="text" value={rutInput} disabled className="w-full p-2 bg-slate-100 rounded-lg border border-slate-200 text-slate-500 font-mono" />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 mb-1">Nombre Completo *</label>
-                                <input
-                                    type="text"
-                                    autoFocus
-                                    className="w-full p-2 border-2 border-slate-200 rounded-lg focus:border-cyan-500 focus:outline-none"
-                                    value={newClientName}
-                                    onChange={(e) => setNewClientName(e.target.value)}
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 mb-1">WhatsApp (Opcional)</label>
-                                <input
-                                    type="tel"
-                                    placeholder="+569..."
-                                    className="w-full p-2 border-2 border-slate-200 rounded-lg focus:border-cyan-500 focus:outline-none"
-                                    value={newClientPhone}
-                                    onChange={(e) => setNewClientPhone(e.target.value)}
-                                />
-                            </div>
-                            <button
-                                onClick={handleCreateClient}
-                                disabled={!newClientName}
-                                className="w-full py-3 bg-cyan-600 text-white font-bold rounded-xl hover:bg-cyan-700 transition flex items-center justify-center gap-2 disabled:opacity-50"
-                            >
-                                <Save size={18} /> Guardar Cliente
-                            </button>
+                        <div>
+                            <label className="block text-[10px] font-bold text-cyan-600 uppercase mb-1">Nombre Completo *</label>
+                            <input
+                                type="text"
+                                autoFocus
+                                className="w-full p-2 border-2 border-cyan-200 rounded-lg focus:border-cyan-500 focus:outline-none text-sm"
+                                placeholder="Ej: Juan Pérez"
+                                value={newClientName}
+                                onChange={(e) => setNewClientName(e.target.value)}
+                            />
                         </div>
+                        <div>
+                            <label className="block text-[10px] font-bold text-cyan-600 uppercase mb-1">WhatsApp (Opcional)</label>
+                            <input
+                                type="tel"
+                                placeholder="+569..."
+                                className="w-full p-2 border-2 border-cyan-200 rounded-lg focus:border-cyan-500 focus:outline-none text-sm"
+                                value={newClientPhone}
+                                onChange={(e) => setNewClientPhone(e.target.value)}
+                            />
+                        </div>
+                        <button
+                            onClick={handleCreateClient}
+                            disabled={!newClientName}
+                            className="w-full py-2 bg-cyan-600 text-white font-bold rounded-lg hover:bg-cyan-700 transition flex items-center justify-center gap-2 disabled:opacity-50 text-sm shadow-sm"
+                        >
+                            <Save size={14} /> Guardar y Asignar
+                        </button>
                     </div>
                 </div>
-            )}
+            ) : null}
         </div>
     );
 };

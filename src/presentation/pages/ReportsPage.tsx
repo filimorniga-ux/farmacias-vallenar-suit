@@ -133,8 +133,8 @@ const ReportsPage: React.FC = () => {
                             key={preset}
                             onClick={() => handlePresetChange(preset)}
                             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${dateRange.label === preset
-                                    ? 'bg-blue-600 text-white shadow-md'
-                                    : 'text-gray-600 hover:bg-gray-100'
+                                ? 'bg-blue-600 text-white shadow-md'
+                                : 'text-gray-600 hover:bg-gray-100'
                                 }`}
                         >
                             {preset.replace('_', ' ')}
@@ -220,7 +220,7 @@ const ReportsPage: React.FC = () => {
                             {/* Income Breakdown */}
                             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
                                 <h3 className="text-lg font-bold text-gray-900 mb-6">Desglose de Ingresos</h3>
-                                <div className="h-80">
+                                <div className="h-80 min-h-[320px]">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <PieChart>
                                             <Pie
@@ -247,7 +247,7 @@ const ReportsPage: React.FC = () => {
                             {/* Expenses Breakdown */}
                             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
                                 <h3 className="text-lg font-bold text-gray-900 mb-6">Estructura de Gastos</h3>
-                                <div className="h-80">
+                                <div className="h-80 min-h-[320px]">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <BarChart data={expensesByCategoryData} layout="vertical">
                                             <CartesianGrid strokeDasharray="3 3" horizontal={false} />
