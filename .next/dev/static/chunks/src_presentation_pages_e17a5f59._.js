@@ -18,6 +18,7 @@ var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$re
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$chart$2d$column$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__BarChart3$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/chart-column.js [app-client] (ecmascript) <export default as BarChart3>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$building$2d$2$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Building2$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/building-2.js [app-client] (ecmascript) <export default as Building2>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$ticket$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Ticket$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/ticket.js [app-client] (ecmascript) <export default as Ticket>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$map$2d$pin$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__MapPin$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/map-pin.js [app-client] (ecmascript) <export default as MapPin>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$framer$2d$motion$2f$dist$2f$es$2f$render$2f$components$2f$motion$2f$proxy$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/framer-motion/dist/es/render/components/motion/proxy.mjs [app-client] (ecmascript)");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$framer$2d$motion$2f$dist$2f$es$2f$components$2f$AnimatePresence$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/framer-motion/dist/es/components/AnimatePresence/index.mjs [app-client] (ecmascript)");
 ;
@@ -54,6 +55,9 @@ const LandingPage = ()=>{
         ],
         '/warehouse': [
             'WAREHOUSE',
+            'MANAGER'
+        ],
+        '/network': [
             'MANAGER'
         ]
     };
@@ -115,12 +119,12 @@ const LandingPage = ()=>{
                         size: 120
                     }, void 0, false, {
                         fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                        lineNumber: 85,
+                        lineNumber: 86,
                         columnNumber: 17
                     }, ("TURBOPACK compile-time value", void 0))
                 }, void 0, false, {
                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                    lineNumber: 84,
+                    lineNumber: 85,
                     columnNumber: 13
                 }, ("TURBOPACK compile-time value", void 0)),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -134,12 +138,12 @@ const LandingPage = ()=>{
                                         size: 24
                                     }, void 0, false, {
                                         fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                        lineNumber: 90,
+                                        lineNumber: 91,
                                         columnNumber: 25
                                     }, ("TURBOPACK compile-time value", void 0))
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                    lineNumber: 89,
+                                    lineNumber: 90,
                                     columnNumber: 21
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h3", {
@@ -147,7 +151,7 @@ const LandingPage = ()=>{
                                     children: title
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                    lineNumber: 92,
+                                    lineNumber: 93,
                                     columnNumber: 21
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -155,13 +159,13 @@ const LandingPage = ()=>{
                                     children: desc
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                    lineNumber: 93,
+                                    lineNumber: 94,
                                     columnNumber: 21
                                 }, ("TURBOPACK compile-time value", void 0))
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                            lineNumber: 88,
+                            lineNumber: 89,
                             columnNumber: 17
                         }, ("TURBOPACK compile-time value", void 0)),
                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -173,25 +177,25 @@ const LandingPage = ()=>{
                                     className: "ml-2"
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                    lineNumber: 96,
+                                    lineNumber: 97,
                                     columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0))
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                            lineNumber: 95,
+                            lineNumber: 96,
                             columnNumber: 17
                         }, ("TURBOPACK compile-time value", void 0))
                     ]
                 }, void 0, true, {
                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                    lineNumber: 87,
+                    lineNumber: 88,
                     columnNumber: 13
                 }, ("TURBOPACK compile-time value", void 0))
             ]
         }, void 0, true, {
             fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-            lineNumber: 78,
+            lineNumber: 79,
             columnNumber: 9
         }, ("TURBOPACK compile-time value", void 0));
     return /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -209,14 +213,14 @@ const LandingPage = ()=>{
                                 children: "Vallenar"
                             }, void 0, false, {
                                 fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                lineNumber: 106,
+                                lineNumber: 107,
                                 columnNumber: 31
                             }, ("TURBOPACK compile-time value", void 0)),
                             " Suit"
                         ]
                     }, void 0, true, {
                         fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                        lineNumber: 105,
+                        lineNumber: 106,
                         columnNumber: 17
                     }, ("TURBOPACK compile-time value", void 0)),
                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -224,13 +228,13 @@ const LandingPage = ()=>{
                         children: "Sistema ERP Clínico Integral v2.1"
                     }, void 0, false, {
                         fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                        lineNumber: 108,
+                        lineNumber: 109,
                         columnNumber: 17
                     }, ("TURBOPACK compile-time value", void 0))
                 ]
             }, void 0, true, {
                 fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                lineNumber: 104,
+                lineNumber: 105,
                 columnNumber: 13
             }, ("TURBOPACK compile-time value", void 0)),
             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -244,7 +248,7 @@ const LandingPage = ()=>{
                         desc: "Reportes y Análisis Ejecutivo"
                     }, void 0, false, {
                         fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                        lineNumber: 113,
+                        lineNumber: 114,
                         columnNumber: 17
                     }, ("TURBOPACK compile-time value", void 0)),
                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(BentoCard, {
@@ -255,7 +259,7 @@ const LandingPage = ()=>{
                         desc: "Configuración y Gestión"
                     }, void 0, false, {
                         fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                        lineNumber: 122,
+                        lineNumber: 123,
                         columnNumber: 17
                     }, ("TURBOPACK compile-time value", void 0)),
                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(BentoCard, {
@@ -266,7 +270,7 @@ const LandingPage = ()=>{
                         desc: "Ventas, Recetas y Caja"
                     }, void 0, false, {
                         fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                        lineNumber: 131,
+                        lineNumber: 132,
                         columnNumber: 17
                     }, ("TURBOPACK compile-time value", void 0)),
                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(BentoCard, {
@@ -277,7 +281,18 @@ const LandingPage = ()=>{
                         desc: "Inventario y Operaciones WMS"
                     }, void 0, false, {
                         fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                        lineNumber: 140,
+                        lineNumber: 141,
+                        columnNumber: 17
+                    }, ("TURBOPACK compile-time value", void 0)),
+                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(BentoCard, {
+                        title: "GESTIÓN DE RED",
+                        icon: __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$map$2d$pin$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__MapPin$3e$__["MapPin"],
+                        color: "bg-gradient-to-br from-slate-700 to-slate-900",
+                        route: "/network",
+                        desc: "Sucursales, Equipos y Kioscos"
+                    }, void 0, false, {
+                        fileName: "[project]/src/presentation/pages/LandingPage.tsx",
+                        lineNumber: 150,
                         columnNumber: 17
                     }, ("TURBOPACK compile-time value", void 0)),
                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(BentoCard, {
@@ -288,7 +303,7 @@ const LandingPage = ()=>{
                         desc: "Modo Kiosco para asistencia y marcaje biométrico."
                     }, void 0, false, {
                         fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                        lineNumber: 149,
+                        lineNumber: 159,
                         columnNumber: 17
                     }, ("TURBOPACK compile-time value", void 0)),
                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(BentoCard, {
@@ -299,13 +314,13 @@ const LandingPage = ()=>{
                         desc: "Auto-atención de clientes y emisión de números."
                     }, void 0, false, {
                         fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                        lineNumber: 157,
+                        lineNumber: 167,
                         columnNumber: 17
                     }, ("TURBOPACK compile-time value", void 0))
                 ]
             }, void 0, true, {
                 fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                lineNumber: 111,
+                lineNumber: 112,
                 columnNumber: 13
             }, ("TURBOPACK compile-time value", void 0)),
             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$framer$2d$motion$2f$dist$2f$es$2f$components$2f$AnimatePresence$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["AnimatePresence"], {
@@ -337,12 +352,12 @@ const LandingPage = ()=>{
                                                 size: 32
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                                lineNumber: 180,
+                                                lineNumber: 190,
                                                 columnNumber: 45
                                             }, ("TURBOPACK compile-time value", void 0))
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                            lineNumber: 179,
+                                            lineNumber: 189,
                                             columnNumber: 41
                                         }, ("TURBOPACK compile-time value", void 0)),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h2", {
@@ -350,7 +365,7 @@ const LandingPage = ()=>{
                                             children: "¿Quién eres?"
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                            lineNumber: 182,
+                                            lineNumber: 192,
                                             columnNumber: 41
                                         }, ("TURBOPACK compile-time value", void 0)),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -358,7 +373,7 @@ const LandingPage = ()=>{
                                             children: "Selecciona tu perfil"
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                            lineNumber: 183,
+                                            lineNumber: 193,
                                             columnNumber: 41
                                         }, ("TURBOPACK compile-time value", void 0)),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -371,7 +386,7 @@ const LandingPage = ()=>{
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                                    lineNumber: 186,
+                                                    lineNumber: 196,
                                                     columnNumber: 45
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -381,7 +396,7 @@ const LandingPage = ()=>{
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                                    lineNumber: 187,
+                                                    lineNumber: 197,
                                                     columnNumber: 45
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -391,19 +406,19 @@ const LandingPage = ()=>{
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                                    lineNumber: 188,
+                                                    lineNumber: 198,
                                                     columnNumber: 45
                                                 }, ("TURBOPACK compile-time value", void 0))
                                             ]
                                         }, void 0, true, {
                                             fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                            lineNumber: 185,
+                                            lineNumber: 195,
                                             columnNumber: 41
                                         }, ("TURBOPACK compile-time value", void 0))
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                    lineNumber: 178,
+                                    lineNumber: 188,
                                     columnNumber: 37
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -423,7 +438,7 @@ const LandingPage = ()=>{
                                                     children: emp.name.charAt(0)
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                                    lineNumber: 202,
+                                                    lineNumber: 212,
                                                     columnNumber: 53
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -431,7 +446,7 @@ const LandingPage = ()=>{
                                                     children: emp.name
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                                    lineNumber: 205,
+                                                    lineNumber: 215,
                                                     columnNumber: 53
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -439,13 +454,13 @@ const LandingPage = ()=>{
                                                     children: emp.job_title
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                                    lineNumber: 206,
+                                                    lineNumber: 216,
                                                     columnNumber: 53
                                                 }, ("TURBOPACK compile-time value", void 0))
                                             ]
                                         }, emp.id, true, {
                                             fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                            lineNumber: 195,
+                                            lineNumber: 205,
                                             columnNumber: 49
                                         }, ("TURBOPACK compile-time value", void 0))) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                                         className: "col-span-2 text-center py-8 text-slate-400",
@@ -453,17 +468,17 @@ const LandingPage = ()=>{
                                             children: "No hay usuarios disponibles para este módulo"
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                            lineNumber: 211,
+                                            lineNumber: 221,
                                             columnNumber: 49
                                         }, ("TURBOPACK compile-time value", void 0))
                                     }, void 0, false, {
                                         fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                        lineNumber: 210,
+                                        lineNumber: 220,
                                         columnNumber: 45
                                     }, ("TURBOPACK compile-time value", void 0))
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                    lineNumber: 192,
+                                    lineNumber: 202,
                                     columnNumber: 37
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -472,7 +487,7 @@ const LandingPage = ()=>{
                                     children: "Cancelar"
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                    lineNumber: 216,
+                                    lineNumber: 226,
                                     columnNumber: 37
                                 }, ("TURBOPACK compile-time value", void 0))
                             ]
@@ -486,7 +501,7 @@ const LandingPage = ()=>{
                                             children: selectedEmployee?.name.charAt(0)
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                            lineNumber: 226,
+                                            lineNumber: 236,
                                             columnNumber: 41
                                         }, ("TURBOPACK compile-time value", void 0)),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h2", {
@@ -494,7 +509,7 @@ const LandingPage = ()=>{
                                             children: selectedEmployee?.name
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                            lineNumber: 229,
+                                            lineNumber: 239,
                                             columnNumber: 41
                                         }, ("TURBOPACK compile-time value", void 0)),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -502,13 +517,13 @@ const LandingPage = ()=>{
                                             children: selectedEmployee?.job_title
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                            lineNumber: 230,
+                                            lineNumber: 240,
                                             columnNumber: 41
                                         }, ("TURBOPACK compile-time value", void 0))
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                    lineNumber: 225,
+                                    lineNumber: 235,
                                     columnNumber: 37
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("form", {
@@ -522,7 +537,7 @@ const LandingPage = ()=>{
                                                     children: "Ingresa tu PIN de 4 dígitos"
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                                    lineNumber: 235,
+                                                    lineNumber: 245,
                                                     columnNumber: 45
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$framer$2d$motion$2f$dist$2f$es$2f$render$2f$components$2f$motion$2f$proxy$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["motion"].input, {
@@ -550,13 +565,13 @@ const LandingPage = ()=>{
                                                     autoFocus: true
                                                 }, error, false, {
                                                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                                    lineNumber: 238,
+                                                    lineNumber: 248,
                                                     columnNumber: 45
                                                 }, ("TURBOPACK compile-time value", void 0))
                                             ]
                                         }, void 0, true, {
                                             fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                            lineNumber: 234,
+                                            lineNumber: 244,
                                             columnNumber: 41
                                         }, ("TURBOPACK compile-time value", void 0)),
                                         error && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$framer$2d$motion$2f$dist$2f$es$2f$render$2f$components$2f$motion$2f$proxy$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["motion"].p, {
@@ -570,7 +585,7 @@ const LandingPage = ()=>{
                                             children: error
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                            lineNumber: 256,
+                                            lineNumber: 266,
                                             columnNumber: 45
                                         }, ("TURBOPACK compile-time value", void 0)),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -583,7 +598,7 @@ const LandingPage = ()=>{
                                                     children: "Atrás"
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                                    lineNumber: 266,
+                                                    lineNumber: 276,
                                                     columnNumber: 45
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -593,19 +608,19 @@ const LandingPage = ()=>{
                                                     children: "Ingresar"
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                                    lineNumber: 273,
+                                                    lineNumber: 283,
                                                     columnNumber: 45
                                                 }, ("TURBOPACK compile-time value", void 0))
                                             ]
                                         }, void 0, true, {
                                             fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                            lineNumber: 265,
+                                            lineNumber: 275,
                                             columnNumber: 41
                                         }, ("TURBOPACK compile-time value", void 0))
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                    lineNumber: 233,
+                                    lineNumber: 243,
                                     columnNumber: 37
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -614,35 +629,35 @@ const LandingPage = ()=>{
                                         children: "PIN Demo: Miguel (0000), Javiera (1234)"
                                     }, void 0, false, {
                                         fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                        lineNumber: 284,
+                                        lineNumber: 294,
                                         columnNumber: 41
                                     }, ("TURBOPACK compile-time value", void 0))
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                                    lineNumber: 283,
+                                    lineNumber: 293,
                                     columnNumber: 37
                                 }, ("TURBOPACK compile-time value", void 0))
                             ]
                         }, void 0, true)
                     }, void 0, false, {
                         fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                        lineNumber: 170,
+                        lineNumber: 180,
                         columnNumber: 25
                     }, ("TURBOPACK compile-time value", void 0))
                 }, void 0, false, {
                     fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                    lineNumber: 169,
+                    lineNumber: 179,
                     columnNumber: 21
                 }, ("TURBOPACK compile-time value", void 0))
             }, void 0, false, {
                 fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-                lineNumber: 167,
+                lineNumber: 177,
                 columnNumber: 13
             }, ("TURBOPACK compile-time value", void 0))
         ]
     }, void 0, true, {
         fileName: "[project]/src/presentation/pages/LandingPage.tsx",
-        lineNumber: 103,
+        lineNumber: 104,
         columnNumber: 9
     }, ("TURBOPACK compile-time value", void 0));
 };

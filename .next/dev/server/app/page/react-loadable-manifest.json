@@ -2,14 +2,15 @@
   "[project]/src/App.tsx [app-client] (ecmascript, next/dynamic entry)": {
     "id": "[project]/src/App.tsx [app-client] (ecmascript, next/dynamic entry)",
     "files": [
-      "static/chunks/src_presentation_pages_e17a5f59._.js",
-      "static/chunks/src_presentation_components_9b9048f8._.js",
+      "static/chunks/node_modules_ea610e7a._.js",
+      "static/chunks/src_presentation_pages_c9d5858b._.js",
+      "static/chunks/src_presentation_components_e9f5e658._.js",
       "static/chunks/src_presentation_31500952._.js",
-      "static/chunks/src_d6c7fa35._.js",
+      "static/chunks/src_2445241d._.js",
       "static/chunks/node_modules_react-router_dist_development_chunk-4WY6JWTD_mjs_4de964aa._.js",
       "static/chunks/node_modules_framer-motion_dist_es_7048033e._.js",
       "static/chunks/node_modules_motion-dom_dist_es_a3821813._.js",
-      "static/chunks/node_modules_lucide-react_dist_esm_799b818b._.js",
+      "static/chunks/node_modules_lucide-react_dist_esm_8f2bf462._.js",
       "static/chunks/node_modules_recharts_es6_util_1136112b._.js",
       "static/chunks/node_modules_recharts_es6_state_b98ae00d._.js",
       "static/chunks/node_modules_recharts_es6_component_3248c833._.js",
@@ -17,7 +18,18 @@
       "static/chunks/node_modules_recharts_es6_71e0c81a._.js",
       "static/chunks/node_modules_xlsx_xlsx_mjs_fef98e92._.js",
       "static/chunks/node_modules_74ce8697._.js",
-      "static/chunks/src_App_tsx_b8474123._.js"
+      "static/chunks/src_App_tsx_b8474123._.js",
+      "static/chunks/node_modules_04e15e46._.js",
+      "static/chunks/node_modules_99f701e9._.js",
+      "static/chunks/node_modules_jspdf_dist_jspdf_es_min_8603e460.js",
+      "static/chunks/node_modules_html2canvas_dist_html2canvas_6fe6250c.js",
+      "static/chunks/node_modules_html2canvas_dist_html2canvas_7556041c.js",
+      "static/chunks/node_modules_dompurify_dist_purify_es_mjs_61e0c95e._.js",
+      "static/chunks/node_modules_dompurify_dist_purify_es_mjs_7556041c._.js",
+      "static/chunks/node_modules_69103133._.js",
+      "static/chunks/node_modules_canvg_lib_index_es_7556041c.js",
+      "static/chunks/node_modules_jspdf-autotable_dist_jspdf_plugin_autotable_mjs_8e2179b1._.js",
+      "static/chunks/node_modules_jspdf-autotable_dist_jspdf_plugin_autotable_mjs_8603e460._.js"
     ]
   }
 }

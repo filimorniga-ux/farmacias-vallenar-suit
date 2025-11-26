@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePharmaStore } from '../store/useStore';
-import { ShoppingCart, Truck, Users, Clock, Lock, ArrowRight, BarChart3, Building2, Ticket } from 'lucide-react';
+import { ShoppingCart, Truck, Users, Clock, Lock, ArrowRight, BarChart3, Building2, Ticket, MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { EmployeeProfile } from '../../domain/types';
 
@@ -18,9 +18,10 @@ const LandingPage: React.FC = () => {
     // Role mapping based on which card was clicked
     const ROUTE_TO_ROLES: Record<string, string[]> = {
         '/dashboard': ['MANAGER'],                    // Gerencia -> Only Manager
-        '/settings': ['MANAGER', 'ADMIN', 'QF'],     // Administración -> Manager, Admin, QF
+        '/inventory': ['MANAGER', 'QF', 'WAREHOUSE'], // Inventario -> Manager, QF, Warehouse
         '/pos': ['CASHIER', 'QF', 'MANAGER'],        // POS -> Cashiers, QF, Manager
         '/warehouse': ['WAREHOUSE', 'MANAGER'],       // Warehouse -> Warehouse staff, Manager
+        '/network': ['MANAGER'],                      // Network -> Only Manager
     };
 
     // Filter employees based on target route
@@ -28,13 +29,16 @@ const LandingPage: React.FC = () => {
         ? employees.filter(emp => ROUTE_TO_ROLES[targetRoute].includes(emp.role) && emp.status === 'ACTIVE')
         : employees.filter(emp => emp.status === 'ACTIVE');
 
-    const handleCardClick = (route: string) => {
-        // Direct access routes (Kiosks)
-        if (route === '/access' || route === '/queue') {
-            navigate(route);
-            return;
+    // Navigate after successful login (when user state updates)
+    useEffect(() => {
+        if (user && targetRoute) {
+            navigate(targetRoute);
+            setTargetRoute(''); // Clear target route
         }
+    }, [user, targetRoute, navigate]);
 
+    const handleCardClick = (route: string) => {
+        // ALL cards now require login for security
         if (user) {
             navigate(route);
         } else {
@@ -59,7 +63,7 @@ const LandingPage: React.FC = () => {
 
         if (login(selectedEmployee.id, pin)) {
             setIsLoginModalOpen(false);
-            navigate(targetRoute || '/pos');
+            // Navigation will happen via useEffect when user state updates
         } else {
             setError('PIN Incorrecto');
             setPin('');
@@ -123,8 +127,8 @@ const LandingPage: React.FC = () => {
                     title="ADMINISTRACIÓN"
                     icon={Building2}
                     color="bg-gradient-to-br from-blue-500 to-cyan-600"
-                    route="/settings"
-                    desc="Configuración y Gestión"
+                    route="/inventory"
+                    desc="Inventario y Gestión de Stock"
                 />
 
                 {/* POS */}
@@ -143,6 +147,15 @@ const LandingPage: React.FC = () => {
                     color="bg-gradient-to-br from-orange-400 to-red-500"
                     route="/warehouse"
                     desc="Inventario y Operaciones WMS"
+                />
+
+                {/* Network Manager - Only for Managers */}
+                <BentoCard
+                    title="GESTIÓN DE RED"
+                    icon={MapPin}
+                    color="bg-gradient-to-br from-slate-700 to-slate-900"
+                    route="/network"
+                    desc="Sucursales, Equipos y Kioscos"
                 />
 
                 {/* Kioscos & Terminales */}
@@ -231,11 +244,23 @@ const LandingPage: React.FC = () => {
                                     </div>
 
                                     <form onSubmit={handleLogin} className="space-y-6">
+                                        {/* Hidden username for accessibility */}
+                                        <input
+                                            type="text"
+                                            name="username"
+                                            autoComplete="username"
+                                            className="hidden"
+                                            readOnly
+                                            value={selectedEmployee?.rut || ''}
+                                        />
+
                                         <div>
-                                            <label className="block text-center text-sm font-bold text-slate-600 mb-2">
+                                            <label htmlFor="pin-input" className="block text-center text-sm font-bold text-slate-600 mb-2">
                                                 Ingresa tu PIN de 4 dígitos
                                             </label>
                                             <motion.input
+                                                id="pin-input"
+                                                name="pin_access_code"
                                                 key={error} // This will cause re-mount and trigger animation when error changes
                                                 animate={error ? { x: [-10, 10, -10, 10, 0] } : {}}
                                                 transition={{ duration: 0.4 }}
@@ -244,11 +269,9 @@ const LandingPage: React.FC = () => {
                                                 className={`w-full text-center text-4xl tracking-[1em] font-bold py-4 border-b-4 ${error ? 'border-red-500' : 'border-slate-200'} focus:border-cyan-600 focus:outline-none transition-colors text-slate-800 placeholder-slate-300`}
                                                 placeholder="••••"
                                                 value={pin}
-                                                onChange={(e) => {
-                                                    setPin(e.target.value);
-                                                    setError('');
-                                                }}
+                                                onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
                                                 autoFocus
+                                                autoComplete="new-password"
                                             />
                                         </div>
 
