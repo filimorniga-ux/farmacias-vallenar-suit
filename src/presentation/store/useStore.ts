@@ -1,37 +1,37 @@
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { InventoryBatch, EmployeeProfile, SaleItem, Customer, QueueTicket, Supplier, PurchaseOrder, CartItem, SaleTransaction, Expense, CashShift, CashMovement, CashMovementReason, AttendanceLog, AttendanceStatus, StockTransfer, WarehouseIncident, SupplierDocument, SiiConfiguration, SiiCaf, DteDocument, DteTipo } from '../../domain/types';
+import { InventoryBatch, EmployeeProfile, SaleItem, Customer, QueueTicket, Supplier, PurchaseOrder, CartItem, SaleTransaction, Expense, CashShift, CashMovement, CashMovementReason, AttendanceLog, AttendanceStatus, StockTransfer, WarehouseIncident, SupplierDocument, SiiConfiguration, SiiCaf, DteDocument, DteTipo, PrinterConfig } from '../../domain/types';
 import { fetchInventory, fetchEmployees } from '../../actions/sync';
 
 // --- DATOS REALES FARMACIAS VALLENAR ---
 const MOCK_INVENTORY: InventoryBatch[] = [
     // --- TOP VENTAS & CRÓNICOS ---
-    { id: 'P001', sku: '780001', name: 'PARACETAMOL 500MG', dci: 'PARACETAMOL', laboratory: 'Lab Chile', condition: 'VD', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'GÓNDOLA', stock_actual: 2000, stock_min: 200, stock_max: 3000, expiry_date: new Date('2026-12-01').getTime(), price: 990, cost_price: 400, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Paracetamol'] },
-    { id: 'P002', sku: '780002', name: 'LOSARTÁN 50MG', dci: 'LOSARTÁN POTÁSICO', laboratory: 'Lab Chile', condition: 'R', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'ESTANTE A1', stock_actual: 500, stock_min: 100, stock_max: 800, expiry_date: new Date('2025-06-01').getTime(), price: 2990, cost_price: 1000, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Losartán Potásico'] },
-    { id: 'P003', sku: '780003', name: 'IBUPROFENO 600MG', dci: 'IBUPROFENO', laboratory: 'Lab Chile', condition: 'VD', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'ESTANTE A2', stock_actual: 800, stock_min: 100, stock_max: 1200, expiry_date: new Date('2026-01-01').getTime(), price: 1990, cost_price: 600, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Ibuprofeno'] },
-    { id: 'P004', sku: '780004', name: 'EUTIROX 100MCG', dci: 'LEVOTIROXINA', laboratory: 'Merck', condition: 'R', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'ESTANTE B1', stock_actual: 150, stock_min: 30, stock_max: 300, expiry_date: new Date('2025-10-01').getTime(), price: 8500, cost_price: 3500, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Levotiroxina'] },
+    { id: 'P001', sku: '780001', name: 'PARACETAMOL 500MG', dci: 'PARACETAMOL', laboratory: 'Lab Chile', condition: 'VD', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'GÓNDOLA', stock_actual: 2000, stock_min: 200, stock_max: 3000, expiry_date: new Date('2026-12-01').getTime(), price: 990, cost_price: 400, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Paracetamol'], therapeutic_tags: ['DOLOR', 'FIEBRE', 'CABEZA'], storage_condition: 'AMBIENTE' },
+    { id: 'P002', sku: '780002', name: 'LOSARTÁN 50MG', dci: 'LOSARTÁN POTÁSICO', laboratory: 'Lab Chile', condition: 'R', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'ESTANTE A1', stock_actual: 500, stock_min: 100, stock_max: 800, expiry_date: new Date('2025-06-01').getTime(), price: 2990, cost_price: 1000, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Losartán Potásico'], therapeutic_tags: ['HIPERTENSION', 'CORAZON'], contraindications: ['EMBARAZO'], storage_condition: 'AMBIENTE' },
+    { id: 'P003', sku: '780003', name: 'IBUPROFENO 600MG', dci: 'IBUPROFENO', laboratory: 'Lab Chile', condition: 'VD', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'ESTANTE A2', stock_actual: 800, stock_min: 100, stock_max: 1200, expiry_date: new Date('2026-01-01').getTime(), price: 1990, cost_price: 600, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Ibuprofeno'], therapeutic_tags: ['DOLOR', 'INFLAMACION', 'CABEZA'], contraindications: ['ULCERA', 'EMBARAZO'], storage_condition: 'AMBIENTE' },
+    { id: 'P004', sku: '780004', name: 'EUTIROX 100MCG', dci: 'LEVOTIROXINA', laboratory: 'Merck', condition: 'R', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'ESTANTE B1', stock_actual: 150, stock_min: 30, stock_max: 300, expiry_date: new Date('2025-10-01').getTime(), price: 8500, cost_price: 3500, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Levotiroxina'], therapeutic_tags: ['TIROIDES'], storage_condition: 'AMBIENTE' },
 
     // --- CONTROLADOS (Receta Retenida / Cheque) ---
-    { id: 'C001', sku: 'CTRL-01', name: 'ZOPICLONA 7.5MG', dci: 'ZOPICLONA', laboratory: 'Saval', condition: 'RR', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'SEGURIDAD', stock_actual: 60, stock_min: 20, stock_max: 100, expiry_date: new Date('2025-08-01').getTime(), price: 4500, cost_price: 2000, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Zopiclona'] },
-    { id: 'C002', sku: 'CTRL-02', name: 'RAVOTRIL 2MG', dci: 'CLONAZEPAM', laboratory: 'Roche', condition: 'RCH', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'CAJA FUERTE', stock_actual: 15, stock_min: 5, stock_max: 30, expiry_date: new Date('2025-12-01').getTime(), price: 12900, cost_price: 6000, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Clonazepam'] },
-    { id: 'C003', sku: 'CTRL-03', name: 'TRAMADOL GOTAS', dci: 'TRAMADOL', laboratory: 'Mintlab', condition: 'RR', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'SEGURIDAD', stock_actual: 30, stock_min: 10, stock_max: 60, expiry_date: new Date('2026-02-01').getTime(), price: 3500, cost_price: 1500, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Tramadol'] },
+    { id: 'C001', sku: 'CTRL-01', name: 'ZOPICLONA 7.5MG', dci: 'ZOPICLONA', laboratory: 'Saval', condition: 'RR', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'SEGURIDAD', stock_actual: 60, stock_min: 20, stock_max: 100, expiry_date: new Date('2025-08-01').getTime(), price: 4500, cost_price: 2000, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Zopiclona'], therapeutic_tags: ['INSOMNIO', 'DORMIR'], storage_condition: 'CONTROLADO' },
+    { id: 'C002', sku: 'CTRL-02', name: 'RAVOTRIL 2MG', dci: 'CLONAZEPAM', laboratory: 'Roche', condition: 'RCH', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'CAJA FUERTE', stock_actual: 15, stock_min: 5, stock_max: 30, expiry_date: new Date('2025-12-01').getTime(), price: 12900, cost_price: 6000, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Clonazepam'], therapeutic_tags: ['ANSIEDAD', 'PANIICO'], storage_condition: 'CONTROLADO' },
+    { id: 'C003', sku: 'CTRL-03', name: 'TRAMADOL GOTAS', dci: 'TRAMADOL', laboratory: 'Mintlab', condition: 'RR', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'SEGURIDAD', stock_actual: 30, stock_min: 10, stock_max: 60, expiry_date: new Date('2026-02-01').getTime(), price: 3500, cost_price: 1500, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Tramadol'], therapeutic_tags: ['DOLOR', 'FUERTE'], storage_condition: 'CONTROLADO' },
 
     // --- CADENA DE FRÍO ---
-    { id: 'F001', sku: 'FRIO-01', name: 'INSULINA NPH', dci: 'INSULINA HUMANA', laboratory: 'Novo Nordisk', condition: 'R', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'REFRI-01', stock_actual: 25, stock_min: 10, stock_max: 50, expiry_date: new Date('2025-04-01').getTime(), price: 15990, cost_price: 8000, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Insulina Humana'] },
-    { id: 'F002', sku: 'FRIO-02', name: 'INSULINA GLARGINA', dci: 'INSULINA', laboratory: 'Sanofi', condition: 'R', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'REFRI-01', stock_actual: 10, stock_min: 5, stock_max: 25, expiry_date: new Date('2025-05-01').getTime(), price: 25000, cost_price: 12000, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Insulina Glargina'] },
+    { id: 'F001', sku: 'FRIO-01', name: 'INSULINA NPH', dci: 'INSULINA HUMANA', laboratory: 'Novo Nordisk', condition: 'R', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'REFRI-01', stock_actual: 25, stock_min: 10, stock_max: 50, expiry_date: new Date('2025-04-01').getTime(), price: 15990, cost_price: 8000, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Insulina Humana'], therapeutic_tags: ['DIABETES'], storage_condition: 'REFRIGERADO' },
+    { id: 'F002', sku: 'FRIO-02', name: 'INSULINA GLARGINA', dci: 'INSULINA', laboratory: 'Sanofi', condition: 'R', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'REFRI-01', stock_actual: 10, stock_min: 5, stock_max: 25, expiry_date: new Date('2025-05-01').getTime(), price: 25000, cost_price: 12000, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Insulina Glargina'], therapeutic_tags: ['DIABETES'], storage_condition: 'REFRIGERADO' },
 
     // --- LAB CHILE & GENÉRICOS ---
-    { id: 'G001', sku: 'LC-001', name: 'ACICLOVIR 200MG', dci: 'ACICLOVIR', laboratory: 'Lab Chile', condition: 'R', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'GENERICOS-A', stock_actual: 100, stock_min: 20, stock_max: 200, expiry_date: new Date('2026-03-01').getTime(), price: 2167, cost_price: 800, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Aciclovir'] },
-    { id: 'G002', sku: 'LC-002', name: 'NAPROXENO 550MG', dci: 'NAPROXENO', laboratory: 'Lab Chile', condition: 'VD', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'GENERICOS-N', stock_actual: 120, stock_min: 30, stock_max: 250, expiry_date: new Date('2026-07-01').getTime(), price: 1208, cost_price: 500, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Naproxeno'] },
-    { id: 'G003', sku: 'LC-003', name: 'OMEPRAZOL 20MG', dci: 'OMEPRAZOL', laboratory: 'Lab Chile', condition: 'VD', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'GENERICOS-O', stock_actual: 500, stock_min: 100, stock_max: 800, expiry_date: new Date('2026-09-01').getTime(), price: 893, cost_price: 350, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Omeprazol'] },
-    { id: 'G004', sku: 'LC-004', name: 'KITADOL 1000MG', dci: 'PARACETAMOL', laboratory: 'Lab Chile', condition: 'VD', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'INFANTIL', stock_actual: 80, stock_min: 20, stock_max: 150, expiry_date: new Date('2026-01-01').getTime(), price: 5295, cost_price: 2000, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Paracetamol'] },
+    { id: 'G001', sku: 'LC-001', name: 'ACICLOVIR 200MG', dci: 'ACICLOVIR', laboratory: 'Lab Chile', condition: 'R', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'GENERICOS-A', stock_actual: 100, stock_min: 20, stock_max: 200, expiry_date: new Date('2026-03-01').getTime(), price: 2167, cost_price: 800, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Aciclovir'], therapeutic_tags: ['HERPES', 'VIRUS'], storage_condition: 'AMBIENTE' },
+    { id: 'G002', sku: 'LC-002', name: 'NAPROXENO 550MG', dci: 'NAPROXENO', laboratory: 'Lab Chile', condition: 'VD', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'GENERICOS-N', stock_actual: 120, stock_min: 30, stock_max: 250, expiry_date: new Date('2026-07-01').getTime(), price: 1208, cost_price: 500, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Naproxeno'], therapeutic_tags: ['DOLOR', 'INFLAMACION'], storage_condition: 'AMBIENTE' },
+    { id: 'G003', sku: 'LC-003', name: 'OMEPRAZOL 20MG', dci: 'OMEPRAZOL', laboratory: 'Lab Chile', condition: 'VD', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'GENERICOS-O', stock_actual: 500, stock_min: 100, stock_max: 800, expiry_date: new Date('2026-09-01').getTime(), price: 893, cost_price: 350, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Omeprazol'], therapeutic_tags: ['ESTOMAGO', 'ACIDEZ'], storage_condition: 'AMBIENTE' },
+    { id: 'G004', sku: 'LC-004', name: 'KITADOL 1000MG', dci: 'PARACETAMOL', laboratory: 'Lab Chile', condition: 'VD', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'INFANTIL', stock_actual: 80, stock_min: 20, stock_max: 150, expiry_date: new Date('2026-01-01').getTime(), price: 5295, cost_price: 2000, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Paracetamol'], therapeutic_tags: ['DOLOR', 'FIEBRE', 'NIÑOS'], storage_condition: 'AMBIENTE' },
 
     // --- RETAIL & COMISIONABLES (LEY ANTI-CANELA: TRUE) ---
-    { id: 'R001', sku: 'RET-01', name: 'MAAM CREMA PRENATAL', dci: 'COSMETICO', laboratory: 'Maam', brand: 'Maam', condition: 'VD', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'BELLEZA', stock_actual: 40, stock_min: 10, stock_max: 80, expiry_date: new Date('2027-01-01').getTime(), price: 15847, cost_price: 8000, category: 'RETAIL_BELLEZA', allows_commission: true, active_ingredients: [], image_url: '/images/maam.jpg' },
-    { id: 'R002', sku: 'RET-02', name: 'SIMILAC 1 FÓRMULA', dci: 'ALIMENTO', laboratory: 'Abbott', brand: 'Similac', condition: 'VD', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'MATERNIDAD', stock_actual: 20, stock_min: 5, stock_max: 50, expiry_date: new Date('2025-02-01').getTime(), price: 22990, cost_price: 12000, category: 'RETAIL_BELLEZA', allows_commission: true, active_ingredients: [] },
-    { id: 'R003', sku: 'RET-03', name: 'EUCERIN PROTECTOR 50+', dci: 'COSMETICO', laboratory: 'Eucerin', brand: 'Eucerin', condition: 'VD', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'SOLARES', stock_actual: 30, stock_min: 5, stock_max: 60, expiry_date: new Date('2027-05-01').getTime(), price: 18990, cost_price: 10000, category: 'RETAIL_BELLEZA', allows_commission: true, active_ingredients: [] },
-    { id: 'R004', sku: 'RET-04', name: 'LAUNOL SHAMPOO', dci: 'PEDICULICIDA', laboratory: 'Launol', brand: 'Launol', condition: 'VD', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'CAPILAR', stock_actual: 25, stock_min: 5, stock_max: 50, expiry_date: new Date('2026-11-01').getTime(), price: 5528, cost_price: 2500, category: 'RETAIL_BELLEZA', allows_commission: true, active_ingredients: [] }
+    { id: 'R001', sku: 'RET-01', name: 'MAAM CREMA PRENATAL', dci: 'COSMETICO', laboratory: 'Maam', brand: 'Maam', condition: 'VD', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'BELLEZA', stock_actual: 40, stock_min: 10, stock_max: 80, expiry_date: new Date('2027-01-01').getTime(), price: 15847, cost_price: 8000, category: 'RETAIL_BELLEZA', allows_commission: true, active_ingredients: [], image_url: '/images/maam.jpg', storage_condition: 'AMBIENTE' },
+    { id: 'R002', sku: 'RET-02', name: 'SIMILAC 1 FÓRMULA', dci: 'ALIMENTO', laboratory: 'Abbott', brand: 'Similac', condition: 'VD', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'MATERNIDAD', stock_actual: 20, stock_min: 5, stock_max: 50, expiry_date: new Date('2025-02-01').getTime(), price: 22990, cost_price: 12000, category: 'RETAIL_BELLEZA', allows_commission: true, active_ingredients: [], storage_condition: 'AMBIENTE' },
+    { id: 'R003', sku: 'RET-03', name: 'EUCERIN PROTECTOR 50+', dci: 'COSMETICO', laboratory: 'Eucerin', brand: 'Eucerin', condition: 'VD', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'SOLARES', stock_actual: 30, stock_min: 5, stock_max: 60, expiry_date: new Date('2027-05-01').getTime(), price: 18990, cost_price: 10000, category: 'RETAIL_BELLEZA', allows_commission: true, active_ingredients: [], storage_condition: 'AMBIENTE' },
+    { id: 'R004', sku: 'RET-04', name: 'LAUNOL SHAMPOO', dci: 'PEDICULICIDA', laboratory: 'Launol', brand: 'Launol', condition: 'VD', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'CAPILAR', stock_actual: 25, stock_min: 5, stock_max: 50, expiry_date: new Date('2026-11-01').getTime(), price: 5528, cost_price: 2500, category: 'RETAIL_BELLEZA', allows_commission: true, active_ingredients: [], storage_condition: 'AMBIENTE' }
 ];
 
 const MOCK_EMPLOYEES: EmployeeProfile[] = [
@@ -43,7 +43,7 @@ const MOCK_EMPLOYEES: EmployeeProfile[] = [
         access_pin: '0000',
         status: 'ACTIVE',
         current_status: 'OUT',
-        job_title: 'Gerente General',
+        job_title: 'GERENTE_GENERAL',
         base_salary: 2500000,
         weekly_hours: 44,
         pension_fund: 'HABITAT',
@@ -59,7 +59,7 @@ const MOCK_EMPLOYEES: EmployeeProfile[] = [
         access_pin: '1234',
         status: 'ACTIVE',
         current_status: 'OUT',
-        job_title: 'Director Técnico',
+        job_title: 'DIRECTOR_TECNICO',
         base_salary: 1800000,
         weekly_hours: 44,
         pension_fund: 'MODELO',
@@ -74,7 +74,7 @@ const MOCK_EMPLOYEES: EmployeeProfile[] = [
         access_pin: '1111',
         status: 'ACTIVE',
         current_status: 'OUT',
-        job_title: 'Cajero Vendedor',
+        job_title: 'CAJERO_VENDEDOR',
         base_salary: 500000,
         weekly_hours: 45,
         pension_fund: 'PROVIDA',
@@ -89,7 +89,7 @@ const MOCK_EMPLOYEES: EmployeeProfile[] = [
         access_pin: '2222',
         status: 'ACTIVE',
         current_status: 'OUT',
-        job_title: 'Asistente de Bodega',
+        job_title: 'ASISTENTE_BODEGA',
         base_salary: 550000,
         weekly_hours: 45,
         pension_fund: 'CAPITAL',
@@ -182,9 +182,16 @@ interface PharmaState {
     clearCart: () => void;
     processSale: (paymentMethod: string, customer?: Customer) => void;
 
+    // Inventory Actions
+    updateProduct: (id: string, data: Partial<InventoryBatch>) => void;
+
+    // Printer & Hardware
+    printerConfig: PrinterConfig;
+    updatePrinterConfig: (config: Partial<PrinterConfig>) => void;
+
     // CRM
     customers: Customer[];
-    addCustomer: (customer: Omit<Customer, 'id' | 'totalPoints' | 'lastVisit' | 'name' | 'age' | 'health_tags'>) => Customer;
+    addCustomer: (customer: Omit<Customer, 'id' | 'totalPoints' | 'lastVisit' | 'health_tags' | 'name' | 'age'>) => Customer;
     updateCustomer: (id: string, data: Partial<Customer>) => void;
 
     // BI & Reports
@@ -197,6 +204,7 @@ interface PharmaState {
     cashMovements: CashMovement[];
     openShift: (amount: number) => void;
     closeShift: (finalAmount: number) => void;
+    updateOpeningAmount: (newAmount: number) => void;
     registerCashMovement: (movement: Omit<CashMovement, 'id' | 'timestamp' | 'shift_id' | 'user_id'>) => void;
     getShiftMetrics: () => {
         totalSales: number;
@@ -221,7 +229,7 @@ interface PharmaState {
 
     // Queue
     tickets: QueueTicket[];
-    generateTicket: (rut?: string) => QueueTicket;
+    generateTicket: (rut?: string, branch_id?: string) => QueueTicket;
     callNextTicket: () => QueueTicket | null;
 
     // SII (Facturación Electrónica)
@@ -265,7 +273,12 @@ export const usePharmaStore = create<PharmaState>()(
                     if (inventory.length > 0) set({ inventory });
                     if (employees.length > 0) set({ employees });
 
-                    console.log('Data Synced:', { inventoryCount: inventory.length, employeeCount: employees.length });
+                    const state = get();
+                    console.log('Data Synced:', {
+                        inventoryCount: state.inventory.length,
+                        employeeCount: state.employees.length,
+                        source: inventory.length > 0 ? 'DB' : 'MOCK/CACHE'
+                    });
                 } catch (error) {
                     console.error('Sync failed:', error);
                 } finally {
@@ -358,26 +371,46 @@ export const usePharmaStore = create<PharmaState>()(
             // --- POS ---
             cart: [],
             currentCustomer: null,
+            // Printer Config
+            printerConfig: {
+                auto_print_sale: true,
+                auto_print_cash: true,
+                auto_print_queue: true,
+                header_text: 'FARMACIAS VALLENAR SUIT',
+                footer_text: 'Gracias por su preferencia'
+            },
+            updatePrinterConfig: (config) => set((state) => ({
+                printerConfig: { ...state.printerConfig, ...config }
+            })),
+
+            // Actions Implementation
             setCustomer: (customer) => set({ currentCustomer: customer }),
-            addToCart: (batch, quantity) => set((state) => {
-                const existingItem = state.cart.find(i => i.sku === batch.sku);
+            // --- ACTIONS ---
+            updateProduct: (id: string, data: Partial<InventoryBatch>) => set((state) => ({
+                inventory: state.inventory.map(item =>
+                    item.id === id ? { ...item, ...data } : item
+                )
+            })),
+
+            addToCart: (item, quantity = 1) => set((state) => {
+                const existingItem = state.cart.find(i => i.id === item.id);
                 if (existingItem) {
                     return {
-                        cart: state.cart.map(i => i.sku === batch.sku ? { ...i, quantity: i.quantity + quantity } : i)
+                        cart: state.cart.map(i =>
+                            i.id === item.id ? { ...i, quantity: i.quantity + quantity } : i
+                        )
                     };
                 }
-                return {
-                    cart: [...state.cart, {
-                        id: batch.id,
-                        batch_id: batch.id,
-                        sku: batch.sku,
-                        name: batch.name,
-                        price: batch.price,
-                        quantity: quantity,
-                        allows_commission: batch.allows_commission,
-                        active_ingredients: batch.active_ingredients
-                    }]
+                const newItem: CartItem = {
+                    id: item.id,
+                    sku: item.sku,
+                    name: item.name,
+                    price: item.price,
+                    quantity: quantity,
+                    allows_commission: item.allows_commission,
+                    active_ingredients: item.active_ingredients
                 };
+                return { cart: [...state.cart, newItem] };
             }),
             addManualItem: (item) => set((state) => ({
                 cart: [...state.cart, {
@@ -449,13 +482,13 @@ export const usePharmaStore = create<PharmaState>()(
             ],
             addCustomer: (data) => {
                 const newCustomer: Customer = {
-                    id: `C-${Date.now()}`,
                     ...data,
-                    name: data.fullName, // Alias
+                    id: `CUST-${Date.now()}`,
                     totalPoints: 0,
                     lastVisit: Date.now(),
-                    age: 0, // Default
-                    health_tags: [] // Default
+                    health_tags: [],
+                    name: data.fullName, // Legacy support
+                    age: 0 // Default
                 };
                 set((state) => ({ customers: [...state.customers, newCustomer] }));
                 return newCustomer;
@@ -495,6 +528,15 @@ export const usePharmaStore = create<PharmaState>()(
                         status: 'CLOSED',
                         closing_amount: finalAmount,
                         difference: finalAmount - metrics.expectedCash
+                    }
+                };
+            }),
+            updateOpeningAmount: (newAmount) => set((state) => {
+                if (!state.currentShift) return state;
+                return {
+                    currentShift: {
+                        ...state.currentShift,
+                        opening_amount: newAmount
                     }
                 };
             }),
@@ -706,32 +748,29 @@ export const usePharmaStore = create<PharmaState>()(
 
             // --- Queue ---
             tickets: [],
-            generateTicket: (rut) => {
-                const state = get();
-                // Check if customer exists to personalize ticket
-                // const customer = rut ? state.customers.find(c => c.rut === rut) : null;
-
-                const newTicket: QueueTicket = {
-                    id: Math.random().toString(36).substr(2, 9),
-                    number: `A-${String(state.tickets.length + 1).padStart(3, '0')}`,
+            generateTicket: (rut = 'ANON', branch_id = 'SUC-CENTRO') => {
+                const ticket: QueueTicket = {
+                    id: `T-${Date.now()}`,
+                    number: `A-${Math.floor(Math.random() * 100)}`,
                     status: 'WAITING',
                     rut,
-                    timestamp: Date.now()
+                    timestamp: Date.now(),
+                    branch_id // Default, should be dynamic in real app
                 };
-
-                set((state) => ({ tickets: [...state.tickets, newTicket] }));
-                return newTicket;
+                set((state) => ({ tickets: [...state.tickets, ticket] }));
+                return ticket;
             },
             callNextTicket: () => {
                 const state = get();
                 const nextTicket = state.tickets.find(t => t.status === 'WAITING');
-                if (nextTicket) {
-                    set((state) => ({
-                        tickets: state.tickets.map(t => t.id === nextTicket.id ? { ...t, status: 'CALLING' } : t)
-                    }));
-                    return nextTicket;
-                }
-                return null;
+                if (!nextTicket) return null;
+
+                const updatedTickets = state.tickets.map(t =>
+                    t.id === nextTicket.id ? { ...t, status: 'CALLED' as const } : t
+                );
+
+                set({ tickets: updatedTickets });
+                return nextTicket;
             },
 
             // --- SII ---

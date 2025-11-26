@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Users, UserPlus, Search, Shield, Briefcase, FileText, Activity, Save, X, Lock } from 'lucide-react';
 import { usePharmaStore } from '../store/useStore';
+import { useLocationStore } from '../store/useLocationStore';
 import { ROLES, Role, Permission } from '../../domain/security/roles';
 import { EmployeeProfile } from '../../domain/types';
 
@@ -56,6 +57,7 @@ const HRPage = () => {
                             access_pin: '',
                             status: 'ACTIVE',
                             current_status: 'OUT',
+                            job_title: 'CAJERO_VENDEDOR', // Default
                             allowed_modules: []
                         } as EmployeeProfile);
                         setIsEditing(true);
@@ -92,7 +94,8 @@ const HRPage = () => {
                                 <div className="flex justify-between items-start">
                                     <div>
                                         <h3 className="font-bold text-slate-800">{emp.name}</h3>
-                                        <p className="text-xs text-slate-500">{emp.job_title || ROLES[emp.role]}</p>
+                                        <p className="text-xs text-slate-500 font-bold">{emp.job_title?.replace(/_/g, ' ')}</p>
+                                        <p className="text-[10px] text-slate-400">Rol: {ROLES[emp.role]}</p>
                                     </div>
                                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${emp.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                                         {emp.status}
@@ -152,15 +155,15 @@ const HRPage = () => {
                                         <div className="grid grid-cols-2 gap-4">
                                             <div>
                                                 <label className="block text-xs font-bold text-slate-500 mb-1">Nombre Completo</label>
-                                                <input type="text" className="w-full p-2 border border-slate-200 rounded-lg text-sm" value={selectedEmployee.name} onChange={e => setSelectedEmployee({ ...selectedEmployee, name: e.target.value })} />
+                                                <input type="text" autoComplete="name" className="w-full p-2 border border-slate-200 rounded-lg text-sm" value={selectedEmployee.name} onChange={e => setSelectedEmployee({ ...selectedEmployee, name: e.target.value })} />
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-bold text-slate-500 mb-1">RUT</label>
-                                                <input type="text" className="w-full p-2 border border-slate-200 rounded-lg text-sm" value={selectedEmployee.rut} onChange={e => setSelectedEmployee({ ...selectedEmployee, rut: e.target.value })} />
+                                                <input type="text" autoComplete="off" className="w-full p-2 border border-slate-200 rounded-lg text-sm" value={selectedEmployee.rut} onChange={e => setSelectedEmployee({ ...selectedEmployee, rut: e.target.value })} />
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-bold text-slate-500 mb-1">Teléfono Contacto</label>
-                                                <input type="text" className="w-full p-2 border border-slate-200 rounded-lg text-sm" value={selectedEmployee.contact_phone || ''} onChange={e => setSelectedEmployee({ ...selectedEmployee, contact_phone: e.target.value })} />
+                                                <input type="text" autoComplete="tel" className="w-full p-2 border border-slate-200 rounded-lg text-sm" value={selectedEmployee.contact_phone || ''} onChange={e => setSelectedEmployee({ ...selectedEmployee, contact_phone: e.target.value })} />
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-bold text-slate-500 mb-1">Estado</label>
@@ -179,7 +182,7 @@ const HRPage = () => {
                                             <div className="grid grid-cols-3 gap-2">
                                                 <input type="text" placeholder="Nombre" className="p-2 border border-orange-200 rounded-lg text-xs" value={selectedEmployee.emergency_contact?.name || ''} onChange={e => setSelectedEmployee({ ...selectedEmployee, emergency_contact: { ...selectedEmployee.emergency_contact!, name: e.target.value } })} />
                                                 <input type="text" placeholder="Relación" className="p-2 border border-orange-200 rounded-lg text-xs" value={selectedEmployee.emergency_contact?.relation || ''} onChange={e => setSelectedEmployee({ ...selectedEmployee, emergency_contact: { ...selectedEmployee.emergency_contact!, relation: e.target.value } })} />
-                                                <input type="text" placeholder="Teléfono" className="p-2 border border-orange-200 rounded-lg text-xs" value={selectedEmployee.emergency_contact?.phone || ''} onChange={e => setSelectedEmployee({ ...selectedEmployee, emergency_contact: { ...selectedEmployee.emergency_contact!, phone: e.target.value } })} />
+                                                <input type="text" placeholder="Teléfono" autoComplete="tel" className="p-2 border border-orange-200 rounded-lg text-xs" value={selectedEmployee.emergency_contact?.phone || ''} onChange={e => setSelectedEmployee({ ...selectedEmployee, emergency_contact: { ...selectedEmployee.emergency_contact!, phone: e.target.value } })} />
                                             </div>
                                         </div>
                                     </div>
@@ -192,8 +195,23 @@ const HRPage = () => {
                                         </h3>
                                         <div className="grid grid-cols-2 gap-4">
                                             <div>
-                                                <label className="block text-xs font-bold text-slate-500 mb-1">Cargo</label>
-                                                <input type="text" className="w-full p-2 border border-slate-200 rounded-lg text-sm" value={selectedEmployee.job_title || ''} onChange={e => setSelectedEmployee({ ...selectedEmployee, job_title: e.target.value })} />
+                                                <label className="block text-xs font-bold text-slate-500 mb-1">Cargo Contractual</label>
+                                                <select
+                                                    className="w-full p-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-700"
+                                                    value={selectedEmployee.job_title || ''}
+                                                    onChange={e => setSelectedEmployee({ ...selectedEmployee, job_title: e.target.value as any })}
+                                                >
+                                                    <option value="">Seleccionar Cargo...</option>
+                                                    <option value="QUIMICO_FARMACEUTICO">Químico Farmacéutico</option>
+                                                    <option value="AUXILIAR_FARMACIA">Auxiliar de Farmacia</option>
+                                                    <option value="CAJERO_VENDEDOR">Cajero Vendedor</option>
+                                                    <option value="BODEGUERO">Bodeguero</option>
+                                                    <option value="ASISTENTE_BODEGA">Asistente de Bodega</option>
+                                                    <option value="ADMINISTRATIVO">Administrativo</option>
+                                                    <option value="GERENTE_GENERAL">Gerente General</option>
+                                                    <option value="DIRECTOR_TECNICO">Director Técnico</option>
+                                                    <option value="ALUMNO_PRACTICA">Alumno en Práctica</option>
+                                                </select>
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-bold text-slate-500 mb-1">Sueldo Base (CLP)</label>
@@ -254,9 +272,24 @@ const HRPage = () => {
                                                     </select>
                                                     <p className="text-[10px] text-slate-400 mt-1">Define los permisos base del usuario.</p>
                                                 </div>
+
+                                                <div>
+                                                    <label className="block text-xs font-bold text-slate-500 mb-1">Sucursal Base</label>
+                                                    <select
+                                                        className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+                                                        value={selectedEmployee.base_location_id || ''}
+                                                        onChange={e => setSelectedEmployee({ ...selectedEmployee, base_location_id: e.target.value })}
+                                                    >
+                                                        <option value="">Sin Asignar</option>
+                                                        {useLocationStore.getState().locations.map(loc => (
+                                                            <option key={loc.id} value={loc.id}>{loc.name}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+
                                                 <div>
                                                     <label className="block text-xs font-bold text-slate-500 mb-1">PIN de Acceso (4 dígitos)</label>
-                                                    <input type="password" maxLength={4} className="w-full p-2 border border-slate-200 rounded-lg text-sm font-mono tracking-widest" value={selectedEmployee.access_pin} onChange={e => setSelectedEmployee({ ...selectedEmployee, access_pin: e.target.value })} />
+                                                    <input type="password" maxLength={4} autoComplete="new-password" className="w-full p-2 border border-slate-200 rounded-lg text-sm font-mono tracking-widest" value={selectedEmployee.access_pin} onChange={e => setSelectedEmployee({ ...selectedEmployee, access_pin: e.target.value })} />
                                                 </div>
                                             </div>
 

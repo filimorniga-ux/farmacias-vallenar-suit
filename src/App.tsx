@@ -4,9 +4,11 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation, Link } from 'react
 import { AnimatePresence, motion } from 'framer-motion';
 import { LayoutDashboard, ShoppingCart, Users, Settings, LogOut, Menu, X, Stethoscope, Package, Briefcase, BarChart3, Truck, UserCircle, Clock, Building2 } from 'lucide-react';
 import { usePharmaStore } from './presentation/store/useStore';
+import { Toaster } from 'sonner';
 
 // Pages
 import LandingPage from './presentation/pages/LandingPage';
+import DashboardPage from './presentation/pages/DashboardPage';
 import POSMainScreen from './presentation/components/POSMainScreen';
 import SupplyChainPage from './presentation/pages/SupplyChainPage';
 import QueueKioskPage from './presentation/pages/QueueKioskPage';
@@ -136,14 +138,16 @@ const App: React.FC = () => {
 
     return (
         <BrowserRouter>
+            <Toaster position="top-center" richColors />
             <Routes>
                 {/* Public Routes */}
                 <Route path="/" element={<LandingPage />} />
                 <Route path="/kiosk" element={<AttendanceKioskPage />} />
                 <Route path="/access" element={<AccessControlPage />} />
+                <Route path="/queue" element={<QueueKioskPage />} />
 
                 {/* Protected Routes */}
-                <Route path="/dashboard" element={<ProtectedRoute><POSMainScreen /></ProtectedRoute>} /> {/* Assuming POSMainScreen is the dashboard for now */}
+                <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
                 <Route path="/pos" element={<ProtectedRoute><POSMainScreen /></ProtectedRoute>} />
                 <Route path="/inventory" element={<ProtectedRoute><InventoryPage /></ProtectedRoute>} />
                 <Route path="/warehouse" element={<ProtectedRoute><WarehouseOps /></ProtectedRoute>} />

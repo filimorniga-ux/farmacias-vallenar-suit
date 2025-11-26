@@ -43,18 +43,19 @@ export async function fetchEmployees(): Promise<EmployeeProfile[]> {
 
         return res.rows.map((row: any) => ({
             id: row.id?.toString() || `EMP-${Math.random()}`,
-            rut: row.rut || 'UNKNOWN',
-            name: row.nombre || row.name || 'Sin Nombre',
-            role: row.rol || 'CASHIER', // Default to safest role
+            rut: row.rut || 'SIN-RUT',
+            name: row.name || 'Usuario Sistema',
+            role: row.role || 'CASHIER',
             access_pin: row.pin || '0000',
+            status: row.status || 'ACTIVE',
+            current_status: 'OUT',
+            job_title: 'CAJERO_VENDEDOR', // Default for sync
             labor_data: {
-                base_salary: parseFloat(row.base_salary),
-                afp: row.afp,
-                isapre: row.isapre,
-                contract_hours: 45 // Default to 45 hours
-            },
-            status: row.status,
-            current_status: 'OUT' // Default status
+                base_salary: 500000,
+                afp: 'MODELO',
+                isapre: 'FONASA',
+                contract_hours: 45
+            }
         }));
     } catch (error) {
         console.error('Error fetching employees:', error);

@@ -1,15 +1,34 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { usePharmaStore } from '../store/useStore';
-import { Ticket, User, ArrowRight, UserPlus } from 'lucide-react';
+import { Ticket, User, ArrowRight, UserPlus, Settings, Printer } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { PrinterService } from '../../domain/services/PrinterService';
 
 const QueueKioskPage: React.FC = () => {
-    const { generateTicket, customers, addCustomer } = usePharmaStore();
+    const { generateTicket, customers, addCustomer, printerConfig } = usePharmaStore();
     const [rut, setRut] = useState('');
     const [name, setName] = useState('');
-    const [step, setStep] = useState<'RUT' | 'NAME' | 'TICKET'>('RUT');
+    const [step, setStep] = useState<'SETUP' | 'RUT' | 'NAME' | 'TICKET'>('RUT');
     const [ticket, setTicket] = useState<any>(null);
     const [customerName, setCustomerName] = useState('');
+    const [branchId, setBranchId] = useState('');
+
+    // Load Branch Config
+    useEffect(() => {
+        const storedBranch = localStorage.getItem('kiosk_branch_id');
+        if (storedBranch) {
+            setBranchId(storedBranch);
+            setStep('RUT');
+        } else {
+            setStep('SETUP');
+        }
+    }, []);
+
+    const handleSetup = (selectedBranch: string) => {
+        localStorage.setItem('kiosk_branch_id', selectedBranch);
+        setBranchId(selectedBranch);
+        setStep('RUT');
+    };
 
     const handleNumberClick = (num: string) => {
         if (rut.length < 12) {
@@ -37,9 +56,7 @@ const QueueKioskPage: React.FC = () => {
 
         if (existingCustomer) {
             setCustomerName(existingCustomer.fullName);
-            const newTicket = generateTicket(rut);
-            setTicket(newTicket);
-            setStep('TICKET');
+            generateAndPrintTicket(rut);
         } else {
             setStep('NAME'); // Ask for name to register
         }
@@ -56,15 +73,20 @@ const QueueKioskPage: React.FC = () => {
         });
 
         setCustomerName(name);
-        const newTicket = generateTicket(rut);
-        setTicket(newTicket);
-        setStep('TICKET');
+        generateAndPrintTicket(rut);
     };
 
     const handleSkipRegister = () => {
-        const newTicket = generateTicket(); // Anonymous
+        generateAndPrintTicket('ANON');
+    };
+
+    const generateAndPrintTicket = (userRut: string) => {
+        const newTicket = generateTicket(userRut, branchId);
         setTicket(newTicket);
         setStep('TICKET');
+
+        // Trigger Auto-Print
+        PrinterService.printQueueTicket(newTicket, printerConfig);
     };
 
     const reset = () => {
@@ -87,9 +109,42 @@ const QueueKioskPage: React.FC = () => {
                 <header className="text-center mb-12">
                     <h1 className="text-5xl font-extrabold text-white mb-4 tracking-tight">Bienvenido</h1>
                     <p className="text-slate-400 text-xl">Farmacias Vallenar Suit</p>
+                    {branchId && <p className="text-cyan-500 text-sm mt-2 font-mono">Terminal: {branchId}</p>}
                 </header>
 
                 <AnimatePresence mode="wait">
+                    {step === 'SETUP' && (
+                        <motion.div
+                            key="setup"
+                            initial={{ opacity: 0, scale: 0.9 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="bg-white/10 backdrop-blur-lg rounded-[3rem] p-8 border border-white/10 shadow-2xl text-center"
+                        >
+                            <div className="mb-8">
+                                <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-400">
+                                    <Settings size={40} />
+                                </div>
+                                <h2 className="text-3xl font-bold text-white mb-2">Configuración Inicial</h2>
+                                <p className="text-slate-400">Selecciona la sucursal para este Totem</p>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-4">
+                                <button
+                                    onClick={() => handleSetup('SUC-CENTRO')}
+                                    className="p-6 bg-slate-800 hover:bg-cyan-600 rounded-2xl text-white font-bold text-xl transition-colors border border-slate-700 hover:border-cyan-400"
+                                >
+                                    📍 Sucursal Centro
+                                </button>
+                                <button
+                                    onClick={() => handleSetup('SUC-NORTE')}
+                                    className="p-6 bg-slate-800 hover:bg-purple-600 rounded-2xl text-white font-bold text-xl transition-colors border border-slate-700 hover:border-purple-400"
+                                >
+                                    📍 Sucursal Norte
+                                </button>
+                            </div>
+                        </motion.div>
+                    )}
+
                     {step === 'RUT' && (
                         <motion.div
                             key="rut"
@@ -198,8 +253,8 @@ const QueueKioskPage: React.FC = () => {
                             )}
 
                             <div className="flex items-center justify-center gap-2 text-slate-400 mb-8">
-                                <Ticket size={20} />
-                                <span className="font-mono">{new Date().toLocaleTimeString()}</span>
+                                <Printer size={20} className="animate-pulse text-cyan-500" />
+                                <span className="font-mono">Imprimiendo Ticket...</span>
                             </div>
 
                             <button
