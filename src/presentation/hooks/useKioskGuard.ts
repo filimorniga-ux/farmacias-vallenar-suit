@@ -23,7 +23,7 @@ export const useKioskGuard = (enabled: boolean = true) => {
 
         window.addEventListener('beforeunload', handleBeforeUnload);
 
-        // 3. Request Full Screen (Optional, requires user interaction first usually)
+        // 3. Request Full Screen on First Interaction
         const enterFullScreen = async () => {
             try {
                 if (!document.fullscreenElement) {
@@ -34,12 +34,18 @@ export const useKioskGuard = (enabled: boolean = true) => {
             }
         };
 
-        // Attempt on mount (might fail without interaction)
-        enterFullScreen();
+        // Attach to click listener to satisfy browser policy
+        const handleInteraction = () => {
+            enterFullScreen();
+            window.removeEventListener('click', handleInteraction);
+        };
+
+        window.addEventListener('click', handleInteraction);
 
         return () => {
             window.removeEventListener('popstate', blockBackNavigation);
             window.removeEventListener('beforeunload', handleBeforeUnload);
+            window.removeEventListener('click', handleInteraction);
         };
     }, [enabled]);
 };

@@ -4,12 +4,14 @@ import { Truck, Lock, Save } from 'lucide-react';
 import { PurchaseOrder } from '../../../domain/types';
 
 interface BlindReceptionModalProps {
+    isOpen: boolean;
     order: PurchaseOrder;
     onReceive: (order: PurchaseOrder, receivedItems: { sku: string; receivedQty: number }[]) => void;
     onClose: () => void;
 }
 
-const BlindReceptionModal: React.FC<BlindReceptionModalProps> = ({ order, onReceive, onClose }) => {
+const BlindReceptionModal: React.FC<BlindReceptionModalProps> = ({ isOpen, order, onReceive, onClose }) => {
+    if (!isOpen) return null;
     const [receivedQuantities, setReceivedQuantities] = useState<{ [sku: string]: number }>({});
 
     const handleInputChange = (sku: string, value: string) => {
