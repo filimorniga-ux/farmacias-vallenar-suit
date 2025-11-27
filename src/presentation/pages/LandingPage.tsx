@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePharmaStore } from '../store/useStore';
-import { ShoppingCart, Truck, Users, Clock, Lock, ArrowRight, BarChart3, Building2, Ticket, MapPin } from 'lucide-react';
+import { ShoppingCart, Truck, Users, Clock, Lock, ArrowRight, BarChart3, Building2, Ticket, MapPin, ScanBarcode } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { EmployeeProfile } from '../../domain/types';
 
 const LandingPage: React.FC = () => {
     const navigate = useNavigate();
-    const { login, user, employees } = usePharmaStore();
+    const { login, logout, user, employees } = usePharmaStore();
     const [pin, setPin] = useState('');
     const [error, setError] = useState('');
     const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -28,6 +28,12 @@ const LandingPage: React.FC = () => {
     const filteredEmployees = targetRoute && ROUTE_TO_ROLES[targetRoute]
         ? employees.filter(emp => ROUTE_TO_ROLES[targetRoute].includes(emp.role) && emp.status === 'ACTIVE')
         : employees.filter(emp => emp.status === 'ACTIVE');
+
+    // Security: Auto-logout when landing on this page
+    useEffect(() => {
+        logout();
+        console.log("🔒 Sesión cerrada por seguridad al volver al inicio.");
+    }, []);
 
     // Navigate after successful login (when user state updates)
     useEffect(() => {
@@ -173,6 +179,14 @@ const LandingPage: React.FC = () => {
                     color="bg-pink-500"
                     route="/queue"
                     desc="Auto-atención de clientes y emisión de números."
+                />
+
+                <BentoCard
+                    title="CONSULTOR DE PRECIOS"
+                    icon={ScanBarcode}
+                    color="bg-indigo-600"
+                    route="/price-check"
+                    desc="Escáner de precios para clientes"
                 />
             </div>
 

@@ -1,16 +1,34 @@
 import React, { useState } from 'react';
-import { Settings, User, Shield, Save, Receipt, Printer } from 'lucide-react';
+import { Settings, User, Shield, Save, Receipt, Printer, ToggleLeft, ToggleRight } from 'lucide-react';
 import SiiSettings from './settings/SiiSettings';
 import PrinterSettings from './settings/PrinterSettings';
+import { useSettingsStore } from '../store/useSettingsStore';
 
 const SettingsPage: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'users' | 'sii' | 'hardware'>('users');
+    const { enable_sii_integration, toggleSiiIntegration } = useSettingsStore();
 
     return (
         <div className="p-6 bg-slate-50 min-h-screen">
-            <header className="mb-8">
-                <h1 className="text-3xl font-extrabold text-slate-900">Configuración</h1>
-                <p className="text-slate-500">Administración del Sistema</p>
+            <header className="mb-8 flex justify-between items-center">
+                <div>
+                    <h1 className="text-3xl font-extrabold text-slate-900">Configuración</h1>
+                    <p className="text-slate-500">Administración del Sistema</p>
+                </div>
+
+                {/* Global SII Toggle */}
+                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-4">
+                    <div className="text-right">
+                        <p className="text-sm font-bold text-slate-800">Integración SII</p>
+                        <p className="text-xs text-slate-500">{enable_sii_integration ? 'Modo Fiscal (Boleta)' : 'Modo Control Interno'}</p>
+                    </div>
+                    <button
+                        onClick={toggleSiiIntegration}
+                        className={`relative w-14 h-8 rounded-full transition-colors duration-300 ${enable_sii_integration ? 'bg-green-500' : 'bg-slate-300'}`}
+                    >
+                        <div className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full shadow-md transform transition-transform duration-300 ${enable_sii_integration ? 'translate-x-6' : 'translate-x-0'}`} />
+                    </button>
+                </div>
             </header>
 
             {/* Tabs */}
@@ -102,7 +120,28 @@ const SettingsPage: React.FC = () => {
                 </div>
             )}
 
-            {activeTab === 'sii' && <SiiSettings />}
+            {activeTab === 'sii' && (
+                enable_sii_integration ? (
+                    <SiiSettings />
+                ) : (
+                    <div className="bg-white rounded-b-3xl shadow-sm border border-t-0 border-slate-200 p-12 flex flex-col items-center text-center">
+                        <div className="bg-slate-100 p-6 rounded-full mb-6">
+                            <Receipt size={48} className="text-slate-400" />
+                        </div>
+                        <h2 className="text-2xl font-bold text-slate-800 mb-2">Integración SII Desactivada</h2>
+                        <p className="text-slate-500 max-w-md mb-8">
+                            El sistema está operando en modo "Control Interno". Las ventas generarán comprobantes no válidos como boleta.
+                            Active la integración en la parte superior para configurar certificados y folios.
+                        </p>
+                        <button
+                            onClick={toggleSiiIntegration}
+                            className="px-8 py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition shadow-lg"
+                        >
+                            Activar Integración SII
+                        </button>
+                    </div>
+                )
+            )}
             {activeTab === 'hardware' && <PrinterSettings />}
         </div>
     );

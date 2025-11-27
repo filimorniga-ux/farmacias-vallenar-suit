@@ -6,6 +6,10 @@ import { LayoutDashboard, ShoppingCart, Users, Settings, LogOut, Menu, X, Stetho
 import { usePharmaStore } from './presentation/store/useStore';
 import { Toaster } from 'sonner';
 
+// Components
+import LocationSelector from './presentation/components/layout/LocationSelector';
+import NotificationCenter from './presentation/components/ui/NotificationCenter';
+
 // Pages
 import LandingPage from './presentation/pages/LandingPage';
 import DashboardPage from './presentation/pages/DashboardPage';
@@ -23,6 +27,7 @@ import { WarehouseOps } from './presentation/pages/WarehouseOps';
 import { SuppliersPage } from './presentation/pages/SuppliersPage';
 import { SupplierProfile } from './presentation/pages/SupplierProfile';
 import NetworkPage from './presentation/pages/NetworkPage';
+import PriceCheckPage from './presentation/pages/PriceCheckPage';
 
 const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
     const { user, logout } = usePharmaStore();
@@ -30,7 +35,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
 
     const menuItems = [
-        { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard', roles: ['MANAGER', 'QF'] },
+        // { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard', roles: ['MANAGER', 'QF'] }, // Removed per user request
         { icon: ShoppingCart, label: 'Punto de Venta', path: '/pos', roles: ['CASHIER', 'QF', 'MANAGER'] },
         { icon: Package, label: 'Inventario', path: '/inventory', roles: ['WAREHOUSE', 'MANAGER', 'QF'] },
         { icon: Truck, label: 'Operaciones WMS', path: '/warehouse', roles: ['WAREHOUSE', 'MANAGER', 'QF'] },
@@ -52,10 +57,10 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
             <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-white transform transition-transform duration-300 ease-in-out ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 shadow-2xl`}>
                 <div className="p-6 flex justify-between items-center">
                     <div>
-                        <h1 className="text-2xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
-                            Pharma<span className="text-white">Synapse</span>
+                        <h1 className="text-xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
+                            Farmacias Vallenar
                         </h1>
-                        <p className="text-xs text-slate-400 mt-1">Vallenar Suit v2.1</p>
+                        <p className="text-xs text-slate-400 mt-1">Sistema ERP Clínico Integral v2.1</p>
                     </div>
                     <button onClick={() => setIsMobileMenuOpen(false)} className="md:hidden text-slate-400 hover:text-white">
                         <X size={24} />
@@ -102,8 +107,14 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                     <button onClick={() => setIsMobileMenuOpen(true)} className="text-slate-600">
                         <Menu size={24} />
                     </button>
-                    <span className="font-bold text-slate-800">PharmaSynapse</span>
-                    <div className="w-6" />
+                    <span className="font-bold text-slate-800">Farmacias Vallenar</span>
+                    <LocationSelector />
+                </header>
+
+                {/* Desktop Header with Location Selector */}
+                <header className="hidden md:flex bg-white px-6 py-3 shadow-sm justify-end items-center z-40 gap-4">
+                    <NotificationCenter />
+                    <LocationSelector />
                 </header>
 
                 <div className="flex-1 overflow-auto">
@@ -147,6 +158,7 @@ const App: React.FC = () => {
                 <Route path="/kiosk" element={<AttendanceKioskPage />} />
                 <Route path="/access" element={<AccessControlPage />} />
                 <Route path="/queue" element={<QueueKioskPage />} />
+                <Route path="/price-check" element={<PriceCheckPage />} />
 
                 {/* Protected Routes */}
                 <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
