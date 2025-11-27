@@ -5,60 +5,80 @@ export const PurchasingAgent = {
      * Calcula la velocidad de venta diaria (Mock simple para MVP).
      * En producción, esto vendría de un análisis histórico de transacciones.
      */
-    calculateDailyVelocity(sku: string): number {
-        // Simulación: Genera un número entre 0.5 y 5 unidades diarias
-        // Usamos el SKU para que sea determinista (mismo SKU siempre da mismo resultado)
+    /**
+     * Calcula la velocidad de venta diaria basada en un periodo.
+     */
+    calculateVelocity(sku: string, period: 'LAST_7_DAYS' | 'LAST_30_DAYS' | 'LAST_TRIMESTER' | 'LAST_SEMESTER' | 'LAST_YEAR'): number {
+        // Simulación: Genera un número base
         const hash = sku.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-        return (hash % 10) / 2 + 0.5;
+        let baseVelocity = (hash % 10) / 2 + 0.5;
+
+        // Ajuste por periodo (Simulación de estacionalidad)
+        switch (period) {
+            case 'LAST_7_DAYS': return baseVelocity * 1.2; // Pico reciente
+            case 'LAST_30_DAYS': return baseVelocity; // Normal
+            case 'LAST_TRIMESTER': return baseVelocity * 0.9; // Estabilizado
+            case 'LAST_SEMESTER': return baseVelocity * 0.8; // Largo plazo
+            case 'LAST_YEAR': return baseVelocity * 0.7; // Anual
+            default: return baseVelocity;
+        }
+    },
+
+    /**
+     * Calcula cuántos días durará el stock actual.
+     */
+    calculateCoverage(stock: number, velocity: number): number {
+        if (velocity <= 0) return 999; // Cobertura infinita
+        return Math.round(stock / velocity);
     },
 
     /**
      * Genera sugerencias de reabastecimiento agrupadas por proveedor.
-     * Regla: Si Stock Actual < (Velocidad * LeadTime * 1.5 SafetyFactor), pedir para cubrir 15 días.
      */
-    generateSuggestions(inventory: InventoryBatch[], suppliers: Supplier[]): PurchaseOrder[] {
+    generateSuggestions(
+        inventory: InventoryBatch[],
+        suppliers: Supplier[],
+        period: 'LAST_7_DAYS' | 'LAST_30_DAYS' | 'LAST_TRIMESTER' | 'LAST_SEMESTER' | 'LAST_YEAR' = 'LAST_30_DAYS'
+    ): PurchaseOrder[] {
         const suggestions: PurchaseOrder[] = [];
         const itemsBySupplier: { [supplierId: string]: any[] } = {};
 
         inventory.forEach(item => {
-            const velocity = this.calculateDailyVelocity(item.sku);
-            const supplier = suppliers.find(s => s.id === item.supplier_id);
-            const leadTime = supplier ? supplier.lead_time_days : 3; // Default 3 días
+            const velocity = this.calculateVelocity(item.sku, period);
+            const coverage = this.calculateCoverage(item.stock_actual, velocity);
 
-            const safetyStock = velocity * leadTime * 1.5;
-            // 3. Check for expiring batches (FEFO)
-            const expiringBatches = inventory.filter(b =>
-                b.sku === item.sku &&
-                b.expiry_date < Date.now() + (90 * 24 * 60 * 60 * 1000)
-            );
+            // Configurable Target Days (Default 30)
+            const targetDays = 30;
 
-            if (expiringBatches.length > 0) {
-                suggestions.push({
-                    id: `PO-${Date.now()}-${item.sku}`,
-                    supplier_id: 'SUP-001', // Default
-                    items: [{
-                        sku: item.sku,
-                        name: item.name,
-                        quantity: Math.max(50, Math.ceil(velocity * 30)), // Buy for 30 days
-                        cost_price: item.price * 0.6
-                    }],
-                    status: 'DRAFT',
-                    created_at: Date.now(),
-                    total_estimated: 0
-                });
-            }
-            const reorderPoint = safetyStock;
+            // Fórmula: (velocity * targetDays) - currentStock
+            const suggestedQty = Math.ceil((velocity * targetDays) - item.stock_actual);
 
-            if (item.stock_actual <= reorderPoint) {
+            // Determine Status based on Coverage
+            let status: 'CRITICAL' | 'LOW' | 'EXCESS' | 'OK' = 'OK';
+            if (coverage < 7) status = 'CRITICAL';
+            else if (coverage < 15) status = 'LOW';
+            else if (coverage > 90) status = 'EXCESS';
+
+            // Add to list if suggestion > 0 OR if it's critical/low/excess (to show visibility)
+            // User requested: "Si el resultado es negativo (tengo de sobra), la sugerencia es 0."
+            const finalSuggestion = Math.max(0, suggestedQty);
+
+            // We include items that need attention (Critical/Low) or have suggestions
+            if (finalSuggestion > 0 || status === 'CRITICAL' || status === 'LOW' || status === 'EXCESS') {
                 const supplierId = item.supplier_id || 'SUP-001';
                 if (!itemsBySupplier[supplierId]) {
                     itemsBySupplier[supplierId] = [];
                 }
+
                 itemsBySupplier[supplierId].push({
                     sku: item.sku,
                     name: item.name,
-                    quantity: Math.max(50, Math.ceil(velocity * 15)), // Buy for 15 days
-                    cost_price: item.price * 0.6
+                    quantity: finalSuggestion,
+                    cost_price: item.price * 0.6, // Costo estimado
+                    current_stock: item.stock_actual,
+                    velocity: velocity.toFixed(2),
+                    coverage: coverage,
+                    status: status
                 });
             }
         });// Convertir agrupación a objetos PurchaseOrder

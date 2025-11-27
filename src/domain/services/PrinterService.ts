@@ -12,6 +12,25 @@ export class PrinterService {
         // In a real app, this would talk to a thermal printer API (WebUSB, QZ Tray, etc.)
         // For now, we simulate with a window alert or just console
         // alert(`🖨️ Imprimiendo Boleta #${sale.id}`);
+
+        // Check for fractional items and print labels (Art. 40 B)
+        const fractionalItems = sale.items.filter(item => item.is_fractional);
+        if (fractionalItems.length > 0) {
+            console.log('✂️ DETECTED FRACTIONAL ITEMS:', fractionalItems.length);
+            fractionalItems.forEach(item => {
+                this.printFractionalLabel(item, config);
+            });
+        }
+    }
+
+    static async printFractionalLabel(item: any, config: PrinterConfig) {
+        console.log('🏷️ PRINTING LABEL (ART 40 B):', item.name);
+        console.log('   Pac: ', item.original_name);
+        console.log('   Cant:', item.quantity);
+        console.log('   QF Supervisor: Javiera Rojas (DT)'); // Mocked for now, should come from store
+        console.log('   Registro ISP: F-2244/19'); // Mocked, should come from item
+        console.log('   "Para mayor información consulte a su prescriptor o farmacéutico."');
+        // Simulate label printing
     }
 
     static async printVoucher(movement: CashMovement, config: PrinterConfig) {

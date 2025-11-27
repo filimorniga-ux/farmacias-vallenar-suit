@@ -803,13 +803,23 @@ const usePharmaStore = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_
                     employees
                 });
                 const state = get();
-                console.log('Data Synced:', {
+                // Initialize TigerDataService with current store data
+                const { TigerDataService } = await __turbopack_context__.A("[project]/src/domain/services/TigerDataService.ts [app-client] (ecmascript, async loader)");
+                TigerDataService.initializeStorage({
+                    products: state.inventory,
+                    employees: state.employees,
+                    sales: state.salesHistory,
+                    cashMovements: state.cashMovements,
+                    expenses: state.expenses
+                });
+                console.log('✅ Data Synced & Tiger Data Initialized:', {
                     inventoryCount: state.inventory.length,
                     employeeCount: state.employees.length,
+                    salesCount: state.salesHistory.length,
                     source: inventory.length > 0 ? 'DB' : 'MOCK/CACHE'
                 });
             } catch (error) {
-                console.error('Sync failed:', error);
+                console.error('❌ Sync failed:', error);
             } finally{
                 set({
                     isLoading: false
@@ -999,59 +1009,77 @@ const usePharmaStore = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_
         clearCart: ()=>set({
                 cart: []
             }),
-        processSale: (paymentMethod, customer)=>{
+        processSale: async (paymentMethod, customer)=>{
             const state = get();
-            // 1. Descontar Stock
-            const newInventory = state.inventory.map((item)=>{
-                const cartItem = state.cart.find((c)=>c.sku === item.sku);
-                if (cartItem) {
-                    return {
-                        ...item,
-                        stock_actual: item.stock_actual - cartItem.quantity
-                    };
+            try {
+                // 1. Create sale transaction object
+                const saleTransaction = {
+                    id: `SALE-${Date.now()}`,
+                    timestamp: Date.now(),
+                    items: state.cart.map((item)=>({
+                            batch_id: item.batch_id || 'UNKNOWN',
+                            sku: item.sku,
+                            name: item.name,
+                            price: item.price,
+                            quantity: item.quantity,
+                            allows_commission: item.allows_commission || false,
+                            active_ingredients: item.active_ingredients
+                        })),
+                    total: state.cart.reduce((a, b)=>a + b.price * b.quantity, 0),
+                    payment_method: paymentMethod,
+                    seller_id: state.user?.id || 'UNKNOWN',
+                    customer: customer || undefined
+                };
+                // 2. CRITICAL: Save to Tiger Data BEFORE clearing cart
+                const { TigerDataService } = await __turbopack_context__.A("[project]/src/domain/services/TigerDataService.ts [app-client] (ecmascript, async loader)");
+                const result = await TigerDataService.saveSaleTransaction(saleTransaction, 'SUCURSAL_CENTRO' // TODO: Get from location context
+                );
+                if (!result.success) {
+                    console.error('❌ Failed to save sale to Tiger Data');
+                    return false;
                 }
-                return item;
-            });
-            // Update customer points and last visit if applicable
-            if (customer) {
-                const pointsEarned = Math.floor(state.cart.reduce((a, b)=>a + b.price * b.quantity, 0) * 0.01); // 1% points
-                state.updateCustomer(customer.id, {
-                    totalPoints: customer.totalPoints + pointsEarned,
-                    lastVisit: Date.now()
+                console.log('✅ Sale saved to Tiger Data:', result.transactionId);
+                // 3. Update local inventory (deduct stock)
+                const newInventory = state.inventory.map((item)=>{
+                    const cartItem = state.cart.find((c)=>c.sku === item.sku);
+                    if (cartItem) {
+                        return {
+                            ...item,
+                            stock_actual: item.stock_actual - cartItem.quantity
+                        };
+                    }
+                    return item;
                 });
+                // 4. Update customer points if applicable
+                if (customer) {
+                    const pointsEarned = Math.floor(saleTransaction.total * 0.01); // 1% points
+                    state.updateCustomer(customer.id, {
+                        totalPoints: customer.totalPoints + pointsEarned,
+                        lastVisit: Date.now()
+                    });
+                }
+                // 5. Update local state (clear cart and add to history)
+                set({
+                    inventory: newInventory,
+                    cart: [],
+                    currentCustomer: null,
+                    salesHistory: [
+                        ...state.salesHistory,
+                        saleTransaction
+                    ]
+                });
+                console.log('✅ Sale processed successfully:', {
+                    items: saleTransaction.items.length,
+                    total: saleTransaction.total,
+                    paymentMethod,
+                    customer: customer?.fullName
+                });
+                return true;
+            } catch (error) {
+                console.error('❌ Error processing sale:', error);
+                // Don't clear cart on error - allow retry
+                return false;
             }
-            console.log('Venta Procesada:', {
-                items: state.cart,
-                total: state.cart.reduce((a, b)=>a + b.price * b.quantity, 0),
-                paymentMethod,
-                customer
-            });
-            const saleTransaction = {
-                id: `SALE-${Date.now()}`,
-                timestamp: Date.now(),
-                items: state.cart.map((item)=>({
-                        batch_id: item.batch_id || 'UNKNOWN',
-                        sku: item.sku,
-                        name: item.name,
-                        price: item.price,
-                        quantity: item.quantity,
-                        allows_commission: item.allows_commission || false,
-                        active_ingredients: item.active_ingredients
-                    })),
-                total: state.cart.reduce((a, b)=>a + b.price * b.quantity, 0),
-                payment_method: paymentMethod,
-                seller_id: state.user?.id || 'UNKNOWN',
-                customer: customer || undefined
-            };
-            set({
-                inventory: newInventory,
-                cart: [],
-                currentCustomer: null,
-                salesHistory: [
-                    ...state.salesHistory,
-                    saleTransaction
-                ]
-            }); // Clear customer after sale
         },
         // --- CRM ---
         customers: [
@@ -1597,7 +1625,7 @@ var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$zustand$2f$e
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$zustand$2f$esm$2f$middleware$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/zustand/esm/middleware.mjs [app-client] (ecmascript)");
 ;
 ;
-// Mock Initial Data
+// Mock Initial Data - Extended with more locations
 const INITIAL_LOCATIONS = [
     {
         id: 'SUCURSAL_CENTRO',
@@ -1607,6 +1635,22 @@ const INITIAL_LOCATIONS = [
         associated_kiosks: [
             'KIOSK-001'
         ]
+    },
+    {
+        id: 'SUCURSAL_NORTE',
+        type: 'STORE',
+        name: 'Farmacia Vallenar Norte',
+        address: 'Av. Brasil 456, Vallenar',
+        associated_kiosks: [
+            'KIOSK-002'
+        ]
+    },
+    {
+        id: 'SUCURSAL_SUR',
+        type: 'STORE',
+        name: 'Farmacia Vallenar Sur',
+        address: 'Los Carrera 789, Vallenar',
+        associated_kiosks: []
     },
     {
         id: 'BODEGA_CENTRAL',
@@ -1621,6 +1665,12 @@ const INITIAL_KIOSKS = [
         id: 'KIOSK-001',
         type: 'QUEUE',
         location_id: 'SUCURSAL_CENTRO',
+        status: 'ACTIVE'
+    },
+    {
+        id: 'KIOSK-002',
+        type: 'ATTENDANCE',
+        location_id: 'SUCURSAL_NORTE',
         status: 'ACTIVE'
     }
 ];
@@ -1640,13 +1690,20 @@ const useLocationStore = (0, __TURBOPACK__imported__module__$5b$project$5d2f$nod
                             ...data
                         } : loc)
                 })),
-        switchLocation: (id)=>{
+        switchLocation: (id, onSuccess)=>{
             const target = get().locations.find((l)=>l.id === id);
             if (target) {
                 set({
                     currentLocation: target
                 });
+                console.log(`📍 Location switched to: ${target.name} (${target.type})`);
+                if (onSuccess) onSuccess();
             }
+        },
+        canSwitchLocation: (userRole)=>{
+            // MANAGER and QF can switch freely
+            // CASHIER and WAREHOUSE are locked to their assigned location
+            return userRole === 'MANAGER' || userRole === 'QF';
         },
         registerKiosk: (kiosk)=>set((state)=>({
                     kiosks: [
@@ -1667,7 +1724,8 @@ const useLocationStore = (0, __TURBOPACK__imported__module__$5b$project$5d2f$nod
             return code;
         }
     }), {
-    name: 'location-storage',
+    name: 'location-storage-v2',
+    version: 2,
     storage: (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$zustand$2f$esm$2f$middleware$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["createJSONStorage"])(()=>localStorage)
 }));
 if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {

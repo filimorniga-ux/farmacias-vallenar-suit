@@ -1,6 +1,6 @@
 
 export type Role = 'MANAGER' | 'QF' | 'CASHIER' | 'WAREHOUSE' | 'ADMIN';
-export type DrugCategory = 'MEDICAMENTO' | 'INSUMO_MEDICO' | 'RETAIL_BELLEZA' | 'SUPLEMENTO';
+export type DrugCategory = string; // 'MEDICAMENTO' | 'INSUMO_MEDICO' | 'RETAIL_BELLEZA' | 'SUPLEMENTO' (Dynamic)
 export type SaleCondition = 'VD' | 'R' | 'RR' | 'RCH';
 export type StorageCondition = 'AMBIENTE' | 'REFRIGERADO' | 'CONTROLADO';
 
@@ -25,33 +25,65 @@ export interface InventoryBatch {
     id: string;
     sku: string;
     name: string;
-    dci: string; // Principle Active
-    laboratory?: string;
-    brand?: string; // Retail brand
+    dci: string; // Principio Activo
+    laboratory: string; // Laboratorio
+    isp_register: string; // Registro ISP
+    format: string; // Comprimido, Jarabe
+    units_per_box: number; // Unidades por caja (para precio unitario)
+    is_bioequivalent: boolean; // Es Bioequivalente
+
+    // Legacy / Optional / Derived
+    concentration: string;
+    unit_count: number;
+    is_generic: boolean;
+    bioequivalent_status: 'BIOEQUIVALENTE' | 'NO_BIOEQUIVALENTE';
+    brand?: string;
     image_url?: string;
-    is_bioequivalent: boolean;
-    condition: SaleCondition; // VD, R, RR, RCH
+    condition: SaleCondition;
+
+    // Identification
+    barcode?: string;
+    administration_route?: 'ORAL' | 'TOPICA' | 'OFTALMICA' | 'NASAL' | 'RECTAL' | 'VAGINAL' | 'PARENTERAL';
 
     // Logistics
-    location_id: string; // Changed from strict union to string for dynamic locations
-    aisle?: string; // Shelf/Rack location
-
+    location_id: string;
+    aisle?: string;
     stock_actual: number;
     stock_min: number;
     stock_max: number;
-    expiry_date: number; // Timestamp
+    expiry_date: number;
+
+    // Financials (Advanced Structure)
+    cost_net: number; // Costo Neto Compra
+    tax_percent: number; // IVA (19%)
+    price_sell_box: number; // Precio Venta Caja
+    price_sell_unit: number; // Precio Venta Unitario (Calculado)
+
+    // Deprecated (Mapped for compatibility)
     price: number;
-    cost_price: number; // For valuation
-    supplier_id?: string; // Optional for now
+    cost_price: number;
+
+    supplier_id?: string;
 
     category: DrugCategory;
     allows_commission: boolean;
-    active_ingredients: string[]; // For clinical analysis
+    active_ingredients: string[];
 
-    // Clinical Metadata (New)
-    therapeutic_tags?: string[]; // ['FIEBRE', 'DOLOR']
-    contraindications?: string[]; // ['EMBARAZO', 'HIPERTENSION']
+    // Clinical Metadata
+    therapeutic_tags?: string[];
+    contraindications?: string[];
     storage_condition?: 'AMBIENTE' | 'REFRIGERADO' | 'CONTROLADO';
+
+    // Fractionation
+    is_fractionable?: boolean;
+    fractional_price?: number;
+
+    // Sanitary Compliance
+    unit_format_string?: string;
+    units_per_package?: number; // Alias for units_per_box
+    price_per_unit?: number;
+    bioequivalent?: boolean; // Alias
+    active_ingredient?: string; // Alias
 }
 
 // --- Recursos Humanos ---
@@ -138,6 +170,8 @@ export interface SaleItem {
     quantity: number;
     allows_commission: boolean;
     active_ingredients?: string[]; // Optional for backward compatibility or if not loaded
+    is_fractional?: boolean;
+    original_name?: string;
 }
 
 export interface SaleTransaction {
@@ -181,11 +215,24 @@ export interface Supplier {
     website?: string;
     logo_url?: string;
 
-    // Contact
+    // Location (NEW)
+    address: string;
+    region: string;
+    city: string;
+    commune: string;
+    postal_code?: string;
+
+    // Contact (EXTENDED)
+    phone_1: string;
+    phone_2?: string;
     contact_email: string; // General email
+    email_orders: string; // Para enviar O.C.
+    email_billing: string; // Para recibir facturas
     contacts: SupplierContact[];
 
-    // Commercial
+    // Commercial (EXTENDED)
+    sector: string; // Rubro (Laboratorio, Distribuidora, Insumos)
+    brands: string[]; // Array de marcas que distribuye
     categories: ('MEDICAMENTOS' | 'INSUMOS' | 'RETAIL' | 'SERVICIOS')[];
     payment_terms: 'CONTADO' | '30_DIAS' | '60_DIAS' | '90_DIAS';
     credit_limit?: number;
@@ -221,6 +268,8 @@ export interface CartItem {
     batch_id?: string; // Optional if id is used as batch_id
     allows_commission?: boolean;
     active_ingredients?: string[];
+    is_fractional?: boolean;
+    original_name?: string;
 }
 
 export interface PurchaseOrderItem {
@@ -284,7 +333,7 @@ export interface Expense {
 
 // --- Gestión de Caja (Cash Flow) ---
 export type CashMovementType = 'IN' | 'OUT';
-export type CashMovementReason = 'SUPPLIES' | 'SERVICES' | 'WITHDRAWAL' | 'OTHER' | 'INITIAL_FUND';
+export type CashMovementReason = 'SUPPLIES' | 'SERVICES' | 'WITHDRAWAL' | 'OTHER' | 'INITIAL_FUND' | 'OTHER_INCOME' | 'SALARY_ADVANCE';
 
 export interface CashMovement {
     id: string;
@@ -301,7 +350,11 @@ export interface CashMovement {
 
 export interface CashShift {
     id: string;
-    user_id: string;
+    user_id: string; // Deprecated in favor of openedBy? Or keep as "Owner"
+    openedBy: string;
+    authorizedBy?: string;
+    closedBy?: string;
+    shiftNumber: number;
     start_time: number;
     end_time?: number;
     opening_amount: number; // Base

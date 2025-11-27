@@ -83,7 +83,7 @@ const InventoryPage: React.FC = () => {
                             onClick={() => setIsEntryModalOpen(true)}
                             className="px-6 py-3 bg-cyan-600 text-white font-bold rounded-xl hover:bg-cyan-700 transition shadow-lg shadow-cyan-200 flex items-center gap-2"
                         >
-                            <Plus size={18} /> Ingreso / Alta
+                            <Plus size={18} /> Nuevo Producto / Ingreso
                         </button>
                     )}
                 </div>
@@ -146,10 +146,9 @@ const InventoryPage: React.FC = () => {
                     <thead className="bg-slate-50 text-slate-500 font-bold text-xs uppercase tracking-wider">
                         <tr>
                             <th className="p-4">Producto</th>
-                            <th className="p-4">Condición</th>
-                            <th className="p-4">Ubicación</th>
-                            <th className="p-4">Vencimiento</th>
-                            <th className="p-4 text-right">Stock</th>
+                            <th className="p-4">Detalle</th>
+                            <th className="p-4">Atributos</th>
+                            <th className="p-4">Stock</th>
                             <th className="p-4 text-right">Precio</th>
                             <th className="p-4 text-center">Acciones</th>
                         </tr>
@@ -158,49 +157,49 @@ const InventoryPage: React.FC = () => {
                         {filteredInventory.map(item => (
                             <tr key={item.id} className="hover:bg-slate-50 transition group">
                                 <td className="p-4">
-                                    <div className="font-bold text-slate-800">{item.name}</div>
-                                    <div className="text-xs text-slate-500 font-mono mb-1">{item.sku} • {item.dci}</div>
-                                    {/* Clinical Tags */}
-                                    {item.therapeutic_tags && item.therapeutic_tags.length > 0 && (
-                                        <div className="flex gap-1 flex-wrap">
-                                            {item.therapeutic_tags.slice(0, 2).map(tag => (
-                                                <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded border border-slate-200">
-                                                    {tag}
-                                                </span>
-                                            ))}
-                                            {item.therapeutic_tags.length > 2 && (
-                                                <span className="text-[10px] text-slate-400">+{item.therapeutic_tags.length - 2}</span>
-                                            )}
-                                        </div>
-                                    )}
+                                    <div className="font-bold text-slate-800 text-lg">{item.name}</div>
+                                    <div className="text-sm text-slate-500 font-bold">{item.dci}</div>
+                                    <div className="text-xs text-slate-400 font-mono mt-1">{item.sku}</div>
+                                </td>
+                                <td className="p-4">
+                                    <div className="text-sm font-bold text-slate-700">{item.laboratory}</div>
+                                    <div className="text-xs text-slate-500 font-mono">{item.isp_register || 'SIN REGISTRO'}</div>
+                                    <div className="text-xs text-slate-400 mt-1">{item.format} x{item.unit_count}</div>
                                 </td>
                                 <td className="p-4">
                                     <div className="flex gap-1 flex-wrap">
-                                        {item.is_bioequivalent && <span title="Bioequivalente" className="p-1 bg-yellow-100 text-yellow-700 rounded"><Pill size={14} /></span>}
-                                        {['R', 'RR', 'RCH'].includes(item.condition) && <span title="Receta Retenida" className="p-1 bg-purple-100 text-purple-700 rounded"><Lock size={14} /></span>}
-                                        {item.storage_condition === 'REFRIGERADO' && (
-                                            <span title="Cadena de Frío (2°C - 8°C)" className="p-1 bg-cyan-100 text-cyan-600 rounded cursor-help">
-                                                <Snowflake size={14} />
+                                        {item.bioequivalent && <span title="Bioequivalente" className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-xs font-bold border border-emerald-200">BIO</span>}
+                                        {item.storage_condition === 'REFRIGERADO' && <span title="Cadena de Frío" className="px-2 py-1 bg-cyan-100 text-cyan-700 rounded-lg text-xs font-bold border border-cyan-200">FRIO</span>}
+                                        {['R', 'RR', 'RCH'].includes(item.condition) && <span title="Receta Retenida" className="px-2 py-1 bg-purple-100 text-purple-700 rounded-lg text-xs font-bold border border-purple-200">RET</span>}
+                                        {item.is_generic && <span title="Genérico" className="px-2 py-1 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold border border-slate-200">GEN</span>}
+                                    </div>
+                                </td>
+                                <td className="p-4">
+                                    <div className="flex flex-col items-start">
+                                        <span className={`text-lg font-bold ${item.stock_actual <= item.stock_min ? 'text-red-600' : 'text-slate-800'}`}>
+                                            {item.stock_actual} un.
+                                        </span>
+                                        <span className={`text-xs font-bold ${item.stock_actual <= item.stock_min ? 'text-red-500' : 'text-slate-400'}`}>
+                                            Min: {item.stock_min}
+                                        </span>
+                                        <span className={`text-xs mt-1 px-1.5 py-0.5 rounded ${new Date(item.expiry_date).getTime() - Date.now() < 1000 * 60 * 60 * 24 * 90 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>
+                                            Vence: {new Date(item.expiry_date).toLocaleDateString()}
+                                        </span>
+                                    </div>
+                                </td>
+                                <td className="p-4 text-right">
+                                    <div className="flex flex-col items-end">
+                                        <span className="font-bold text-slate-800 text-lg">${(item.price_sell_box || item.price).toLocaleString()}</span>
+                                        <span className="text-xs font-bold text-slate-400">
+                                            (${item.price_sell_unit ? item.price_sell_unit.toLocaleString() : Math.round((item.price_sell_box || item.price) / (item.units_per_box || item.unit_count || 1)).toLocaleString()} / un)
+                                        </span>
+                                        {/* Security: Only Managers see Cost */}
+                                        {(user?.role === 'MANAGER' || user?.role === 'ADMIN') && (
+                                            <span className="text-[10px] font-mono text-slate-300 mt-1">
+                                                Costo: ${(item.cost_net || item.cost_price).toLocaleString()}
                                             </span>
                                         )}
                                     </div>
-                                </td>
-                                <td className="p-4 text-slate-600">
-                                    <span className="px-2 py-1 bg-slate-100 rounded text-xs font-bold">{item.location_id}</span>
-                                    {item.aisle && <div className="text-[10px] text-slate-400 mt-1">{item.aisle}</div>}
-                                </td>
-                                <td className="p-4">
-                                    <span className={`${(item.expiry_date - Date.now()) < (1000 * 60 * 60 * 24 * 30 * 3) ? 'text-red-600 font-bold' : 'text-slate-600'}`}>
-                                        {new Date(item.expiry_date).toLocaleDateString()}
-                                    </span>
-                                </td>
-                                <td className="p-4 text-right">
-                                    <span className={`px-2 py-1 rounded text-xs font-bold border ${getStockStatus(item)}`}>
-                                        {item.stock_actual} un.
-                                    </span>
-                                </td>
-                                <td className="p-4 text-right font-mono font-bold text-slate-700">
-                                    ${item.price.toLocaleString()}
                                 </td>
                                 <td className="p-4">
                                     <div className="flex items-center justify-center gap-2">

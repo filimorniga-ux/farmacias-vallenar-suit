@@ -5,8 +5,8 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-    title: 'Farmacias Vallenar - Sistema de Gestión',
-    description: 'Sistema integral de gestión farmacéutica',
+    title: 'Farmacias Vallenar Suit - Sistema ERP Clínico Integral',
+    description: 'Sistema integral de gestión farmacéutica para Farmacias Vallenar',
 };
 
 export default function RootLayout({

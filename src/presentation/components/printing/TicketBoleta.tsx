@@ -92,7 +92,7 @@ const TicketBoleta: React.FC<TicketBoletaProps> = ({ sale, companyName = 'FARMAC
                         <p className="text-[9px] text-slate-400 mt-1">Este documento es solo para control de inventario y caja.</p>
                     </div>
                 )}
-                <p className="text-[8px] mt-4 text-slate-400">PharmaSynapse POS v2.1</p>
+                <p className="text-[8px] mt-4 text-slate-400">Farmacias Vallenar - Sistema POS v2.1</p>
             </div>
         </div>
     );

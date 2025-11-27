@@ -7,31 +7,58 @@ import { fetchInventory, fetchEmployees } from '../../actions/sync';
 // --- DATOS REALES FARMACIAS VALLENAR ---
 const MOCK_INVENTORY: InventoryBatch[] = [
     // --- TOP VENTAS & CRÓNICOS ---
-    { id: 'P001', sku: '780001', name: 'PARACETAMOL 500MG', dci: 'PARACETAMOL', laboratory: 'Lab Chile', condition: 'VD', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'GÓNDOLA', stock_actual: 2000, stock_min: 200, stock_max: 3000, expiry_date: new Date('2026-12-01').getTime(), price: 990, cost_price: 400, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Paracetamol'], therapeutic_tags: ['DOLOR', 'FIEBRE', 'CABEZA'], storage_condition: 'AMBIENTE' },
-    { id: 'P002', sku: '780002', name: 'LOSARTÁN 50MG', dci: 'LOSARTÁN POTÁSICO', laboratory: 'Lab Chile', condition: 'R', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'ESTANTE A1', stock_actual: 500, stock_min: 100, stock_max: 800, expiry_date: new Date('2025-06-01').getTime(), price: 2990, cost_price: 1000, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Losartán Potásico'], therapeutic_tags: ['HIPERTENSION', 'CORAZON'], contraindications: ['EMBARAZO'], storage_condition: 'AMBIENTE' },
-    { id: 'P003', sku: '780003', name: 'IBUPROFENO 600MG', dci: 'IBUPROFENO', laboratory: 'Lab Chile', condition: 'VD', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'ESTANTE A2', stock_actual: 800, stock_min: 100, stock_max: 1200, expiry_date: new Date('2026-01-01').getTime(), price: 1990, cost_price: 600, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Ibuprofeno'], therapeutic_tags: ['DOLOR', 'INFLAMACION', 'CABEZA'], contraindications: ['ULCERA', 'EMBARAZO'], storage_condition: 'AMBIENTE' },
-    { id: 'P004', sku: '780004', name: 'EUTIROX 100MCG', dci: 'LEVOTIROXINA', laboratory: 'Merck', condition: 'R', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'ESTANTE B1', stock_actual: 150, stock_min: 30, stock_max: 300, expiry_date: new Date('2025-10-01').getTime(), price: 8500, cost_price: 3500, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Levotiroxina'], therapeutic_tags: ['TIROIDES'], storage_condition: 'AMBIENTE' },
+    {
+        id: 'P001', sku: '780001', name: 'PARACETAMOL 500MG', dci: 'PARACETAMOL', laboratory: 'Mintlab', condition: 'VD',
+        is_bioequivalent: true, bioequivalent_status: 'BIOEQUIVALENTE', location_id: 'SUCURSAL_CENTRO', aisle: 'GÓNDOLA',
+        stock_actual: 2000, stock_min: 200, stock_max: 3000, expiry_date: new Date('2026-12-01').getTime(),
+        price: 990, cost_price: 400,
+        cost_net: 336, tax_percent: 19, price_sell_box: 990, price_sell_unit: 62,
+        category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Paracetamol'], therapeutic_tags: ['DOLOR', 'FIEBRE', 'CABEZA'],
+        storage_condition: 'AMBIENTE', concentration: '500mg', format: 'Comprimido', unit_count: 16, is_generic: true,
+        isp_register: 'F-1234/20', units_per_box: 16, unit_format_string: 'Comprimidos', price_per_unit: 62
+    },
+    {
+        id: 'P002', sku: '780002', name: 'LOSARTÁN 50MG', dci: 'LOSARTÁN POTÁSICO', laboratory: 'Lab Chile', condition: 'R',
+        is_bioequivalent: true, bioequivalent_status: 'BIOEQUIVALENTE', location_id: 'SUCURSAL_CENTRO', aisle: 'ESTANTE A1',
+        stock_actual: 500, stock_min: 100, stock_max: 800, expiry_date: new Date('2025-06-01').getTime(),
+        price: 2990, cost_price: 1000,
+        cost_net: 840, tax_percent: 19, price_sell_box: 2990, price_sell_unit: 100,
+        category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Losartán Potásico'], therapeutic_tags: ['HIPERTENSION', 'CORAZON'],
+        contraindications: ['EMBARAZO'], storage_condition: 'AMBIENTE', concentration: '50mg', format: 'Comprimido', unit_count: 30, is_generic: true,
+        isp_register: 'F-9988/21', units_per_box: 30, unit_format_string: 'Comprimidos', price_per_unit: 100
+    },
+    {
+        id: 'P003', sku: '780003', name: 'IBUPROFENO 600MG', dci: 'IBUPROFENO', laboratory: 'Lab Chile', condition: 'VD',
+        is_bioequivalent: true, bioequivalent_status: 'BIOEQUIVALENTE', location_id: 'SUCURSAL_CENTRO', aisle: 'ESTANTE A2',
+        stock_actual: 800, stock_min: 100, stock_max: 1200, expiry_date: new Date('2026-01-01').getTime(),
+        price: 1990, cost_price: 600,
+        cost_net: 504, tax_percent: 19, price_sell_box: 1990, price_sell_unit: 100,
+        category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Ibuprofeno'], therapeutic_tags: ['DOLOR', 'INFLAMACION', 'CABEZA'],
+        contraindications: ['ULCERA', 'EMBARAZO'], storage_condition: 'AMBIENTE', concentration: '600mg', format: 'Comprimido', unit_count: 20, is_generic: true,
+        isp_register: 'F-5544/19', units_per_box: 20, unit_format_string: 'Comprimidos', price_per_unit: 100
+    },
+    {
+        id: 'P004', sku: '780004', name: 'EUTIROX 100MCG', dci: 'LEVOTIROXINA', laboratory: 'Merck', condition: 'R',
+        is_bioequivalent: false, bioequivalent_status: 'NO_BIOEQUIVALENTE', location_id: 'SUCURSAL_CENTRO', aisle: 'ESTANTE B1',
+        stock_actual: 150, stock_min: 30, stock_max: 300, expiry_date: new Date('2025-10-01').getTime(),
+        price: 8500, cost_price: 3500,
+        cost_net: 2941, tax_percent: 19, price_sell_box: 8500, price_sell_unit: 170,
+        category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Levotiroxina'], therapeutic_tags: ['TIROIDES'],
+        storage_condition: 'AMBIENTE', concentration: '100mcg', format: 'Comprimido', unit_count: 50, is_generic: false,
+        isp_register: 'F-2211/18', units_per_box: 50, unit_format_string: 'Comprimidos', price_per_unit: 170
+    },
 
-    // --- CONTROLADOS (Receta Retenida / Cheque) ---
-    { id: 'C001', sku: 'CTRL-01', name: 'ZOPICLONA 7.5MG', dci: 'ZOPICLONA', laboratory: 'Saval', condition: 'RR', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'SEGURIDAD', stock_actual: 60, stock_min: 20, stock_max: 100, expiry_date: new Date('2025-08-01').getTime(), price: 4500, cost_price: 2000, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Zopiclona'], therapeutic_tags: ['INSOMNIO', 'DORMIR'], storage_condition: 'CONTROLADO' },
-    { id: 'C002', sku: 'CTRL-02', name: 'RAVOTRIL 2MG', dci: 'CLONAZEPAM', laboratory: 'Roche', condition: 'RCH', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'CAJA FUERTE', stock_actual: 15, stock_min: 5, stock_max: 30, expiry_date: new Date('2025-12-01').getTime(), price: 12900, cost_price: 6000, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Clonazepam'], therapeutic_tags: ['ANSIEDAD', 'PANIICO'], storage_condition: 'CONTROLADO' },
-    { id: 'C003', sku: 'CTRL-03', name: 'TRAMADOL GOTAS', dci: 'TRAMADOL', laboratory: 'Mintlab', condition: 'RR', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'SEGURIDAD', stock_actual: 30, stock_min: 10, stock_max: 60, expiry_date: new Date('2026-02-01').getTime(), price: 3500, cost_price: 1500, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Tramadol'], therapeutic_tags: ['DOLOR', 'FUERTE'], storage_condition: 'CONTROLADO' },
-
-    // --- CADENA DE FRÍO ---
-    { id: 'F001', sku: 'FRIO-01', name: 'INSULINA NPH', dci: 'INSULINA HUMANA', laboratory: 'Novo Nordisk', condition: 'R', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'REFRI-01', stock_actual: 25, stock_min: 10, stock_max: 50, expiry_date: new Date('2025-04-01').getTime(), price: 15990, cost_price: 8000, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Insulina Humana'], therapeutic_tags: ['DIABETES'], storage_condition: 'REFRIGERADO' },
-    { id: 'F002', sku: 'FRIO-02', name: 'INSULINA GLARGINA', dci: 'INSULINA', laboratory: 'Sanofi', condition: 'R', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'REFRI-01', stock_actual: 10, stock_min: 5, stock_max: 25, expiry_date: new Date('2025-05-01').getTime(), price: 25000, cost_price: 12000, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Insulina Glargina'], therapeutic_tags: ['DIABETES'], storage_condition: 'REFRIGERADO' },
-
-    // --- LAB CHILE & GENÉRICOS ---
-    { id: 'G001', sku: 'LC-001', name: 'ACICLOVIR 200MG', dci: 'ACICLOVIR', laboratory: 'Lab Chile', condition: 'R', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'GENERICOS-A', stock_actual: 100, stock_min: 20, stock_max: 200, expiry_date: new Date('2026-03-01').getTime(), price: 2167, cost_price: 800, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Aciclovir'], therapeutic_tags: ['HERPES', 'VIRUS'], storage_condition: 'AMBIENTE' },
-    { id: 'G002', sku: 'LC-002', name: 'NAPROXENO 550MG', dci: 'NAPROXENO', laboratory: 'Lab Chile', condition: 'VD', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'GENERICOS-N', stock_actual: 120, stock_min: 30, stock_max: 250, expiry_date: new Date('2026-07-01').getTime(), price: 1208, cost_price: 500, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Naproxeno'], therapeutic_tags: ['DOLOR', 'INFLAMACION'], storage_condition: 'AMBIENTE' },
-    { id: 'G003', sku: 'LC-003', name: 'OMEPRAZOL 20MG', dci: 'OMEPRAZOL', laboratory: 'Lab Chile', condition: 'VD', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'GENERICOS-O', stock_actual: 500, stock_min: 100, stock_max: 800, expiry_date: new Date('2026-09-01').getTime(), price: 893, cost_price: 350, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Omeprazol'], therapeutic_tags: ['ESTOMAGO', 'ACIDEZ'], storage_condition: 'AMBIENTE' },
-    { id: 'G004', sku: 'LC-004', name: 'KITADOL 1000MG', dci: 'PARACETAMOL', laboratory: 'Lab Chile', condition: 'VD', is_bioequivalent: true, location_id: 'SUCURSAL_CENTRO', aisle: 'INFANTIL', stock_actual: 80, stock_min: 20, stock_max: 150, expiry_date: new Date('2026-01-01').getTime(), price: 5295, cost_price: 2000, category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Paracetamol'], therapeutic_tags: ['DOLOR', 'FIEBRE', 'NIÑOS'], storage_condition: 'AMBIENTE' },
-
-    // --- RETAIL & COMISIONABLES (LEY ANTI-CANELA: TRUE) ---
-    { id: 'R001', sku: 'RET-01', name: 'MAAM CREMA PRENATAL', dci: 'COSMETICO', laboratory: 'Maam', brand: 'Maam', condition: 'VD', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'BELLEZA', stock_actual: 40, stock_min: 10, stock_max: 80, expiry_date: new Date('2027-01-01').getTime(), price: 15847, cost_price: 8000, category: 'RETAIL_BELLEZA', allows_commission: true, active_ingredients: [], image_url: '/images/maam.jpg', storage_condition: 'AMBIENTE' },
-    { id: 'R002', sku: 'RET-02', name: 'SIMILAC 1 FÓRMULA', dci: 'ALIMENTO', laboratory: 'Abbott', brand: 'Similac', condition: 'VD', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'MATERNIDAD', stock_actual: 20, stock_min: 5, stock_max: 50, expiry_date: new Date('2025-02-01').getTime(), price: 22990, cost_price: 12000, category: 'RETAIL_BELLEZA', allows_commission: true, active_ingredients: [], storage_condition: 'AMBIENTE' },
-    { id: 'R003', sku: 'RET-03', name: 'EUCERIN PROTECTOR 50+', dci: 'COSMETICO', laboratory: 'Eucerin', brand: 'Eucerin', condition: 'VD', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'SOLARES', stock_actual: 30, stock_min: 5, stock_max: 60, expiry_date: new Date('2027-05-01').getTime(), price: 18990, cost_price: 10000, category: 'RETAIL_BELLEZA', allows_commission: true, active_ingredients: [], storage_condition: 'AMBIENTE' },
-    { id: 'R004', sku: 'RET-04', name: 'LAUNOL SHAMPOO', dci: 'PEDICULICIDA', laboratory: 'Launol', brand: 'Launol', condition: 'VD', is_bioequivalent: false, location_id: 'SUCURSAL_CENTRO', aisle: 'CAPILAR', stock_actual: 25, stock_min: 5, stock_max: 50, expiry_date: new Date('2026-11-01').getTime(), price: 5528, cost_price: 2500, category: 'RETAIL_BELLEZA', allows_commission: true, active_ingredients: [], storage_condition: 'AMBIENTE' }
+    // --- RETAIL & COMISIONABLES ---
+    {
+        id: 'R001', sku: 'RET-01', name: 'MAAM CREMA PRENATAL', dci: 'N/A', laboratory: 'Milab', brand: 'Maam', condition: 'VD',
+        is_bioequivalent: false, bioequivalent_status: 'NO_BIOEQUIVALENTE', location_id: 'SUCURSAL_CENTRO', aisle: 'BELLEZA',
+        stock_actual: 40, stock_min: 10, stock_max: 80, expiry_date: new Date('2027-01-01').getTime(),
+        price: 15847, cost_price: 8000,
+        cost_net: 6722, tax_percent: 19, price_sell_box: 15847, price_sell_unit: 15847,
+        category: 'RETAIL_BELLEZA', allows_commission: true, active_ingredients: [], image_url: '/images/maam.jpg',
+        storage_condition: 'AMBIENTE', concentration: 'N/A', format: 'Crema', unit_count: 1, is_generic: false,
+        isp_register: 'N/A', units_per_box: 1, unit_format_string: 'Unidad', price_per_unit: 15847
+    }
 ];
 
 const MOCK_EMPLOYEES: EmployeeProfile[] = [
@@ -122,7 +149,9 @@ const MOCK_SUPPLIERS: Supplier[] = [
         categories: ['MEDICAMENTOS'],
         payment_terms: '30_DIAS',
         rating: 5,
-        bank_account: { bank: 'Banco de Chile', account_type: 'CORRIENTE', account_number: '111-222-333', email_notification: 'pagos@labchile.cl' }
+        bank_account: { bank: 'Banco de Chile', account_type: 'CORRIENTE', account_number: '111-222-333', email_notification: 'pagos@labchile.cl' },
+        address: 'Av. Marathon 1315', region: 'RM', city: 'Santiago', commune: 'Ñuñoa', postal_code: '7750000',
+        phone_1: '+56223334444', email_orders: 'pedidos@labchile.cl', email_billing: 'facturacion@labchile.cl', sector: 'LABORATORIO', brands: ['LabChile']
     },
     {
         id: 'SUP-002',
@@ -136,7 +165,9 @@ const MOCK_SUPPLIERS: Supplier[] = [
         ],
         categories: ['MEDICAMENTOS', 'INSUMOS'],
         payment_terms: '60_DIAS',
-        rating: 4
+        rating: 4,
+        address: 'Av. Alonso de Córdova 5151', region: 'RM', city: 'Santiago', commune: 'Las Condes', postal_code: '7550000',
+        phone_1: '+56225556666', email_orders: 'pedidos@novo.com', email_billing: 'billing@novo.com', sector: 'LABORATORIO', brands: ['Novo Nordisk']
     },
     {
         id: 'SUP-003',
@@ -148,7 +179,9 @@ const MOCK_SUPPLIERS: Supplier[] = [
         contacts: [],
         categories: ['INSUMOS', 'RETAIL'],
         payment_terms: 'CONTADO',
-        rating: 3
+        rating: 3,
+        address: 'San Ignacio 500', region: 'RM', city: 'Santiago', commune: 'Quilicura', postal_code: '8700000',
+        phone_1: '+56227778888', email_orders: 'ventas@hofmann.cl', email_billing: 'pagos@hofmann.cl', sector: 'DISTRIBUIDORA', brands: ['Varios']
     },
 ];
 
@@ -284,13 +317,14 @@ interface PharmaState {
     currentCustomer: Customer | null;
     setCustomer: (customer: Customer | null) => void;
     addToCart: (batch: InventoryBatch, quantity: number) => void;
-    addManualItem: (item: { description: string, price: number, quantity: number }) => void;
+    addManualItem: (item: { description: string, price: number, quantity: number, sku?: string, is_fractional?: boolean, original_name?: string, active_ingredients?: string[] }) => void;
     removeFromCart: (sku: string) => void;
     clearCart: () => void;
-    processSale: (paymentMethod: string, customer?: Customer) => void;
+    processSale: (paymentMethod: string, customer?: Customer) => Promise<boolean>;
 
     // Inventory Actions
     updateProduct: (id: string, data: Partial<InventoryBatch>) => void;
+    updateBatchDetails: (productId: string, batchId: string, data: Partial<InventoryBatch>) => void;
 
     // Printer & Hardware
     printerConfig: PrinterConfig;
@@ -308,9 +342,10 @@ interface PharmaState {
 
     // Cash Management
     currentShift: CashShift | null;
+    dailyShifts: CashShift[]; // History of shifts for the day
     cashMovements: CashMovement[];
-    openShift: (amount: number) => void;
-    closeShift: (finalAmount: number) => void;
+    openShift: (amount: number, authorizedBy: string) => void;
+    closeShift: (finalAmount: number, authorizedBy: string) => void;
     updateOpeningAmount: (newAmount: number) => void;
     registerCashMovement: (movement: Omit<CashMovement, 'id' | 'timestamp' | 'shift_id' | 'user_id'>) => void;
     getShiftMetrics: () => {
@@ -387,13 +422,32 @@ export const usePharmaStore = create<PharmaState>()(
                     if (employees.length > 0) set({ employees });
 
                     const state = get();
-                    console.log('Data Synced:', {
+
+                    // Initialize TigerDataService with current store data
+                    const { TigerDataService } = await import('../../domain/services/TigerDataService');
+                    TigerDataService.initializeStorage({
+                        products: state.inventory,
+                        employees: state.employees,
+                        sales: state.salesHistory,
+                        cashMovements: state.cashMovements,
+                        expenses: state.expenses
+                    });
+
+                    console.log('✅ Data Synced & Tiger Data Initialized:', {
                         inventoryCount: state.inventory.length,
                         employeeCount: state.employees.length,
+                        salesCount: state.salesHistory.length,
                         source: inventory.length > 0 ? 'DB' : 'MOCK/CACHE'
                     });
                 } catch (error) {
-                    console.error('Sync failed:', error);
+                    console.error('❌ Sync failed:', error);
+                    // Show a friendly toast to the user
+                    import('sonner').then(({ toast }) => {
+                        toast.error('Modo Sin Conexión / Demo', {
+                            description: 'No se pudo conectar con el servidor. Usando datos locales.',
+                            duration: 5000,
+                        });
+                    });
                 } finally {
                     set({ isLoading: false });
                 }
@@ -505,6 +559,19 @@ export const usePharmaStore = create<PharmaState>()(
                 )
             })),
 
+            updateBatchDetails: (productId, batchId, data) => {
+                set((state) => ({
+                    inventory: state.inventory.map((item) => {
+                        // In this simplified model, items ARE batches. 
+                        // So we just find the item by ID (which acts as batch ID here) and update it.
+                        // In a more complex model with Product -> Batches relation, we would drill down.
+                        if (item.id === batchId) {
+                            return { ...item, ...data };
+                        }
+                        return item;
+                    })
+                }));
+            },
             addToCart: (item, quantity = 1) => set((state) => {
                 const existingItem = state.cart.find(i => i.id === item.id);
                 if (existingItem) {
@@ -529,64 +596,96 @@ export const usePharmaStore = create<PharmaState>()(
                 cart: [...state.cart, {
                     id: 'MANUAL-' + Date.now(),
                     batch_id: 'MANUAL',
-                    sku: 'MANUAL-SKU', // Generic SKU as requested
+                    sku: item.sku || 'MANUAL-SKU',
                     name: item.description,
                     price: item.price,
                     quantity: item.quantity,
-                    allows_commission: true, // Usually manual items like services allow commission or are neutral
-                    active_ingredients: []
+                    allows_commission: true,
+                    active_ingredients: item.active_ingredients || [],
+                    is_fractional: item.is_fractional,
+                    original_name: item.original_name
                 }]
             })),
             removeFromCart: (sku) => set((state) => ({
                 cart: state.cart.filter(i => i.sku !== sku)
             })),
             clearCart: () => set({ cart: [] }),
-            processSale: (paymentMethod, customer) => {
+            processSale: async (paymentMethod, customer) => {
                 const state = get();
-                // 1. Descontar Stock
-                const newInventory = state.inventory.map(item => {
-                    const cartItem = state.cart.find(c => c.sku === item.sku);
-                    if (cartItem) {
-                        return { ...item, stock_actual: item.stock_actual - cartItem.quantity };
+
+                try {
+                    // 1. Create sale transaction object
+                    const saleTransaction: SaleTransaction = {
+                        id: `SALE-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                        timestamp: Date.now(),
+                        items: state.cart.map(item => ({
+                            batch_id: item.batch_id || 'UNKNOWN',
+                            sku: item.sku,
+                            name: item.name,
+                            price: item.price,
+                            quantity: item.quantity,
+                            allows_commission: item.allows_commission || false,
+                            active_ingredients: item.active_ingredients
+                        })),
+                        total: state.cart.reduce((a, b) => a + b.price * b.quantity, 0),
+                        payment_method: paymentMethod as any,
+                        seller_id: state.user?.id || 'UNKNOWN',
+                        customer: customer || undefined
+                    };
+
+                    // 2. CRITICAL: Save to Tiger Data BEFORE clearing cart
+                    const { TigerDataService } = await import('../../domain/services/TigerDataService');
+                    const result = await TigerDataService.saveSaleTransaction(
+                        saleTransaction,
+                        'SUCURSAL_CENTRO' // TODO: Get from location context
+                    );
+
+                    if (!result.success) {
+                        console.error('❌ Failed to save sale to Tiger Data');
+                        return false;
                     }
-                    return item;
-                });
 
-                // Update customer points and last visit if applicable
-                if (customer) {
-                    const pointsEarned = Math.floor(state.cart.reduce((a, b) => a + b.price * b.quantity, 0) * 0.01); // 1% points
-                    state.updateCustomer(customer.id, {
-                        totalPoints: customer.totalPoints + pointsEarned,
-                        lastVisit: Date.now()
+                    console.log('✅ Sale saved to Tiger Data:', result.transactionId);
+
+                    // 3. Update local inventory (deduct stock)
+                    const newInventory = state.inventory.map(item => {
+                        const cartItem = state.cart.find(c => c.sku === item.sku);
+                        if (cartItem) {
+                            return { ...item, stock_actual: item.stock_actual - cartItem.quantity };
+                        }
+                        return item;
                     });
+
+                    // 4. Update customer points if applicable
+                    if (customer) {
+                        const pointsEarned = Math.floor(saleTransaction.total * 0.01); // 1% points
+                        state.updateCustomer(customer.id, {
+                            totalPoints: customer.totalPoints + pointsEarned,
+                            lastVisit: Date.now()
+                        });
+                    }
+
+                    // 5. Update local state (clear cart and add to history)
+                    set({
+                        inventory: newInventory,
+                        cart: [],
+                        currentCustomer: null,
+                        salesHistory: [...state.salesHistory, saleTransaction]
+                    });
+
+                    console.log('✅ Sale processed successfully:', {
+                        items: saleTransaction.items.length,
+                        total: saleTransaction.total,
+                        paymentMethod,
+                        customer: customer?.fullName
+                    });
+
+                    return true;
+                } catch (error) {
+                    console.error('❌ Error processing sale:', error);
+                    // Don't clear cart on error - allow retry
+                    return false;
                 }
-
-                console.log('Venta Procesada:', { items: state.cart, total: state.cart.reduce((a, b) => a + b.price * b.quantity, 0), paymentMethod, customer });
-
-                const saleTransaction: SaleTransaction = {
-                    id: `SALE-${Date.now()}`,
-                    timestamp: Date.now(),
-                    items: state.cart.map(item => ({
-                        batch_id: item.batch_id || 'UNKNOWN',
-                        sku: item.sku,
-                        name: item.name,
-                        price: item.price,
-                        quantity: item.quantity,
-                        allows_commission: item.allows_commission || false,
-                        active_ingredients: item.active_ingredients
-                    })),
-                    total: state.cart.reduce((a, b) => a + b.price * b.quantity, 0),
-                    payment_method: paymentMethod as any,
-                    seller_id: state.user?.id || 'UNKNOWN',
-                    customer: customer || undefined
-                };
-
-                set({
-                    inventory: newInventory,
-                    cart: [],
-                    currentCustomer: null,
-                    salesHistory: [...state.salesHistory, saleTransaction]
-                }); // Clear customer after sale
             },
 
             // --- CRM ---
@@ -619,29 +718,45 @@ export const usePharmaStore = create<PharmaState>()(
 
             // --- Cash Management ---
             currentShift: null,
+            dailyShifts: [],
             cashMovements: [],
-            openShift: (amount) => set((state) => {
+            openShift: (amount, authorizedBy) => set((state) => {
                 if (state.currentShift?.status === 'OPEN') return state;
+
+                // Calculate shift number (1-based)
+                const todayStart = new Date().setHours(0, 0, 0, 0);
+                const shiftsToday = state.dailyShifts.filter(s => s.start_time >= todayStart).length;
+
                 const newShift: CashShift = {
                     id: `SHIFT-${Date.now()}`,
                     user_id: state.user?.id || 'UNKNOWN',
                     start_time: Date.now(),
                     opening_amount: amount,
-                    status: 'OPEN'
+                    status: 'OPEN',
+                    openedBy: state.user?.id || 'UNKNOWN',
+                    authorizedBy: authorizedBy,
+                    shiftNumber: shiftsToday + 1
                 };
                 return { currentShift: newShift };
             }),
-            closeShift: (finalAmount) => set((state) => {
+            closeShift: (finalAmount, authorizedBy) => set((state) => {
                 if (!state.currentShift) return state;
                 const metrics = state.getShiftMetrics();
+
+                const closedShift: CashShift = {
+                    ...state.currentShift,
+                    end_time: Date.now(),
+                    status: 'CLOSED',
+                    closedBy: authorizedBy,
+                    closing_amount: finalAmount,
+                    difference: finalAmount - metrics.expectedCash
+                };
+
                 return {
-                    currentShift: {
-                        ...state.currentShift,
-                        end_time: Date.now(),
-                        status: 'CLOSED',
-                        closing_amount: finalAmount,
-                        difference: finalAmount - metrics.expectedCash
-                    }
+                    currentShift: null, // Reset current shift
+                    dailyShifts: [...state.dailyShifts, closedShift], // Archive it
+                    cart: [], // Clear cart
+                    currentCustomer: null // Clear customer
                 };
             }),
             updateOpeningAmount: (newAmount) => set((state) => {
@@ -674,9 +789,13 @@ export const usePharmaStore = create<PharmaState>()(
                 const shiftSales = state.salesHistory.filter(s => s.timestamp >= state.currentShift!.start_time && (!state.currentShift!.end_time || s.timestamp <= state.currentShift!.end_time));
 
                 const totalSales = shiftSales.reduce((sum, s) => sum + s.total, 0);
-                const cashSales = shiftSales.filter(s => s.payment_method === 'CASH').reduce((sum, s) => sum + s.total, 0);
-                const cardSales = shiftSales.filter(s => s.payment_method === 'DEBIT' || s.payment_method === 'CREDIT').reduce((sum, s) => sum + s.total, 0);
-                const transferSales = shiftSales.filter(s => s.payment_method === 'TRANSFER').reduce((sum, s) => sum + s.total, 0);
+                const cashSalesList = shiftSales.filter(s => s.payment_method === 'CASH');
+                const cardSalesList = shiftSales.filter(s => s.payment_method === 'DEBIT' || s.payment_method === 'CREDIT');
+                const transferSalesList = shiftSales.filter(s => s.payment_method === 'TRANSFER');
+
+                const cashSales = cashSalesList.reduce((sum, s) => sum + s.total, 0);
+                const cardSales = cardSalesList.reduce((sum, s) => sum + s.total, 0);
+                const transferSales = transferSalesList.reduce((sum, s) => sum + s.total, 0);
 
                 const initialFund = state.currentShift.opening_amount;
 
@@ -693,7 +812,14 @@ export const usePharmaStore = create<PharmaState>()(
                     transferSales,
                     initialFund,
                     totalOutflows,
-                    expectedCash
+                    expectedCash,
+                    // Detailed Lists
+                    cashSalesList,
+                    cardSalesList,
+                    transferSalesList,
+                    // Counts
+                    cardCount: cardSalesList.length,
+                    transferCount: transferSalesList.length
                 };
             },
 
@@ -1055,8 +1181,8 @@ export const usePharmaStore = create<PharmaState>()(
             }
         }),
         {
-            name: 'farmacias-vallenar-v5-manager-fix', // Force cache clear - PIN 9080 update
-            version: 5,
+            name: 'farmacias-vallenar-v6-prices', // Force cache clear - Price Structure Update
+            version: 6,
             storage: createJSONStorage(() => localStorage),
             partialize: (state) => ({
                 user: state.user,

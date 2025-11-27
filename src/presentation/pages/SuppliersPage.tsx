@@ -2,11 +2,14 @@ import React, { useState } from 'react';
 import { usePharmaStore } from '../store/useStore';
 import { Search, Plus, Filter, Building2, Phone, Mail, CreditCard, Star, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import AddSupplierModal from '../components/suppliers/AddSupplierModal';
+import { toast } from 'sonner';
 
 export const SuppliersPage = () => {
-    const { suppliers } = usePharmaStore();
+    const { suppliers, addSupplier } = usePharmaStore();
     const [searchTerm, setSearchTerm] = useState('');
     const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
     const filteredSuppliers = suppliers.filter(supplier => {
         const matchesSearch =
@@ -19,6 +22,11 @@ export const SuppliersPage = () => {
         return matchesSearch && matchesCategory;
     });
 
+    const handleSaveSupplier = (supplierData: any) => {
+        addSupplier(supplierData);
+        toast.success(`✅ Proveedor ${supplierData.fantasy_name} registrado exitosamente`);
+    };
+
     return (
         <div className="p-6 space-y-6 bg-slate-50 min-h-screen">
             {/* Header */}
@@ -27,11 +35,21 @@ export const SuppliersPage = () => {
                     <h1 className="text-2xl font-bold text-slate-800">Directorio de Proveedores</h1>
                     <p className="text-slate-500">Gestión 360° de laboratorios y distribuidores</p>
                 </div>
-                <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm">
+                <button
+                    onClick={() => setIsAddModalOpen(true)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm"
+                >
                     <Plus size={20} />
                     Nuevo Proveedor
                 </button>
             </div>
+
+            {/* Add Supplier Modal */}
+            <AddSupplierModal
+                isOpen={isAddModalOpen}
+                onClose={() => setIsAddModalOpen(false)}
+                onSave={handleSaveSupplier}
+            />
 
             {/* Filters */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 items-center">
@@ -51,8 +69,8 @@ export const SuppliersPage = () => {
                             key={cat}
                             onClick={() => setCategoryFilter(cat)}
                             className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${categoryFilter === cat
-                                    ? 'bg-blue-100 text-blue-700 border border-blue-200'
-                                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                                ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
                                 }`}
                         >
                             {cat === 'ALL' ? 'Todos' : cat}

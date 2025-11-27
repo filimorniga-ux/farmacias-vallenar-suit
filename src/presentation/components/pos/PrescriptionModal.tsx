@@ -74,19 +74,27 @@ const PrescriptionModal: React.FC<PrescriptionModalProps> = ({ isOpen, onConfirm
                         </p>
                     </div>
 
-                    <div className="flex gap-3 pt-4">
+                    <div className="flex flex-col gap-3 pt-4">
+                        <div className="flex gap-3">
+                            <button
+                                onClick={onCancel}
+                                className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={() => isValid && onConfirm({ folio, doctorRut })}
+                                disabled={!isValid}
+                                className="flex-1 py-3 bg-amber-600 text-white font-bold rounded-xl hover:bg-amber-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-amber-200"
+                            >
+                                Confirmar
+                            </button>
+                        </div>
                         <button
-                            onClick={onCancel}
-                            className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition"
+                            onClick={() => onConfirm({ folio: 'PENDIENTE_VALIDACION', doctorRut: 'VALIDACION_MANUAL' })}
+                            className="w-full py-2 text-xs font-bold text-slate-400 hover:text-slate-600 transition uppercase tracking-wider"
                         >
-                            Cancelar
-                        </button>
-                        <button
-                            onClick={() => isValid && onConfirm({ folio, doctorRut })}
-                            disabled={!isValid}
-                            className="flex-1 py-3 bg-amber-600 text-white font-bold rounded-xl hover:bg-amber-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-amber-200"
-                        >
-                            Confirmar
+                            Omitir / Validar Manualmente
                         </button>
                     </div>
                 </div>
