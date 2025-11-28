@@ -143,7 +143,10 @@ const SupplyChainPage: React.FC = () => {
                     <p className="text-slate-500">Gestión Inteligente de Abastecimiento</p>
                 </div>
                 <div className="flex gap-3">
-                    <button className="flex items-center gap-2 px-6 py-3 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold hover:bg-slate-50 transition">
+                    <button
+                        onClick={() => setIsManualOrderModalOpen(true)}
+                        className="flex items-center gap-2 px-6 py-3 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold hover:bg-slate-50 transition"
+                    >
                         <Plus size={20} /> Nueva Orden Manual
                     </button>
                 </div>

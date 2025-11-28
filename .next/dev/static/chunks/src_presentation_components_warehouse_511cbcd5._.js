@@ -10,8 +10,15 @@ var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/next/dist/compiled/react/index.js [app-client] (ecmascript)");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$x$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__X$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/x.js [app-client] (ecmascript) <export default as X>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$circle$2d$check$2d$big$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__CheckCircle$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/circle-check-big.js [app-client] (ecmascript) <export default as CheckCircle>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$package$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Package$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/package.js [app-client] (ecmascript) <export default as Package>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$camera$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Camera$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/camera.js [app-client] (ecmascript) <export default as Camera>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$file$2d$text$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__FileText$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/file-text.js [app-client] (ecmascript) <export default as FileText>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$barcode$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Barcode$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/barcode.js [app-client] (ecmascript) <export default as Barcode>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$upload$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Upload$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/upload.js [app-client] (ecmascript) <export default as Upload>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$eye$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Eye$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/eye.js [app-client] (ecmascript) <export default as Eye>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$truck$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Truck$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/truck.js [app-client] (ecmascript) <export default as Truck>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$store$2f$useStore$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/presentation/store/useStore.ts [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$hooks$2f$useBarcodeScanner$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/presentation/hooks/useBarcodeScanner.ts [app-client] (ecmascript)");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/sonner/dist/index.mjs [app-client] (ecmascript)");
 ;
 var _s = __turbopack_context__.k.signature();
@@ -19,12 +26,19 @@ var _s = __turbopack_context__.k.signature();
 ;
 ;
 ;
+;
 const UnifiedReception = ({ isOpen, onClose, shipment })=>{
     _s();
-    const { confirmReception } = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$store$2f$useStore$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["usePharmaStore"])();
+    const { confirmReception, uploadLogisticsDocument } = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$store$2f$useStore$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["usePharmaStore"])();
     const [receivedItems, setReceivedItems] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])([]);
     const [notes, setNotes] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])('');
     const [photos, setPhotos] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])([]);
+    const [activeTab, setActiveTab] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])('ITEMS');
+    // Documents
+    const [invoiceUrl, setInvoiceUrl] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])(null);
+    const [guideUrl, setGuideUrl] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])(null);
+    // Scanner
+    const scannerInputRef = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useRef"])(null);
     (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useEffect"])({
         "UnifiedReception.useEffect": ()=>{
             if (shipment) {
@@ -32,6 +46,8 @@ const UnifiedReception = ({ isOpen, onClose, shipment })=>{
                     "UnifiedReception.useEffect": (i)=>({
                             batchId: i.batchId,
                             quantity: i.quantity,
+                            // Let's default to expected for "Checklist" mode, but user can clear it if they want "Blind"
+                            // For this requirement "Hybrid", usually we start with expected and verify.
                             condition: 'GOOD'
                         })
                 }["UnifiedReception.useEffect"]));
@@ -40,6 +56,43 @@ const UnifiedReception = ({ isOpen, onClose, shipment })=>{
     }["UnifiedReception.useEffect"], [
         shipment
     ]);
+    const handleScan = (code)=>{
+        // Find item by SKU or Batch ID (or Barcode if we had it)
+        const itemIndex = shipment.items.findIndex((i)=>i.sku === code || i.batchId === code);
+        if (itemIndex !== -1) {
+            const batchId = shipment.items[itemIndex].batchId;
+            setReceivedItems((prev)=>prev.map((r)=>{
+                    if (r.batchId === batchId) {
+                        // Increment quantity
+                        // Optional: Check if exceeds expected?
+                        // For now, just increment.
+                        __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].success(`Escaneado: ${shipment.items[itemIndex].name}`);
+                        return {
+                            ...r,
+                            quantity: r.quantity + 1
+                        }; // If we started at 0, this works. If we started at expected, this adds MORE?
+                    // Issue: If we initialize with expected quantity, scanning adds to it?
+                    // Maybe we should initialize with 0 if we want to use scanner?
+                    // Or "Verify" mode: Scanning highlights the row?
+                    // Let's assume "Blind Reception" style if scanning:
+                    // But the user might just want to verify.
+                    // Let's stick to: If scanner is used, it increments. 
+                    // But if we pre-fill, it might be confusing.
+                    // Let's NOT pre-fill quantity if we want true scanner reception.
+                    // BUT, for "Hybrid", usually we show expected.
+                    // Let's just increment and let user adjust.
+                    }
+                    return r;
+                }));
+        } else {
+            __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].error(`Producto no encontrado en este despacho: ${code}`);
+        }
+    };
+    (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$hooks$2f$useBarcodeScanner$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useBarcodeScanner"])({
+        onScan: handleScan,
+        minLength: 3,
+        targetInputRef: scannerInputRef
+    });
     if (!isOpen) return null;
     const handleQuantityChange = (batchId, qty)=>{
         setReceivedItems((items)=>items.map((i)=>i.batchId === batchId ? {
@@ -53,14 +106,17 @@ const UnifiedReception = ({ isOpen, onClose, shipment })=>{
                     condition
                 } : i));
     };
-    const handlePhotoUpload = (e)=>{
+    const handleFileUpload = (e, type)=>{
         const file = e.target.files?.[0];
         if (file) {
             const url = URL.createObjectURL(file);
-            setPhotos([
+            if (type === 'PHOTO') setPhotos([
                 ...photos,
                 url
             ]);
+            if (type === 'INVOICE') setInvoiceUrl(url);
+            if (type === 'GUIDE') setGuideUrl(url);
+            __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].success('Documento adjuntado');
         }
     };
     const handleSubmit = ()=>{
@@ -73,6 +129,10 @@ const UnifiedReception = ({ isOpen, onClose, shipment })=>{
             __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].error('Debes agregar una observación si hay discrepancias');
             return;
         }
+        // Upload Documents
+        if (invoiceUrl) uploadLogisticsDocument(shipment.id, 'INVOICE', invoiceUrl);
+        if (guideUrl) uploadLogisticsDocument(shipment.id, 'GUIDE', guideUrl);
+        // Confirm Reception
         confirmReception(shipment.id, {
             photos,
             notes,
@@ -86,7 +146,7 @@ const UnifiedReception = ({ isOpen, onClose, shipment })=>{
     return /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
         className: "fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4",
         children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-            className: "bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col",
+            className: "bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col",
             children: [
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                     className: "p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-2xl",
@@ -100,14 +160,14 @@ const UnifiedReception = ({ isOpen, onClose, shipment })=>{
                                             className: "text-emerald-600"
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                            lineNumber: 83,
+                                            lineNumber: 141,
                                             columnNumber: 29
                                         }, ("TURBOPACK compile-time value", void 0)),
                                         "Recepción de Carga"
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                    lineNumber: 82,
+                                    lineNumber: 140,
                                     columnNumber: 25
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -119,13 +179,13 @@ const UnifiedReception = ({ isOpen, onClose, shipment })=>{
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                    lineNumber: 86,
+                                    lineNumber: 144,
                                     columnNumber: 25
                                 }, ("TURBOPACK compile-time value", void 0))
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                            lineNumber: 81,
+                            lineNumber: 139,
                             columnNumber: 21
                         }, ("TURBOPACK compile-time value", void 0)),
                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -136,338 +196,746 @@ const UnifiedReception = ({ isOpen, onClose, shipment })=>{
                                 className: "text-gray-500"
                             }, void 0, false, {
                                 fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                lineNumber: 91,
+                                lineNumber: 149,
                                 columnNumber: 25
                             }, ("TURBOPACK compile-time value", void 0))
                         }, void 0, false, {
                             fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                            lineNumber: 90,
+                            lineNumber: 148,
                             columnNumber: 21
                         }, ("TURBOPACK compile-time value", void 0))
                     ]
                 }, void 0, true, {
                     fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                    lineNumber: 80,
+                    lineNumber: 138,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0)),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                    className: "flex-1 overflow-y-auto p-6 space-y-6",
+                    className: "flex border-b border-gray-100 px-6",
                     children: [
-                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                            className: "bg-blue-50 border border-blue-100 rounded-xl p-4 flex justify-between items-center",
+                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                            onClick: ()=>setActiveTab('ITEMS'),
+                            className: `px-6 py-3 font-bold text-sm border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'ITEMS' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`,
                             children: [
-                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                    className: "flex gap-8",
-                                    children: [
-                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                            children: [
-                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                                    className: "text-xs font-bold text-blue-400 uppercase",
-                                                    children: "Origen"
-                                                }, void 0, false, {
-                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                    lineNumber: 101,
-                                                    columnNumber: 33
-                                                }, ("TURBOPACK compile-time value", void 0)),
-                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                                    className: "font-bold text-blue-900",
-                                                    children: shipment.origin_location_id
-                                                }, void 0, false, {
-                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                    lineNumber: 102,
-                                                    columnNumber: 33
-                                                }, ("TURBOPACK compile-time value", void 0))
-                                            ]
-                                        }, void 0, true, {
-                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                            lineNumber: 100,
-                                            columnNumber: 29
-                                        }, ("TURBOPACK compile-time value", void 0)),
-                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                            children: [
-                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                                    className: "text-xs font-bold text-blue-400 uppercase",
-                                                    children: "Bultos"
-                                                }, void 0, false, {
-                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                    lineNumber: 105,
-                                                    columnNumber: 33
-                                                }, ("TURBOPACK compile-time value", void 0)),
-                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                                    className: "font-bold text-blue-900",
-                                                    children: shipment.transport_data.package_count
-                                                }, void 0, false, {
-                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                    lineNumber: 106,
-                                                    columnNumber: 33
-                                                }, ("TURBOPACK compile-time value", void 0))
-                                            ]
-                                        }, void 0, true, {
-                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                            lineNumber: 104,
-                                            columnNumber: 29
-                                        }, ("TURBOPACK compile-time value", void 0))
-                                    ]
-                                }, void 0, true, {
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$package$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Package$3e$__["Package"], {
+                                    size: 18
+                                }, void 0, false, {
                                     fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                    lineNumber: 99,
+                                    lineNumber: 159,
                                     columnNumber: 25
                                 }, ("TURBOPACK compile-time value", void 0)),
+                                " Items y Conteo"
+                            ]
+                        }, void 0, true, {
+                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                            lineNumber: 155,
+                            columnNumber: 21
+                        }, ("TURBOPACK compile-time value", void 0)),
+                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                            onClick: ()=>setActiveTab('DOCS'),
+                            className: `px-6 py-3 font-bold text-sm border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'DOCS' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`,
+                            children: [
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$file$2d$text$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__FileText$3e$__["FileText"], {
+                                    size: 18
+                                }, void 0, false, {
+                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                    lineNumber: 165,
+                                    columnNumber: 25
+                                }, ("TURBOPACK compile-time value", void 0)),
+                                " Documentación"
+                            ]
+                        }, void 0, true, {
+                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                            lineNumber: 161,
+                            columnNumber: 21
+                        }, ("TURBOPACK compile-time value", void 0))
+                    ]
+                }, void 0, true, {
+                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                    lineNumber: 154,
+                    columnNumber: 17
+                }, ("TURBOPACK compile-time value", void 0)),
+                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                    className: "flex-1 overflow-y-auto p-6 bg-gray-50/50",
+                    children: [
+                        activeTab === 'ITEMS' && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                            className: "space-y-6",
+                            children: [
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                    className: "text-right",
+                                    className: "bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex items-center gap-4",
                                     children: [
-                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                            className: "text-xs font-bold text-blue-400 uppercase",
-                                            children: "Progreso"
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                            className: "bg-blue-100 p-3 rounded-lg text-blue-600",
+                                            children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$barcode$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Barcode$3e$__["Barcode"], {
+                                                size: 24
+                                            }, void 0, false, {
+                                                fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                lineNumber: 176,
+                                                columnNumber: 37
+                                            }, ("TURBOPACK compile-time value", void 0))
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                            lineNumber: 110,
-                                            columnNumber: 29
+                                            lineNumber: 175,
+                                            columnNumber: 33
                                         }, ("TURBOPACK compile-time value", void 0)),
-                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                            className: `text-2xl font-extrabold ${totalReceived !== totalExpected ? 'text-amber-500' : 'text-emerald-600'}`,
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                            className: "flex-1",
                                             children: [
-                                                totalReceived,
-                                                " / ",
-                                                totalExpected
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("label", {
+                                                    className: "block text-xs font-bold text-gray-500 uppercase mb-1",
+                                                    children: "Escáner Activo"
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                    lineNumber: 179,
+                                                    columnNumber: 37
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
+                                                    ref: scannerInputRef,
+                                                    type: "text",
+                                                    placeholder: "Pistolear producto para sumar...",
+                                                    className: "w-full bg-transparent outline-none font-mono text-lg text-gray-800 placeholder-gray-300",
+                                                    autoFocus: true,
+                                                    onBlur: ()=>setTimeout(()=>scannerInputRef.current?.focus(), 100)
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                    lineNumber: 180,
+                                                    columnNumber: 37
+                                                }, ("TURBOPACK compile-time value", void 0))
                                             ]
                                         }, void 0, true, {
                                             fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                            lineNumber: 111,
-                                            columnNumber: 29
+                                            lineNumber: 178,
+                                            columnNumber: 33
+                                        }, ("TURBOPACK compile-time value", void 0)),
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                            className: "text-right px-4 border-l border-gray-100",
+                                            children: [
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                                    className: "text-xs font-bold text-gray-400 uppercase",
+                                                    children: "Progreso"
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                    lineNumber: 190,
+                                                    columnNumber: 37
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                                    className: `text-2xl font-extrabold ${totalReceived !== totalExpected ? 'text-amber-500' : 'text-emerald-600'}`,
+                                                    children: [
+                                                        totalReceived,
+                                                        " / ",
+                                                        totalExpected
+                                                    ]
+                                                }, void 0, true, {
+                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                    lineNumber: 191,
+                                                    columnNumber: 37
+                                                }, ("TURBOPACK compile-time value", void 0))
+                                            ]
+                                        }, void 0, true, {
+                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                            lineNumber: 189,
+                                            columnNumber: 33
                                         }, ("TURBOPACK compile-time value", void 0))
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                    lineNumber: 109,
-                                    columnNumber: 25
+                                    lineNumber: 174,
+                                    columnNumber: 29
+                                }, ("TURBOPACK compile-time value", void 0)),
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                    className: "bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm",
+                                    children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("table", {
+                                        className: "w-full",
+                                        children: [
+                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("thead", {
+                                                className: "bg-gray-50 text-xs uppercase text-gray-500 font-bold",
+                                                children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("tr", {
+                                                    children: [
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("th", {
+                                                            className: "px-6 py-4 text-left",
+                                                            children: "Producto"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                            lineNumber: 202,
+                                                            columnNumber: 45
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("th", {
+                                                            className: "px-6 py-4 text-center",
+                                                            children: "Lote"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                            lineNumber: 203,
+                                                            columnNumber: 45
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("th", {
+                                                            className: "px-6 py-4 text-center",
+                                                            children: "Esperado"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                            lineNumber: 204,
+                                                            columnNumber: 45
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("th", {
+                                                            className: "px-6 py-4 text-center",
+                                                            children: "Recibido"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                            lineNumber: 205,
+                                                            columnNumber: 45
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("th", {
+                                                            className: "px-6 py-4 text-center",
+                                                            children: "Estado"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                            lineNumber: 206,
+                                                            columnNumber: 45
+                                                        }, ("TURBOPACK compile-time value", void 0))
+                                                    ]
+                                                }, void 0, true, {
+                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                    lineNumber: 201,
+                                                    columnNumber: 41
+                                                }, ("TURBOPACK compile-time value", void 0))
+                                            }, void 0, false, {
+                                                fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                lineNumber: 200,
+                                                columnNumber: 37
+                                            }, ("TURBOPACK compile-time value", void 0)),
+                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("tbody", {
+                                                className: "divide-y divide-gray-100",
+                                                children: shipment.items.map((item)=>{
+                                                    const received = receivedItems.find((r)=>r.batchId === item.batchId);
+                                                    if (!received) return null;
+                                                    return /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("tr", {
+                                                        className: received.quantity !== item.quantity ? 'bg-amber-50/30' : '',
+                                                        children: [
+                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
+                                                                className: "px-6 py-4",
+                                                                children: [
+                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                                                        className: "font-bold text-gray-800",
+                                                                        children: item.name
+                                                                    }, void 0, false, {
+                                                                        fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                        lineNumber: 217,
+                                                                        columnNumber: 57
+                                                                    }, ("TURBOPACK compile-time value", void 0)),
+                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                                                        className: "text-xs text-gray-500 font-mono",
+                                                                        children: item.sku
+                                                                    }, void 0, false, {
+                                                                        fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                        lineNumber: 218,
+                                                                        columnNumber: 57
+                                                                    }, ("TURBOPACK compile-time value", void 0))
+                                                                ]
+                                                            }, void 0, true, {
+                                                                fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                lineNumber: 216,
+                                                                columnNumber: 53
+                                                            }, ("TURBOPACK compile-time value", void 0)),
+                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
+                                                                className: "px-6 py-4 text-center",
+                                                                children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                                    className: "bg-gray-100 px-2 py-1 rounded text-xs font-mono text-gray-600",
+                                                                    children: item.lot_number || 'S/L'
+                                                                }, void 0, false, {
+                                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                    lineNumber: 221,
+                                                                    columnNumber: 57
+                                                                }, ("TURBOPACK compile-time value", void 0))
+                                                            }, void 0, false, {
+                                                                fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                lineNumber: 220,
+                                                                columnNumber: 53
+                                                            }, ("TURBOPACK compile-time value", void 0)),
+                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
+                                                                className: "px-6 py-4 text-center font-medium text-gray-600",
+                                                                children: item.quantity
+                                                            }, void 0, false, {
+                                                                fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                lineNumber: 225,
+                                                                columnNumber: 53
+                                                            }, ("TURBOPACK compile-time value", void 0)),
+                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
+                                                                className: "px-6 py-4 text-center",
+                                                                children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                                    className: "flex items-center justify-center gap-2",
+                                                                    children: [
+                                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                                            onClick: ()=>handleQuantityChange(item.batchId, received.quantity - 1),
+                                                                            className: "w-6 h-6 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold",
+                                                                            children: "-"
+                                                                        }, void 0, false, {
+                                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                            lineNumber: 230,
+                                                                            columnNumber: 61
+                                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
+                                                                            type: "number",
+                                                                            value: received.quantity,
+                                                                            onChange: (e)=>handleQuantityChange(item.batchId, parseInt(e.target.value) || 0),
+                                                                            className: `w-16 text-center font-bold border rounded py-1 focus:ring-2 outline-none ${received.quantity !== item.quantity ? 'border-amber-300 text-amber-700 focus:ring-amber-200' : 'border-gray-200 text-gray-800 focus:ring-blue-200'}`
+                                                                        }, void 0, false, {
+                                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                            lineNumber: 231,
+                                                                            columnNumber: 61
+                                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                                            onClick: ()=>handleQuantityChange(item.batchId, received.quantity + 1),
+                                                                            className: "w-6 h-6 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold",
+                                                                            children: "+"
+                                                                        }, void 0, false, {
+                                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                            lineNumber: 240,
+                                                                            columnNumber: 61
+                                                                        }, ("TURBOPACK compile-time value", void 0))
+                                                                    ]
+                                                                }, void 0, true, {
+                                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                    lineNumber: 229,
+                                                                    columnNumber: 57
+                                                                }, ("TURBOPACK compile-time value", void 0))
+                                                            }, void 0, false, {
+                                                                fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                lineNumber: 228,
+                                                                columnNumber: 53
+                                                            }, ("TURBOPACK compile-time value", void 0)),
+                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
+                                                                className: "px-6 py-4 text-center",
+                                                                children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("select", {
+                                                                    value: received.condition,
+                                                                    onChange: (e)=>handleConditionChange(item.batchId, e.target.value),
+                                                                    className: `px-3 py-1 rounded-lg text-sm font-bold border outline-none ${received.condition === 'GOOD' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`,
+                                                                    children: [
+                                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
+                                                                            value: "GOOD",
+                                                                            children: "OK"
+                                                                        }, void 0, false, {
+                                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                            lineNumber: 252,
+                                                                            columnNumber: 61
+                                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
+                                                                            value: "DAMAGED",
+                                                                            children: "DAÑADO"
+                                                                        }, void 0, false, {
+                                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                            lineNumber: 253,
+                                                                            columnNumber: 61
+                                                                        }, ("TURBOPACK compile-time value", void 0))
+                                                                    ]
+                                                                }, void 0, true, {
+                                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                    lineNumber: 244,
+                                                                    columnNumber: 57
+                                                                }, ("TURBOPACK compile-time value", void 0))
+                                                            }, void 0, false, {
+                                                                fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                lineNumber: 243,
+                                                                columnNumber: 53
+                                                            }, ("TURBOPACK compile-time value", void 0))
+                                                        ]
+                                                    }, item.batchId, true, {
+                                                        fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                        lineNumber: 215,
+                                                        columnNumber: 49
+                                                    }, ("TURBOPACK compile-time value", void 0));
+                                                })
+                                            }, void 0, false, {
+                                                fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                lineNumber: 209,
+                                                columnNumber: 37
+                                            }, ("TURBOPACK compile-time value", void 0))
+                                        ]
+                                    }, void 0, true, {
+                                        fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                        lineNumber: 199,
+                                        columnNumber: 33
+                                    }, ("TURBOPACK compile-time value", void 0))
+                                }, void 0, false, {
+                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                    lineNumber: 198,
+                                    columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0))
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                            lineNumber: 98,
-                            columnNumber: 21
+                            lineNumber: 172,
+                            columnNumber: 25
                         }, ("TURBOPACK compile-time value", void 0)),
-                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                            className: "border border-gray-200 rounded-xl overflow-hidden",
-                            children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("table", {
-                                className: "w-full",
-                                children: [
-                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("thead", {
-                                        className: "bg-gray-50 text-xs uppercase text-gray-500 font-bold",
-                                        children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("tr", {
+                        activeTab === 'DOCS' && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                            className: "space-y-6 max-w-3xl mx-auto",
+                            children: [
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                    className: "grid grid-cols-2 gap-6",
+                                    children: [
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                            className: "bg-white p-6 rounded-xl shadow-sm border border-gray-200",
                                             children: [
-                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("th", {
-                                                    className: "px-6 py-4 text-left",
-                                                    children: "Producto"
-                                                }, void 0, false, {
-                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                    lineNumber: 122,
-                                                    columnNumber: 37
-                                                }, ("TURBOPACK compile-time value", void 0)),
-                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("th", {
-                                                    className: "px-6 py-4 text-center",
-                                                    children: "Esperado"
-                                                }, void 0, false, {
-                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                    lineNumber: 123,
-                                                    columnNumber: 37
-                                                }, ("TURBOPACK compile-time value", void 0)),
-                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("th", {
-                                                    className: "px-6 py-4 text-center",
-                                                    children: "Recibido"
-                                                }, void 0, false, {
-                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                    lineNumber: 124,
-                                                    columnNumber: 37
-                                                }, ("TURBOPACK compile-time value", void 0)),
-                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("th", {
-                                                    className: "px-6 py-4 text-center",
-                                                    children: "Estado"
-                                                }, void 0, false, {
-                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                    lineNumber: 125,
-                                                    columnNumber: 37
-                                                }, ("TURBOPACK compile-time value", void 0))
-                                            ]
-                                        }, void 0, true, {
-                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                            lineNumber: 121,
-                                            columnNumber: 33
-                                        }, ("TURBOPACK compile-time value", void 0))
-                                    }, void 0, false, {
-                                        fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                        lineNumber: 120,
-                                        columnNumber: 29
-                                    }, ("TURBOPACK compile-time value", void 0)),
-                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("tbody", {
-                                        className: "divide-y divide-gray-100",
-                                        children: shipment.items.map((item)=>{
-                                            const received = receivedItems.find((r)=>r.batchId === item.batchId);
-                                            if (!received) return null;
-                                            return /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("tr", {
-                                                className: received.quantity !== item.quantity ? 'bg-amber-50/30' : '',
-                                                children: [
-                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
-                                                        className: "px-6 py-4",
-                                                        children: [
-                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                                                className: "font-bold text-gray-800",
-                                                                children: item.name
-                                                            }, void 0, false, {
-                                                                fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                                lineNumber: 136,
-                                                                columnNumber: 49
-                                                            }, ("TURBOPACK compile-time value", void 0)),
-                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                                                className: "text-xs text-gray-500 font-mono",
-                                                                children: item.sku
-                                                            }, void 0, false, {
-                                                                fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                                lineNumber: 137,
-                                                                columnNumber: 49
-                                                            }, ("TURBOPACK compile-time value", void 0))
-                                                        ]
-                                                    }, void 0, true, {
-                                                        fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                        lineNumber: 135,
-                                                        columnNumber: 45
-                                                    }, ("TURBOPACK compile-time value", void 0)),
-                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
-                                                        className: "px-6 py-4 text-center font-medium text-gray-600",
-                                                        children: item.quantity
-                                                    }, void 0, false, {
-                                                        fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                        lineNumber: 139,
-                                                        columnNumber: 45
-                                                    }, ("TURBOPACK compile-time value", void 0)),
-                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
-                                                        className: "px-6 py-4 text-center",
-                                                        children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
-                                                            type: "number",
-                                                            value: received.quantity,
-                                                            onChange: (e)=>handleQuantityChange(item.batchId, parseInt(e.target.value) || 0),
-                                                            className: `w-20 text-center font-bold border rounded-lg py-1 focus:ring-2 outline-none ${received.quantity !== item.quantity ? 'border-amber-300 text-amber-700 focus:ring-amber-200' : 'border-gray-200 text-gray-800 focus:ring-blue-200'}`
-                                                        }, void 0, false, {
-                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                            lineNumber: 143,
-                                                            columnNumber: 49
-                                                        }, ("TURBOPACK compile-time value", void 0))
-                                                    }, void 0, false, {
-                                                        fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                        lineNumber: 142,
-                                                        columnNumber: 45
-                                                    }, ("TURBOPACK compile-time value", void 0)),
-                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
-                                                        className: "px-6 py-4 text-center",
-                                                        children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("select", {
-                                                            value: received.condition,
-                                                            onChange: (e)=>handleConditionChange(item.batchId, e.target.value),
-                                                            className: `px-3 py-1 rounded-lg text-sm font-bold border outline-none ${received.condition === 'GOOD' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`,
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                    className: "flex justify-between items-start mb-4",
+                                                    children: [
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                                                             children: [
-                                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
-                                                                    value: "GOOD",
-                                                                    children: "OK"
+                                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h3", {
+                                                                    className: "font-bold text-gray-800",
+                                                                    children: "Factura"
                                                                 }, void 0, false, {
                                                                     fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                                    lineNumber: 162,
-                                                                    columnNumber: 53
+                                                                    lineNumber: 272,
+                                                                    columnNumber: 45
                                                                 }, ("TURBOPACK compile-time value", void 0)),
-                                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
-                                                                    value: "DAMAGED",
-                                                                    children: "DAÑADO"
+                                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                                                    className: "text-xs text-gray-500",
+                                                                    children: "Documento tributario"
                                                                 }, void 0, false, {
                                                                     fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                                    lineNumber: 163,
-                                                                    columnNumber: 53
+                                                                    lineNumber: 273,
+                                                                    columnNumber: 45
                                                                 }, ("TURBOPACK compile-time value", void 0))
                                                             ]
                                                         }, void 0, true, {
                                                             fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                            lineNumber: 154,
-                                                            columnNumber: 49
+                                                            lineNumber: 271,
+                                                            columnNumber: 41
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$file$2d$text$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__FileText$3e$__["FileText"], {
+                                                            className: "text-blue-500"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                            lineNumber: 275,
+                                                            columnNumber: 41
                                                         }, ("TURBOPACK compile-time value", void 0))
-                                                    }, void 0, false, {
-                                                        fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                        lineNumber: 153,
-                                                        columnNumber: 45
-                                                    }, ("TURBOPACK compile-time value", void 0))
-                                                ]
-                                            }, item.batchId, true, {
-                                                fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                lineNumber: 134,
-                                                columnNumber: 41
-                                            }, ("TURBOPACK compile-time value", void 0));
-                                        })
-                                    }, void 0, false, {
-                                        fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                        lineNumber: 128,
-                                        columnNumber: 29
-                                    }, ("TURBOPACK compile-time value", void 0))
-                                ]
-                            }, void 0, true, {
-                                fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                lineNumber: 119,
-                                columnNumber: 25
-                            }, ("TURBOPACK compile-time value", void 0))
-                        }, void 0, false, {
-                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                            lineNumber: 118,
-                            columnNumber: 21
-                        }, ("TURBOPACK compile-time value", void 0)),
-                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                            className: "grid grid-cols-1 md:grid-cols-2 gap-6",
-                            children: [
-                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                    children: [
-                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("label", {
-                                            className: "block text-sm font-bold text-gray-700 mb-2",
-                                            children: "Evidencia Fotográfica"
-                                        }, void 0, false, {
+                                                    ]
+                                                }, void 0, true, {
+                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                    lineNumber: 270,
+                                                    columnNumber: 37
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                invoiceUrl ? /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                    className: "relative group rounded-lg overflow-hidden border border-gray-200 h-40 bg-gray-50 flex items-center justify-center",
+                                                    children: [
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$file$2d$text$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__FileText$3e$__["FileText"], {
+                                                            size: 48,
+                                                            className: "text-gray-300"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                            lineNumber: 279,
+                                                            columnNumber: 45
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                            className: "absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity gap-2",
+                                                            children: [
+                                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("a", {
+                                                                    href: invoiceUrl,
+                                                                    target: "_blank",
+                                                                    rel: "noreferrer",
+                                                                    className: "p-2 bg-white rounded-full text-gray-800 hover:bg-gray-100",
+                                                                    children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$eye$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Eye$3e$__["Eye"], {
+                                                                        size: 20
+                                                                    }, void 0, false, {
+                                                                        fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                        lineNumber: 281,
+                                                                        columnNumber: 173
+                                                                    }, ("TURBOPACK compile-time value", void 0))
+                                                                }, void 0, false, {
+                                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                    lineNumber: 281,
+                                                                    columnNumber: 49
+                                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                                    onClick: ()=>setInvoiceUrl(null),
+                                                                    className: "p-2 bg-red-500 rounded-full text-white hover:bg-red-600",
+                                                                    children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$x$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__X$3e$__["X"], {
+                                                                        size: 20
+                                                                    }, void 0, false, {
+                                                                        fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                        lineNumber: 282,
+                                                                        columnNumber: 161
+                                                                    }, ("TURBOPACK compile-time value", void 0))
+                                                                }, void 0, false, {
+                                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                    lineNumber: 282,
+                                                                    columnNumber: 49
+                                                                }, ("TURBOPACK compile-time value", void 0))
+                                                            ]
+                                                        }, void 0, true, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                            lineNumber: 280,
+                                                            columnNumber: 45
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                                            className: "absolute bottom-2 text-xs font-bold text-gray-500",
+                                                            children: "Factura Adjunta"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                            lineNumber: 284,
+                                                            columnNumber: 45
+                                                        }, ("TURBOPACK compile-time value", void 0))
+                                                    ]
+                                                }, void 0, true, {
+                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                    lineNumber: 278,
+                                                    columnNumber: 41
+                                                }, ("TURBOPACK compile-time value", void 0)) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("label", {
+                                                    className: "block w-full h-40 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all cursor-pointer flex flex-col items-center justify-center text-gray-400",
+                                                    children: [
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$upload$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Upload$3e$__["Upload"], {
+                                                            size: 32,
+                                                            className: "mb-2"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                            lineNumber: 288,
+                                                            columnNumber: 45
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                            className: "text-sm font-bold",
+                                                            children: "Subir Factura (PDF/Img)"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                            lineNumber: 289,
+                                                            columnNumber: 45
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
+                                                            type: "file",
+                                                            className: "hidden",
+                                                            accept: "image/*,application/pdf",
+                                                            onChange: (e)=>handleFileUpload(e, 'INVOICE')
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                            lineNumber: 290,
+                                                            columnNumber: 45
+                                                        }, ("TURBOPACK compile-time value", void 0))
+                                                    ]
+                                                }, void 0, true, {
+                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                    lineNumber: 287,
+                                                    columnNumber: 41
+                                                }, ("TURBOPACK compile-time value", void 0))
+                                            ]
+                                        }, void 0, true, {
                                             fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                            lineNumber: 176,
-                                            columnNumber: 29
+                                            lineNumber: 269,
+                                            columnNumber: 33
                                         }, ("TURBOPACK compile-time value", void 0)),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                            className: "flex gap-2 overflow-x-auto pb-2",
+                                            className: "bg-white p-6 rounded-xl shadow-sm border border-gray-200",
+                                            children: [
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                    className: "flex justify-between items-start mb-4",
+                                                    children: [
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                            children: [
+                                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h3", {
+                                                                    className: "font-bold text-gray-800",
+                                                                    children: "Guía de Despacho"
+                                                                }, void 0, false, {
+                                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                    lineNumber: 299,
+                                                                    columnNumber: 45
+                                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                                                    className: "text-xs text-gray-500",
+                                                                    children: "Documento de transporte"
+                                                                }, void 0, false, {
+                                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                    lineNumber: 300,
+                                                                    columnNumber: 45
+                                                                }, ("TURBOPACK compile-time value", void 0))
+                                                            ]
+                                                        }, void 0, true, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                            lineNumber: 298,
+                                                            columnNumber: 41
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$truck$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Truck$3e$__["Truck"], {
+                                                            className: "text-orange-500"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                            lineNumber: 302,
+                                                            columnNumber: 41
+                                                        }, ("TURBOPACK compile-time value", void 0))
+                                                    ]
+                                                }, void 0, true, {
+                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                    lineNumber: 297,
+                                                    columnNumber: 37
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                guideUrl ? /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                    className: "relative group rounded-lg overflow-hidden border border-gray-200 h-40 bg-gray-50 flex items-center justify-center",
+                                                    children: [
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$file$2d$text$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__FileText$3e$__["FileText"], {
+                                                            size: 48,
+                                                            className: "text-gray-300"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                            lineNumber: 306,
+                                                            columnNumber: 45
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                            className: "absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity gap-2",
+                                                            children: [
+                                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("a", {
+                                                                    href: guideUrl,
+                                                                    target: "_blank",
+                                                                    rel: "noreferrer",
+                                                                    className: "p-2 bg-white rounded-full text-gray-800 hover:bg-gray-100",
+                                                                    children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$eye$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Eye$3e$__["Eye"], {
+                                                                        size: 20
+                                                                    }, void 0, false, {
+                                                                        fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                        lineNumber: 308,
+                                                                        columnNumber: 171
+                                                                    }, ("TURBOPACK compile-time value", void 0))
+                                                                }, void 0, false, {
+                                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                    lineNumber: 308,
+                                                                    columnNumber: 49
+                                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                                    onClick: ()=>setGuideUrl(null),
+                                                                    className: "p-2 bg-red-500 rounded-full text-white hover:bg-red-600",
+                                                                    children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$x$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__X$3e$__["X"], {
+                                                                        size: 20
+                                                                    }, void 0, false, {
+                                                                        fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                        lineNumber: 309,
+                                                                        columnNumber: 159
+                                                                    }, ("TURBOPACK compile-time value", void 0))
+                                                                }, void 0, false, {
+                                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                                    lineNumber: 309,
+                                                                    columnNumber: 49
+                                                                }, ("TURBOPACK compile-time value", void 0))
+                                                            ]
+                                                        }, void 0, true, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                            lineNumber: 307,
+                                                            columnNumber: 45
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                                            className: "absolute bottom-2 text-xs font-bold text-gray-500",
+                                                            children: "Guía Adjunta"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                            lineNumber: 311,
+                                                            columnNumber: 45
+                                                        }, ("TURBOPACK compile-time value", void 0))
+                                                    ]
+                                                }, void 0, true, {
+                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                    lineNumber: 305,
+                                                    columnNumber: 41
+                                                }, ("TURBOPACK compile-time value", void 0)) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("label", {
+                                                    className: "block w-full h-40 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all cursor-pointer flex flex-col items-center justify-center text-gray-400",
+                                                    children: [
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$upload$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Upload$3e$__["Upload"], {
+                                                            size: 32,
+                                                            className: "mb-2"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                            lineNumber: 315,
+                                                            columnNumber: 45
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                            className: "text-sm font-bold",
+                                                            children: "Subir Guía (PDF/Img)"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                            lineNumber: 316,
+                                                            columnNumber: 45
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
+                                                            type: "file",
+                                                            className: "hidden",
+                                                            accept: "image/*,application/pdf",
+                                                            onChange: (e)=>handleFileUpload(e, 'GUIDE')
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                            lineNumber: 317,
+                                                            columnNumber: 45
+                                                        }, ("TURBOPACK compile-time value", void 0))
+                                                    ]
+                                                }, void 0, true, {
+                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                    lineNumber: 314,
+                                                    columnNumber: 41
+                                                }, ("TURBOPACK compile-time value", void 0))
+                                            ]
+                                        }, void 0, true, {
+                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                            lineNumber: 296,
+                                            columnNumber: 33
+                                        }, ("TURBOPACK compile-time value", void 0))
+                                    ]
+                                }, void 0, true, {
+                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                    lineNumber: 267,
+                                    columnNumber: 29
+                                }, ("TURBOPACK compile-time value", void 0)),
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                    className: "bg-white p-6 rounded-xl shadow-sm border border-gray-200",
+                                    children: [
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h3", {
+                                            className: "font-bold text-gray-800 mb-4 flex items-center gap-2",
+                                            children: [
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$camera$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Camera$3e$__["Camera"], {
+                                                    size: 18,
+                                                    className: "text-purple-500"
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                                    lineNumber: 326,
+                                                    columnNumber: 37
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                "Evidencia Fotográfica (Daños/Cajas)"
+                                            ]
+                                        }, void 0, true, {
+                                            fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
+                                            lineNumber: 325,
+                                            columnNumber: 33
+                                        }, ("TURBOPACK compile-time value", void 0)),
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                            className: "flex gap-4 overflow-x-auto pb-2",
                                             children: [
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("label", {
-                                                    className: "flex-shrink-0 w-24 h-24 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center text-gray-400 hover:border-blue-400 hover:text-blue-500 cursor-pointer transition-colors bg-gray-50",
+                                                    className: "flex-shrink-0 w-32 h-32 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center text-gray-400 hover:border-purple-400 hover:bg-purple-50 cursor-pointer transition-colors bg-gray-50",
                                                     children: [
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$camera$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Camera$3e$__["Camera"], {
                                                             size: 24,
                                                             className: "mb-1"
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                            lineNumber: 179,
-                                                            columnNumber: 37
+                                                            lineNumber: 331,
+                                                            columnNumber: 41
                                                         }, ("TURBOPACK compile-time value", void 0)),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
-                                                            className: "text-[10px] font-bold uppercase",
-                                                            children: "Agregar"
+                                                            className: "text-xs font-bold uppercase",
+                                                            children: "Agregar Foto"
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                            lineNumber: 180,
-                                                            columnNumber: 37
+                                                            lineNumber: 332,
+                                                            columnNumber: 41
                                                         }, ("TURBOPACK compile-time value", void 0)),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
                                                             type: "file",
                                                             className: "hidden",
                                                             accept: "image/*",
-                                                            onChange: handlePhotoUpload
+                                                            onChange: (e)=>handleFileUpload(e, 'PHOTO')
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                            lineNumber: 181,
-                                                            columnNumber: 37
+                                                            lineNumber: 333,
+                                                            columnNumber: 41
                                                         }, ("TURBOPACK compile-time value", void 0))
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                    lineNumber: 178,
-                                                    columnNumber: 33
+                                                    lineNumber: 330,
+                                                    columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 photos.map((url, idx)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                                        className: "flex-shrink-0 w-24 h-24 rounded-xl border border-gray-200 overflow-hidden relative group",
+                                                        className: "flex-shrink-0 w-32 h-32 rounded-xl border border-gray-200 overflow-hidden relative group",
                                                         children: [
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("img", {
                                                                 src: url,
@@ -475,78 +943,79 @@ const UnifiedReception = ({ isOpen, onClose, shipment })=>{
                                                                 className: "w-full h-full object-cover"
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                                lineNumber: 185,
-                                                                columnNumber: 41
+                                                                lineNumber: 337,
+                                                                columnNumber: 45
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
                                                                 onClick: ()=>setPhotos(photos.filter((_, i)=>i !== idx)),
-                                                                className: "absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity",
+                                                                className: "absolute top-2 right-2 bg-red-500 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-sm",
                                                                 children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$x$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__X$3e$__["X"], {
-                                                                    size: 12
+                                                                    size: 14
                                                                 }, void 0, false, {
                                                                     fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                                    lineNumber: 190,
-                                                                    columnNumber: 45
+                                                                    lineNumber: 342,
+                                                                    columnNumber: 49
                                                                 }, ("TURBOPACK compile-time value", void 0))
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                                lineNumber: 186,
-                                                                columnNumber: 41
+                                                                lineNumber: 338,
+                                                                columnNumber: 45
                                                             }, ("TURBOPACK compile-time value", void 0))
                                                         ]
                                                     }, idx, true, {
                                                         fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                                        lineNumber: 184,
-                                                        columnNumber: 37
+                                                        lineNumber: 336,
+                                                        columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0)))
                                             ]
                                         }, void 0, true, {
                                             fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                            lineNumber: 177,
-                                            columnNumber: 29
+                                            lineNumber: 329,
+                                            columnNumber: 33
                                         }, ("TURBOPACK compile-time value", void 0))
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                    lineNumber: 175,
-                                    columnNumber: 25
+                                    lineNumber: 324,
+                                    columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                    className: "bg-white p-6 rounded-xl shadow-sm border border-gray-200",
                                     children: [
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("label", {
                                             className: "block text-sm font-bold text-gray-700 mb-2",
-                                            children: "Observaciones"
+                                            children: "Observaciones Generales"
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                            lineNumber: 197,
-                                            columnNumber: 29
+                                            lineNumber: 351,
+                                            columnNumber: 33
                                         }, ("TURBOPACK compile-time value", void 0)),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("textarea", {
                                             value: notes,
                                             onChange: (e)=>setNotes(e.target.value),
-                                            placeholder: "Detalle cualquier anomalía o discrepancia...",
-                                            className: "w-full h-24 px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none resize-none text-sm"
+                                            placeholder: "Detalle cualquier anomalía, discrepancia o comentario sobre la recepción...",
+                                            className: "w-full h-32 px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none resize-none text-sm"
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                            lineNumber: 198,
-                                            columnNumber: 29
+                                            lineNumber: 352,
+                                            columnNumber: 33
                                         }, ("TURBOPACK compile-time value", void 0))
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                    lineNumber: 196,
-                                    columnNumber: 25
+                                    lineNumber: 350,
+                                    columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0))
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                            lineNumber: 174,
-                            columnNumber: 21
+                            lineNumber: 266,
+                            columnNumber: 25
                         }, ("TURBOPACK compile-time value", void 0))
                     ]
                 }, void 0, true, {
                     fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                    lineNumber: 96,
+                    lineNumber: 170,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0)),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -558,7 +1027,7 @@ const UnifiedReception = ({ isOpen, onClose, shipment })=>{
                             children: "Cancelar"
                         }, void 0, false, {
                             fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                            lineNumber: 210,
+                            lineNumber: 365,
                             columnNumber: 21
                         }, ("TURBOPACK compile-time value", void 0)),
                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -569,37 +1038,38 @@ const UnifiedReception = ({ isOpen, onClose, shipment })=>{
                                     size: 18
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                                    lineNumber: 220,
+                                    lineNumber: 375,
                                     columnNumber: 25
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 "Confirmar Recepción"
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                            lineNumber: 216,
+                            lineNumber: 371,
                             columnNumber: 21
                         }, ("TURBOPACK compile-time value", void 0))
                     ]
                 }, void 0, true, {
                     fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-                    lineNumber: 209,
+                    lineNumber: 364,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0))
             ]
         }, void 0, true, {
             fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-            lineNumber: 78,
+            lineNumber: 136,
             columnNumber: 13
         }, ("TURBOPACK compile-time value", void 0))
     }, void 0, false, {
         fileName: "[project]/src/presentation/components/warehouse/UnifiedReception.tsx",
-        lineNumber: 77,
+        lineNumber: 135,
         columnNumber: 9
     }, ("TURBOPACK compile-time value", void 0));
 };
-_s(UnifiedReception, "kThKf1OyVXgAHXT6kCeQoHAtwW4=", false, function() {
+_s(UnifiedReception, "i2ZyeoiXnnvPJ8I3J1i4V/KnHLM=", false, function() {
     return [
-        __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$store$2f$useStore$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["usePharmaStore"]
+        __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$store$2f$useStore$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["usePharmaStore"],
+        __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$hooks$2f$useBarcodeScanner$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useBarcodeScanner"]
     ];
 });
 _c = UnifiedReception;
@@ -625,6 +1095,7 @@ var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$re
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$package$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Package$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/package.js [app-client] (ecmascript) <export default as Package>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$circle$2d$check$2d$big$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__CheckCircle$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/circle-check-big.js [app-client] (ecmascript) <export default as CheckCircle>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$arrow$2d$right$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__ArrowRight$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/arrow-right.js [app-client] (ecmascript) <export default as ArrowRight>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$search$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Search$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/search.js [app-client] (ecmascript) <export default as Search>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$barcode$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Barcode$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/barcode.js [app-client] (ecmascript) <export default as Barcode>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$store$2f$useStore$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/presentation/store/useStore.ts [app-client] (ecmascript)");
 var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$store$2f$useLocationStore$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/presentation/store/useLocationStore.ts [app-client] (ecmascript)");
@@ -657,37 +1128,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
         package_count: 1
     });
     // Scanner
-    const scannerInputRef = __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["default"].useRef(null);
-    const handleScan = (code)=>{
-        // Find product in origin inventory
-        // Try exact match on SKU or Barcode (assuming we add barcode later to inventory item)
-        // For now, we match SKU or Name (partial) if code is long enough, but usually scanner sends exact SKU/EAN
-        // In this mock, let's assume the code IS the SKU or part of the name
-        const foundItem = originInventory.find((i)=>i.sku === code || i.id === code);
-        if (foundItem) {
-            // Check if already in selected items
-            const existing = selectedItems.find((i)=>i.batchId === foundItem.id);
-            if (existing) {
-                if (existing.quantity < existing.max) {
-                    handleUpdateQuantity(existing.batchId, existing.quantity + 1);
-                    __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].success(`+1 ${foundItem.name}`);
-                // Play beep sound (simulated)
-                } else {
-                    __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].error('Stock insuficiente para agregar más');
-                }
-            } else {
-                handleAddItem(foundItem);
-                __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].success(`Agregado: ${foundItem.name}`);
-            }
-        } else {
-            __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].error(`Producto no encontrado: ${code}`);
-        }
-    };
-    (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$hooks$2f$useBarcodeScanner$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useBarcodeScanner"])({
-        onScan: handleScan,
-        minLength: 3,
-        targetInputRef: scannerInputRef
-    });
+    const scannerInputRef = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useRef"])(null);
     // Filter Inventory for Origin
     const originInventory = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useMemo"])({
         "DispatchWizard.useMemo[originInventory]": ()=>{
@@ -699,12 +1140,44 @@ const DispatchWizard = ({ isOpen, onClose })=>{
         inventory,
         originId
     ]);
+    const handleScan = (code)=>{
+        // Find product in origin inventory
+        // Try exact match on SKU or Barcode (assuming we add barcode later to inventory item)
+        // For now, we match SKU or Name (partial) if code is long enough, but usually scanner sends exact SKU/EAN
+        // In this mock, let's assume the code IS the SKU or part of the name
+        // FEFO Logic: Find the batch expiring soonest if multiple exist for the SKU
+        const matchingBatches = originInventory.filter((i)=>i.sku === code || i.id === code);
+        if (matchingBatches.length > 0) {
+            // Sort by Expiry (Ascending)
+            const bestBatch = matchingBatches.sort((a, b)=>(a.expiry_date || 0) - (b.expiry_date || 0))[0];
+            // Check if already in selected items
+            const existing = selectedItems.find((i)=>i.batchId === bestBatch.id);
+            if (existing) {
+                if (existing.quantity < existing.max) {
+                    handleUpdateQuantity(existing.batchId, existing.quantity + 1);
+                    __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].success(`+1 ${bestBatch.name} (Lote: ${bestBatch.lot_number})`);
+                } else {
+                    __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].error('Stock insuficiente para agregar más');
+                }
+            } else {
+                handleAddItem(bestBatch);
+                __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].success(`Agregado: ${bestBatch.name} (Lote: ${bestBatch.lot_number})`);
+            }
+        } else {
+            __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].error(`Producto no encontrado: ${code}`);
+        }
+    };
+    (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$hooks$2f$useBarcodeScanner$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useBarcodeScanner"])({
+        onScan: handleScan,
+        minLength: 3,
+        targetInputRef: scannerInputRef
+    });
     const filteredProducts = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useMemo"])({
         "DispatchWizard.useMemo[filteredProducts]": ()=>{
             if (!searchTerm) return [];
             return originInventory.filter({
-                "DispatchWizard.useMemo[filteredProducts]": (item)=>item.name.toLowerCase().includes(searchTerm.toLowerCase()) || item.sku.includes(searchTerm)
-            }["DispatchWizard.useMemo[filteredProducts]"]).slice(0, 5);
+                "DispatchWizard.useMemo[filteredProducts]": (item)=>item.name.toLowerCase().includes(searchTerm.toLowerCase()) || item.sku.includes(searchTerm) || item.lot_number && item.lot_number.toLowerCase().includes(searchTerm.toLowerCase())
+            }["DispatchWizard.useMemo[filteredProducts]"]).slice(0, 10); // Show more results for batch selection
         }
     }["DispatchWizard.useMemo[filteredProducts]"], [
         originInventory,
@@ -719,7 +1192,9 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                 sku: item.sku,
                 name: item.name,
                 quantity: 1,
-                max: item.stock_actual
+                max: item.stock_actual,
+                expiry: item.expiry_date,
+                lot: item.lot_number
             }
         ]);
         setSearchTerm('');
@@ -790,7 +1265,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
     return /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
         className: "fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4",
         children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-            className: "bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col",
+            className: "bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col",
             children: [
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                     className: "p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-2xl",
@@ -804,14 +1279,14 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                             className: "text-blue-600"
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                            lineNumber: 171,
+                                            lineNumber: 175,
                                             columnNumber: 29
                                         }, ("TURBOPACK compile-time value", void 0)),
                                         "Nuevo Despacho"
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                    lineNumber: 170,
+                                    lineNumber: 174,
                                     columnNumber: 25
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -819,13 +1294,13 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                     children: "Asistente de creación de envíos"
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                    lineNumber: 174,
+                                    lineNumber: 178,
                                     columnNumber: 25
                                 }, ("TURBOPACK compile-time value", void 0))
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                            lineNumber: 169,
+                            lineNumber: 173,
                             columnNumber: 21
                         }, ("TURBOPACK compile-time value", void 0)),
                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -836,18 +1311,18 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                 className: "text-gray-500"
                             }, void 0, false, {
                                 fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                lineNumber: 177,
+                                lineNumber: 181,
                                 columnNumber: 25
                             }, ("TURBOPACK compile-time value", void 0))
                         }, void 0, false, {
                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                            lineNumber: 176,
+                            lineNumber: 180,
                             columnNumber: 21
                         }, ("TURBOPACK compile-time value", void 0))
                     ]
                 }, void 0, true, {
                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                    lineNumber: 168,
+                    lineNumber: 172,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0)),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -860,7 +1335,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                         },
                         {
                             num: 2,
-                            label: 'Picking',
+                            label: 'Picking Híbrido',
                             icon: __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$package$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Package$3e$__["Package"]
                         },
                         {
@@ -882,12 +1357,12 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                         size: 18
                                     }, void 0, false, {
                                         fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                        lineNumber: 192,
+                                        lineNumber: 196,
                                         columnNumber: 33
                                     }, ("TURBOPACK compile-time value", void 0))
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                    lineNumber: 190,
+                                    lineNumber: 194,
                                     columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
@@ -895,18 +1370,18 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                     children: s.label
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                    lineNumber: 194,
+                                    lineNumber: 198,
                                     columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0))
                             ]
                         }, s.num, true, {
                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                            lineNumber: 189,
+                            lineNumber: 193,
                             columnNumber: 25
                         }, ("TURBOPACK compile-time value", void 0)))
                 }, void 0, false, {
                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                    lineNumber: 182,
+                    lineNumber: 186,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0)),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -923,7 +1398,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                             children: "Origen"
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                            lineNumber: 204,
+                                            lineNumber: 208,
                                             columnNumber: 33
                                         }, ("TURBOPACK compile-time value", void 0)),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("select", {
@@ -937,7 +1412,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                     children: "BODEGA_CENTRAL"
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                    lineNumber: 211,
+                                                    lineNumber: 215,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -945,7 +1420,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                     children: "SUCURSAL_CENTRO"
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                    lineNumber: 212,
+                                                    lineNumber: 216,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -953,19 +1428,19 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                     children: "SUCURSAL_NORTE"
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                    lineNumber: 213,
+                                                    lineNumber: 217,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0))
                                             ]
                                         }, void 0, true, {
                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                            lineNumber: 205,
+                                            lineNumber: 209,
                                             columnNumber: 33
                                         }, ("TURBOPACK compile-time value", void 0))
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                    lineNumber: 203,
+                                    lineNumber: 207,
                                     columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -977,17 +1452,17 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                             className: "rotate-90"
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                            lineNumber: 219,
+                                            lineNumber: 223,
                                             columnNumber: 37
                                         }, ("TURBOPACK compile-time value", void 0))
                                     }, void 0, false, {
                                         fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                        lineNumber: 218,
+                                        lineNumber: 222,
                                         columnNumber: 33
                                     }, ("TURBOPACK compile-time value", void 0))
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                    lineNumber: 217,
+                                    lineNumber: 221,
                                     columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -998,7 +1473,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                             children: "Destino"
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                            lineNumber: 224,
+                                            lineNumber: 228,
                                             columnNumber: 33
                                         }, ("TURBOPACK compile-time value", void 0)),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("select", {
@@ -1011,7 +1486,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                     children: "Seleccionar Sucursal..."
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                    lineNumber: 230,
+                                                    lineNumber: 234,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -1020,7 +1495,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                     children: "SUCURSAL_CENTRO"
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                    lineNumber: 231,
+                                                    lineNumber: 235,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -1029,7 +1504,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                     children: "SUCURSAL_NORTE"
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                    lineNumber: 232,
+                                                    lineNumber: 236,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -1038,48 +1513,48 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                     children: "BODEGA_CENTRAL"
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                    lineNumber: 233,
+                                                    lineNumber: 237,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0))
                                             ]
                                         }, void 0, true, {
                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                            lineNumber: 225,
+                                            lineNumber: 229,
                                             columnNumber: 33
                                         }, ("TURBOPACK compile-time value", void 0))
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                    lineNumber: 223,
+                                    lineNumber: 227,
                                     columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0))
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                            lineNumber: 202,
+                            lineNumber: 206,
                             columnNumber: 25
                         }, ("TURBOPACK compile-time value", void 0)),
                         step === 2 && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                            className: "space-y-6",
+                            className: "space-y-6 h-full flex flex-col",
                             children: [
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                    className: "bg-blue-50 p-6 rounded-2xl border-2 border-blue-100 shadow-sm text-center",
+                                    className: "bg-blue-600 p-6 rounded-2xl shadow-lg text-white text-center shrink-0",
                                     children: [
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("label", {
-                                            className: "block text-sm font-bold text-blue-800 mb-2 uppercase tracking-wider flex items-center justify-center gap-2",
+                                            className: "block text-sm font-bold text-blue-100 mb-2 uppercase tracking-wider flex items-center justify-center gap-2",
                                             children: [
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$barcode$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Barcode$3e$__["Barcode"], {
                                                     size: 18
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                    lineNumber: 244,
+                                                    lineNumber: 248,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0)),
-                                                " Escanear Producto"
+                                                " Pistolear para agregar 1 unidad"
                                             ]
                                         }, void 0, true, {
                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                            lineNumber: 243,
+                                            lineNumber: 247,
                                             columnNumber: 33
                                         }, ("TURBOPACK compile-time value", void 0)),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1089,424 +1564,385 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                     ref: scannerInputRef,
                                                     type: "text",
                                                     placeholder: "Escanea aquí...",
-                                                    className: "w-full px-6 py-4 rounded-xl border-2 border-blue-200 shadow-inner focus:ring-4 focus:ring-blue-100 focus:border-blue-500 text-2xl font-mono text-center outline-none transition-all",
+                                                    className: "w-full px-6 py-4 rounded-xl border-2 border-blue-400 bg-blue-700/50 text-white placeholder-blue-300 shadow-inner focus:ring-4 focus:ring-blue-400 focus:border-white text-2xl font-mono text-center outline-none transition-all",
                                                     value: searchTerm,
                                                     onChange: (e)=>setSearchTerm(e.target.value),
                                                     autoFocus: true,
                                                     onBlur: ()=>{
-                                                    // Optional: Keep focus if we want "always ready" mode, 
-                                                    // but might be annoying if user wants to click elsewhere.
                                                     // setTimeout(() => scannerInputRef.current?.focus(), 100); 
                                                     }
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                    lineNumber: 247,
+                                                    lineNumber: 251,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                                    className: "absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 animate-pulse",
+                                                    className: "absolute right-4 top-1/2 -translate-y-1/2 text-blue-300 animate-pulse",
                                                     children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$package$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Package$3e$__["Package"], {
                                                         size: 24
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                        lineNumber: 262,
+                                                        lineNumber: 264,
                                                         columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0))
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                    lineNumber: 261,
+                                                    lineNumber: 263,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0))
                                             ]
                                         }, void 0, true, {
                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                            lineNumber: 246,
-                                            columnNumber: 33
-                                        }, ("TURBOPACK compile-time value", void 0)),
-                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                            className: "text-xs text-blue-400 mt-2 font-medium",
-                                            children: "Presiona Enter o usa la pistola para agregar"
-                                        }, void 0, false, {
-                                            fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                            lineNumber: 265,
+                                            lineNumber: 250,
                                             columnNumber: 33
                                         }, ("TURBOPACK compile-time value", void 0))
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                    lineNumber: 242,
+                                    lineNumber: 246,
                                     columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0)),
-                                filteredProducts.length > 0 && searchTerm.length > 2 && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                    className: "bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden",
-                                    children: [
-                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                            className: "bg-gray-50 px-4 py-2 text-xs font-bold text-gray-400 uppercase",
-                                            children: "Resultados de Búsqueda"
-                                        }, void 0, false, {
-                                            fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                            lineNumber: 273,
-                                            columnNumber: 37
-                                        }, ("TURBOPACK compile-time value", void 0)),
-                                        filteredProducts.map((item)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
-                                                onClick: ()=>handleAddItem(item),
-                                                className: "w-full text-left px-6 py-3 hover:bg-blue-50 flex justify-between items-center border-b border-gray-50 last:border-0",
-                                                children: [
-                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                                        children: [
-                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                                                className: "font-bold text-gray-800",
-                                                                children: item.name
-                                                            }, void 0, false, {
-                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                lineNumber: 281,
-                                                                columnNumber: 49
-                                                            }, ("TURBOPACK compile-time value", void 0)),
-                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                                                className: "text-xs text-gray-500 font-mono",
-                                                                children: item.sku
-                                                            }, void 0, false, {
-                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                lineNumber: 282,
-                                                                columnNumber: 49
-                                                            }, ("TURBOPACK compile-time value", void 0))
-                                                        ]
-                                                    }, void 0, true, {
-                                                        fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                        lineNumber: 280,
-                                                        columnNumber: 45
-                                                    }, ("TURBOPACK compile-time value", void 0)),
-                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                                        className: "text-right",
-                                                        children: [
-                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                                                className: "text-sm font-bold text-blue-600",
-                                                                children: [
-                                                                    item.stock_actual,
-                                                                    " unid."
-                                                                ]
-                                                            }, void 0, true, {
-                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                lineNumber: 285,
-                                                                columnNumber: 49
-                                                            }, ("TURBOPACK compile-time value", void 0)),
-                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                                                className: "text-xs text-gray-400",
-                                                                children: item.location_id
-                                                            }, void 0, false, {
-                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                lineNumber: 286,
-                                                                columnNumber: 49
-                                                            }, ("TURBOPACK compile-time value", void 0))
-                                                        ]
-                                                    }, void 0, true, {
-                                                        fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                        lineNumber: 284,
-                                                        columnNumber: 45
-                                                    }, ("TURBOPACK compile-time value", void 0))
-                                                ]
-                                            }, item.id, true, {
-                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                lineNumber: 275,
-                                                columnNumber: 41
-                                            }, ("TURBOPACK compile-time value", void 0)))
-                                    ]
-                                }, void 0, true, {
-                                    fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                    lineNumber: 272,
-                                    columnNumber: 33
-                                }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                    className: "bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden",
+                                    className: "flex gap-6 flex-1 overflow-hidden",
                                     children: [
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                            className: "flex justify-between items-center p-4 bg-gray-50 border-b border-gray-100",
+                                            className: "flex-1 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col",
                                             children: [
-                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h3", {
-                                                    className: "font-bold text-gray-700 flex items-center gap-2",
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                    className: "p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center",
                                                     children: [
-                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$circle$2d$check$2d$big$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__CheckCircle$3e$__["CheckCircle"], {
-                                                            size: 18,
-                                                            className: "text-green-500"
-                                                        }, void 0, false, {
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h3", {
+                                                            className: "font-bold text-gray-700 flex items-center gap-2",
+                                                            children: [
+                                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$search$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Search$3e$__["Search"], {
+                                                                    size: 18
+                                                                }, void 0, false, {
+                                                                    fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                                    lineNumber: 274,
+                                                                    columnNumber: 45
+                                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                                " Resultados (",
+                                                                filteredProducts.length,
+                                                                ")"
+                                                            ]
+                                                        }, void 0, true, {
                                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                            lineNumber: 297,
+                                                            lineNumber: 273,
                                                             columnNumber: 41
                                                         }, ("TURBOPACK compile-time value", void 0)),
-                                                        "Items Seleccionados"
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                            className: "text-xs text-gray-400",
+                                                            children: "Mostrando lotes disponibles"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                            lineNumber: 276,
+                                                            columnNumber: 41
+                                                        }, ("TURBOPACK compile-time value", void 0))
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                    lineNumber: 296,
+                                                    lineNumber: 272,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                                    className: "bg-blue-600 text-white px-3 py-1 rounded-lg text-xs font-bold",
+                                                    className: "overflow-y-auto flex-1 p-2 space-y-2",
                                                     children: [
-                                                        "Total Unidades: ",
-                                                        selectedItems.reduce((acc, item)=>acc + item.quantity, 0)
-                                                    ]
-                                                }, void 0, true, {
-                                                    fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                    lineNumber: 300,
-                                                    columnNumber: 37
-                                                }, ("TURBOPACK compile-time value", void 0))
-                                            ]
-                                        }, void 0, true, {
-                                            fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                            lineNumber: 295,
-                                            columnNumber: 33
-                                        }, ("TURBOPACK compile-time value", void 0)),
-                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("table", {
-                                            className: "w-full",
-                                            children: [
-                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("thead", {
-                                                    className: "bg-gray-50 text-xs uppercase text-gray-500 font-bold hidden",
-                                                    children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("tr", {
-                                                        children: [
-                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("th", {
-                                                                className: "px-6 py-4 text-left",
-                                                                children: "Producto"
-                                                            }, void 0, false, {
-                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                lineNumber: 307,
-                                                                columnNumber: 45
-                                                            }, ("TURBOPACK compile-time value", void 0)),
-                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("th", {
-                                                                className: "px-6 py-4 text-center",
-                                                                children: "Cantidad"
-                                                            }, void 0, false, {
-                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                lineNumber: 308,
-                                                                columnNumber: 45
-                                                            }, ("TURBOPACK compile-time value", void 0)),
-                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("th", {
-                                                                className: "px-6 py-4 text-right",
-                                                                children: "Acciones"
-                                                            }, void 0, false, {
-                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                lineNumber: 309,
-                                                                columnNumber: 45
-                                                            }, ("TURBOPACK compile-time value", void 0))
-                                                        ]
-                                                    }, void 0, true, {
-                                                        fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                        lineNumber: 306,
-                                                        columnNumber: 41
-                                                    }, ("TURBOPACK compile-time value", void 0))
-                                                }, void 0, false, {
-                                                    fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                    lineNumber: 305,
-                                                    columnNumber: 37
-                                                }, ("TURBOPACK compile-time value", void 0)),
-                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("tbody", {
-                                                    className: "divide-y divide-gray-100",
-                                                    children: [
-                                                        selectedItems.map((item)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("tr", {
-                                                                className: "group hover:bg-gray-50 transition-colors",
+                                                        filteredProducts.length === 0 && searchTerm.length > 2 && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                            className: "text-center py-10 text-gray-400",
+                                                            children: "No se encontraron productos"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                            lineNumber: 281,
+                                                            columnNumber: 45
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        filteredProducts.map((item)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                                className: "bg-white border border-gray-100 rounded-lg p-3 hover:border-blue-300 transition-all group",
                                                                 children: [
-                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
-                                                                        className: "px-6 py-4",
+                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                                        className: "flex justify-between items-start mb-2",
                                                                         children: [
-                                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                                                                className: "font-bold text-gray-800 text-lg",
-                                                                                children: item.name
-                                                                            }, void 0, false, {
-                                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                                lineNumber: 316,
-                                                                                columnNumber: 53
-                                                                            }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                                                                className: "flex gap-2 text-xs text-gray-500 font-mono mt-1",
                                                                                 children: [
-                                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
-                                                                                        className: "bg-gray-100 px-2 py-0.5 rounded",
+                                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                                                                        className: "font-bold text-gray-800",
+                                                                                        children: item.name
+                                                                                    }, void 0, false, {
+                                                                                        fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                                                        lineNumber: 290,
+                                                                                        columnNumber: 57
+                                                                                    }, ("TURBOPACK compile-time value", void 0)),
+                                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                                                                        className: "text-xs text-gray-500 font-mono",
                                                                                         children: [
                                                                                             "SKU: ",
                                                                                             item.sku
                                                                                         ]
                                                                                     }, void 0, true, {
                                                                                         fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                                        lineNumber: 318,
-                                                                                        columnNumber: 57
-                                                                                    }, ("TURBOPACK compile-time value", void 0)),
-                                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
-                                                                                        className: "bg-gray-100 px-2 py-0.5 rounded",
-                                                                                        children: [
-                                                                                            "Lote: ",
-                                                                                            item.batchId
-                                                                                        ]
-                                                                                    }, void 0, true, {
-                                                                                        fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                                        lineNumber: 319,
+                                                                                        lineNumber: 291,
                                                                                         columnNumber: 57
                                                                                     }, ("TURBOPACK compile-time value", void 0))
                                                                                 ]
                                                                             }, void 0, true, {
                                                                                 fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                                lineNumber: 317,
-                                                                                columnNumber: 53
-                                                                            }, ("TURBOPACK compile-time value", void 0))
-                                                                        ]
-                                                                    }, void 0, true, {
-                                                                        fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                        lineNumber: 315,
-                                                                        columnNumber: 49
-                                                                    }, ("TURBOPACK compile-time value", void 0)),
-                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
-                                                                        className: "px-6 py-4",
-                                                                        children: [
-                                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                                                                className: "flex items-center justify-center gap-3",
-                                                                                children: [
-                                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
-                                                                                        onClick: ()=>handleUpdateQuantity(item.batchId, item.quantity - 1),
-                                                                                        className: "w-10 h-10 rounded-xl bg-gray-100 hover:bg-gray-200 font-bold text-gray-600 flex items-center justify-center transition-colors",
-                                                                                        children: "-"
-                                                                                    }, void 0, false, {
-                                                                                        fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                                        lineNumber: 324,
-                                                                                        columnNumber: 57
-                                                                                    }, ("TURBOPACK compile-time value", void 0)),
-                                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
-                                                                                        type: "number",
-                                                                                        value: item.quantity,
-                                                                                        onChange: (e)=>handleUpdateQuantity(item.batchId, parseInt(e.target.value) || 1),
-                                                                                        className: "w-20 text-center font-bold text-xl border-b-2 border-blue-100 focus:border-blue-500 outline-none bg-transparent"
-                                                                                    }, void 0, false, {
-                                                                                        fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                                        lineNumber: 328,
-                                                                                        columnNumber: 57
-                                                                                    }, ("TURBOPACK compile-time value", void 0)),
-                                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
-                                                                                        onClick: ()=>handleUpdateQuantity(item.batchId, item.quantity + 1),
-                                                                                        className: "w-10 h-10 rounded-xl bg-gray-100 hover:bg-gray-200 font-bold text-gray-600 flex items-center justify-center transition-colors",
-                                                                                        children: "+"
-                                                                                    }, void 0, false, {
-                                                                                        fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                                        lineNumber: 334,
-                                                                                        columnNumber: 57
-                                                                                    }, ("TURBOPACK compile-time value", void 0))
-                                                                                ]
-                                                                            }, void 0, true, {
-                                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                                lineNumber: 323,
+                                                                                lineNumber: 289,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
-                                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                                                                className: "text-center text-xs text-gray-400 mt-1 font-medium",
-                                                                                children: [
-                                                                                    "Disponible: ",
-                                                                                    item.max
-                                                                                ]
-                                                                            }, void 0, true, {
+                                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                                                className: `px-2 py-1 rounded text-xs font-bold ${item.expiry_date && item.expiry_date < Date.now() + 2592000000 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`,
+                                                                                children: item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : 'S/F'
+                                                                            }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                                lineNumber: 339,
+                                                                                lineNumber: 293,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0))
                                                                         ]
                                                                     }, void 0, true, {
                                                                         fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                        lineNumber: 322,
+                                                                        lineNumber: 288,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0)),
-                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
-                                                                        className: "px-6 py-4 text-right",
-                                                                        children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
-                                                                            onClick: ()=>handleRemoveItem(item.batchId),
-                                                                            className: "p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors",
-                                                                            title: "Eliminar",
-                                                                            children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$x$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__X$3e$__["X"], {
-                                                                                size: 20
-                                                                            }, void 0, false, {
-                                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                                lineNumber: 349,
-                                                                                columnNumber: 57
-                                                                            }, ("TURBOPACK compile-time value", void 0))
-                                                                        }, void 0, false, {
-                                                                            fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                            lineNumber: 344,
-                                                                            columnNumber: 53
-                                                                        }, ("TURBOPACK compile-time value", void 0))
-                                                                    }, void 0, false, {
-                                                                        fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                        lineNumber: 343,
-                                                                        columnNumber: 49
-                                                                    }, ("TURBOPACK compile-time value", void 0))
-                                                                ]
-                                                            }, item.batchId, true, {
-                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                lineNumber: 314,
-                                                                columnNumber: 45
-                                                            }, ("TURBOPACK compile-time value", void 0))),
-                                                        selectedItems.length === 0 && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("tr", {
-                                                            children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
-                                                                colSpan: 3,
-                                                                className: "px-6 py-16 text-center text-gray-400",
-                                                                children: [
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                                                        className: "w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4",
-                                                                        children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$package$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Package$3e$__["Package"], {
-                                                                            className: "w-10 h-10 text-gray-300"
-                                                                        }, void 0, false, {
-                                                                            fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                            lineNumber: 358,
-                                                                            columnNumber: 57
-                                                                        }, ("TURBOPACK compile-time value", void 0))
-                                                                    }, void 0, false, {
+                                                                        className: "flex justify-between items-center text-sm text-gray-600 mb-3",
+                                                                        children: [
+                                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                                                className: "flex items-center gap-1",
+                                                                                children: [
+                                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$package$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Package$3e$__["Package"], {
+                                                                                        size: 14
+                                                                                    }, void 0, false, {
+                                                                                        fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                                                        lineNumber: 300,
+                                                                                        columnNumber: 95
+                                                                                    }, ("TURBOPACK compile-time value", void 0)),
+                                                                                    " Lote: ",
+                                                                                    item.lot_number || 'N/A'
+                                                                                ]
+                                                                            }, void 0, true, {
+                                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                                                lineNumber: 300,
+                                                                                columnNumber: 53
+                                                                            }, ("TURBOPACK compile-time value", void 0)),
+                                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                                                className: "font-bold",
+                                                                                children: [
+                                                                                    "Stock: ",
+                                                                                    item.stock_actual
+                                                                                ]
+                                                                            }, void 0, true, {
+                                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                                                lineNumber: 301,
+                                                                                columnNumber: 53
+                                                                            }, ("TURBOPACK compile-time value", void 0))
+                                                                        ]
+                                                                    }, void 0, true, {
                                                                         fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                        lineNumber: 357,
-                                                                        columnNumber: 53
+                                                                        lineNumber: 299,
+                                                                        columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0)),
-                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                                                        className: "font-medium",
-                                                                        children: "Lista vacía"
+                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                                        onClick: ()=>handleAddItem(item),
+                                                                        className: "w-full py-2 bg-gray-50 hover:bg-blue-50 text-blue-600 font-bold rounded-lg transition-colors flex items-center justify-center gap-2 group-hover:bg-blue-600 group-hover:text-white",
+                                                                        children: "Agregar al Despacho"
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                        lineNumber: 360,
-                                                                        columnNumber: 53
-                                                                    }, ("TURBOPACK compile-time value", void 0)),
-                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                                                        className: "text-sm opacity-60",
-                                                                        children: "Escanea productos para comenzar"
-                                                                    }, void 0, false, {
-                                                                        fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                        lineNumber: 361,
-                                                                        columnNumber: 53
+                                                                        lineNumber: 304,
+                                                                        columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0))
                                                                 ]
-                                                            }, void 0, true, {
+                                                            }, item.id, true, {
                                                                 fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                lineNumber: 356,
-                                                                columnNumber: 49
-                                                            }, ("TURBOPACK compile-time value", void 0))
-                                                        }, void 0, false, {
-                                                            fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                            lineNumber: 355,
-                                                            columnNumber: 45
-                                                        }, ("TURBOPACK compile-time value", void 0))
+                                                                lineNumber: 287,
+                                                                columnNumber: 45
+                                                            }, ("TURBOPACK compile-time value", void 0)))
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                    lineNumber: 312,
+                                                    lineNumber: 279,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0))
                                             ]
                                         }, void 0, true, {
                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                            lineNumber: 304,
+                                            lineNumber: 271,
+                                            columnNumber: 33
+                                        }, ("TURBOPACK compile-time value", void 0)),
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                            className: "w-1/3 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col",
+                                            children: [
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                    className: "p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center",
+                                                    children: [
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h3", {
+                                                            className: "font-bold text-gray-700 flex items-center gap-2",
+                                                            children: [
+                                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$circle$2d$check$2d$big$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__CheckCircle$3e$__["CheckCircle"], {
+                                                                    size: 18,
+                                                                    className: "text-green-500"
+                                                                }, void 0, false, {
+                                                                    fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                                    lineNumber: 319,
+                                                                    columnNumber: 45
+                                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                                "Seleccionados"
+                                                            ]
+                                                        }, void 0, true, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                            lineNumber: 318,
+                                                            columnNumber: 41
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                            className: "bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold",
+                                                            children: selectedItems.reduce((acc, item)=>acc + item.quantity, 0)
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                            lineNumber: 322,
+                                                            columnNumber: 41
+                                                        }, ("TURBOPACK compile-time value", void 0))
+                                                    ]
+                                                }, void 0, true, {
+                                                    fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                    lineNumber: 317,
+                                                    columnNumber: 37
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                    className: "overflow-y-auto flex-1 p-2 space-y-2",
+                                                    children: [
+                                                        selectedItems.map((item)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                                className: "bg-gray-50 rounded-lg p-3 border border-gray-100",
+                                                                children: [
+                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                                        className: "flex justify-between items-start mb-2",
+                                                                        children: [
+                                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                                                                className: "font-bold text-gray-800 text-sm line-clamp-1",
+                                                                                children: item.name
+                                                                            }, void 0, false, {
+                                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                                                lineNumber: 331,
+                                                                                columnNumber: 53
+                                                                            }, ("TURBOPACK compile-time value", void 0)),
+                                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                                                onClick: ()=>handleRemoveItem(item.batchId),
+                                                                                className: "text-gray-400 hover:text-red-500",
+                                                                                children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$x$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__X$3e$__["X"], {
+                                                                                    size: 16
+                                                                                }, void 0, false, {
+                                                                                    fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                                                    lineNumber: 332,
+                                                                                    columnNumber: 153
+                                                                                }, ("TURBOPACK compile-time value", void 0))
+                                                                            }, void 0, false, {
+                                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                                                lineNumber: 332,
+                                                                                columnNumber: 53
+                                                                            }, ("TURBOPACK compile-time value", void 0))
+                                                                        ]
+                                                                    }, void 0, true, {
+                                                                        fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                                        lineNumber: 330,
+                                                                        columnNumber: 49
+                                                                    }, ("TURBOPACK compile-time value", void 0)),
+                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                                        className: "flex justify-between items-center text-xs text-gray-500 mb-2",
+                                                                        children: [
+                                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                                                children: [
+                                                                                    "Lote: ",
+                                                                                    item.lot || 'N/A'
+                                                                                ]
+                                                                            }, void 0, true, {
+                                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                                                lineNumber: 335,
+                                                                                columnNumber: 53
+                                                                            }, ("TURBOPACK compile-time value", void 0)),
+                                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                                                children: [
+                                                                                    "Vence: ",
+                                                                                    item.expiry ? new Date(item.expiry).toLocaleDateString() : 'S/F'
+                                                                                ]
+                                                                            }, void 0, true, {
+                                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                                                lineNumber: 336,
+                                                                                columnNumber: 53
+                                                                            }, ("TURBOPACK compile-time value", void 0))
+                                                                        ]
+                                                                    }, void 0, true, {
+                                                                        fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                                        lineNumber: 334,
+                                                                        columnNumber: 49
+                                                                    }, ("TURBOPACK compile-time value", void 0)),
+                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                                        className: "flex items-center justify-between bg-white rounded-lg border border-gray-200 p-1",
+                                                                        children: [
+                                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                                                onClick: ()=>handleUpdateQuantity(item.batchId, item.quantity - 1),
+                                                                                className: "w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded",
+                                                                                children: "-"
+                                                                            }, void 0, false, {
+                                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                                                lineNumber: 339,
+                                                                                columnNumber: 53
+                                                                            }, ("TURBOPACK compile-time value", void 0)),
+                                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                                                className: "font-bold text-gray-800",
+                                                                                children: item.quantity
+                                                                            }, void 0, false, {
+                                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                                                lineNumber: 340,
+                                                                                columnNumber: 53
+                                                                            }, ("TURBOPACK compile-time value", void 0)),
+                                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                                                onClick: ()=>handleUpdateQuantity(item.batchId, item.quantity + 1),
+                                                                                className: "w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded",
+                                                                                children: "+"
+                                                                            }, void 0, false, {
+                                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                                                lineNumber: 341,
+                                                                                columnNumber: 53
+                                                                            }, ("TURBOPACK compile-time value", void 0))
+                                                                        ]
+                                                                    }, void 0, true, {
+                                                                        fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                                        lineNumber: 338,
+                                                                        columnNumber: 49
+                                                                    }, ("TURBOPACK compile-time value", void 0))
+                                                                ]
+                                                            }, item.batchId, true, {
+                                                                fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                                lineNumber: 329,
+                                                                columnNumber: 45
+                                                            }, ("TURBOPACK compile-time value", void 0))),
+                                                        selectedItems.length === 0 && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                            className: "text-center py-10 text-gray-400 text-sm",
+                                                            children: "Lista vacía"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                            lineNumber: 346,
+                                                            columnNumber: 45
+                                                        }, ("TURBOPACK compile-time value", void 0))
+                                                    ]
+                                                }, void 0, true, {
+                                                    fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                    lineNumber: 327,
+                                                    columnNumber: 37
+                                                }, ("TURBOPACK compile-time value", void 0))
+                                            ]
+                                        }, void 0, true, {
+                                            fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                            lineNumber: 316,
                                             columnNumber: 33
                                         }, ("TURBOPACK compile-time value", void 0))
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                    lineNumber: 294,
+                                    lineNumber: 269,
                                     columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0))
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                            lineNumber: 240,
+                            lineNumber: 244,
                             columnNumber: 25
                         }, ("TURBOPACK compile-time value", void 0)),
                         step === 3 && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1521,7 +1957,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                 children: "Empresa de Transporte"
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                lineNumber: 375,
+                                                lineNumber: 360,
                                                 columnNumber: 37
                                             }, ("TURBOPACK compile-time value", void 0)),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("select", {
@@ -1537,7 +1973,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                         children: "Starken"
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                        lineNumber: 381,
+                                                        lineNumber: 366,
                                                         columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -1545,7 +1981,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                         children: "Chilexpress"
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                        lineNumber: 382,
+                                                        lineNumber: 367,
                                                         columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -1553,7 +1989,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                         children: "Blue Express"
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                        lineNumber: 383,
+                                                        lineNumber: 368,
                                                         columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -1561,19 +1997,19 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                         children: "Flota Propia"
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                        lineNumber: 384,
+                                                        lineNumber: 369,
                                                         columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0))
                                                 ]
                                             }, void 0, true, {
                                                 fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                lineNumber: 376,
+                                                lineNumber: 361,
                                                 columnNumber: 37
                                             }, ("TURBOPACK compile-time value", void 0))
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                        lineNumber: 374,
+                                        lineNumber: 359,
                                         columnNumber: 33
                                     }, ("TURBOPACK compile-time value", void 0)),
                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1583,7 +2019,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                 children: "Número de Seguimiento / OT"
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                lineNumber: 389,
+                                                lineNumber: 374,
                                                 columnNumber: 37
                                             }, ("TURBOPACK compile-time value", void 0)),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
@@ -1597,13 +2033,13 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                 className: "w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 font-medium"
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                lineNumber: 390,
+                                                lineNumber: 375,
                                                 columnNumber: 37
                                             }, ("TURBOPACK compile-time value", void 0))
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                        lineNumber: 388,
+                                        lineNumber: 373,
                                         columnNumber: 33
                                     }, ("TURBOPACK compile-time value", void 0)),
                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1616,7 +2052,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                         children: "Conductor (Opcional)"
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                        lineNumber: 401,
+                                                        lineNumber: 386,
                                                         columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
@@ -1630,13 +2066,13 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                         className: "w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 font-medium"
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                        lineNumber: 402,
+                                                        lineNumber: 387,
                                                         columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0))
                                                 ]
                                             }, void 0, true, {
                                                 fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                lineNumber: 400,
+                                                lineNumber: 385,
                                                 columnNumber: 37
                                             }, ("TURBOPACK compile-time value", void 0)),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1646,7 +2082,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                         children: "Cantidad de Bultos"
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                        lineNumber: 411,
+                                                        lineNumber: 396,
                                                         columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
@@ -1660,30 +2096,30 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                         className: "w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 font-medium"
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                        lineNumber: 412,
+                                                        lineNumber: 397,
                                                         columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0))
                                                 ]
                                             }, void 0, true, {
                                                 fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                lineNumber: 410,
+                                                lineNumber: 395,
                                                 columnNumber: 37
                                             }, ("TURBOPACK compile-time value", void 0))
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                        lineNumber: 399,
+                                        lineNumber: 384,
                                         columnNumber: 33
                                     }, ("TURBOPACK compile-time value", void 0))
                                 ]
                             }, void 0, true, {
                                 fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                lineNumber: 373,
+                                lineNumber: 358,
                                 columnNumber: 29
                             }, ("TURBOPACK compile-time value", void 0))
                         }, void 0, false, {
                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                            lineNumber: 372,
+                            lineNumber: 357,
                             columnNumber: 25
                         }, ("TURBOPACK compile-time value", void 0)),
                         step === 4 && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1696,7 +2132,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                             className: "w-16 h-16 text-emerald-500 mx-auto mb-4"
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                            lineNumber: 428,
+                                            lineNumber: 413,
                                             columnNumber: 33
                                         }, ("TURBOPACK compile-time value", void 0)),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h3", {
@@ -1704,7 +2140,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                             children: "Todo listo para despachar"
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                            lineNumber: 429,
+                                            lineNumber: 414,
                                             columnNumber: 33
                                         }, ("TURBOPACK compile-time value", void 0)),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -1712,13 +2148,13 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                             children: "Revisa los detalles antes de confirmar la operación."
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                            lineNumber: 430,
+                                            lineNumber: 415,
                                             columnNumber: 33
                                         }, ("TURBOPACK compile-time value", void 0))
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                    lineNumber: 427,
+                                    lineNumber: 412,
                                     columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1734,7 +2170,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                             children: "Ruta"
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                            lineNumber: 436,
+                                                            lineNumber: 421,
                                                             columnNumber: 41
                                                         }, ("TURBOPACK compile-time value", void 0)),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1747,7 +2183,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                                     className: "text-gray-400"
                                                                 }, void 0, false, {
                                                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                    lineNumber: 438,
+                                                                    lineNumber: 423,
                                                                     columnNumber: 56
                                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                                 " ",
@@ -1755,13 +2191,13 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                             ]
                                                         }, void 0, true, {
                                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                            lineNumber: 437,
+                                                            lineNumber: 422,
                                                             columnNumber: 41
                                                         }, ("TURBOPACK compile-time value", void 0))
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                    lineNumber: 435,
+                                                    lineNumber: 420,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1771,7 +2207,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                             children: "Transporte"
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                            lineNumber: 442,
+                                                            lineNumber: 427,
                                                             columnNumber: 41
                                                         }, ("TURBOPACK compile-time value", void 0)),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -1783,19 +2219,19 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                             ]
                                                         }, void 0, true, {
                                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                            lineNumber: 443,
+                                                            lineNumber: 428,
                                                             columnNumber: 41
                                                         }, ("TURBOPACK compile-time value", void 0))
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                    lineNumber: 441,
+                                                    lineNumber: 426,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0))
                                             ]
                                         }, void 0, true, {
                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                            lineNumber: 434,
+                                            lineNumber: 419,
                                             columnNumber: 33
                                         }, ("TURBOPACK compile-time value", void 0)),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1806,7 +2242,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                     children: "Resumen de Carga"
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                    lineNumber: 447,
+                                                    lineNumber: 432,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1814,12 +2250,31 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                     children: selectedItems.map((item)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                                                             className: "flex justify-between text-sm",
                                                             children: [
-                                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
-                                                                    className: "text-gray-600",
-                                                                    children: item.name
-                                                                }, void 0, false, {
+                                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                                    children: [
+                                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                                            className: "text-gray-600 block",
+                                                                            children: item.name
+                                                                        }, void 0, false, {
+                                                                            fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                                            lineNumber: 437,
+                                                                            columnNumber: 53
+                                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                                            className: "text-xs text-gray-400",
+                                                                            children: [
+                                                                                "Lote: ",
+                                                                                item.lot || 'N/A'
+                                                                            ]
+                                                                        }, void 0, true, {
+                                                                            fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
+                                                                            lineNumber: 438,
+                                                                            columnNumber: 53
+                                                                        }, ("TURBOPACK compile-time value", void 0))
+                                                                    ]
+                                                                }, void 0, true, {
                                                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                    lineNumber: 451,
+                                                                    lineNumber: 436,
                                                                     columnNumber: 49
                                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
@@ -1830,18 +2285,18 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                                     ]
                                                                 }, void 0, true, {
                                                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                                    lineNumber: 452,
+                                                                    lineNumber: 440,
                                                                     columnNumber: 49
                                                                 }, ("TURBOPACK compile-time value", void 0))
                                                             ]
                                                         }, item.batchId, true, {
                                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                            lineNumber: 450,
+                                                            lineNumber: 435,
                                                             columnNumber: 45
                                                         }, ("TURBOPACK compile-time value", void 0)))
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                    lineNumber: 448,
+                                                    lineNumber: 433,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1852,7 +2307,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                             children: "Total Items"
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                            lineNumber: 457,
+                                                            lineNumber: 445,
                                                             columnNumber: 41
                                                         }, ("TURBOPACK compile-time value", void 0)),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
@@ -1860,37 +2315,37 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                                             children: selectedItems.reduce((a, b)=>a + b.quantity, 0)
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                            lineNumber: 458,
+                                                            lineNumber: 446,
                                                             columnNumber: 41
                                                         }, ("TURBOPACK compile-time value", void 0))
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                                    lineNumber: 456,
+                                                    lineNumber: 444,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0))
                                             ]
                                         }, void 0, true, {
                                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                            lineNumber: 446,
+                                            lineNumber: 431,
                                             columnNumber: 33
                                         }, ("TURBOPACK compile-time value", void 0))
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                    lineNumber: 433,
+                                    lineNumber: 418,
                                     columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0))
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                            lineNumber: 426,
+                            lineNumber: 411,
                             columnNumber: 25
                         }, ("TURBOPACK compile-time value", void 0))
                     ]
                 }, void 0, true, {
                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                    lineNumber: 200,
+                    lineNumber: 204,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0)),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1903,7 +2358,7 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                             children: "Atrás"
                         }, void 0, false, {
                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                            lineNumber: 468,
+                            lineNumber: 456,
                             columnNumber: 21
                         }, ("TURBOPACK compile-time value", void 0)),
                         step < 4 ? /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -1919,13 +2374,13 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                     size: 18
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                    lineNumber: 485,
+                                    lineNumber: 473,
                                     columnNumber: 39
                                 }, ("TURBOPACK compile-time value", void 0))
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                            lineNumber: 477,
+                            lineNumber: 465,
                             columnNumber: 25
                         }, ("TURBOPACK compile-time value", void 0)) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
                             onClick: handleSubmit,
@@ -1935,35 +2390,35 @@ const DispatchWizard = ({ isOpen, onClose })=>{
                                     size: 18
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                                    lineNumber: 492,
+                                    lineNumber: 480,
                                     columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 " Confirmar Despacho"
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                            lineNumber: 488,
+                            lineNumber: 476,
                             columnNumber: 25
                         }, ("TURBOPACK compile-time value", void 0))
                     ]
                 }, void 0, true, {
                     fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-                    lineNumber: 467,
+                    lineNumber: 455,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0))
             ]
         }, void 0, true, {
             fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-            lineNumber: 166,
+            lineNumber: 170,
             columnNumber: 13
         }, ("TURBOPACK compile-time value", void 0))
     }, void 0, false, {
         fileName: "[project]/src/presentation/components/warehouse/DispatchWizard.tsx",
-        lineNumber: 165,
+        lineNumber: 169,
         columnNumber: 9
     }, ("TURBOPACK compile-time value", void 0));
 };
-_s(DispatchWizard, "bY4UH/5MCQ96qouefjpjJGsrgL4=", false, function() {
+_s(DispatchWizard, "EktUztj3L2fjZaZzn7AkraqjQio=", false, function() {
     return [
         __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$store$2f$useStore$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["usePharmaStore"],
         __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$store$2f$useLocationStore$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useLocationStore"],

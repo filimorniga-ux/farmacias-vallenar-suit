@@ -52,6 +52,7 @@ export interface InventoryBatch {
     stock_min: number;
     stock_max: number;
     expiry_date: number;
+    lot_number?: string;
 
     // Financials (Advanced Structure)
     cost_net: number; // Costo Neto Compra
@@ -299,6 +300,14 @@ export interface PrinterConfig {
     printer_ip?: string; // For network printers
 }
 
+export interface HardwareConfig {
+    pos_printer_width: '58mm' | '80mm';
+    label_printer_size: '50x25' | '100x50';
+    auto_print_pos: boolean;
+    auto_print_labels: boolean;
+    scanner_mode: 'KEYBOARD_WEDGE' | 'HID';
+}
+
 // --- Atención y Filas ---
 export interface QueueTicket {
     id: string;
@@ -383,6 +392,7 @@ export interface Shipment {
         invoice_url?: string;
         dispatch_guide_url?: string;
         evidence_photos: string[];
+        observations?: string;
     };
 
     items: {
@@ -391,6 +401,11 @@ export interface Shipment {
         name: string; // Denormalized
         quantity: number;
         condition: 'GOOD' | 'DAMAGED';
+        // Inherited Batch Data (Snapshot)
+        lot_number?: string;
+        expiry_date?: number;
+        dci?: string;
+        unit_price?: number;
     }[];
 
     valuation: number; // Valor total
@@ -490,4 +505,35 @@ export interface DteDocument {
 
     monto_total: number;
     fecha_emision: number;
+}
+
+// --- Marketing & Promociones ---
+export interface Promotion {
+    id: string;
+    name: string;
+    startDate: number;
+    endDate: number;
+    isActive: boolean;
+    type: 'PERCENTAGE' | 'FIXED_AMOUNT' | 'BOGO' | 'BUNDLE';
+    value?: number; // % or Amount
+    target_category?: string;
+    required_customer_tag?: string;
+    days_of_week?: number[]; // 0=Sunday, 1=Monday...
+}
+
+export interface GiftCard {
+    code: string;
+    balance: number;
+    initial_balance: number;
+    status: 'ACTIVE' | 'REDEEMED' | 'EXPIRED';
+    created_at: number;
+    expiry_date?: number;
+}
+
+export interface LoyaltyReward {
+    id: string;
+    name: string;
+    points_cost: number;
+    product_sku?: string;
+    description?: string;
 }
