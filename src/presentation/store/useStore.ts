@@ -15,7 +15,8 @@ import {
     Shipment,
     StockTransfer,
     WarehouseIncident,
-    AttendanceStatus
+    AttendanceStatus,
+    AttendanceType
 } from '../../domain/types';
 import { fetchInventory, fetchEmployees } from '../../actions/sync';
 
@@ -375,7 +376,7 @@ interface PharmaState {
 
     // Attendance & HR
     attendanceLogs: AttendanceLog[];
-    registerAttendance: (employeeId: string, type: AttendanceLog['type']) => void;
+    registerAttendance: (employeeId: string, type: AttendanceType, observation?: string, evidence_photo_url?: string) => void;
     updateEmployeeBiometrics: (employeeId: string, credentialId: string) => void;
 
     // WMS & Logistics
@@ -920,13 +921,14 @@ export const usePharmaStore = create<PharmaState>()(
 
             // --- Attendance ---
             attendanceLogs: [],
-            registerAttendance: (employeeId, type) => set((state) => {
+            registerAttendance: (employeeId: string, type: AttendanceType, observation?: string, evidence_photo_url?: string) => set((state) => {
                 const now = Date.now();
                 let newStatus: AttendanceStatus = 'OUT';
 
-                if (type === 'CHECK_IN' || type === 'LUNCH_END') newStatus = 'IN';
-                if (type === 'LUNCH_START') newStatus = 'LUNCH';
-                if (type === 'CHECK_OUT') newStatus = 'OUT';
+                if (['CHECK_IN', 'BREAK_END', 'PERMISSION_END'].includes(type)) newStatus = 'IN';
+                if (type === 'BREAK_START') newStatus = 'LUNCH';
+                if (type === 'PERMISSION_START') newStatus = 'ON_PERMISSION';
+                if (['CHECK_OUT', 'MEDICAL_LEAVE', 'EMERGENCY', 'WORK_ACCIDENT'].includes(type)) newStatus = 'OUT';
 
                 // Calculate overtime if CHECK_OUT
                 let overtime = 0;
@@ -944,12 +946,21 @@ export const usePharmaStore = create<PharmaState>()(
                     }
                 }
 
+                // WORK ACCIDENT ALERT
+                if (type === 'WORK_ACCIDENT') {
+                    // In a real app, this would trigger an email/SMS
+                    console.error('🚨 ALERTA DE ACCIDENTE LABORAL:', employeeId, observation);
+                    // We could also add a notification to a notifications store if we had one
+                }
+
                 const newLog: AttendanceLog = {
                     id: `LOG - ${now} `,
                     employee_id: employeeId,
                     timestamp: now,
                     type,
-                    overtime_minutes: overtime > 0 ? overtime : undefined
+                    overtime_minutes: overtime,
+                    observation,
+                    evidence_photo_url
                 };
 
                 return {

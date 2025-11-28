@@ -161,6 +161,66 @@ const HardwarePage: React.FC = () => {
                     </div>
                 </div>
 
+                {/* Kiosk Printer Config */}
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div className="p-6 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                        <h2 className="font-bold text-gray-800 flex items-center gap-2">
+                            <span className="text-2xl">🎫</span>
+                            Impresora Totem / Kiosco
+                        </h2>
+                        <span className="text-xs font-bold px-2 py-1 bg-green-100 text-green-600 rounded">Atención</span>
+                    </div>
+                    <div className="p-6 space-y-6">
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-2">Ancho del Papel</label>
+                            <div className="grid grid-cols-2 gap-4">
+                                <button
+                                    onClick={() => updateHardwareConfig({ kiosk_printer_width: '80mm' })}
+                                    className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${hardware.kiosk_printer_width === '80mm'
+                                        ? 'border-green-500 bg-green-50 text-green-700'
+                                        : 'border-gray-200 hover:border-gray-300 text-gray-500'
+                                        }`}
+                                >
+                                    <span className="text-2xl font-bold">80mm</span>
+                                    <span className="text-xs">Estándar</span>
+                                </button>
+                                <button
+                                    onClick={() => updateHardwareConfig({ kiosk_printer_width: '58mm' })}
+                                    className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${hardware.kiosk_printer_width === '58mm'
+                                        ? 'border-green-500 bg-green-50 text-green-700'
+                                        : 'border-gray-200 hover:border-gray-300 text-gray-500'
+                                        }`}
+                                >
+                                    <span className="text-xl font-bold">58mm</span>
+                                    <span className="text-xs">Compacto</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-2">Mensaje de Bienvenida</label>
+                            <input
+                                type="text"
+                                value={hardware.kiosk_welcome_message || ''}
+                                onChange={(e) => updateHardwareConfig({ kiosk_welcome_message: e.target.value })}
+                                placeholder="Ej: Bienvenido a Farmacias Vallenar"
+                                className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-green-500 outline-none"
+                            />
+                        </div>
+
+                        <button
+                            onClick={() => {
+                                toast.success('Enviando ticket de fila de prueba...');
+                                // In a real app, this would call PrinterService.printQueueTicket(...)
+                            }}
+                            className="w-full py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                        >
+                            <Printer size={18} />
+                            Probar Ticket de Fila
+                        </button>
+                    </div>
+                </div>
+
                 {/* Scanner Test */}
                 <div className="md:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                     <div className="p-6 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
