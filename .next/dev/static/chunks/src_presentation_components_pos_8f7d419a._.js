@@ -1214,7 +1214,7 @@ const CashControlModal = ({ isOpen, onClose })=>{
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 expandedSection === 'CASH' && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                                                     className: "bg-slate-50 border-t border-slate-100 p-2 space-y-1 max-h-60 overflow-y-auto",
-                                                    children: metrics.cashSales.items.map((sale)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                    children: metrics.cashSales.items.map((sale, index)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                                                             className: "flex justify-between text-sm p-2 hover:bg-white rounded-lg",
                                                             children: [
                                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
@@ -1237,7 +1237,7 @@ const CashControlModal = ({ isOpen, onClose })=>{
                                                                     columnNumber: 53
                                                                 }, ("TURBOPACK compile-time value", void 0))
                                                             ]
-                                                        }, sale.id, true, {
+                                                        }, `${sale.id}-${index}`, true, {
                                                             fileName: "[project]/src/presentation/components/pos/CashControlModal.tsx",
                                                             lineNumber: 266,
                                                             columnNumber: 49
@@ -1354,7 +1354,7 @@ const CashControlModal = ({ isOpen, onClose })=>{
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 expandedSection === 'CARD' && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                                                     className: "bg-slate-50 border-t border-slate-100 p-2 space-y-1 max-h-60 overflow-y-auto",
-                                                    children: metrics.cardSales.items.map((sale)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                    children: metrics.cardSales.items.map((sale, index)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                                                             className: "flex justify-between text-sm p-2 hover:bg-white rounded-lg",
                                                             children: [
                                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
@@ -1377,7 +1377,7 @@ const CashControlModal = ({ isOpen, onClose })=>{
                                                                     columnNumber: 53
                                                                 }, ("TURBOPACK compile-time value", void 0))
                                                             ]
-                                                        }, sale.id, true, {
+                                                        }, `${sale.id}-${index}`, true, {
                                                             fileName: "[project]/src/presentation/components/pos/CashControlModal.tsx",
                                                             lineNumber: 296,
                                                             columnNumber: 49
@@ -1494,7 +1494,7 @@ const CashControlModal = ({ isOpen, onClose })=>{
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 expandedSection === 'TRANSFER' && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                                                     className: "bg-slate-50 border-t border-slate-100 p-2 space-y-1 max-h-60 overflow-y-auto",
-                                                    children: metrics.transferSales.items.map((sale)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                    children: metrics.transferSales.items.map((sale, index)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                                                             className: "flex justify-between text-sm p-2 hover:bg-white rounded-lg",
                                                             children: [
                                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
@@ -1517,7 +1517,7 @@ const CashControlModal = ({ isOpen, onClose })=>{
                                                                     columnNumber: 53
                                                                 }, ("TURBOPACK compile-time value", void 0))
                                                             ]
-                                                        }, sale.id, true, {
+                                                        }, `${sale.id}-${index}`, true, {
                                                             fileName: "[project]/src/presentation/components/pos/CashControlModal.tsx",
                                                             lineNumber: 326,
                                                             columnNumber: 49

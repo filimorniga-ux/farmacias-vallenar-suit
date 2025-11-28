@@ -262,8 +262,8 @@ const CashControlModal: React.FC<CashControlModalProps> = ({ isOpen, onClose }) 
                                     </button>
                                     {expandedSection === 'CASH' && (
                                         <div className="bg-slate-50 border-t border-slate-100 p-2 space-y-1 max-h-60 overflow-y-auto">
-                                            {metrics.cashSales.items.map(sale => (
-                                                <div key={sale.id} className="flex justify-between text-sm p-2 hover:bg-white rounded-lg">
+                                            {metrics.cashSales.items.map((sale, index) => (
+                                                <div key={`${sale.id}-${index}`} className="flex justify-between text-sm p-2 hover:bg-white rounded-lg">
                                                     <span className="text-slate-500">{new Date(sale.timestamp).toLocaleTimeString()}</span>
                                                     <span className="font-medium text-slate-700">${sale.total.toLocaleString()}</span>
                                                 </div>
@@ -292,8 +292,8 @@ const CashControlModal: React.FC<CashControlModalProps> = ({ isOpen, onClose }) 
                                     </button>
                                     {expandedSection === 'CARD' && (
                                         <div className="bg-slate-50 border-t border-slate-100 p-2 space-y-1 max-h-60 overflow-y-auto">
-                                            {metrics.cardSales.items.map(sale => (
-                                                <div key={sale.id} className="flex justify-between text-sm p-2 hover:bg-white rounded-lg">
+                                            {metrics.cardSales.items.map((sale, index) => (
+                                                <div key={`${sale.id}-${index}`} className="flex justify-between text-sm p-2 hover:bg-white rounded-lg">
                                                     <span className="text-slate-500">{new Date(sale.timestamp).toLocaleTimeString()}</span>
                                                     <span className="font-medium text-slate-700">${sale.total.toLocaleString()}</span>
                                                 </div>
@@ -322,8 +322,8 @@ const CashControlModal: React.FC<CashControlModalProps> = ({ isOpen, onClose }) 
                                     </button>
                                     {expandedSection === 'TRANSFER' && (
                                         <div className="bg-slate-50 border-t border-slate-100 p-2 space-y-1 max-h-60 overflow-y-auto">
-                                            {metrics.transferSales.items.map(sale => (
-                                                <div key={sale.id} className="flex justify-between text-sm p-2 hover:bg-white rounded-lg">
+                                            {metrics.transferSales.items.map((sale, index) => (
+                                                <div key={`${sale.id}-${index}`} className="flex justify-between text-sm p-2 hover:bg-white rounded-lg">
                                                     <span className="text-slate-500">{new Date(sale.timestamp).toLocaleTimeString()}</span>
                                                     <span className="font-medium text-slate-700">${sale.total.toLocaleString()}</span>
                                                 </div>
@@ -371,8 +371,8 @@ const CashControlModal: React.FC<CashControlModalProps> = ({ isOpen, onClose }) 
                                             <input
                                                 type="number"
                                                 className={`w-full pl-10 p-4 border-2 rounded-xl text-2xl font-bold outline-none transition ${closingAmount && difference === 0 ? 'border-green-500 bg-green-50 text-green-700' :
-                                                        closingAmount && difference !== 0 ? 'border-red-500 bg-red-50 text-red-700' :
-                                                            'border-slate-200 bg-slate-50 text-slate-800 focus:border-cyan-500'
+                                                    closingAmount && difference !== 0 ? 'border-red-500 bg-red-50 text-red-700' :
+                                                        'border-slate-200 bg-slate-50 text-slate-800 focus:border-cyan-500'
                                                     }`}
                                                 placeholder="0"
                                                 value={closingAmount}

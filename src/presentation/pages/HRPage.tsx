@@ -5,6 +5,7 @@ import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
 import { ROLES, Role, Permission } from '../../domain/security/roles';
 import { EmployeeProfile } from '../../domain/types';
+import { APP_MODULES, ROLE_PRESETS } from '../../domain/config/roles_presets';
 
 const HRPage = () => {
     const { user, employees } = usePharmaStore();
@@ -265,7 +266,19 @@ const HRPage = () => {
                                             <div className="space-y-4">
                                                 <div>
                                                     <label className="block text-xs font-bold text-slate-500 mb-1">Rol del Sistema</label>
-                                                    <select className="w-full p-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-700" value={selectedEmployee.role} onChange={e => setSelectedEmployee({ ...selectedEmployee, role: e.target.value as Role })}>
+                                                    <select
+                                                        className="w-full p-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-700"
+                                                        value={selectedEmployee.role}
+                                                        onChange={e => {
+                                                            const newRole = e.target.value as Role;
+                                                            const newPermissions = ROLE_PRESETS[newRole] || [];
+                                                            setSelectedEmployee({
+                                                                ...selectedEmployee,
+                                                                role: newRole,
+                                                                allowed_modules: newPermissions
+                                                            });
+                                                        }}
+                                                    >
                                                         {Object.entries(ROLES).map(([key, label]) => (
                                                             <option key={key} value={key}>{label}</option>
                                                         ))}
@@ -295,24 +308,31 @@ const HRPage = () => {
 
                                             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
                                                 <h4 className="text-xs font-bold text-slate-700 mb-3">Permisos Adicionales (Módulos)</h4>
-                                                <div className="space-y-2">
-                                                    {['POS', 'INVENTORY', 'HR', 'REPORTS', 'SUPPLIERS'].map(module => (
-                                                        <label key={module} className="flex items-center gap-2 cursor-pointer">
-                                                            <input
-                                                                type="checkbox"
-                                                                className="rounded text-blue-600 focus:ring-blue-500"
-                                                                checked={selectedEmployee.allowed_modules?.includes(module)}
-                                                                onChange={e => {
-                                                                    const current = selectedEmployee.allowed_modules || [];
-                                                                    if (e.target.checked) {
-                                                                        setSelectedEmployee({ ...selectedEmployee, allowed_modules: [...current, module] });
-                                                                    } else {
-                                                                        setSelectedEmployee({ ...selectedEmployee, allowed_modules: current.filter(m => m !== module) });
-                                                                    }
-                                                                }}
-                                                            />
-                                                            <span className="text-sm text-slate-600">{module}</span>
-                                                        </label>
+                                                <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2">
+                                                    {['OPERATIVO', 'LOGISTICA', 'ADMIN', 'GERENCIA'].map(category => (
+                                                        <div key={category}>
+                                                            <h5 className="text-[10px] font-bold text-slate-400 uppercase mb-2 border-b border-slate-100 pb-1">{category}</h5>
+                                                            <div className="space-y-2">
+                                                                {APP_MODULES.filter(m => m.category === category).map(module => (
+                                                                    <label key={module.id} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            className="rounded text-blue-600 focus:ring-blue-500"
+                                                                            checked={selectedEmployee.allowed_modules?.includes(module.id)}
+                                                                            onChange={e => {
+                                                                                const current = selectedEmployee.allowed_modules || [];
+                                                                                if (e.target.checked) {
+                                                                                    setSelectedEmployee({ ...selectedEmployee, allowed_modules: [...current, module.id] });
+                                                                                } else {
+                                                                                    setSelectedEmployee({ ...selectedEmployee, allowed_modules: current.filter(m => m !== module.id) });
+                                                                                }
+                                                                            }}
+                                                                        />
+                                                                        <span className="text-sm text-slate-600">{module.label}</span>
+                                                                    </label>
+                                                                ))}
+                                                            </div>
+                                                        </div>
                                                     ))}
                                                 </div>
                                             </div>

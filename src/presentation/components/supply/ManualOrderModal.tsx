@@ -1,307 +1,329 @@
 import React, { useState, useMemo } from 'react';
-import { X, Search, Plus, Trash2, Save, ShoppingCart, ChevronRight, Building2, Package, Send, Calendar, DollarSign } from 'lucide-react';
+import { X, Search, Plus, Trash2, AlertTriangle, Save, Send, DollarSign, Calendar, Truck, Package } from 'lucide-react';
 import { usePharmaStore } from '../../store/useStore';
+import { useNotificationStore } from '../../store/useNotificationStore';
 import { toast } from 'sonner';
+import { InventoryBatch } from '../../../domain/types';
 
 interface ManualOrderModalProps {
     isOpen: boolean;
     onClose: () => void;
 }
 
+interface OrderItem {
+    sku: string;
+    name: string;
+    quantity: number;
+    cost_price: number;
+    stock_actual: number;
+    stock_max: number;
+}
+
 const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose }) => {
-    const { suppliers, inventory, addPurchaseOrder } = usePharmaStore();
+    const { inventory, suppliers, addPurchaseOrder } = usePharmaStore();
+    const { pushNotification } = useNotificationStore();
 
-    // State
-    const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
+    const [selectedSupplierId, setSelectedSupplierId] = useState('');
+    const [expectedDate, setExpectedDate] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
-    const [cart, setCart] = useState<{ sku: string; name: string; quantity: number; cost: number }[]>([]);
+    const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
 
-    // Derived Data
-    const selectedSupplier = useMemo(() => suppliers.find(s => s.id === selectedSupplierId), [selectedSupplierId, suppliers]);
+    const selectedSupplier = useMemo(() =>
+        suppliers.find(s => s.id === selectedSupplierId),
+        [selectedSupplierId, suppliers]);
 
-    // Smart Filtering: Prioritize supplier's products if any logic existed, otherwise search all
-    const filteredProducts = useMemo(() => {
+    const searchResults = useMemo(() => {
         if (!searchTerm) return [];
+        return inventory.filter(item =>
+            item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            item.sku.includes(searchTerm)
+        ).slice(0, 5);
+    }, [searchTerm, inventory]);
 
-        let results = inventory.filter(p =>
-            p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.sku.includes(searchTerm)
-        );
-
-        // Optional: If we had a way to know which products belong to a supplier, we would sort them here.
-        // For now, we just return the top 10 matches.
-        return results.slice(0, 10);
-    }, [inventory, searchTerm]);
-
-    // Financials
-    const netTotal = useMemo(() => cart.reduce((acc, item) => acc + (item.cost * item.quantity), 0), [cart]);
-    const taxAmount = Math.round(netTotal * 0.19);
-    const totalWithTax = netTotal + taxAmount;
-
-    // Handlers
-    const handleAddToCart = (product: any) => {
-        const existing = cart.find(i => i.sku === product.sku);
-        if (existing) {
-            setCart(cart.map(i => i.sku === product.sku ? { ...i, quantity: i.quantity + 1 } : i));
-        } else {
-            setCart([...cart, {
-                sku: product.sku,
-                name: product.name,
-                quantity: 1,
-                cost: product.cost_net || product.cost_price || 0
-            }]);
+    const handleAddItem = (product: InventoryBatch) => {
+        if (orderItems.find(i => i.sku === product.sku)) {
+            toast.error('El producto ya está en la orden');
+            return;
         }
-        toast.success(`Agregado: ${product.name}`);
-        setSearchTerm(''); // Clear search for faster entry
+
+        setOrderItems([...orderItems, {
+            sku: product.sku,
+            name: product.name,
+            quantity: 1,
+            cost_price: product.cost_price || 0,
+            stock_actual: product.stock_actual,
+            stock_max: product.stock_max || 100 // Default max if not set
+        }]);
+        setSearchTerm('');
     };
 
-    const handleUpdateItem = (sku: string, field: 'quantity' | 'cost', value: number) => {
-        if (value < 0) return;
-        setCart(cart.map(i => i.sku === sku ? { ...i, [field]: value } : i));
+    const updateItem = (sku: string, field: keyof OrderItem, value: number) => {
+        setOrderItems(items => items.map(item =>
+            item.sku === sku ? { ...item, [field]: value } : item
+        ));
     };
 
-    const handleRemoveItem = (sku: string) => {
-        setCart(cart.filter(i => i.sku !== sku));
+    const removeItem = (sku: string) => {
+        setOrderItems(items => items.filter(i => i.sku !== sku));
     };
 
-    const handleSaveOrder = (status: 'DRAFT' | 'SENT') => {
-        if (!selectedSupplierId || cart.length === 0) return;
+    const totals = useMemo(() => {
+        const net = orderItems.reduce((acc, item) => acc + (item.quantity * item.cost_price), 0);
+        const tax = net * 0.19;
+        return { net, tax, total: net + tax };
+    }, [orderItems]);
+
+    const handleSave = (status: 'DRAFT' | 'SENT') => {
+        if (!selectedSupplierId) {
+            toast.error('Seleccione un proveedor');
+            return;
+        }
+        if (orderItems.length === 0) {
+            toast.error('Agregue productos a la orden');
+            return;
+        }
 
         const newOrder = {
-            id: `PO-MAN-${Date.now()}`,
+            id: `ORD-${Date.now()}`,
             supplier_id: selectedSupplierId,
             created_at: Date.now(),
-            status: status, // DRAFT or SENT
-            items: cart.map(i => ({
+            status,
+            items: orderItems.map(i => ({
                 sku: i.sku,
                 name: i.name,
                 quantity: i.quantity,
-                cost_price: i.cost
+                cost_price: i.cost_price
             })),
-            total_estimated: netTotal
+            total_estimated: totals.total
         };
 
         addPurchaseOrder(newOrder);
 
         if (status === 'SENT') {
-            toast.success('Orden enviada al proveedor exitosamente');
+            pushNotification({
+                title: 'Orden de Compra Enviada',
+                message: `Orden ${newOrder.id} enviada a ${selectedSupplier?.fantasy_name}`,
+                type: 'INFO',
+                roleTarget: 'MANAGER'
+            });
+            toast.success('Orden enviada exitosamente');
         } else {
             toast.success('Borrador guardado');
         }
 
         onClose();
-        // Reset
+        // Reset state
+        setOrderItems([]);
         setSelectedSupplierId('');
-        setCart([]);
-        setSearchTerm('');
+        setExpectedDate('');
     };
 
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col overflow-hidden">
-
-                {/* HEADER - ZONE A */}
-                <div className="bg-slate-900 p-6 text-white shrink-0 flex justify-between items-start">
-                    <div className="flex items-center gap-4">
-                        <div className="p-3 bg-cyan-500/20 rounded-xl">
-                            <ShoppingCart className="text-cyan-400" size={32} />
-                        </div>
-                        <div>
-                            <h2 className="text-2xl font-bold">Nueva Orden de Compra</h2>
-                            <p className="text-slate-400 text-sm">Abastecimiento B2B • Creación Manual</p>
-                        </div>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col">
+                {/* Header */}
+                <div className="p-6 border-b border-gray-100 flex justify-between items-start bg-gray-50 rounded-t-2xl">
+                    <div>
+                        <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                            <Plus className="text-cyan-600" />
+                            Nueva Orden Manual
+                        </h2>
+                        <p className="text-sm text-gray-500">Creación de pedido discrecional</p>
                     </div>
-                    <button onClick={onClose} className="text-slate-400 hover:text-white p-2 hover:bg-white/10 rounded-full transition">
-                        <X size={24} />
+                    <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
+                        <X size={24} className="text-gray-500" />
                     </button>
                 </div>
 
-                {/* MAIN CONTENT - SPLIT VIEW */}
+                {/* Body */}
                 <div className="flex-1 flex overflow-hidden">
-
-                    {/* LEFT PANEL: CONFIG & SEARCH */}
-                    <div className="w-1/3 border-r border-slate-200 bg-slate-50 flex flex-col">
-
-                        {/* ZONE A: SUPPLIER INFO */}
-                        <div className="p-6 border-b border-slate-200 bg-white">
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">1. Seleccionar Proveedor</label>
+                    {/* Left: Configuration & Search */}
+                    <div className="w-1/3 border-r border-gray-100 p-6 flex flex-col gap-6 bg-white overflow-y-auto">
+                        {/* Supplier Selection */}
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-gray-700">Proveedor</label>
                             <select
-                                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 focus:border-cyan-500 outline-none transition"
                                 value={selectedSupplierId}
                                 onChange={(e) => setSelectedSupplierId(e.target.value)}
+                                className="w-full p-3 border border-gray-200 rounded-xl focus:border-cyan-500 focus:outline-none bg-gray-50"
                             >
-                                <option value="">-- Seleccione Proveedor --</option>
+                                <option value="">Seleccione un proveedor...</option>
                                 {suppliers.map(s => (
                                     <option key={s.id} value={s.id}>{s.fantasy_name}</option>
                                 ))}
                             </select>
-
                             {selectedSupplier && (
-                                <div className="mt-4 p-4 bg-cyan-50 rounded-xl border border-cyan-100">
-                                    <div className="flex items-center gap-2 text-cyan-800 font-bold mb-2">
-                                        <Building2 size={16} /> {selectedSupplier.fantasy_name}
+                                <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-sm">
+                                    <div className="flex justify-between mb-1">
+                                        <span className="text-blue-600 font-bold">Condición:</span>
+                                        <span className="text-blue-800">{selectedSupplier.payment_terms} días</span>
                                     </div>
-                                    <div className="space-y-1 text-xs text-cyan-700">
-                                        <p>RUT: {selectedSupplier.rut}</p>
-                                        <p>Email: {selectedSupplier.contact_email}</p>
-                                        <p>Días Crédito: {selectedSupplier.payment_terms === 'CONTADO' ? '0 (Contado)' : selectedSupplier.payment_terms.replace('_DIAS', '')}</p>
+                                    <div className="flex justify-between">
+                                        <span className="text-blue-600 font-bold">Crédito:</span>
+                                        <span className="text-blue-800">$5.000.000 (Disp)</span>
                                     </div>
                                 </div>
                             )}
                         </div>
 
-                        {/* ZONE B: PRODUCT SEARCH */}
-                        <div className="p-6 flex-1 flex flex-col overflow-hidden">
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">2. Buscar Productos</label>
-                            <div className="relative mb-4">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                        {/* Date */}
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-gray-700">Fecha Esperada</label>
+                            <div className="relative">
+                                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                                <input
+                                    type="date"
+                                    value={expectedDate}
+                                    onChange={(e) => setExpectedDate(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:border-cyan-500 focus:outline-none"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Product Search */}
+                        <div className="space-y-2 flex-1">
+                            <label className="text-sm font-bold text-gray-700">Agregar Productos</label>
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                                 <input
                                     type="text"
-                                    placeholder="Nombre o SKU..."
-                                    className="w-full pl-10 p-3 border border-slate-200 rounded-xl focus:border-cyan-500 outline-none shadow-sm"
+                                    placeholder="Buscar por SKU o Nombre..."
                                     value={searchTerm}
-                                    onChange={e => setSearchTerm(e.target.value)}
-                                    disabled={!selectedSupplierId}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:border-cyan-500 focus:outline-none"
                                 />
                             </div>
 
-                            <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                                {!selectedSupplierId ? (
-                                    <div className="text-center py-10 text-slate-400 text-sm">
-                                        Seleccione un proveedor para comenzar
-                                    </div>
-                                ) : filteredProducts.length === 0 && searchTerm ? (
-                                    <div className="text-center py-10 text-slate-400 text-sm">
-                                        No se encontraron productos
-                                    </div>
-                                ) : (
-                                    filteredProducts.map(product => (
+                            {/* Search Results */}
+                            {searchTerm && (
+                                <div className="mt-2 border border-gray-200 rounded-xl overflow-hidden shadow-lg">
+                                    {searchResults.map(item => (
                                         <button
-                                            key={product.id}
-                                            onClick={() => handleAddToCart(product)}
-                                            className="w-full p-3 bg-white rounded-xl border border-slate-200 hover:border-cyan-400 hover:shadow-md transition text-left group flex justify-between items-center"
+                                            key={item.id}
+                                            onClick={() => handleAddItem(item)}
+                                            className="w-full p-3 text-left hover:bg-cyan-50 border-b border-gray-100 last:border-0 transition flex justify-between items-center group"
                                         >
-                                            <div className="min-w-0">
-                                                <div className="font-bold text-slate-700 truncate group-hover:text-cyan-700">{product.name}</div>
-                                                <div className="text-xs text-slate-500 flex gap-2">
-                                                    <span>SKU: {product.sku}</span>
-                                                    <span>Stock: {product.stock_actual}</span>
-                                                </div>
+                                            <div>
+                                                <div className="font-bold text-gray-800">{item.name}</div>
+                                                <div className="text-xs text-gray-500">{item.sku} • Stock: {item.stock_actual}</div>
                                             </div>
-                                            <div className="text-cyan-600 bg-cyan-50 p-2 rounded-lg group-hover:bg-cyan-100">
-                                                <Plus size={16} />
-                                            </div>
+                                            <Plus size={18} className="text-gray-300 group-hover:text-cyan-600" />
                                         </button>
-                                    ))
-                                )}
-                            </div>
+                                    ))}
+                                    {searchResults.length === 0 && (
+                                        <div className="p-4 text-center text-gray-400 text-sm">No se encontraron productos</div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
 
-                    {/* RIGHT PANEL: CART & TOTALS */}
-                    <div className="flex-1 flex flex-col bg-white">
-
-                        {/* ZONE B: CART TABLE */}
-                        <div className="flex-1 overflow-y-auto p-6">
-                            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-                                <Package className="text-cyan-600" /> Detalle de la Orden
-                            </h3>
-
-                            <table className="w-full text-left text-sm">
-                                <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs sticky top-0 z-10">
-                                    <tr>
-                                        <th className="p-3 rounded-l-lg">Producto</th>
-                                        <th className="p-3 text-right">Costo Unit.</th>
-                                        <th className="p-3 text-center">Cant.</th>
-                                        <th className="p-3 text-right">Subtotal</th>
-                                        <th className="p-3 rounded-r-lg w-10"></th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {cart.map(item => (
-                                        <tr key={item.sku} className="hover:bg-slate-50 transition group">
-                                            <td className="p-3">
-                                                <div className="font-bold text-slate-700">{item.name}</div>
-                                                <div className="text-xs text-slate-400">{item.sku}</div>
-                                            </td>
-                                            <td className="p-3 text-right">
-                                                <div className="flex items-center justify-end gap-1">
-                                                    <span className="text-slate-400">$</span>
+                    {/* Right: Order Grid */}
+                    <div className="flex-1 flex flex-col bg-gray-50">
+                        <div className="flex-1 overflow-auto p-6">
+                            {orderItems.length === 0 ? (
+                                <div className="h-full flex flex-col items-center justify-center text-gray-400">
+                                    <Package size={64} className="mb-4 opacity-50" />
+                                    <p className="text-lg font-medium">El carrito de compra está vacío</p>
+                                    <p className="text-sm">Seleccione un proveedor y agregue productos</p>
+                                </div>
+                            ) : (
+                                <table className="w-full text-left border-separate border-spacing-y-2">
+                                    <thead>
+                                        <tr className="text-xs font-bold text-gray-500 uppercase">
+                                            <th className="px-4">Producto</th>
+                                            <th className="px-4 text-center">Cantidad</th>
+                                            <th className="px-4 text-right">Costo Unit.</th>
+                                            <th className="px-4 text-right">Subtotal</th>
+                                            <th className="px-4"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {orderItems.map(item => (
+                                            <tr key={item.sku} className="bg-white shadow-sm rounded-xl">
+                                                <td className="p-4 rounded-l-xl">
+                                                    <div className="font-bold text-gray-800">{item.name}</div>
+                                                    <div className="flex items-center gap-2 mt-1">
+                                                        <span className="text-xs font-mono text-gray-400">{item.sku}</span>
+                                                        {item.stock_actual > item.stock_max && (
+                                                            <span className="flex items-center gap-1 text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">
+                                                                <AlertTriangle size={10} /> SOBRESTOCK
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="p-4 text-center">
                                                     <input
                                                         type="number"
-                                                        className="w-20 text-right font-medium bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 outline-none"
-                                                        value={item.cost}
-                                                        onChange={(e) => handleUpdateItem(item.sku, 'cost', parseInt(e.target.value) || 0)}
+                                                        min="1"
+                                                        value={item.quantity}
+                                                        onChange={(e) => updateItem(item.sku, 'quantity', parseInt(e.target.value) || 0)}
+                                                        className="w-20 p-2 text-center border border-gray-200 rounded-lg font-bold focus:border-cyan-500 focus:outline-none"
                                                     />
-                                                </div>
-                                            </td>
-                                            <td className="p-3 text-center">
-                                                <input
-                                                    type="number"
-                                                    className="w-16 text-center font-bold bg-slate-100 rounded-lg py-1 border border-transparent focus:border-cyan-500 outline-none"
-                                                    value={item.quantity}
-                                                    onChange={(e) => handleUpdateItem(item.sku, 'quantity', parseInt(e.target.value) || 0)}
-                                                />
-                                            </td>
-                                            <td className="p-3 text-right font-bold text-slate-700">
-                                                ${(item.cost * item.quantity).toLocaleString()}
-                                            </td>
-                                            <td className="p-3 text-center">
-                                                <button
-                                                    onClick={() => handleRemoveItem(item.sku)}
-                                                    className="text-slate-300 hover:text-red-500 transition"
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                    {cart.length === 0 && (
-                                        <tr>
-                                            <td colSpan={5} className="p-8 text-center text-slate-400 italic">
-                                                Agregue productos desde el panel izquierdo
-                                            </td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
+                                                </td>
+                                                <td className="p-4 text-right">
+                                                    <div className="relative">
+                                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            value={item.cost_price}
+                                                            onChange={(e) => updateItem(item.sku, 'cost_price', parseInt(e.target.value) || 0)}
+                                                            className="w-24 p-2 pl-6 text-right border border-gray-200 rounded-lg font-mono text-sm focus:border-cyan-500 focus:outline-none"
+                                                        />
+                                                    </div>
+                                                </td>
+                                                <td className="p-4 text-right font-bold text-gray-800">
+                                                    ${(item.quantity * item.cost_price).toLocaleString()}
+                                                </td>
+                                                <td className="p-4 rounded-r-xl text-center">
+                                                    <button
+                                                        onClick={() => removeItem(item.sku)}
+                                                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
+                                                    >
+                                                        <Trash2 size={18} />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
                         </div>
 
-                        {/* ZONE C: TOTALS & ACTIONS */}
-                        <div className="p-6 bg-slate-50 border-t border-slate-200">
-                            <div className="flex justify-end mb-6">
-                                <div className="w-64 space-y-2">
-                                    <div className="flex justify-between text-slate-500">
-                                        <span>Neto</span>
-                                        <span>${netTotal.toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex justify-between text-slate-500">
-                                        <span>IVA (19%)</span>
-                                        <span>${taxAmount.toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex justify-between text-xl font-bold text-slate-900 pt-2 border-t border-slate-200">
-                                        <span>Total</span>
-                                        <span>${totalWithTax.toLocaleString()}</span>
-                                    </div>
+                        {/* Totals Footer */}
+                        <div className="p-6 bg-white border-t border-gray-200">
+                            <div className="flex justify-end gap-12 mb-6">
+                                <div className="text-right">
+                                    <p className="text-sm text-gray-500 mb-1">Neto</p>
+                                    <p className="text-xl font-bold text-gray-800">${totals.net.toLocaleString()}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-sm text-gray-500 mb-1">IVA (19%)</p>
+                                    <p className="text-xl font-bold text-gray-800">${totals.tax.toLocaleString()}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-sm text-gray-500 mb-1">Total a Pagar</p>
+                                    <p className="text-3xl font-extrabold text-cyan-600">${totals.total.toLocaleString()}</p>
                                 </div>
                             </div>
 
-                            <div className="flex justify-end gap-3">
+                            <div className="flex justify-end gap-4">
                                 <button
-                                    onClick={() => handleSaveOrder('DRAFT')}
-                                    disabled={cart.length === 0}
-                                    className="px-6 py-3 bg-white border border-slate-300 text-slate-700 font-bold rounded-xl hover:bg-slate-100 transition flex items-center gap-2 disabled:opacity-50"
+                                    onClick={() => handleSave('DRAFT')}
+                                    className="px-6 py-3 text-gray-600 font-bold hover:bg-gray-100 rounded-xl transition flex items-center gap-2"
                                 >
-                                    <Save size={18} /> Guardar Borrador
+                                    <Save size={20} />
+                                    Guardar Borrador
                                 </button>
                                 <button
-                                    onClick={() => handleSaveOrder('SENT')}
-                                    disabled={cart.length === 0}
-                                    className="px-6 py-3 bg-cyan-600 text-white font-bold rounded-xl hover:bg-cyan-700 shadow-lg shadow-cyan-200 transition flex items-center gap-2 disabled:opacity-50"
+                                    onClick={() => handleSave('SENT')}
+                                    className="px-8 py-3 bg-cyan-600 text-white font-bold rounded-xl hover:bg-cyan-700 transition shadow-lg shadow-cyan-200 flex items-center gap-2"
                                 >
-                                    <Send size={18} /> Guardar y Enviar
+                                    <Send size={20} />
+                                    Confirmar y Enviar
                                 </button>
                             </div>
                         </div>

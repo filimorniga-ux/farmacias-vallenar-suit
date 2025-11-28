@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { X, Truck, MapPin, Package, CheckCircle, ArrowRight, Search, AlertTriangle, Barcode } from 'lucide-react';
+import React, { useState, useMemo, useRef } from 'react';
+import { X, Truck, MapPin, Package, CheckCircle, ArrowRight, Search, AlertTriangle, Barcode, Calendar, DollarSign } from 'lucide-react';
 import { usePharmaStore } from '../../store/useStore';
 import { useLocationStore } from '../../store/useLocationStore';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
@@ -22,7 +22,7 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose }) => {
 
     // Step 2: Picking
     const [searchTerm, setSearchTerm] = useState('');
-    const [selectedItems, setSelectedItems] = useState<{ batchId: string; sku: string; name: string; quantity: number; max: number }[]>([]);
+    const [selectedItems, setSelectedItems] = useState<{ batchId: string; sku: string; name: string; quantity: number; max: number; expiry?: number; lot?: string }[]>([]);
 
     // Step 3: Transport
     const [transportData, setTransportData] = useState({
@@ -33,7 +33,12 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose }) => {
     });
 
     // Scanner
-    const scannerInputRef = React.useRef<HTMLInputElement>(null);
+    const scannerInputRef = useRef<HTMLInputElement>(null);
+
+    // Filter Inventory for Origin
+    const originInventory = useMemo(() => {
+        return inventory.filter(item => item.location_id === originId && item.stock_actual > 0);
+    }, [inventory, originId]);
 
     const handleScan = (code: string) => {
         // Find product in origin inventory
@@ -41,23 +46,26 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose }) => {
         // For now, we match SKU or Name (partial) if code is long enough, but usually scanner sends exact SKU/EAN
 
         // In this mock, let's assume the code IS the SKU or part of the name
-        const foundItem = originInventory.find(i => i.sku === code || i.id === code);
+        // FEFO Logic: Find the batch expiring soonest if multiple exist for the SKU
+        const matchingBatches = originInventory.filter(i => i.sku === code || i.id === code);
 
-        if (foundItem) {
+        if (matchingBatches.length > 0) {
+            // Sort by Expiry (Ascending)
+            const bestBatch = matchingBatches.sort((a, b) => (a.expiry_date || 0) - (b.expiry_date || 0))[0];
+
             // Check if already in selected items
-            const existing = selectedItems.find(i => i.batchId === foundItem.id);
+            const existing = selectedItems.find(i => i.batchId === bestBatch.id);
 
             if (existing) {
                 if (existing.quantity < existing.max) {
                     handleUpdateQuantity(existing.batchId, existing.quantity + 1);
-                    toast.success(`+1 ${foundItem.name}`);
-                    // Play beep sound (simulated)
+                    toast.success(`+1 ${bestBatch.name} (Lote: ${bestBatch.lot_number})`);
                 } else {
                     toast.error('Stock insuficiente para agregar más');
                 }
             } else {
-                handleAddItem(foundItem);
-                toast.success(`Agregado: ${foundItem.name}`);
+                handleAddItem(bestBatch);
+                toast.success(`Agregado: ${bestBatch.name} (Lote: ${bestBatch.lot_number})`);
             }
         } else {
             toast.error(`Producto no encontrado: ${code}`);
@@ -70,19 +78,13 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose }) => {
         targetInputRef: scannerInputRef
     });
 
-
-
-    // Filter Inventory for Origin
-    const originInventory = useMemo(() => {
-        return inventory.filter(item => item.location_id === originId && item.stock_actual > 0);
-    }, [inventory, originId]);
-
     const filteredProducts = useMemo(() => {
         if (!searchTerm) return [];
         return originInventory.filter(item =>
             item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            item.sku.includes(searchTerm)
-        ).slice(0, 5);
+            item.sku.includes(searchTerm) ||
+            (item.lot_number && item.lot_number.toLowerCase().includes(searchTerm.toLowerCase()))
+        ).slice(0, 10); // Show more results for batch selection
     }, [originInventory, searchTerm]);
 
     const handleAddItem = (item: any) => {
@@ -92,7 +94,9 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose }) => {
             sku: item.sku,
             name: item.name,
             quantity: 1,
-            max: item.stock_actual
+            max: item.stock_actual,
+            expiry: item.expiry_date,
+            lot: item.lot_number
         }]);
         setSearchTerm('');
     };
@@ -163,7 +167,7 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose }) => {
 
     return (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col">
                 {/* Header */}
                 <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-2xl">
                     <div>
@@ -182,7 +186,7 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose }) => {
                 <div className="flex justify-between px-12 py-4 border-b border-gray-100 bg-white">
                     {[
                         { num: 1, label: 'Ruta', icon: MapPin },
-                        { num: 2, label: 'Picking', icon: Package },
+                        { num: 2, label: 'Picking Híbrido', icon: Package },
                         { num: 3, label: 'Transporte', icon: Truck },
                         { num: 4, label: 'Confirmar', icon: CheckCircle }
                     ].map((s) => (
@@ -237,133 +241,114 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose }) => {
                     )}
 
                     {step === 2 && (
-                        <div className="space-y-6">
-                            {/* Scanner Input */}
-                            <div className="bg-blue-50 p-6 rounded-2xl border-2 border-blue-100 shadow-sm text-center">
-                                <label className="block text-sm font-bold text-blue-800 mb-2 uppercase tracking-wider flex items-center justify-center gap-2">
-                                    <Barcode size={18} /> Escanear Producto
+                        <div className="space-y-6 h-full flex flex-col">
+                            {/* TOP: Scanner Input */}
+                            <div className="bg-blue-600 p-6 rounded-2xl shadow-lg text-white text-center shrink-0">
+                                <label className="block text-sm font-bold text-blue-100 mb-2 uppercase tracking-wider flex items-center justify-center gap-2">
+                                    <Barcode size={18} /> Pistolear para agregar 1 unidad
                                 </label>
                                 <div className="relative max-w-lg mx-auto">
                                     <input
                                         ref={scannerInputRef}
                                         type="text"
                                         placeholder="Escanea aquí..."
-                                        className="w-full px-6 py-4 rounded-xl border-2 border-blue-200 shadow-inner focus:ring-4 focus:ring-blue-100 focus:border-blue-500 text-2xl font-mono text-center outline-none transition-all"
+                                        className="w-full px-6 py-4 rounded-xl border-2 border-blue-400 bg-blue-700/50 text-white placeholder-blue-300 shadow-inner focus:ring-4 focus:ring-blue-400 focus:border-white text-2xl font-mono text-center outline-none transition-all"
                                         value={searchTerm}
                                         onChange={(e) => setSearchTerm(e.target.value)}
                                         autoFocus
                                         onBlur={() => {
-                                            // Optional: Keep focus if we want "always ready" mode, 
-                                            // but might be annoying if user wants to click elsewhere.
                                             // setTimeout(() => scannerInputRef.current?.focus(), 100); 
                                         }}
                                     />
-                                    <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 animate-pulse">
+                                    <div className="absolute right-4 top-1/2 -translate-y-1/2 text-blue-300 animate-pulse">
                                         <Package size={24} />
                                     </div>
                                 </div>
-                                <p className="text-xs text-blue-400 mt-2 font-medium">
-                                    Presiona Enter o usa la pistola para agregar
-                                </p>
                             </div>
 
-                            {/* Manual Search Results (Fallback) */}
-                            {filteredProducts.length > 0 && searchTerm.length > 2 && (
-                                <div className="bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden">
-                                    <div className="bg-gray-50 px-4 py-2 text-xs font-bold text-gray-400 uppercase">Resultados de Búsqueda</div>
-                                    {filteredProducts.map(item => (
-                                        <button
-                                            key={item.id}
-                                            onClick={() => handleAddItem(item)}
-                                            className="w-full text-left px-6 py-3 hover:bg-blue-50 flex justify-between items-center border-b border-gray-50 last:border-0"
-                                        >
-                                            <div>
-                                                <p className="font-bold text-gray-800">{item.name}</p>
-                                                <p className="text-xs text-gray-500 font-mono">{item.sku}</p>
-                                            </div>
-                                            <div className="text-right">
-                                                <p className="text-sm font-bold text-blue-600">{item.stock_actual} unid.</p>
-                                                <p className="text-xs text-gray-400">{item.location_id}</p>
-                                            </div>
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
+                            <div className="flex gap-6 flex-1 overflow-hidden">
+                                {/* LEFT: Results Table (Manual Search) */}
+                                <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
+                                    <div className="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                                        <h3 className="font-bold text-gray-700 flex items-center gap-2">
+                                            <Search size={18} /> Resultados ({filteredProducts.length})
+                                        </h3>
+                                        <span className="text-xs text-gray-400">Mostrando lotes disponibles</span>
+                                    </div>
 
-                            {/* Selected Items List */}
-                            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                                <div className="flex justify-between items-center p-4 bg-gray-50 border-b border-gray-100">
-                                    <h3 className="font-bold text-gray-700 flex items-center gap-2">
-                                        <CheckCircle size={18} className="text-green-500" />
-                                        Items Seleccionados
-                                    </h3>
-                                    <div className="bg-blue-600 text-white px-3 py-1 rounded-lg text-xs font-bold">
-                                        Total Unidades: {selectedItems.reduce((acc, item) => acc + item.quantity, 0)}
+                                    <div className="overflow-y-auto flex-1 p-2 space-y-2">
+                                        {filteredProducts.length === 0 && searchTerm.length > 2 && (
+                                            <div className="text-center py-10 text-gray-400">
+                                                No se encontraron productos
+                                            </div>
+                                        )}
+
+                                        {filteredProducts.map(item => (
+                                            <div key={item.id} className="bg-white border border-gray-100 rounded-lg p-3 hover:border-blue-300 transition-all group">
+                                                <div className="flex justify-between items-start mb-2">
+                                                    <div>
+                                                        <p className="font-bold text-gray-800">{item.name}</p>
+                                                        <p className="text-xs text-gray-500 font-mono">SKU: {item.sku}</p>
+                                                    </div>
+                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${(item.expiry_date && item.expiry_date < Date.now() + 2592000000) ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'
+                                                        }`}>
+                                                        {item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : 'S/F'}
+                                                    </span>
+                                                </div>
+
+                                                <div className="flex justify-between items-center text-sm text-gray-600 mb-3">
+                                                    <span className="flex items-center gap-1"><Package size={14} /> Lote: {item.lot_number || 'N/A'}</span>
+                                                    <span className="font-bold">Stock: {item.stock_actual}</span>
+                                                </div>
+
+                                                <button
+                                                    onClick={() => handleAddItem(item)}
+                                                    className="w-full py-2 bg-gray-50 hover:bg-blue-50 text-blue-600 font-bold rounded-lg transition-colors flex items-center justify-center gap-2 group-hover:bg-blue-600 group-hover:text-white"
+                                                >
+                                                    Agregar al Despacho
+                                                </button>
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
-                                <table className="w-full">
-                                    <thead className="bg-gray-50 text-xs uppercase text-gray-500 font-bold hidden">
-                                        <tr>
-                                            <th className="px-6 py-4 text-left">Producto</th>
-                                            <th className="px-6 py-4 text-center">Cantidad</th>
-                                            <th className="px-6 py-4 text-right">Acciones</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
+
+                                {/* RIGHT: Selected Items */}
+                                <div className="w-1/3 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
+                                    <div className="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                                        <h3 className="font-bold text-gray-700 flex items-center gap-2">
+                                            <CheckCircle size={18} className="text-green-500" />
+                                            Seleccionados
+                                        </h3>
+                                        <span className="bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold">
+                                            {selectedItems.reduce((acc, item) => acc + item.quantity, 0)}
+                                        </span>
+                                    </div>
+
+                                    <div className="overflow-y-auto flex-1 p-2 space-y-2">
                                         {selectedItems.map(item => (
-                                            <tr key={item.batchId} className="group hover:bg-gray-50 transition-colors">
-                                                <td className="px-6 py-4">
-                                                    <p className="font-bold text-gray-800 text-lg">{item.name}</p>
-                                                    <div className="flex gap-2 text-xs text-gray-500 font-mono mt-1">
-                                                        <span className="bg-gray-100 px-2 py-0.5 rounded">SKU: {item.sku}</span>
-                                                        <span className="bg-gray-100 px-2 py-0.5 rounded">Lote: {item.batchId}</span>
-                                                    </div>
-                                                </td>
-                                                <td className="px-6 py-4">
-                                                    <div className="flex items-center justify-center gap-3">
-                                                        <button
-                                                            onClick={() => handleUpdateQuantity(item.batchId, item.quantity - 1)}
-                                                            className="w-10 h-10 rounded-xl bg-gray-100 hover:bg-gray-200 font-bold text-gray-600 flex items-center justify-center transition-colors"
-                                                        >-</button>
-                                                        <input
-                                                            type="number"
-                                                            value={item.quantity}
-                                                            onChange={(e) => handleUpdateQuantity(item.batchId, parseInt(e.target.value) || 1)}
-                                                            className="w-20 text-center font-bold text-xl border-b-2 border-blue-100 focus:border-blue-500 outline-none bg-transparent"
-                                                        />
-                                                        <button
-                                                            onClick={() => handleUpdateQuantity(item.batchId, item.quantity + 1)}
-                                                            className="w-10 h-10 rounded-xl bg-gray-100 hover:bg-gray-200 font-bold text-gray-600 flex items-center justify-center transition-colors"
-                                                        >+</button>
-                                                    </div>
-                                                    <p className="text-center text-xs text-gray-400 mt-1 font-medium">
-                                                        Disponible: {item.max}
-                                                    </p>
-                                                </td>
-                                                <td className="px-6 py-4 text-right">
-                                                    <button
-                                                        onClick={() => handleRemoveItem(item.batchId)}
-                                                        className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                                        title="Eliminar"
-                                                    >
-                                                        <X size={20} />
-                                                    </button>
-                                                </td>
-                                            </tr>
+                                            <div key={item.batchId} className="bg-gray-50 rounded-lg p-3 border border-gray-100">
+                                                <div className="flex justify-between items-start mb-2">
+                                                    <p className="font-bold text-gray-800 text-sm line-clamp-1">{item.name}</p>
+                                                    <button onClick={() => handleRemoveItem(item.batchId)} className="text-gray-400 hover:text-red-500"><X size={16} /></button>
+                                                </div>
+                                                <div className="flex justify-between items-center text-xs text-gray-500 mb-2">
+                                                    <span>Lote: {item.lot || 'N/A'}</span>
+                                                    <span>Vence: {item.expiry ? new Date(item.expiry).toLocaleDateString() : 'S/F'}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-1">
+                                                    <button onClick={() => handleUpdateQuantity(item.batchId, item.quantity - 1)} className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded">-</button>
+                                                    <span className="font-bold text-gray-800">{item.quantity}</span>
+                                                    <button onClick={() => handleUpdateQuantity(item.batchId, item.quantity + 1)} className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded">+</button>
+                                                </div>
+                                            </div>
                                         ))}
                                         {selectedItems.length === 0 && (
-                                            <tr>
-                                                <td colSpan={3} className="px-6 py-16 text-center text-gray-400">
-                                                    <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                                        <Package className="w-10 h-10 text-gray-300" />
-                                                    </div>
-                                                    <p className="font-medium">Lista vacía</p>
-                                                    <p className="text-sm opacity-60">Escanea productos para comenzar</p>
-                                                </td>
-                                            </tr>
+                                            <div className="text-center py-10 text-gray-400 text-sm">
+                                                Lista vacía
+                                            </div>
                                         )}
-                                    </tbody>
-                                </table>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -448,7 +433,10 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose }) => {
                                     <div className="space-y-2">
                                         {selectedItems.map(item => (
                                             <div key={item.batchId} className="flex justify-between text-sm">
-                                                <span className="text-gray-600">{item.name}</span>
+                                                <div>
+                                                    <span className="text-gray-600 block">{item.name}</span>
+                                                    <span className="text-xs text-gray-400">Lote: {item.lot || 'N/A'}</span>
+                                                </div>
                                                 <span className="font-bold text-gray-900">x{item.quantity}</span>
                                             </div>
                                         ))}

@@ -19,8 +19,10 @@ var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$re
 var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$store$2f$useStore$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/presentation/store/useStore.ts [app-client] (ecmascript)");
 var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$store$2f$useLocationStore$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/presentation/store/useLocationStore.ts [app-client] (ecmascript)");
 var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$domain$2f$security$2f$roles$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/domain/security/roles.ts [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$domain$2f$config$2f$roles_presets$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/domain/config/roles_presets.ts [app-client] (ecmascript)");
 ;
 var _s = __turbopack_context__.k.signature();
+;
 ;
 ;
 ;
@@ -42,7 +44,7 @@ const HRPage = ()=>{
                     className: "text-red-500 mb-4"
                 }, void 0, false, {
                     fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                    lineNumber: 19,
+                    lineNumber: 20,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0)),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h2", {
@@ -50,14 +52,14 @@ const HRPage = ()=>{
                     children: "Acceso Denegado"
                 }, void 0, false, {
                     fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                    lineNumber: 20,
+                    lineNumber: 21,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0)),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
                     children: "No tienes permisos para acceder al módulo de Recursos Humanos."
                 }, void 0, false, {
                     fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                    lineNumber: 21,
+                    lineNumber: 22,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0)),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -65,13 +67,13 @@ const HRPage = ()=>{
                     children: "Rol requerido: MANAGER"
                 }, void 0, false, {
                     fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                    lineNumber: 22,
+                    lineNumber: 23,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0))
             ]
         }, void 0, true, {
             fileName: "[project]/src/presentation/pages/HRPage.tsx",
-            lineNumber: 18,
+            lineNumber: 19,
             columnNumber: 13
         }, ("TURBOPACK compile-time value", void 0));
     }
@@ -98,14 +100,14 @@ const HRPage = ()=>{
                                         className: "text-blue-600"
                                     }, void 0, false, {
                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                        lineNumber: 45,
+                                        lineNumber: 46,
                                         columnNumber: 25
                                     }, ("TURBOPACK compile-time value", void 0)),
                                     "Recursos Humanos"
                                 ]
                             }, void 0, true, {
                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                lineNumber: 44,
+                                lineNumber: 45,
                                 columnNumber: 21
                             }, ("TURBOPACK compile-time value", void 0)),
                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -113,13 +115,13 @@ const HRPage = ()=>{
                                 children: "Gestión de personal, contratos y permisos"
                             }, void 0, false, {
                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                lineNumber: 48,
+                                lineNumber: 49,
                                 columnNumber: 21
                             }, ("TURBOPACK compile-time value", void 0))
                         ]
                     }, void 0, true, {
                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                        lineNumber: 43,
+                        lineNumber: 44,
                         columnNumber: 17
                     }, ("TURBOPACK compile-time value", void 0)),
                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -143,20 +145,20 @@ const HRPage = ()=>{
                                 size: 20
                             }, void 0, false, {
                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                lineNumber: 67,
+                                lineNumber: 68,
                                 columnNumber: 21
                             }, ("TURBOPACK compile-time value", void 0)),
                             "Nuevo Empleado"
                         ]
                     }, void 0, true, {
                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                        lineNumber: 50,
+                        lineNumber: 51,
                         columnNumber: 17
                     }, ("TURBOPACK compile-time value", void 0))
                 ]
             }, void 0, true, {
                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                lineNumber: 42,
+                lineNumber: 43,
                 columnNumber: 13
             }, ("TURBOPACK compile-time value", void 0)),
             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -175,7 +177,7 @@ const HRPage = ()=>{
                                             size: 18
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                            lineNumber: 77,
+                                            lineNumber: 78,
                                             columnNumber: 29
                                         }, ("TURBOPACK compile-time value", void 0)),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
@@ -186,18 +188,18 @@ const HRPage = ()=>{
                                             className: "w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                            lineNumber: 78,
+                                            lineNumber: 79,
                                             columnNumber: 29
                                         }, ("TURBOPACK compile-time value", void 0))
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                    lineNumber: 76,
+                                    lineNumber: 77,
                                     columnNumber: 25
                                 }, ("TURBOPACK compile-time value", void 0))
                             }, void 0, false, {
                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                lineNumber: 75,
+                                lineNumber: 76,
                                 columnNumber: 21
                             }, ("TURBOPACK compile-time value", void 0)),
                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -219,7 +221,7 @@ const HRPage = ()=>{
                                                                 children: emp.name
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                lineNumber: 96,
+                                                                lineNumber: 97,
                                                                 columnNumber: 41
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -227,7 +229,7 @@ const HRPage = ()=>{
                                                                 children: emp.job_title?.replace(/_/g, ' ')
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                lineNumber: 97,
+                                                                lineNumber: 98,
                                                                 columnNumber: 41
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -238,13 +240,13 @@ const HRPage = ()=>{
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                lineNumber: 98,
+                                                                lineNumber: 99,
                                                                 columnNumber: 41
                                                             }, ("TURBOPACK compile-time value", void 0))
                                                         ]
                                                     }, void 0, true, {
                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                        lineNumber: 95,
+                                                        lineNumber: 96,
                                                         columnNumber: 37
                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
@@ -252,13 +254,13 @@ const HRPage = ()=>{
                                                         children: emp.status
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                        lineNumber: 100,
+                                                        lineNumber: 101,
                                                         columnNumber: 37
                                                     }, ("TURBOPACK compile-time value", void 0))
                                                 ]
                                             }, void 0, true, {
                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                lineNumber: 94,
+                                                lineNumber: 95,
                                                 columnNumber: 33
                                             }, ("TURBOPACK compile-time value", void 0)),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -268,51 +270,51 @@ const HRPage = ()=>{
                                                         size: 12
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                        lineNumber: 105,
+                                                        lineNumber: 106,
                                                         columnNumber: 37
                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
                                                         children: emp.role
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                        lineNumber: 106,
+                                                        lineNumber: 107,
                                                         columnNumber: 37
                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
                                                         className: "w-1 h-1 bg-slate-300 rounded-full"
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                        lineNumber: 107,
+                                                        lineNumber: 108,
                                                         columnNumber: 37
                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
                                                         children: emp.rut
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                        lineNumber: 108,
+                                                        lineNumber: 109,
                                                         columnNumber: 37
                                                     }, ("TURBOPACK compile-time value", void 0))
                                                 ]
                                             }, void 0, true, {
                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                lineNumber: 104,
+                                                lineNumber: 105,
                                                 columnNumber: 33
                                             }, ("TURBOPACK compile-time value", void 0))
                                         ]
                                     }, emp.id, true, {
                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                        lineNumber: 89,
+                                        lineNumber: 90,
                                         columnNumber: 29
                                     }, ("TURBOPACK compile-time value", void 0)))
                             }, void 0, false, {
                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                lineNumber: 87,
+                                lineNumber: 88,
                                 columnNumber: 21
                             }, ("TURBOPACK compile-time value", void 0))
                         ]
                     }, void 0, true, {
                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                        lineNumber: 74,
+                        lineNumber: 75,
                         columnNumber: 17
                     }, ("TURBOPACK compile-time value", void 0)),
                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -332,7 +334,7 @@ const HRPage = ()=>{
                                                     children: selectedEmployee.name.charAt(0)
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                    lineNumber: 121,
+                                                    lineNumber: 122,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -342,7 +344,7 @@ const HRPage = ()=>{
                                                             children: selectedEmployee.name || 'Nuevo Empleado'
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                            lineNumber: 125,
+                                                            lineNumber: 126,
                                                             columnNumber: 41
                                                         }, ("TURBOPACK compile-time value", void 0)),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -350,19 +352,19 @@ const HRPage = ()=>{
                                                             children: selectedEmployee.id
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                            lineNumber: 126,
+                                                            lineNumber: 127,
                                                             columnNumber: 41
                                                         }, ("TURBOPACK compile-time value", void 0))
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                    lineNumber: 124,
+                                                    lineNumber: 125,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0))
                                             ]
                                         }, void 0, true, {
                                             fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                            lineNumber: 120,
+                                            lineNumber: 121,
                                             columnNumber: 33
                                         }, ("TURBOPACK compile-time value", void 0)),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -378,7 +380,7 @@ const HRPage = ()=>{
                                                     children: "Cancelar"
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                    lineNumber: 130,
+                                                    lineNumber: 131,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -389,26 +391,26 @@ const HRPage = ()=>{
                                                             size: 18
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                            lineNumber: 141,
+                                                            lineNumber: 142,
                                                             columnNumber: 41
                                                         }, ("TURBOPACK compile-time value", void 0)),
                                                         "Guardar Cambios"
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                    lineNumber: 137,
+                                                    lineNumber: 138,
                                                     columnNumber: 37
                                                 }, ("TURBOPACK compile-time value", void 0))
                                             ]
                                         }, void 0, true, {
                                             fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                            lineNumber: 129,
+                                            lineNumber: 130,
                                             columnNumber: 33
                                         }, ("TURBOPACK compile-time value", void 0))
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                    lineNumber: 119,
+                                    lineNumber: 120,
                                     columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -427,14 +429,14 @@ const HRPage = ()=>{
                                                                 className: "text-blue-500"
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                lineNumber: 152,
+                                                                lineNumber: 153,
                                                                 columnNumber: 45
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             "Información Personal"
                                                         ]
                                                     }, void 0, true, {
                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                        lineNumber: 151,
+                                                        lineNumber: 152,
                                                         columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -447,7 +449,7 @@ const HRPage = ()=>{
                                                                         children: "Nombre Completo"
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 157,
+                                                                        lineNumber: 158,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
@@ -461,13 +463,13 @@ const HRPage = ()=>{
                                                                             })
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 158,
+                                                                        lineNumber: 159,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0))
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                lineNumber: 156,
+                                                                lineNumber: 157,
                                                                 columnNumber: 45
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -477,7 +479,7 @@ const HRPage = ()=>{
                                                                         children: "RUT"
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 161,
+                                                                        lineNumber: 162,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
@@ -491,13 +493,13 @@ const HRPage = ()=>{
                                                                             })
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 162,
+                                                                        lineNumber: 163,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0))
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                lineNumber: 160,
+                                                                lineNumber: 161,
                                                                 columnNumber: 45
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -507,7 +509,7 @@ const HRPage = ()=>{
                                                                         children: "Teléfono Contacto"
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 165,
+                                                                        lineNumber: 166,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
@@ -521,13 +523,13 @@ const HRPage = ()=>{
                                                                             })
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 166,
+                                                                        lineNumber: 167,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0))
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                lineNumber: 164,
+                                                                lineNumber: 165,
                                                                 columnNumber: 45
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -537,7 +539,7 @@ const HRPage = ()=>{
                                                                         children: "Estado"
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 169,
+                                                                        lineNumber: 170,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("select", {
@@ -553,7 +555,7 @@ const HRPage = ()=>{
                                                                                 children: "Activo"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 171,
+                                                                                lineNumber: 172,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -561,7 +563,7 @@ const HRPage = ()=>{
                                                                                 children: "Licencia/Vacaciones"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 172,
+                                                                                lineNumber: 173,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -569,25 +571,25 @@ const HRPage = ()=>{
                                                                                 children: "Desvinculado"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 173,
+                                                                                lineNumber: 174,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0))
                                                                         ]
                                                                     }, void 0, true, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 170,
+                                                                        lineNumber: 171,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0))
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                lineNumber: 168,
+                                                                lineNumber: 169,
                                                                 columnNumber: 45
                                                             }, ("TURBOPACK compile-time value", void 0))
                                                         ]
                                                     }, void 0, true, {
                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                        lineNumber: 155,
+                                                        lineNumber: 156,
                                                         columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -600,14 +602,14 @@ const HRPage = ()=>{
                                                                         size: 14
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 180,
+                                                                        lineNumber: 181,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                                     " Contacto de Emergencia"
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                lineNumber: 179,
+                                                                lineNumber: 180,
                                                                 columnNumber: 45
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -627,7 +629,7 @@ const HRPage = ()=>{
                                                                             })
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 183,
+                                                                        lineNumber: 184,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
@@ -644,7 +646,7 @@ const HRPage = ()=>{
                                                                             })
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 184,
+                                                                        lineNumber: 185,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
@@ -662,25 +664,25 @@ const HRPage = ()=>{
                                                                             })
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 185,
+                                                                        lineNumber: 186,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0))
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                lineNumber: 182,
+                                                                lineNumber: 183,
                                                                 columnNumber: 45
                                                             }, ("TURBOPACK compile-time value", void 0))
                                                         ]
                                                     }, void 0, true, {
                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                        lineNumber: 178,
+                                                        lineNumber: 179,
                                                         columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0))
                                                 ]
                                             }, void 0, true, {
                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                lineNumber: 150,
+                                                lineNumber: 151,
                                                 columnNumber: 37
                                             }, ("TURBOPACK compile-time value", void 0)),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -694,14 +696,14 @@ const HRPage = ()=>{
                                                                 className: "text-purple-500"
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                lineNumber: 193,
+                                                                lineNumber: 194,
                                                                 columnNumber: 45
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             "Datos Contractuales"
                                                         ]
                                                     }, void 0, true, {
                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                        lineNumber: 192,
+                                                        lineNumber: 193,
                                                         columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -714,7 +716,7 @@ const HRPage = ()=>{
                                                                         children: "Cargo Contractual"
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 198,
+                                                                        lineNumber: 199,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("select", {
@@ -730,7 +732,7 @@ const HRPage = ()=>{
                                                                                 children: "Seleccionar Cargo..."
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 204,
+                                                                                lineNumber: 205,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -738,7 +740,7 @@ const HRPage = ()=>{
                                                                                 children: "Químico Farmacéutico"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 205,
+                                                                                lineNumber: 206,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -746,7 +748,7 @@ const HRPage = ()=>{
                                                                                 children: "Auxiliar de Farmacia"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 206,
+                                                                                lineNumber: 207,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -754,7 +756,7 @@ const HRPage = ()=>{
                                                                                 children: "Cajero Vendedor"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 207,
+                                                                                lineNumber: 208,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -762,7 +764,7 @@ const HRPage = ()=>{
                                                                                 children: "Bodeguero"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 208,
+                                                                                lineNumber: 209,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -770,7 +772,7 @@ const HRPage = ()=>{
                                                                                 children: "Asistente de Bodega"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 209,
+                                                                                lineNumber: 210,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -778,7 +780,7 @@ const HRPage = ()=>{
                                                                                 children: "Administrativo"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 210,
+                                                                                lineNumber: 211,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -786,7 +788,7 @@ const HRPage = ()=>{
                                                                                 children: "Gerente General"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 211,
+                                                                                lineNumber: 212,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -794,7 +796,7 @@ const HRPage = ()=>{
                                                                                 children: "Director Técnico"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 212,
+                                                                                lineNumber: 213,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -802,19 +804,19 @@ const HRPage = ()=>{
                                                                                 children: "Alumno en Práctica"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 213,
+                                                                                lineNumber: 214,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0))
                                                                         ]
                                                                     }, void 0, true, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 199,
+                                                                        lineNumber: 200,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0))
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                lineNumber: 197,
+                                                                lineNumber: 198,
                                                                 columnNumber: 45
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -824,7 +826,7 @@ const HRPage = ()=>{
                                                                         children: "Sueldo Base (CLP)"
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 217,
+                                                                        lineNumber: 218,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
@@ -837,13 +839,13 @@ const HRPage = ()=>{
                                                                             })
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 218,
+                                                                        lineNumber: 219,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0))
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                lineNumber: 216,
+                                                                lineNumber: 217,
                                                                 columnNumber: 45
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -853,7 +855,7 @@ const HRPage = ()=>{
                                                                         children: "Horas Semanales"
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 221,
+                                                                        lineNumber: 222,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
@@ -866,13 +868,13 @@ const HRPage = ()=>{
                                                                             })
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 222,
+                                                                        lineNumber: 223,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0))
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                lineNumber: 220,
+                                                                lineNumber: 221,
                                                                 columnNumber: 45
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -882,7 +884,7 @@ const HRPage = ()=>{
                                                                         children: "AFP"
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 225,
+                                                                        lineNumber: 226,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("select", {
@@ -898,7 +900,7 @@ const HRPage = ()=>{
                                                                                 children: "Seleccionar..."
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 227,
+                                                                                lineNumber: 228,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -906,7 +908,7 @@ const HRPage = ()=>{
                                                                                 children: "Habitat"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 228,
+                                                                                lineNumber: 229,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -914,7 +916,7 @@ const HRPage = ()=>{
                                                                                 children: "Modelo"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 229,
+                                                                                lineNumber: 230,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -922,7 +924,7 @@ const HRPage = ()=>{
                                                                                 children: "Capital"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 230,
+                                                                                lineNumber: 231,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -930,7 +932,7 @@ const HRPage = ()=>{
                                                                                 children: "Provida"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 231,
+                                                                                lineNumber: 232,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -938,7 +940,7 @@ const HRPage = ()=>{
                                                                                 children: "Cuprum"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 232,
+                                                                                lineNumber: 233,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -946,7 +948,7 @@ const HRPage = ()=>{
                                                                                 children: "Planvital"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 233,
+                                                                                lineNumber: 234,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -954,19 +956,19 @@ const HRPage = ()=>{
                                                                                 children: "Uno"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 234,
+                                                                                lineNumber: 235,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0))
                                                                         ]
                                                                     }, void 0, true, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 226,
+                                                                        lineNumber: 227,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0))
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                lineNumber: 224,
+                                                                lineNumber: 225,
                                                                 columnNumber: 45
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -976,7 +978,7 @@ const HRPage = ()=>{
                                                                         children: "Sistema Salud"
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 238,
+                                                                        lineNumber: 239,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("select", {
@@ -992,7 +994,7 @@ const HRPage = ()=>{
                                                                                 children: "Seleccionar..."
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 240,
+                                                                                lineNumber: 241,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -1000,7 +1002,7 @@ const HRPage = ()=>{
                                                                                 children: "Fonasa"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 241,
+                                                                                lineNumber: 242,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -1008,19 +1010,19 @@ const HRPage = ()=>{
                                                                                 children: "Isapre"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 242,
+                                                                                lineNumber: 243,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0))
                                                                         ]
                                                                     }, void 0, true, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 239,
+                                                                        lineNumber: 240,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0))
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                lineNumber: 237,
+                                                                lineNumber: 238,
                                                                 columnNumber: 45
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1030,7 +1032,7 @@ const HRPage = ()=>{
                                                                         children: "Mutual"
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 246,
+                                                                        lineNumber: 247,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("select", {
@@ -1046,7 +1048,7 @@ const HRPage = ()=>{
                                                                                 children: "Seleccionar..."
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 248,
+                                                                                lineNumber: 249,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -1054,7 +1056,7 @@ const HRPage = ()=>{
                                                                                 children: "ACHS"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 249,
+                                                                                lineNumber: 250,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -1062,7 +1064,7 @@ const HRPage = ()=>{
                                                                                 children: "Mutual de Seguridad"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 250,
+                                                                                lineNumber: 251,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -1070,7 +1072,7 @@ const HRPage = ()=>{
                                                                                 children: "IST"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 251,
+                                                                                lineNumber: 252,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -1078,31 +1080,31 @@ const HRPage = ()=>{
                                                                                 children: "ISL"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 252,
+                                                                                lineNumber: 253,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0))
                                                                         ]
                                                                     }, void 0, true, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 247,
+                                                                        lineNumber: 248,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0))
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                lineNumber: 245,
+                                                                lineNumber: 246,
                                                                 columnNumber: 45
                                                             }, ("TURBOPACK compile-time value", void 0))
                                                         ]
                                                     }, void 0, true, {
                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                        lineNumber: 196,
+                                                        lineNumber: 197,
                                                         columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0))
                                                 ]
                                             }, void 0, true, {
                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                lineNumber: 191,
+                                                lineNumber: 192,
                                                 columnNumber: 37
                                             }, ("TURBOPACK compile-time value", void 0)),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1116,14 +1118,14 @@ const HRPage = ()=>{
                                                                 className: "text-red-500"
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                lineNumber: 261,
+                                                                lineNumber: 262,
                                                                 columnNumber: 45
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             "Seguridad y Accesos"
                                                         ]
                                                     }, void 0, true, {
                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                        lineNumber: 260,
+                                                        lineNumber: 261,
                                                         columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1139,27 +1141,32 @@ const HRPage = ()=>{
                                                                                 children: "Rol del Sistema"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 267,
+                                                                                lineNumber: 268,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("select", {
                                                                                 className: "w-full p-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-700",
                                                                                 value: selectedEmployee.role,
-                                                                                onChange: (e)=>setSelectedEmployee({
+                                                                                onChange: (e)=>{
+                                                                                    const newRole = e.target.value;
+                                                                                    const newPermissions = __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$domain$2f$config$2f$roles_presets$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["ROLE_PRESETS"][newRole] || [];
+                                                                                    setSelectedEmployee({
                                                                                         ...selectedEmployee,
-                                                                                        role: e.target.value
-                                                                                    }),
+                                                                                        role: newRole,
+                                                                                        allowed_modules: newPermissions
+                                                                                    });
+                                                                                },
                                                                                 children: Object.entries(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$domain$2f$security$2f$roles$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["ROLES"]).map(([key, label])=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
                                                                                         value: key,
                                                                                         children: label
                                                                                     }, key, false, {
                                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                        lineNumber: 270,
+                                                                                        lineNumber: 283,
                                                                                         columnNumber: 61
                                                                                     }, ("TURBOPACK compile-time value", void 0)))
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 268,
+                                                                                lineNumber: 269,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -1167,13 +1174,13 @@ const HRPage = ()=>{
                                                                                 children: "Define los permisos base del usuario."
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 273,
+                                                                                lineNumber: 286,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0))
                                                                         ]
                                                                     }, void 0, true, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 266,
+                                                                        lineNumber: 267,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1183,7 +1190,7 @@ const HRPage = ()=>{
                                                                                 children: "Sucursal Base"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 277,
+                                                                                lineNumber: 290,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("select", {
@@ -1199,7 +1206,7 @@ const HRPage = ()=>{
                                                                                         children: "Sin Asignar"
                                                                                     }, void 0, false, {
                                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                        lineNumber: 283,
+                                                                                        lineNumber: 296,
                                                                                         columnNumber: 57
                                                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                                                     __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$store$2f$useLocationStore$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useLocationStore"].getState().locations.map((loc)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("option", {
@@ -1207,19 +1214,19 @@ const HRPage = ()=>{
                                                                                             children: loc.name
                                                                                         }, loc.id, false, {
                                                                                             fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                            lineNumber: 285,
+                                                                                            lineNumber: 298,
                                                                                             columnNumber: 61
                                                                                         }, ("TURBOPACK compile-time value", void 0)))
                                                                                 ]
                                                                             }, void 0, true, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 278,
+                                                                                lineNumber: 291,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0))
                                                                         ]
                                                                     }, void 0, true, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 276,
+                                                                        lineNumber: 289,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1229,7 +1236,7 @@ const HRPage = ()=>{
                                                                                 children: "PIN de Acceso (4 dígitos)"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 291,
+                                                                                lineNumber: 304,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
@@ -1244,19 +1251,19 @@ const HRPage = ()=>{
                                                                                     })
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 292,
+                                                                                lineNumber: 305,
                                                                                 columnNumber: 53
                                                                             }, ("TURBOPACK compile-time value", void 0))
                                                                         ]
                                                                     }, void 0, true, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 290,
+                                                                        lineNumber: 303,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0))
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                lineNumber: 265,
+                                                                lineNumber: 266,
                                                                 columnNumber: 45
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1267,98 +1274,120 @@ const HRPage = ()=>{
                                                                         children: "Permisos Adicionales (Módulos)"
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 297,
+                                                                        lineNumber: 310,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                                                        className: "space-y-2",
+                                                                        className: "space-y-4 max-h-[300px] overflow-y-auto pr-2",
                                                                         children: [
-                                                                            'POS',
-                                                                            'INVENTORY',
-                                                                            'HR',
-                                                                            'REPORTS',
-                                                                            'SUPPLIERS'
-                                                                        ].map((module)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("label", {
-                                                                                className: "flex items-center gap-2 cursor-pointer",
+                                                                            'OPERATIVO',
+                                                                            'LOGISTICA',
+                                                                            'ADMIN',
+                                                                            'GERENCIA'
+                                                                        ].map((category)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                                                                                 children: [
-                                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
-                                                                                        type: "checkbox",
-                                                                                        className: "rounded text-blue-600 focus:ring-blue-500",
-                                                                                        checked: selectedEmployee.allowed_modules?.includes(module),
-                                                                                        onChange: (e)=>{
-                                                                                            const current = selectedEmployee.allowed_modules || [];
-                                                                                            if (e.target.checked) {
-                                                                                                setSelectedEmployee({
-                                                                                                    ...selectedEmployee,
-                                                                                                    allowed_modules: [
-                                                                                                        ...current,
-                                                                                                        module
-                                                                                                    ]
-                                                                                                });
-                                                                                            } else {
-                                                                                                setSelectedEmployee({
-                                                                                                    ...selectedEmployee,
-                                                                                                    allowed_modules: current.filter((m)=>m !== module)
-                                                                                                });
-                                                                                            }
-                                                                                        }
-                                                                                    }, void 0, false, {
-                                                                                        fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                        lineNumber: 301,
-                                                                                        columnNumber: 61
-                                                                                    }, ("TURBOPACK compile-time value", void 0)),
-                                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
-                                                                                        className: "text-sm text-slate-600",
-                                                                                        children: module
+                                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h5", {
+                                                                                        className: "text-[10px] font-bold text-slate-400 uppercase mb-2 border-b border-slate-100 pb-1",
+                                                                                        children: category
                                                                                     }, void 0, false, {
                                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
                                                                                         lineNumber: 314,
                                                                                         columnNumber: 61
+                                                                                    }, ("TURBOPACK compile-time value", void 0)),
+                                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                                                        className: "space-y-2",
+                                                                                        children: __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$domain$2f$config$2f$roles_presets$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["APP_MODULES"].filter((m)=>m.category === category).map((module)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("label", {
+                                                                                                className: "flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors",
+                                                                                                children: [
+                                                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
+                                                                                                        type: "checkbox",
+                                                                                                        className: "rounded text-blue-600 focus:ring-blue-500",
+                                                                                                        checked: selectedEmployee.allowed_modules?.includes(module.id),
+                                                                                                        onChange: (e)=>{
+                                                                                                            const current = selectedEmployee.allowed_modules || [];
+                                                                                                            if (e.target.checked) {
+                                                                                                                setSelectedEmployee({
+                                                                                                                    ...selectedEmployee,
+                                                                                                                    allowed_modules: [
+                                                                                                                        ...current,
+                                                                                                                        module.id
+                                                                                                                    ]
+                                                                                                                });
+                                                                                                            } else {
+                                                                                                                setSelectedEmployee({
+                                                                                                                    ...selectedEmployee,
+                                                                                                                    allowed_modules: current.filter((m)=>m !== module.id)
+                                                                                                                });
+                                                                                                            }
+                                                                                                        }
+                                                                                                    }, void 0, false, {
+                                                                                                        fileName: "[project]/src/presentation/pages/HRPage.tsx",
+                                                                                                        lineNumber: 318,
+                                                                                                        columnNumber: 73
+                                                                                                    }, ("TURBOPACK compile-time value", void 0)),
+                                                                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                                                                        className: "text-sm text-slate-600",
+                                                                                                        children: module.label
+                                                                                                    }, void 0, false, {
+                                                                                                        fileName: "[project]/src/presentation/pages/HRPage.tsx",
+                                                                                                        lineNumber: 331,
+                                                                                                        columnNumber: 73
+                                                                                                    }, ("TURBOPACK compile-time value", void 0))
+                                                                                                ]
+                                                                                            }, module.id, true, {
+                                                                                                fileName: "[project]/src/presentation/pages/HRPage.tsx",
+                                                                                                lineNumber: 317,
+                                                                                                columnNumber: 69
+                                                                                            }, ("TURBOPACK compile-time value", void 0)))
+                                                                                    }, void 0, false, {
+                                                                                        fileName: "[project]/src/presentation/pages/HRPage.tsx",
+                                                                                        lineNumber: 315,
+                                                                                        columnNumber: 61
                                                                                     }, ("TURBOPACK compile-time value", void 0))
                                                                                 ]
-                                                                            }, module, true, {
+                                                                            }, category, true, {
                                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                                lineNumber: 300,
+                                                                                lineNumber: 313,
                                                                                 columnNumber: 57
                                                                             }, ("TURBOPACK compile-time value", void 0)))
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                        lineNumber: 298,
+                                                                        lineNumber: 311,
                                                                         columnNumber: 49
                                                                     }, ("TURBOPACK compile-time value", void 0))
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                                lineNumber: 296,
+                                                                lineNumber: 309,
                                                                 columnNumber: 45
                                                             }, ("TURBOPACK compile-time value", void 0))
                                                         ]
                                                     }, void 0, true, {
                                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                        lineNumber: 264,
+                                                        lineNumber: 265,
                                                         columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0))
                                                 ]
                                             }, void 0, true, {
                                                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                                lineNumber: 259,
+                                                lineNumber: 260,
                                                 columnNumber: 37
                                             }, ("TURBOPACK compile-time value", void 0))
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                        lineNumber: 148,
+                                        lineNumber: 149,
                                         columnNumber: 33
                                     }, ("TURBOPACK compile-time value", void 0))
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                    lineNumber: 147,
+                                    lineNumber: 148,
                                     columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0))
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                            lineNumber: 118,
+                            lineNumber: 119,
                             columnNumber: 25
                         }, ("TURBOPACK compile-time value", void 0)) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                             className: "flex flex-col items-center justify-center h-full text-slate-400",
@@ -1368,7 +1397,7 @@ const HRPage = ()=>{
                                     className: "mb-4 text-slate-200"
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                    lineNumber: 326,
+                                    lineNumber: 346,
                                     columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -1376,30 +1405,30 @@ const HRPage = ()=>{
                                     children: "Selecciona un empleado para ver sus detalles"
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                                    lineNumber: 327,
+                                    lineNumber: 347,
                                     columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0))
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                            lineNumber: 325,
+                            lineNumber: 345,
                             columnNumber: 25
                         }, ("TURBOPACK compile-time value", void 0))
                     }, void 0, false, {
                         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                        lineNumber: 116,
+                        lineNumber: 117,
                         columnNumber: 17
                     }, ("TURBOPACK compile-time value", void 0))
                 ]
             }, void 0, true, {
                 fileName: "[project]/src/presentation/pages/HRPage.tsx",
-                lineNumber: 72,
+                lineNumber: 73,
                 columnNumber: 13
             }, ("TURBOPACK compile-time value", void 0))
         ]
     }, void 0, true, {
         fileName: "[project]/src/presentation/pages/HRPage.tsx",
-        lineNumber: 41,
+        lineNumber: 42,
         columnNumber: 9
     }, ("TURBOPACK compile-time value", void 0));
 };

@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useMemo, useEffect } from 'react';
 import { usePharmaStore } from '../store/useStore';
-import { Search, Plus, X, Tag, CreditCard, Banknote, Smartphone, AlertTriangle, ShoppingCart, PlusCircle, Coins, DollarSign, Lock as LockIcon, Edit, TrendingDown, TrendingUp, Wallet, User, Bot, AlertOctagon, Snowflake, ScanBarcode, Scissors } from 'lucide-react';
+import { Search, Plus, X, Tag, CreditCard, Banknote, Smartphone, AlertTriangle, ShoppingCart, PlusCircle, Coins, DollarSign, Lock as LockIcon, Edit, TrendingDown, TrendingUp, Wallet, User, Bot, AlertOctagon, Snowflake, ScanBarcode, Scissors, Trash2 } from 'lucide-react';
 import ClinicalSidebar from './clinical/ClinicalSidebar';
 import { ClinicalAgent } from '../../domain/logic/clinicalAgent';
 import ClientPanel from './pos/ClientPanel';
@@ -16,19 +16,20 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useKioskGuard } from '../hooks/useKioskGuard';
 import SafeExitButton from './security/SafeExitButton';
 import { PrinterService } from '../../domain/services/PrinterService';
-import CustomerCaptureModal from './pos/CustomerCaptureModal';
+import CustomerSelectModal from './pos/CustomerSelectModal';
 import { toast } from 'sonner';
 import { shouldGenerateDTE } from '../../domain/logic/sii_dte';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { formatProductLabel } from '../../domain/logic/productDisplay';
 import { useSettingsStore } from '@/presentation/store/useSettingsStore';
+import { applyPromotions } from '../../domain/logic/promotionEngine';
 
 const POSMainScreen: React.FC = () => {
     useKioskGuard(true); // Enable Kiosk Lock
     const {
         inventory, cart, addToCart, addManualItem, removeFromCart, clearCart,
         processSale, currentCustomer, currentShift, getShiftMetrics, updateOpeningAmount, employees, printerConfig,
-        setCustomer
+        setCustomer, promotions, redeemGiftCard
     } = usePharmaStore();
 
     const { enable_sii_integration } = useSettingsStore();
@@ -39,15 +40,26 @@ const POSMainScreen: React.FC = () => {
     const [newBaseAmount, setNewBaseAmount] = useState('');
     const [editBaseError, setEditBaseError] = useState('');
 
-    const total = useMemo(() => cart.reduce((sum, item) => sum + item.price * item.quantity, 0), [cart]);
+    // Calculate promotions
+    const { items: cartWithDiscounts, totalDiscount, finalTotal } = useMemo(() => {
+        return applyPromotions(cart, currentCustomer, promotions);
+    }, [cart, currentCustomer, promotions]);
+
+    // Use finalTotal for display instead of raw reduce
+    const total = finalTotal;
+
     const [searchTerm, setSearchTerm] = useState('');
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [isPrescriptionModalOpen, setIsPrescriptionModalOpen] = useState(false);
     const [isManualItemModalOpen, setIsManualItemModalOpen] = useState(false);
     const [isCashModalOpen, setIsCashModalOpen] = useState(false);
     const [isCashOutModalOpen, setIsCashOutModalOpen] = useState(false);
-    const [isCustomerCaptureModalOpen, setIsCustomerCaptureModalOpen] = useState(false);
+    const [isCustomerSelectModalOpen, setIsCustomerSelectModalOpen] = useState(false);
     const [isQuickFractionModalOpen, setIsQuickFractionModalOpen] = useState(false);
+
+    // Gift Card Payment State
+    const [giftCardCode, setGiftCardCode] = useState('');
+    const [isGiftCardPayment, setIsGiftCardPayment] = useState(false);
     const [selectedProductForFraction, setSelectedProductForFraction] = useState<InventoryBatch | null>(null);
     const [pendingItemForPrescription, setPendingItemForPrescription] = useState<CartItem | null>(null);
     const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'DEBIT' | 'TRANSFER'>('CASH');
@@ -301,7 +313,30 @@ const POSMainScreen: React.FC = () => {
                             </div>
                             <div>
                                 <h1 className="text-2xl font-extrabold text-slate-800">Carrito de Compra</h1>
-                                <p className="text-sm text-slate-500">{cart.length} ítems agregados</p>
+                                <div className="flex items-center gap-2 mt-1">
+                                    {currentCustomer ? (
+                                        <div className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg border border-emerald-100">
+                                            <User size={14} />
+                                            <span className="text-xs font-bold">{currentCustomer.fullName}</span>
+                                            <button
+                                                onClick={() => setCustomer(null)}
+                                                className="p-0.5 hover:bg-emerald-200 rounded-full"
+                                            >
+                                                <X size={12} />
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs text-slate-400 font-bold">👤 Cliente: Anónimo</span>
+                                            <button
+                                                onClick={() => setIsCustomerSelectModalOpen(true)}
+                                                className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded-md hover:bg-slate-200 transition"
+                                            >
+                                                ASIGNAR
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                             {/* Shift Status Badge */}
                             <div className={`px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 ${currentShift?.status === 'OPEN' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
@@ -343,53 +378,51 @@ const POSMainScreen: React.FC = () => {
                                 <p className="text-slate-400">Escanee un producto o use el buscador</p>
                             </div>
                         ) : (
-                            <table className="w-full">
-                                <thead className="text-left text-slate-400 text-xs uppercase tracking-wider border-b border-slate-100">
-                                    <tr>
-                                        <th className="pb-3 pl-4">Producto (Seremi)</th>
-                                        <th className="pb-3 text-center">Cant.</th>
-                                        <th className="pb-3 text-right">Precio Unit.</th>
-                                        <th className="pb-3 text-right">Total</th>
-                                        <th className="pb-3"></th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-50">
-                                    {cart.map((item, idx) => {
-                                        // Find full inventory item to get details for formatting
-                                        const fullItem = inventory.find(i => i.id === item.id);
-                                        const label = fullItem ? formatProductLabel(fullItem) : item.name;
-
-                                        return (
-                                            <tr key={idx} className="group hover:bg-slate-50 transition-colors">
-                                                <td className="py-4 pl-4">
-                                                    <div className="flex flex-col">
-                                                        <span className={`font-bold text-lg ${item.is_fractional ? 'text-blue-600' : 'text-slate-800'}`}>{item.name}</span>
-                                                        <span className="text-xs text-slate-500 font-mono">{label}</span>
+                            <div className="space-y-3">
+                                {cartWithDiscounts.map((item) => {
+                                    const fullItem = inventory.find(i => i.id === item.id);
+                                    return (
+                                        <div key={item.id} className="flex justify-between items-center p-3 bg-white rounded-xl border border-slate-100 shadow-sm group hover:border-purple-200 transition-all">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <h3 className="font-bold text-slate-800">{fullItem ? formatProductLabel(fullItem) : item.name}</h3>
+                                                    {item.discount && (
+                                                        <span className="bg-purple-100 text-purple-700 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                                                            <Tag size={10} /> OFERTA
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="text-xs text-slate-500 flex items-center gap-2">
+                                                    <span className="bg-slate-100 px-2 py-1 rounded text-slate-600 font-mono">{item.quantity} un.</span>
+                                                    <span>x</span>
+                                                    <span>${item.price.toLocaleString()}</span>
+                                                    {item.discount && (
+                                                        <span className="text-green-600 font-bold ml-1">
+                                                            (-${item.discount.discountAmount.toLocaleString()})
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div className="text-right mr-4">
+                                                {item.discount ? (
+                                                    <div className="flex flex-col items-end">
+                                                        <p className="font-bold text-slate-800 text-lg">${(item.discount.finalPrice * item.quantity).toLocaleString()}</p>
+                                                        <p className="text-xs text-slate-400 line-through">${(item.price * item.quantity).toLocaleString()}</p>
                                                     </div>
-                                                </td>
-                                                <td className="py-4 text-center">
-                                                    <div className="inline-flex items-center bg-white border border-slate-200 rounded-lg">
-                                                        <button className="px-3 py-1 hover:bg-slate-100 text-slate-600 font-bold">-</button>
-                                                        <span className="px-3 font-bold text-slate-800">{item.quantity}</span>
-                                                        <button className="px-3 py-1 hover:bg-slate-100 text-slate-600 font-bold">+</button>
-                                                    </div>
-                                                </td>
-                                                <td className="py-4 text-right font-medium text-slate-600">
-                                                    ${item.price.toLocaleString()}
-                                                </td>
-                                                <td className="py-4 text-right font-bold text-slate-900 text-xl">
-                                                    ${(item.price * item.quantity).toLocaleString()}
-                                                </td>
-                                                <td className="py-4 text-right pr-4">
-                                                    <button onClick={() => removeFromCart(item.sku)} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                                                        <X size={20} />
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
+                                                ) : (
+                                                    <p className="font-bold text-slate-800 text-lg">${(item.price * item.quantity).toLocaleString()}</p>
+                                                )}
+                                            </div>
+                                            <button
+                                                onClick={() => removeFromCart(item.sku)}
+                                                className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                            >
+                                                <Trash2 size={20} />
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         )}
                     </div>
 
@@ -567,19 +600,9 @@ const POSMainScreen: React.FC = () => {
                     </div>
                 </div>
             )}
-            {/* Customer Capture Modal */}
-            <CustomerCaptureModal
-                isOpen={isCustomerCaptureModalOpen}
-                onClose={() => setIsCustomerCaptureModalOpen(false)}
-                onConfirm={(rut) => {
-                    // Logic to handle captured customer
-                    setIsCustomerCaptureModalOpen(false);
-                    proceedToPaymentFlow();
-                }}
-                onSkip={() => {
-                    setIsCustomerCaptureModalOpen(false);
-                    proceedToPaymentFlow();
-                }}
+            <CustomerSelectModal
+                isOpen={isCustomerSelectModalOpen}
+                onClose={() => setIsCustomerSelectModalOpen(false)}
             />
 
 
