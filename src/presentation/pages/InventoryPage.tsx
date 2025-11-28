@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { usePharmaStore } from '../store/useStore';
-import { Search, Filter, Plus, ArrowRightLeft, Package, AlertTriangle, Snowflake, Lock, Pill, Trash2, Edit } from 'lucide-react';
+import { Search, Filter, Plus, ArrowRightLeft, Package, AlertTriangle, Snowflake, Lock, Pill, Trash2, Edit, FileSpreadsheet } from 'lucide-react';
 import StockEntryModal from '../components/inventory/StockEntryModal';
 import StockTransferModal from '../components/inventory/StockTransferModal';
 import InventoryEditModal from '../components/inventory/InventoryEditModal';
+import BulkImportModal from '../components/inventory/BulkImportModal';
 import { hasPermission } from '../../domain/security/roles';
 
 const InventoryPage: React.FC = () => {
@@ -13,6 +14,7 @@ const InventoryPage: React.FC = () => {
     const [isEntryModalOpen, setIsEntryModalOpen] = useState(false);
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [editingItem, setEditingItem] = useState<any>(null);
 
     // Permissions
@@ -79,12 +81,20 @@ const InventoryPage: React.FC = () => {
                         <ArrowRightLeft size={18} /> Transferir
                     </button>
                     {canManageInventory && (
-                        <button
-                            onClick={() => setIsEntryModalOpen(true)}
-                            className="px-6 py-3 bg-cyan-600 text-white font-bold rounded-xl hover:bg-cyan-700 transition shadow-lg shadow-cyan-200 flex items-center gap-2"
-                        >
-                            <Plus size={18} /> Nuevo Producto / Ingreso
-                        </button>
+                        <>
+                            <button
+                                onClick={() => setIsImportModalOpen(true)}
+                                className="px-6 py-3 bg-white text-green-700 font-bold rounded-xl border border-green-200 hover:bg-green-50 transition flex items-center gap-2"
+                            >
+                                <FileSpreadsheet size={18} /> Importar Excel
+                            </button>
+                            <button
+                                onClick={() => setIsEntryModalOpen(true)}
+                                className="px-6 py-3 bg-cyan-600 text-white font-bold rounded-xl hover:bg-cyan-700 transition shadow-lg shadow-cyan-200 flex items-center gap-2"
+                            >
+                                <Plus size={18} /> Nuevo Producto / Ingreso
+                            </button>
+                        </>
                     )}
                 </div>
             </header>
@@ -234,6 +244,7 @@ const InventoryPage: React.FC = () => {
             <StockEntryModal isOpen={isEntryModalOpen} onClose={() => setIsEntryModalOpen(false)} />
             <StockTransferModal isOpen={isTransferModalOpen} onClose={() => setIsTransferModalOpen(false)} />
             <InventoryEditModal isOpen={isEditModalOpen} onClose={() => { setIsEditModalOpen(false); setEditingItem(null); }} product={editingItem} />
+            <BulkImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} />
         </div>
     );
 };

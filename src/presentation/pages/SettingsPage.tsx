@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Settings, User, Shield, Save, Receipt, Printer, ToggleLeft, ToggleRight } from 'lucide-react';
 import SiiSettings from './settings/SiiSettings';
-import PrinterSettings from './settings/PrinterSettings';
+import HardwarePage from './settings/HardwarePage';
 import { useSettingsStore } from '../store/useSettingsStore';
 
 const SettingsPage: React.FC = () => {
@@ -142,7 +142,7 @@ const SettingsPage: React.FC = () => {
                     </div>
                 )
             )}
-            {activeTab === 'hardware' && <PrinterSettings />}
+            {activeTab === 'hardware' && <HardwarePage />}
         </div>
     );
 };
