@@ -1,48 +1,105 @@
-// src/infrastructure/biometrics/WebAuthnService.ts
-
 export class WebAuthnService {
+    /**
+     * Checks if WebAuthn is supported and available
+     */
+    static async isAvailable(): Promise<boolean> {
+        if (!window.PublicKeyCredential) return false;
 
-    // Simula el registro de una credencial biométrica
-    static async registerCredential(userId: string): Promise<{ success: boolean; credentialId?: string; message: string }> {
-        return new Promise((resolve) => {
-            console.log(`[WebAuthn] Iniciando registro para usuario: ${userId}`);
+        // Check for platform authenticator (TouchID, FaceID, Windows Hello)
+        if (await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()) {
+            return true;
+        }
 
-            // Simular espera del usuario tocando el sensor
-            setTimeout(() => {
-                const mockCredentialId = `cred-${userId}-${Date.now()}`;
-                console.log(`[WebAuthn] Credencial creada: ${mockCredentialId}`);
-                resolve({
-                    success: true,
-                    credentialId: mockCredentialId,
-                    message: 'Huella registrada correctamente.'
-                });
-            }, 2000); // 2 segundos de "escaneo"
-        });
+        return false;
     }
 
-    // Simula la verificación de una credencial
-    static async verifyCredential(userId: string): Promise<{ success: boolean; message: string }> {
-        return new Promise((resolve) => {
-            console.log(`[WebAuthn] Solicitando verificación para usuario: ${userId}`);
+    /**
+     * Registers a new credential (fingerprint/face) for a user
+     */
+    static async registerCredential(userId: string, userName: string): Promise<PublicKeyCredential | null> {
+        if (!await this.isAvailable()) {
+            throw new Error('Biometría no disponible en este dispositivo');
+        }
 
-            // Simular interacción
-            setTimeout(() => {
-                // En un caso real, aquí se validaría la firma criptográfica
-                const isSuccess = Math.random() > 0.1; // 90% de éxito simulado
+        // Challenge should come from server in production, but we mock it here
+        const challenge = new Uint8Array(32);
+        window.crypto.getRandomValues(challenge);
 
-                if (isSuccess) {
-                    console.log(`[WebAuthn] Verificación exitosa.`);
-                    resolve({ success: true, message: 'Identidad verificada.' });
-                } else {
-                    console.warn(`[WebAuthn] Fallo en verificación.`);
-                    resolve({ success: false, message: 'No se reconoció la huella. Intente nuevamente.' });
-                }
-            }, 1500);
-        });
+        const publicKey: PublicKeyCredentialCreationOptions = {
+            challenge,
+            rp: {
+                name: 'Farmacias Vallenar',
+                id: window.location.hostname // Must match current domain
+            },
+            user: {
+                id: Uint8Array.from(userId, c => c.charCodeAt(0)),
+                name: userName,
+                displayName: userName
+            },
+            pubKeyCredParams: [
+                { alg: -7, type: 'public-key' }, // ES256
+                { alg: -257, type: 'public-key' } // RS256
+            ],
+            authenticatorSelection: {
+                authenticatorAttachment: 'platform', // Force TouchID/FaceID
+                userVerification: 'required'
+            },
+            timeout: 60000,
+            attestation: 'none'
+        };
+
+        try {
+            const credential = await navigator.credentials.create({ publicKey });
+            return credential as PublicKeyCredential;
+        } catch (error) {
+            console.error('WebAuthn Registration Error:', error);
+            throw error;
+        }
     }
 
-    static isAvailable(): boolean {
-        // En un entorno real, verificaríamos window.PublicKeyCredential
-        return true;
+    /**
+     * Authenticates a user via biometrics
+     */
+    /**
+     * Authenticates a user via biometrics
+     * @param allowedCredentialIds Optional list of credential IDs to allow (for non-resident keys)
+     */
+    static async authenticateCredential(allowedCredentialIds: string[] = []): Promise<PublicKeyCredential | null> {
+        if (!await this.isAvailable()) {
+            throw new Error('Biometría no disponible');
+        }
+
+        const challenge = new Uint8Array(32);
+        window.crypto.getRandomValues(challenge);
+
+        const publicKey: PublicKeyCredentialRequestOptions = {
+            challenge,
+            rpId: window.location.hostname,
+            userVerification: 'required',
+            timeout: 60000,
+        };
+
+        if (allowedCredentialIds.length > 0) {
+            publicKey.allowCredentials = allowedCredentialIds.map(id => {
+                // Convert Base64URL to Base64
+                const base64 = id.replace(/-/g, '+').replace(/_/g, '/');
+                const pad = base64.length % 4;
+                const padded = pad ? base64 + '='.repeat(4 - pad) : base64;
+
+                return {
+                    id: Uint8Array.from(atob(padded), c => c.charCodeAt(0)),
+                    type: 'public-key',
+                    transports: ['internal']
+                };
+            });
+        }
+
+        try {
+            const credential = await navigator.credentials.get({ publicKey });
+            return credential as PublicKeyCredential;
+        } catch (error) {
+            console.error('WebAuthn Authentication Error:', error);
+            throw error;
+        }
     }
 }

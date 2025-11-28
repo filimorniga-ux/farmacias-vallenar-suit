@@ -1146,12 +1146,22 @@ const usePharmaStore = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_
         },
         // --- Attendance ---
         attendanceLogs: [],
-        registerAttendance: (employeeId, type)=>set((state)=>{
+        registerAttendance: (employeeId, type, observation, evidence_photo_url)=>set((state)=>{
                 const now = Date.now();
                 let newStatus = 'OUT';
-                if (type === 'CHECK_IN' || type === 'LUNCH_END') newStatus = 'IN';
-                if (type === 'LUNCH_START') newStatus = 'LUNCH';
-                if (type === 'CHECK_OUT') newStatus = 'OUT';
+                if ([
+                    'CHECK_IN',
+                    'BREAK_END',
+                    'PERMISSION_END'
+                ].includes(type)) newStatus = 'IN';
+                if (type === 'BREAK_START') newStatus = 'LUNCH';
+                if (type === 'PERMISSION_START') newStatus = 'ON_PERMISSION';
+                if ([
+                    'CHECK_OUT',
+                    'MEDICAL_LEAVE',
+                    'EMERGENCY',
+                    'WORK_ACCIDENT'
+                ].includes(type)) newStatus = 'OUT';
                 // Calculate overtime if CHECK_OUT
                 let overtime = 0;
                 if (type === 'CHECK_OUT') {
@@ -1166,12 +1176,20 @@ const usePharmaStore = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_
                         }
                     }
                 }
+                // WORK ACCIDENT ALERT
+                if (type === 'WORK_ACCIDENT') {
+                    // In a real app, this would trigger an email/SMS
+                    console.error('🚨 ALERTA DE ACCIDENTE LABORAL:', employeeId, observation);
+                // We could also add a notification to a notifications store if we had one
+                }
                 const newLog = {
                     id: `LOG - ${now} `,
                     employee_id: employeeId,
                     timestamp: now,
                     type,
-                    overtime_minutes: overtime > 0 ? overtime : undefined
+                    overtime_minutes: overtime,
+                    observation,
+                    evidence_photo_url
                 };
                 return {
                     attendanceLogs: [

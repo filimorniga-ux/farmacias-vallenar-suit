@@ -1073,6 +1073,102 @@ class PrinterService {
     // For now, reload or re-inject standard styles might be needed if user switches between ticket and label.
     // But usually they are distinct actions.
     }
+    static printAttendanceReport(data, period) {
+        // Report CSS
+        const css = `
+            @media print {
+                @page {
+                    size: letter;
+                    margin: 20mm;
+                }
+                body {
+                    font-family: Arial, sans-serif;
+                    font-size: 12px;
+                    color: #333;
+                }
+                h1 {
+                    text-align: center;
+                    font-size: 18px;
+                    margin-bottom: 5px;
+                    text-transform: uppercase;
+                }
+                .subtitle {
+                    text-align: center;
+                    font-size: 12px;
+                    color: #666;
+                    margin-bottom: 20px;
+                }
+                table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-bottom: 20px;
+                }
+                th, td {
+                    border: 1px solid #ddd;
+                    padding: 8px;
+                    text-align: left;
+                }
+                th {
+                    background-color: #f5f5f5;
+                    font-weight: bold;
+                }
+                .footer {
+                    margin-top: 50px;
+                    display: flex;
+                    justify-content: space-between;
+                }
+                .signature-box {
+                    width: 200px;
+                    border-top: 1px solid #000;
+                    text-align: center;
+                    padding-top: 10px;
+                }
+            }
+        `;
+        const style = document.createElement('style');
+        style.innerHTML = css;
+        document.head.appendChild(style);
+        let printArea = document.getElementById('print-area');
+        if (!printArea) {
+            printArea = document.createElement('div');
+            printArea.id = 'print-area';
+            document.body.appendChild(printArea);
+        }
+        const rows = data.map((row)=>`
+            <tr>
+                <td>${row.date}</td>
+                <td>${row.time}</td>
+                <td>${row.employeeName}</td>
+                <td>${row.type}</td>
+                <td>${row.observation}</td>
+            </tr>
+        `).join('');
+        printArea.innerHTML = `
+            <h1>Libro de Asistencia</h1>
+            <div class="subtitle">Periodo: ${period} | Generado: ${new Date().toLocaleString()}</div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Hora</th>
+                        <th>Empleado</th>
+                        <th>Evento</th>
+                        <th>Observación</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows}
+                </tbody>
+            </table>
+
+            <div class="footer">
+                <div class="signature-box">Firma Empleador</div>
+                <div class="signature-box">Firma Representante Trabajadores</div>
+            </div>
+        `;
+        window.print();
+    }
 }
 if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {
     __turbopack_context__.k.registerExports(__turbopack_context__.m, globalThis.$RefreshHelpers$);
