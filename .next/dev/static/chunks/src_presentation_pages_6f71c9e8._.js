@@ -2855,65 +2855,189 @@ var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$re
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$coffee$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Coffee$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/coffee.js [app-client] (ecmascript) <export default as Coffee>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$log$2d$out$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__LogOut$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/log-out.js [app-client] (ecmascript) <export default as LogOut>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$circle$2d$check$2d$big$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__CheckCircle$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/circle-check-big.js [app-client] (ecmascript) <export default as CheckCircle>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$triangle$2d$alert$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__AlertTriangle$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/triangle-alert.js [app-client] (ecmascript) <export default as AlertTriangle>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$stethoscope$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Stethoscope$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/stethoscope.js [app-client] (ecmascript) <export default as Stethoscope>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$file$2d$text$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__FileText$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/file-text.js [app-client] (ecmascript) <export default as FileText>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$ambulance$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Ambulance$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/ambulance.js [app-client] (ecmascript) <export default as Ambulance>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$circle$2d$arrow$2d$left$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__ArrowLeftCircle$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/circle-arrow-left.js [app-client] (ecmascript) <export default as ArrowLeftCircle>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$lock$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Lock$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/lock.js [app-client] (ecmascript) <export default as Lock>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$lock$2d$open$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Unlock$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/lock-open.js [app-client] (ecmascript) <export default as Unlock>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$framer$2d$motion$2f$dist$2f$es$2f$render$2f$components$2f$motion$2f$proxy$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/framer-motion/dist/es/render/components/motion/proxy.mjs [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$framer$2d$motion$2f$dist$2f$es$2f$components$2f$AnimatePresence$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/framer-motion/dist/es/components/AnimatePresence/index.mjs [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$store$2f$useStore$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/presentation/store/useStore.ts [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/sonner/dist/index.mjs [app-client] (ecmascript)");
 ;
 var _s = __turbopack_context__.k.signature();
 ;
 ;
 ;
-// Mock Employees for Attendance Wall
-const EMPLOYEES = [
-    {
-        id: '1',
-        name: 'Juan Pérez',
-        role: 'QF',
-        avatar: 'JP'
-    },
-    {
-        id: '2',
-        name: 'María González',
-        role: 'Caja',
-        avatar: 'MG'
-    },
-    {
-        id: '3',
-        name: 'Carlos Boss',
-        role: 'Admin',
-        avatar: 'CB'
-    },
-    {
-        id: '4',
-        name: 'Ana Roja',
-        role: 'Bodega',
-        avatar: 'AR'
-    }
-];
+;
+;
 const AccessControlPage = ()=>{
     _s();
+    const { employees, registerAttendance } = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$store$2f$useStore$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["usePharmaStore"])();
+    // Security State
+    const [isKioskActive, setIsKioskActive] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])(false);
+    const [adminPin, setAdminPin] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])('');
+    // User Flow State
     const [selectedEmployee, setSelectedEmployee] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])(null);
     const [pin, setPin] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])('');
     const [status, setStatus] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])('IDLE');
     const [actionType, setActionType] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])('');
+    const [showSpecialMenu, setShowSpecialMenu] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])(false);
+    const [observation, setObservation] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])('');
+    // Filter active employees for the wall
+    const activeEmployees = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useMemo"])({
+        "AccessControlPage.useMemo[activeEmployees]": ()=>employees.filter({
+                "AccessControlPage.useMemo[activeEmployees]": (e)=>e.status === 'ACTIVE'
+            }["AccessControlPage.useMemo[activeEmployees]"])
+    }["AccessControlPage.useMemo[activeEmployees]"], [
+        employees
+    ]);
+    const handleUnlock = (e)=>{
+        e.preventDefault();
+        const admin = employees.find((emp)=>emp.access_pin === adminPin && (emp.role === 'MANAGER' || emp.role === 'ADMIN'));
+        if (admin) {
+            setIsKioskActive(true);
+            __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].success(`Terminal Activado por ${admin.name}`);
+            setAdminPin('');
+        } else {
+            __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].error('PIN no autorizado');
+            setAdminPin('');
+        }
+    };
     const handlePinSubmit = (e)=>{
         e.preventDefault();
-        // Mock validation
-        if (pin.length === 4) {
+        if (!selectedEmployee || !actionType) return;
+        if (pin === selectedEmployee.access_pin) {
+            // Register Attendance
+            registerAttendance(selectedEmployee.id, actionType, observation);
             setStatus('SUCCESS');
+            __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].success(`Marca registrada: ${actionType}`);
             setTimeout(()=>{
                 setStatus('IDLE');
                 setSelectedEmployee(null);
                 setPin('');
                 setActionType('');
+                setObservation('');
+                setShowSpecialMenu(false);
             }, 3000);
+        } else {
+            setStatus('ERROR');
+            __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].error('PIN Incorrecto');
+            setPin('');
         }
     };
-    const handleAction = (type)=>{
+    const handleActionSelect = (type)=>{
         setActionType(type);
     };
+    const getGreeting = ()=>{
+        const hour = new Date().getHours();
+        if (hour < 12) return 'Buenos días';
+        if (hour < 19) return 'Buenas tardes';
+        return 'Buenas noches';
+    };
+    // --- LOCK SCREEN ---
+    if (!isKioskActive) {
+        return /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+            className: "min-h-screen bg-slate-950 flex items-center justify-center p-8",
+            children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                className: "w-full max-w-md text-center",
+                children: [
+                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                        className: "mb-8 flex justify-center",
+                        children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                            className: "w-24 h-24 bg-slate-900 rounded-full flex items-center justify-center border-4 border-slate-800",
+                            children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$lock$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Lock$3e$__["Lock"], {
+                                size: 40,
+                                className: "text-slate-600"
+                            }, void 0, false, {
+                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                lineNumber: 84,
+                                columnNumber: 29
+                            }, ("TURBOPACK compile-time value", void 0))
+                        }, void 0, false, {
+                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                            lineNumber: 83,
+                            columnNumber: 25
+                        }, ("TURBOPACK compile-time value", void 0))
+                    }, void 0, false, {
+                        fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                        lineNumber: 82,
+                        columnNumber: 21
+                    }, ("TURBOPACK compile-time value", void 0)),
+                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h1", {
+                        className: "text-3xl font-bold text-slate-200 mb-2",
+                        children: "Terminal Desactivado"
+                    }, void 0, false, {
+                        fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                        lineNumber: 87,
+                        columnNumber: 21
+                    }, ("TURBOPACK compile-time value", void 0)),
+                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                        className: "text-slate-500 mb-8",
+                        children: "Ingrese PIN de Supervisor para activar"
+                    }, void 0, false, {
+                        fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                        lineNumber: 88,
+                        columnNumber: 21
+                    }, ("TURBOPACK compile-time value", void 0)),
+                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("form", {
+                        onSubmit: handleUnlock,
+                        children: [
+                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
+                                type: "password",
+                                maxLength: 4,
+                                autoFocus: true,
+                                className: "w-full text-center text-5xl tracking-[1em] font-bold py-6 bg-slate-900 border-2 border-slate-800 rounded-2xl focus:border-cyan-600 focus:outline-none text-white mb-8 transition-colors",
+                                value: adminPin,
+                                onChange: (e)=>setAdminPin(e.target.value),
+                                placeholder: "••••"
+                            }, void 0, false, {
+                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                lineNumber: 91,
+                                columnNumber: 25
+                            }, ("TURBOPACK compile-time value", void 0)),
+                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                type: "submit",
+                                className: "w-full py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2",
+                                children: [
+                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$lock$2d$open$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Unlock$3e$__["Unlock"], {
+                                        size: 20
+                                    }, void 0, false, {
+                                        fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                        lineNumber: 104,
+                                        columnNumber: 29
+                                    }, ("TURBOPACK compile-time value", void 0)),
+                                    "ACTIVAR TERMINAL"
+                                ]
+                            }, void 0, true, {
+                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                lineNumber: 100,
+                                columnNumber: 25
+                            }, ("TURBOPACK compile-time value", void 0))
+                        ]
+                    }, void 0, true, {
+                        fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                        lineNumber: 90,
+                        columnNumber: 21
+                    }, ("TURBOPACK compile-time value", void 0))
+                ]
+            }, void 0, true, {
+                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                lineNumber: 81,
+                columnNumber: 17
+            }, ("TURBOPACK compile-time value", void 0))
+        }, void 0, false, {
+            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+            lineNumber: 80,
+            columnNumber: 13
+        }, ("TURBOPACK compile-time value", void 0));
+    }
     return /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
         className: "min-h-screen bg-slate-900 flex items-center justify-center p-8",
         children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-            className: "w-full max-w-5xl",
+            className: "w-full max-w-6xl",
             children: [
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("header", {
                     className: "text-center mb-12",
@@ -2923,11 +3047,11 @@ const AccessControlPage = ()=>{
                             children: "Control de Asistencia"
                         }, void 0, false, {
                             fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                            lineNumber: 41,
+                            lineNumber: 117,
                             columnNumber: 21
                         }, ("TURBOPACK compile-time value", void 0)),
                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                            className: "text-slate-400 text-xl",
+                            className: "text-slate-400 text-xl capitalize",
                             children: new Date().toLocaleDateString('es-CL', {
                                 weekday: 'long',
                                 day: 'numeric',
@@ -2935,7 +3059,7 @@ const AccessControlPage = ()=>{
                             })
                         }, void 0, false, {
                             fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                            lineNumber: 42,
+                            lineNumber: 118,
                             columnNumber: 21
                         }, ("TURBOPACK compile-time value", void 0)),
                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -2946,323 +3070,734 @@ const AccessControlPage = ()=>{
                             })
                         }, void 0, false, {
                             fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                            lineNumber: 43,
+                            lineNumber: 119,
                             columnNumber: 21
                         }, ("TURBOPACK compile-time value", void 0))
                     ]
                 }, void 0, true, {
                     fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                    lineNumber: 40,
+                    lineNumber: 116,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0)),
-                !selectedEmployee ? /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                    className: "grid grid-cols-2 md:grid-cols-4 gap-6",
-                    children: EMPLOYEES.map((emp)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$framer$2d$motion$2f$dist$2f$es$2f$render$2f$components$2f$motion$2f$proxy$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["motion"].button, {
-                            whileHover: {
-                                scale: 1.05
-                            },
-                            whileTap: {
-                                scale: 0.95
-                            },
-                            onClick: ()=>setSelectedEmployee(emp),
-                            className: "bg-slate-800 rounded-3xl p-8 flex flex-col items-center gap-4 hover:bg-slate-700 transition border border-slate-700 hover:border-cyan-500 group",
+                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$framer$2d$motion$2f$dist$2f$es$2f$components$2f$AnimatePresence$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["AnimatePresence"], {
+                    mode: "wait",
+                    children: !selectedEmployee ? /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$framer$2d$motion$2f$dist$2f$es$2f$render$2f$components$2f$motion$2f$proxy$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["motion"].div, {
+                        initial: {
+                            opacity: 0,
+                            y: 20
+                        },
+                        animate: {
+                            opacity: 1,
+                            y: 0
+                        },
+                        exit: {
+                            opacity: 0,
+                            y: -20
+                        },
+                        className: "grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6",
+                        children: activeEmployees.map((emp)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$framer$2d$motion$2f$dist$2f$es$2f$render$2f$components$2f$motion$2f$proxy$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["motion"].button, {
+                                whileHover: {
+                                    scale: 1.05
+                                },
+                                whileTap: {
+                                    scale: 0.95
+                                },
+                                onClick: ()=>setSelectedEmployee(emp),
+                                className: `rounded-3xl p-6 flex flex-col items-center gap-4 transition border group relative overflow-hidden ${emp.current_status === 'IN' ? 'bg-slate-800 border-slate-700 hover:border-emerald-500' : emp.current_status === 'LUNCH' ? 'bg-slate-800/50 border-orange-900/30 hover:border-orange-500' : 'bg-slate-800/50 border-slate-800 hover:border-cyan-500'}`,
+                                children: [
+                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                        className: `w-20 h-20 rounded-full flex items-center justify-center text-2xl font-bold text-white transition-colors ${emp.current_status === 'IN' ? 'bg-emerald-600' : emp.current_status === 'LUNCH' ? 'bg-orange-600' : emp.current_status === 'ON_PERMISSION' ? 'bg-amber-600' : 'bg-slate-600 group-hover:bg-cyan-600'}`,
+                                        children: emp.name.charAt(0)
+                                    }, void 0, false, {
+                                        fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                        lineNumber: 145,
+                                        columnNumber: 37
+                                    }, ("TURBOPACK compile-time value", void 0)),
+                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                        className: "text-center z-10",
+                                        children: [
+                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h3", {
+                                                className: "text-lg font-bold text-white leading-tight mb-1",
+                                                children: emp.name.split(' ')[0]
+                                            }, void 0, false, {
+                                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                lineNumber: 153,
+                                                columnNumber: 41
+                                            }, ("TURBOPACK compile-time value", void 0)),
+                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                                className: "text-slate-400 text-xs",
+                                                children: emp.job_title?.replace(/_/g, ' ')
+                                            }, void 0, false, {
+                                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                lineNumber: 154,
+                                                columnNumber: 41
+                                            }, ("TURBOPACK compile-time value", void 0))
+                                        ]
+                                    }, void 0, true, {
+                                        fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                        lineNumber: 152,
+                                        columnNumber: 37
+                                    }, ("TURBOPACK compile-time value", void 0)),
+                                    emp.current_status === 'IN' && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                        className: "absolute top-4 right-4 w-3 h-3 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.5)]"
+                                    }, void 0, false, {
+                                        fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                        lineNumber: 157,
+                                        columnNumber: 41
+                                    }, ("TURBOPACK compile-time value", void 0)),
+                                    emp.current_status === 'LUNCH' && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                        className: "absolute top-4 right-4",
+                                        children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$coffee$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Coffee$3e$__["Coffee"], {
+                                            size: 16,
+                                            className: "text-orange-500"
+                                        }, void 0, false, {
+                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                            lineNumber: 160,
+                                            columnNumber: 81
+                                        }, ("TURBOPACK compile-time value", void 0))
+                                    }, void 0, false, {
+                                        fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                        lineNumber: 160,
+                                        columnNumber: 41
+                                    }, ("TURBOPACK compile-time value", void 0))
+                                ]
+                            }, emp.id, true, {
+                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                lineNumber: 133,
+                                columnNumber: 33
+                            }, ("TURBOPACK compile-time value", void 0)))
+                    }, void 0, false, {
+                        fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                        lineNumber: 126,
+                        columnNumber: 25
+                    }, ("TURBOPACK compile-time value", void 0)) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$framer$2d$motion$2f$dist$2f$es$2f$render$2f$components$2f$motion$2f$proxy$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["motion"].div, {
+                        initial: {
+                            opacity: 0,
+                            scale: 0.9
+                        },
+                        animate: {
+                            opacity: 1,
+                            scale: 1
+                        },
+                        exit: {
+                            opacity: 0,
+                            scale: 0.9
+                        },
+                        className: "bg-white rounded-[3rem] p-12 max-w-3xl mx-auto shadow-2xl relative overflow-hidden",
+                        children: status === 'SUCCESS' ? /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                            className: "text-center py-12",
                             children: [
-                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                    className: "w-24 h-24 rounded-full bg-slate-600 flex items-center justify-center text-2xl font-bold text-white group-hover:bg-cyan-600 transition-colors",
-                                    children: emp.avatar
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$framer$2d$motion$2f$dist$2f$es$2f$render$2f$components$2f$motion$2f$proxy$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["motion"].div, {
+                                    initial: {
+                                        scale: 0
+                                    },
+                                    animate: {
+                                        scale: 1
+                                    },
+                                    className: "inline-block mb-6",
+                                    children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$circle$2d$check$2d$big$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__CheckCircle$3e$__["CheckCircle"], {
+                                        size: 100,
+                                        className: "text-emerald-500"
+                                    }, void 0, false, {
+                                        fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                        lineNumber: 179,
+                                        columnNumber: 41
+                                    }, ("TURBOPACK compile-time value", void 0))
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                    lineNumber: 58,
-                                    columnNumber: 33
+                                    lineNumber: 174,
+                                    columnNumber: 37
                                 }, ("TURBOPACK compile-time value", void 0)),
-                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                    className: "text-center",
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h2", {
+                                    className: "text-4xl font-bold text-slate-900 mb-4",
+                                    children: "¡Marca Registrada!"
+                                }, void 0, false, {
+                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                    lineNumber: 181,
+                                    columnNumber: 37
+                                }, ("TURBOPACK compile-time value", void 0)),
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                    className: "text-2xl text-slate-500",
                                     children: [
-                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h3", {
-                                            className: "text-xl font-bold text-white",
-                                            children: emp.name
+                                        getGreeting(),
+                                        ", ",
+                                        selectedEmployee.name.split(' ')[0],
+                                        "."
+                                    ]
+                                }, void 0, true, {
+                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                    lineNumber: 182,
+                                    columnNumber: 37
+                                }, ("TURBOPACK compile-time value", void 0))
+                            ]
+                        }, void 0, true, {
+                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                            lineNumber: 173,
+                            columnNumber: 33
+                        }, ("TURBOPACK compile-time value", void 0)) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Fragment"], {
+                            children: [
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                    className: "flex items-center gap-8 mb-10 pb-8 border-b border-slate-100",
+                                    children: [
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                            className: "w-24 h-24 rounded-full bg-cyan-600 flex items-center justify-center text-4xl font-bold text-white shadow-lg shadow-cyan-200",
+                                            children: selectedEmployee.name.charAt(0)
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                            lineNumber: 62,
-                                            columnNumber: 37
+                                            lineNumber: 187,
+                                            columnNumber: 41
                                         }, ("TURBOPACK compile-time value", void 0)),
-                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                            className: "text-slate-400",
-                                            children: emp.role
-                                        }, void 0, false, {
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                            children: [
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h2", {
+                                                    className: "text-3xl font-bold text-slate-900 mb-1",
+                                                    children: selectedEmployee.name
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 191,
+                                                    columnNumber: 45
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                                    className: "text-slate-500 font-medium mb-2",
+                                                    children: selectedEmployee.job_title?.replace(/_/g, ' ')
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 192,
+                                                    columnNumber: 45
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                    onClick: ()=>{
+                                                        setSelectedEmployee(null);
+                                                        setActionType('');
+                                                        setShowSpecialMenu(false);
+                                                    },
+                                                    className: "text-slate-400 hover:text-slate-600 font-bold text-sm flex items-center gap-1 transition-colors",
+                                                    children: [
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$circle$2d$arrow$2d$left$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__ArrowLeftCircle$3e$__["ArrowLeftCircle"], {
+                                                            size: 16
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                            lineNumber: 197,
+                                                            columnNumber: 49
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        " Cambiar Usuario"
+                                                    ]
+                                                }, void 0, true, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 193,
+                                                    columnNumber: 45
+                                                }, ("TURBOPACK compile-time value", void 0))
+                                            ]
+                                        }, void 0, true, {
                                             fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                            lineNumber: 63,
-                                            columnNumber: 37
+                                            lineNumber: 190,
+                                            columnNumber: 41
+                                        }, ("TURBOPACK compile-time value", void 0)),
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                            className: "ml-auto text-right",
+                                            children: [
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                                    className: "text-xs font-bold text-slate-400 uppercase tracking-wider mb-1",
+                                                    children: "Estado Actual"
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 201,
+                                                    columnNumber: 45
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                    className: `px-4 py-2 rounded-full font-bold text-sm ${selectedEmployee.current_status === 'IN' ? 'bg-emerald-100 text-emerald-700' : selectedEmployee.current_status === 'LUNCH' ? 'bg-orange-100 text-orange-700' : selectedEmployee.current_status === 'ON_PERMISSION' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`,
+                                                    children: selectedEmployee.current_status === 'IN' ? '🟢 TRABAJANDO' : selectedEmployee.current_status === 'LUNCH' ? '🍔 EN COLACIÓN' : selectedEmployee.current_status === 'ON_PERMISSION' ? '⚠️ SALIDA ESPECIAL' : '🔴 FUERA'
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 202,
+                                                    columnNumber: 45
+                                                }, ("TURBOPACK compile-time value", void 0))
+                                            ]
+                                        }, void 0, true, {
+                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                            lineNumber: 200,
+                                            columnNumber: 41
                                         }, ("TURBOPACK compile-time value", void 0))
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                    lineNumber: 61,
-                                    columnNumber: 33
+                                    lineNumber: 186,
+                                    columnNumber: 37
+                                }, ("TURBOPACK compile-time value", void 0)),
+                                !actionType ? /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                    className: "space-y-6",
+                                    children: [
+                                        selectedEmployee.current_status === 'OUT' && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                            onClick: ()=>handleActionSelect('CHECK_IN'),
+                                            className: "w-full p-8 bg-emerald-50 rounded-3xl border-2 border-emerald-100 hover:border-emerald-500 flex flex-col items-center gap-4 transition group",
+                                            children: [
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$clock$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Clock$3e$__["Clock"], {
+                                                    size: 64,
+                                                    className: "text-emerald-600 group-hover:scale-110 transition-transform"
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 220,
+                                                    columnNumber: 53
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                    className: "font-bold text-2xl text-emerald-800",
+                                                    children: "MARCAR INICIO JORNADA"
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 221,
+                                                    columnNumber: 53
+                                                }, ("TURBOPACK compile-time value", void 0))
+                                            ]
+                                        }, void 0, true, {
+                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                            lineNumber: 219,
+                                            columnNumber: 49
+                                        }, ("TURBOPACK compile-time value", void 0)),
+                                        selectedEmployee.current_status === 'IN' && (!showSpecialMenu ? /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                            className: "grid grid-cols-2 gap-4",
+                                            children: [
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                    onClick: ()=>handleActionSelect('BREAK_START'),
+                                                    className: "p-8 bg-orange-50 rounded-3xl border-2 border-orange-100 hover:border-orange-500 flex flex-col items-center gap-4 transition group",
+                                                    children: [
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$coffee$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Coffee$3e$__["Coffee"], {
+                                                            size: 48,
+                                                            className: "text-orange-500 group-hover:scale-110 transition-transform"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                            lineNumber: 230,
+                                                            columnNumber: 61
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                            className: "font-bold text-xl text-orange-800",
+                                                            children: "Inicio Colación"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                            lineNumber: 231,
+                                                            columnNumber: 61
+                                                        }, ("TURBOPACK compile-time value", void 0))
+                                                    ]
+                                                }, void 0, true, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 229,
+                                                    columnNumber: 57
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                    onClick: ()=>handleActionSelect('CHECK_OUT'),
+                                                    className: "p-8 bg-red-50 rounded-3xl border-2 border-red-100 hover:border-red-500 flex flex-col items-center gap-4 transition group",
+                                                    children: [
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$log$2d$out$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__LogOut$3e$__["LogOut"], {
+                                                            size: 48,
+                                                            className: "text-red-500 group-hover:scale-110 transition-transform"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                            lineNumber: 234,
+                                                            columnNumber: 61
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                            className: "font-bold text-xl text-red-800",
+                                                            children: "Fin de Jornada"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                            lineNumber: 235,
+                                                            columnNumber: 61
+                                                        }, ("TURBOPACK compile-time value", void 0))
+                                                    ]
+                                                }, void 0, true, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 233,
+                                                    columnNumber: 57
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                    onClick: ()=>setShowSpecialMenu(true),
+                                                    className: "col-span-2 p-6 bg-amber-50 rounded-3xl border-2 border-amber-100 hover:border-amber-500 flex items-center justify-center gap-3 transition group",
+                                                    children: [
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$triangle$2d$alert$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__AlertTriangle$3e$__["AlertTriangle"], {
+                                                            size: 24,
+                                                            className: "text-amber-600"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                            lineNumber: 238,
+                                                            columnNumber: 61
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                            className: "font-bold text-lg text-amber-800",
+                                                            children: "Registrar Salida Especial / Permiso"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                            lineNumber: 239,
+                                                            columnNumber: 61
+                                                        }, ("TURBOPACK compile-time value", void 0))
+                                                    ]
+                                                }, void 0, true, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 237,
+                                                    columnNumber: 57
+                                                }, ("TURBOPACK compile-time value", void 0))
+                                            ]
+                                        }, void 0, true, {
+                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                            lineNumber: 228,
+                                            columnNumber: 53
+                                        }, ("TURBOPACK compile-time value", void 0)) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                            className: "space-y-4 animate-in fade-in slide-in-from-bottom-4",
+                                            children: [
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                    className: "flex items-center justify-between mb-2",
+                                                    children: [
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h3", {
+                                                            className: "font-bold text-slate-700",
+                                                            children: "Seleccione Tipo de Salida"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                            lineNumber: 245,
+                                                            columnNumber: 61
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                            onClick: ()=>setShowSpecialMenu(false),
+                                                            className: "text-sm text-slate-400 hover:text-slate-600",
+                                                            children: "Cancelar"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                            lineNumber: 246,
+                                                            columnNumber: 61
+                                                        }, ("TURBOPACK compile-time value", void 0))
+                                                    ]
+                                                }, void 0, true, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 244,
+                                                    columnNumber: 57
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                    className: "grid grid-cols-3 gap-4",
+                                                    children: [
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                            onClick: ()=>handleActionSelect('MEDICAL_LEAVE'),
+                                                            className: "p-6 bg-blue-50 rounded-2xl border-2 border-blue-100 hover:border-blue-500 flex flex-col items-center gap-3 transition text-center",
+                                                            children: [
+                                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$stethoscope$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Stethoscope$3e$__["Stethoscope"], {
+                                                                    size: 32,
+                                                                    className: "text-blue-600"
+                                                                }, void 0, false, {
+                                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                                    lineNumber: 250,
+                                                                    columnNumber: 65
+                                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                                    className: "font-bold text-blue-800 leading-tight",
+                                                                    children: [
+                                                                        "Cita",
+                                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("br", {}, void 0, false, {
+                                                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                                            lineNumber: 251,
+                                                                            columnNumber: 125
+                                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                                        "Médica"
+                                                                    ]
+                                                                }, void 0, true, {
+                                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                                    lineNumber: 251,
+                                                                    columnNumber: 65
+                                                                }, ("TURBOPACK compile-time value", void 0))
+                                                            ]
+                                                        }, void 0, true, {
+                                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                            lineNumber: 249,
+                                                            columnNumber: 61
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                            onClick: ()=>handleActionSelect('PERMISSION_START'),
+                                                            className: "p-6 bg-purple-50 rounded-2xl border-2 border-purple-100 hover:border-purple-500 flex flex-col items-center gap-3 transition text-center",
+                                                            children: [
+                                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$file$2d$text$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__FileText$3e$__["FileText"], {
+                                                                    size: 32,
+                                                                    className: "text-purple-600"
+                                                                }, void 0, false, {
+                                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                                    lineNumber: 254,
+                                                                    columnNumber: 65
+                                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                                    className: "font-bold text-purple-800 leading-tight",
+                                                                    children: [
+                                                                        "Permiso",
+                                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("br", {}, void 0, false, {
+                                                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                                            lineNumber: 255,
+                                                                            columnNumber: 130
+                                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                                        "Personal"
+                                                                    ]
+                                                                }, void 0, true, {
+                                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                                    lineNumber: 255,
+                                                                    columnNumber: 65
+                                                                }, ("TURBOPACK compile-time value", void 0))
+                                                            ]
+                                                        }, void 0, true, {
+                                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                            lineNumber: 253,
+                                                            columnNumber: 61
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                            onClick: ()=>handleActionSelect('WORK_ACCIDENT'),
+                                                            className: "p-6 bg-red-50 rounded-2xl border-2 border-red-100 hover:border-red-600 flex flex-col items-center gap-3 transition text-center",
+                                                            children: [
+                                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$ambulance$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Ambulance$3e$__["Ambulance"], {
+                                                                    size: 32,
+                                                                    className: "text-red-600"
+                                                                }, void 0, false, {
+                                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                                    lineNumber: 258,
+                                                                    columnNumber: 65
+                                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                                    className: "font-bold text-red-800 leading-tight",
+                                                                    children: [
+                                                                        "Accidente",
+                                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("br", {}, void 0, false, {
+                                                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                                            lineNumber: 259,
+                                                                            columnNumber: 129
+                                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                                        "Laboral"
+                                                                    ]
+                                                                }, void 0, true, {
+                                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                                    lineNumber: 259,
+                                                                    columnNumber: 65
+                                                                }, ("TURBOPACK compile-time value", void 0))
+                                                            ]
+                                                        }, void 0, true, {
+                                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                            lineNumber: 257,
+                                                            columnNumber: 61
+                                                        }, ("TURBOPACK compile-time value", void 0))
+                                                    ]
+                                                }, void 0, true, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 248,
+                                                    columnNumber: 57
+                                                }, ("TURBOPACK compile-time value", void 0))
+                                            ]
+                                        }, void 0, true, {
+                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                            lineNumber: 243,
+                                            columnNumber: 53
+                                        }, ("TURBOPACK compile-time value", void 0))),
+                                        selectedEmployee.current_status === 'LUNCH' && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                            onClick: ()=>handleActionSelect('BREAK_END'),
+                                            className: "w-full p-8 bg-emerald-50 rounded-3xl border-2 border-emerald-100 hover:border-emerald-500 flex flex-col items-center gap-4 transition group",
+                                            children: [
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$coffee$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Coffee$3e$__["Coffee"], {
+                                                    size: 64,
+                                                    className: "text-emerald-600 group-hover:scale-110 transition-transform"
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 269,
+                                                    columnNumber: 53
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                    className: "font-bold text-2xl text-emerald-800",
+                                                    children: "REGRESO DE COLACIÓN"
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 270,
+                                                    columnNumber: 53
+                                                }, ("TURBOPACK compile-time value", void 0))
+                                            ]
+                                        }, void 0, true, {
+                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                            lineNumber: 268,
+                                            columnNumber: 49
+                                        }, ("TURBOPACK compile-time value", void 0)),
+                                        selectedEmployee.current_status === 'ON_PERMISSION' && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                            onClick: ()=>handleActionSelect('PERMISSION_END'),
+                                            className: "w-full p-8 bg-blue-50 rounded-3xl border-2 border-blue-100 hover:border-blue-500 flex flex-col items-center gap-4 transition group",
+                                            children: [
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$circle$2d$arrow$2d$left$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__ArrowLeftCircle$3e$__["ArrowLeftCircle"], {
+                                                    size: 64,
+                                                    className: "text-blue-600 group-hover:scale-110 transition-transform"
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 277,
+                                                    columnNumber: 53
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                    className: "font-bold text-2xl text-blue-800",
+                                                    children: "RETORNO DE SALIDA ESPECIAL"
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 278,
+                                                    columnNumber: 53
+                                                }, ("TURBOPACK compile-time value", void 0))
+                                            ]
+                                        }, void 0, true, {
+                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                            lineNumber: 276,
+                                            columnNumber: 49
+                                        }, ("TURBOPACK compile-time value", void 0))
+                                    ]
+                                }, void 0, true, {
+                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                    lineNumber: 216,
+                                    columnNumber: 41
+                                }, ("TURBOPACK compile-time value", void 0)) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("form", {
+                                    onSubmit: handlePinSubmit,
+                                    className: "animate-in fade-in zoom-in-95",
+                                    children: [
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                            className: "text-center mb-8",
+                                            children: [
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h3", {
+                                                    className: "text-xl font-bold text-slate-800 mb-2",
+                                                    children: "Confirmar Acción"
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 285,
+                                                    columnNumber: 49
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                    className: "inline-block px-4 py-1 bg-slate-100 rounded-full text-slate-600 font-mono font-bold",
+                                                    children: actionType
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 286,
+                                                    columnNumber: 49
+                                                }, ("TURBOPACK compile-time value", void 0))
+                                            ]
+                                        }, void 0, true, {
+                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                            lineNumber: 284,
+                                            columnNumber: 45
+                                        }, ("TURBOPACK compile-time value", void 0)),
+                                        [
+                                            'MEDICAL_LEAVE',
+                                            'PERMISSION_START',
+                                            'WORK_ACCIDENT'
+                                        ].includes(actionType) && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                            className: "mb-6",
+                                            children: [
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("label", {
+                                                    className: "block text-sm font-bold text-slate-500 mb-2",
+                                                    children: "Observación (Opcional)"
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 291,
+                                                    columnNumber: 53
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("textarea", {
+                                                    className: "w-full p-3 border-2 border-slate-200 rounded-xl focus:border-cyan-500 focus:outline-none resize-none",
+                                                    rows: 2,
+                                                    placeholder: "Ej: Cita dentista, Trámite banco...",
+                                                    value: observation,
+                                                    onChange: (e)=>setObservation(e.target.value)
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 292,
+                                                    columnNumber: 53
+                                                }, ("TURBOPACK compile-time value", void 0))
+                                            ]
+                                        }, void 0, true, {
+                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                            lineNumber: 290,
+                                            columnNumber: 49
+                                        }, ("TURBOPACK compile-time value", void 0)),
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                            className: "mb-8",
+                                            children: [
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("label", {
+                                                    className: "block text-center text-sm font-bold text-slate-400 mb-4",
+                                                    children: "INGRESE SU PIN DE 4 DÍGITOS"
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 303,
+                                                    columnNumber: 49
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
+                                                    type: "password",
+                                                    maxLength: 4,
+                                                    autoFocus: true,
+                                                    className: "w-full text-center text-6xl tracking-[1em] font-bold py-4 border-b-4 border-slate-200 focus:border-cyan-600 focus:outline-none text-slate-800",
+                                                    value: pin,
+                                                    onChange: (e)=>setPin(e.target.value)
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 304,
+                                                    columnNumber: 49
+                                                }, ("TURBOPACK compile-time value", void 0))
+                                            ]
+                                        }, void 0, true, {
+                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                            lineNumber: 302,
+                                            columnNumber: 45
+                                        }, ("TURBOPACK compile-time value", void 0)),
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                            className: "grid grid-cols-2 gap-4",
+                                            children: [
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                    type: "button",
+                                                    onClick: ()=>{
+                                                        setActionType('');
+                                                        setPin('');
+                                                    },
+                                                    className: "py-4 rounded-xl font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 transition",
+                                                    children: "Cancelar"
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 315,
+                                                    columnNumber: 49
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                    type: "submit",
+                                                    className: "py-4 rounded-xl font-bold text-white bg-cyan-600 hover:bg-cyan-700 shadow-lg shadow-cyan-200 transition transform active:scale-95",
+                                                    children: "CONFIRMAR"
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                                    lineNumber: 318,
+                                                    columnNumber: 49
+                                                }, ("TURBOPACK compile-time value", void 0))
+                                            ]
+                                        }, void 0, true, {
+                                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                            lineNumber: 314,
+                                            columnNumber: 45
+                                        }, ("TURBOPACK compile-time value", void 0))
+                                    ]
+                                }, void 0, true, {
+                                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
+                                    lineNumber: 283,
+                                    columnNumber: 41
                                 }, ("TURBOPACK compile-time value", void 0))
                             ]
-                        }, emp.id, true, {
-                            fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                            lineNumber: 51,
-                            columnNumber: 29
-                        }, ("TURBOPACK compile-time value", void 0)))
-                }, void 0, false, {
-                    fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                    lineNumber: 49,
-                    columnNumber: 21
-                }, ("TURBOPACK compile-time value", void 0)) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$framer$2d$motion$2f$dist$2f$es$2f$render$2f$components$2f$motion$2f$proxy$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["motion"].div, {
-                    initial: {
-                        opacity: 0,
-                        scale: 0.9
-                    },
-                    animate: {
-                        opacity: 1,
-                        scale: 1
-                    },
-                    className: "bg-white rounded-[3rem] p-12 max-w-2xl mx-auto shadow-2xl",
-                    children: status === 'SUCCESS' ? /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                        className: "text-center py-12",
-                        children: [
-                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$circle$2d$check$2d$big$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__CheckCircle$3e$__["CheckCircle"], {
-                                size: 80,
-                                className: "text-emerald-500 mx-auto mb-6"
-                            }, void 0, false, {
-                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                lineNumber: 76,
-                                columnNumber: 33
-                            }, ("TURBOPACK compile-time value", void 0)),
-                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h2", {
-                                className: "text-3xl font-bold text-slate-900 mb-2",
-                                children: "¡Marca Registrada!"
-                            }, void 0, false, {
-                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                lineNumber: 77,
-                                columnNumber: 33
-                            }, ("TURBOPACK compile-time value", void 0)),
-                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                className: "text-xl text-slate-500",
-                                children: [
-                                    "Hola ",
-                                    selectedEmployee.name,
-                                    ", que tengas un buen turno."
-                                ]
-                            }, void 0, true, {
-                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                lineNumber: 78,
-                                columnNumber: 33
-                            }, ("TURBOPACK compile-time value", void 0))
-                        ]
-                    }, void 0, true, {
+                        }, void 0, true)
+                    }, void 0, false, {
                         fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                        lineNumber: 75,
-                        columnNumber: 29
-                    }, ("TURBOPACK compile-time value", void 0)) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Fragment"], {
-                        children: [
-                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                className: "flex items-center gap-6 mb-8 pb-8 border-b border-slate-100",
-                                children: [
-                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                        className: "w-20 h-20 rounded-full bg-cyan-600 flex items-center justify-center text-2xl font-bold text-white",
-                                        children: selectedEmployee.avatar
-                                    }, void 0, false, {
-                                        fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                        lineNumber: 83,
-                                        columnNumber: 37
-                                    }, ("TURBOPACK compile-time value", void 0)),
-                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                        children: [
-                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h2", {
-                                                className: "text-3xl font-bold text-slate-900",
-                                                children: selectedEmployee.name
-                                            }, void 0, false, {
-                                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                                lineNumber: 87,
-                                                columnNumber: 41
-                                            }, ("TURBOPACK compile-time value", void 0)),
-                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
-                                                onClick: ()=>setSelectedEmployee(null),
-                                                className: "text-slate-400 hover:text-slate-600 font-medium",
-                                                children: "Cambiar Usuario"
-                                            }, void 0, false, {
-                                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                                lineNumber: 88,
-                                                columnNumber: 41
-                                            }, ("TURBOPACK compile-time value", void 0))
-                                        ]
-                                    }, void 0, true, {
-                                        fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                        lineNumber: 86,
-                                        columnNumber: 37
-                                    }, ("TURBOPACK compile-time value", void 0))
-                                ]
-                            }, void 0, true, {
-                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                lineNumber: 82,
-                                columnNumber: 33
-                            }, ("TURBOPACK compile-time value", void 0)),
-                            !actionType ? /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                className: "grid grid-cols-2 gap-4",
-                                children: [
-                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
-                                        onClick: ()=>handleAction('IN'),
-                                        className: "p-6 bg-emerald-50 rounded-2xl border-2 border-emerald-100 hover:border-emerald-500 flex flex-col items-center gap-2 transition",
-                                        children: [
-                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$clock$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Clock$3e$__["Clock"], {
-                                                size: 32,
-                                                className: "text-emerald-600"
-                                            }, void 0, false, {
-                                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                                lineNumber: 97,
-                                                columnNumber: 45
-                                            }, ("TURBOPACK compile-time value", void 0)),
-                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
-                                                className: "font-bold text-emerald-800",
-                                                children: "ENTRADA"
-                                            }, void 0, false, {
-                                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                                lineNumber: 98,
-                                                columnNumber: 45
-                                            }, ("TURBOPACK compile-time value", void 0))
-                                        ]
-                                    }, void 0, true, {
-                                        fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                        lineNumber: 96,
-                                        columnNumber: 41
-                                    }, ("TURBOPACK compile-time value", void 0)),
-                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
-                                        onClick: ()=>handleAction('OUT'),
-                                        className: "p-6 bg-red-50 rounded-2xl border-2 border-red-100 hover:border-red-500 flex flex-col items-center gap-2 transition",
-                                        children: [
-                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$log$2d$out$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__LogOut$3e$__["LogOut"], {
-                                                size: 32,
-                                                className: "text-red-600"
-                                            }, void 0, false, {
-                                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                                lineNumber: 101,
-                                                columnNumber: 45
-                                            }, ("TURBOPACK compile-time value", void 0)),
-                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
-                                                className: "font-bold text-red-800",
-                                                children: "SALIDA"
-                                            }, void 0, false, {
-                                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                                lineNumber: 102,
-                                                columnNumber: 45
-                                            }, ("TURBOPACK compile-time value", void 0))
-                                        ]
-                                    }, void 0, true, {
-                                        fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                        lineNumber: 100,
-                                        columnNumber: 41
-                                    }, ("TURBOPACK compile-time value", void 0)),
-                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
-                                        onClick: ()=>handleAction('BREAK'),
-                                        className: "col-span-2 p-6 bg-orange-50 rounded-2xl border-2 border-orange-100 hover:border-orange-500 flex flex-col items-center gap-2 transition",
-                                        children: [
-                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$coffee$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Coffee$3e$__["Coffee"], {
-                                                size: 32,
-                                                className: "text-orange-600"
-                                            }, void 0, false, {
-                                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                                lineNumber: 105,
-                                                columnNumber: 45
-                                            }, ("TURBOPACK compile-time value", void 0)),
-                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
-                                                className: "font-bold text-orange-800",
-                                                children: "COLACIÓN"
-                                            }, void 0, false, {
-                                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                                lineNumber: 106,
-                                                columnNumber: 45
-                                            }, ("TURBOPACK compile-time value", void 0))
-                                        ]
-                                    }, void 0, true, {
-                                        fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                        lineNumber: 104,
-                                        columnNumber: 41
-                                    }, ("TURBOPACK compile-time value", void 0))
-                                ]
-                            }, void 0, true, {
-                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                lineNumber: 95,
-                                columnNumber: 37
-                            }, ("TURBOPACK compile-time value", void 0)) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("form", {
-                                onSubmit: handlePinSubmit,
-                                children: [
-                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h3", {
-                                        className: "text-center text-xl font-bold text-slate-700 mb-6",
-                                        children: "Ingrese su PIN para confirmar"
-                                    }, void 0, false, {
-                                        fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                        lineNumber: 111,
-                                        columnNumber: 41
-                                    }, ("TURBOPACK compile-time value", void 0)),
-                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
-                                        type: "password",
-                                        maxLength: 4,
-                                        autoFocus: true,
-                                        className: "w-full text-center text-5xl tracking-[1em] font-bold py-6 border-b-4 border-slate-200 focus:border-cyan-600 focus:outline-none mb-8",
-                                        value: pin,
-                                        onChange: (e)=>setPin(e.target.value)
-                                    }, void 0, false, {
-                                        fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                        lineNumber: 112,
-                                        columnNumber: 41
-                                    }, ("TURBOPACK compile-time value", void 0)),
-                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                        className: "grid grid-cols-2 gap-4",
-                                        children: [
-                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
-                                                type: "button",
-                                                onClick: ()=>setActionType(''),
-                                                className: "py-4 rounded-xl font-bold text-slate-500 bg-slate-100",
-                                                children: "Volver"
-                                            }, void 0, false, {
-                                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                                lineNumber: 121,
-                                                columnNumber: 45
-                                            }, ("TURBOPACK compile-time value", void 0)),
-                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
-                                                type: "submit",
-                                                className: "py-4 rounded-xl font-bold text-white bg-cyan-600 hover:bg-cyan-700 shadow-lg",
-                                                children: "Confirmar"
-                                            }, void 0, false, {
-                                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                                lineNumber: 124,
-                                                columnNumber: 45
-                                            }, ("TURBOPACK compile-time value", void 0))
-                                        ]
-                                    }, void 0, true, {
-                                        fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                        lineNumber: 120,
-                                        columnNumber: 41
-                                    }, ("TURBOPACK compile-time value", void 0))
-                                ]
-                            }, void 0, true, {
-                                fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                                lineNumber: 110,
-                                columnNumber: 37
-                            }, ("TURBOPACK compile-time value", void 0))
-                        ]
-                    }, void 0, true)
+                        lineNumber: 166,
+                        columnNumber: 25
+                    }, ("TURBOPACK compile-time value", void 0))
                 }, void 0, false, {
                     fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-                    lineNumber: 69,
-                    columnNumber: 21
+                    lineNumber: 124,
+                    columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0))
             ]
         }, void 0, true, {
             fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-            lineNumber: 39,
+            lineNumber: 115,
             columnNumber: 13
         }, ("TURBOPACK compile-time value", void 0))
     }, void 0, false, {
         fileName: "[project]/src/presentation/pages/AccessControlPage.tsx",
-        lineNumber: 38,
+        lineNumber: 114,
         columnNumber: 9
     }, ("TURBOPACK compile-time value", void 0));
 };
-_s(AccessControlPage, "rsBtEc1DloemDDc8eGEIOa+H9iQ=");
+_s(AccessControlPage, "FbHC16lkgyCID+55hAgcBFKnIcc=", false, function() {
+    return [
+        __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$store$2f$useStore$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["usePharmaStore"]
+    ];
+});
 _c = AccessControlPage;
 const __TURBOPACK__default__export__ = AccessControlPage;
 var _c;

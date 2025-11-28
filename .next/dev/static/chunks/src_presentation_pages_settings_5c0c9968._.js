@@ -1273,6 +1273,190 @@ const HardwarePage = ()=>{
                         columnNumber: 17
                     }, ("TURBOPACK compile-time value", void 0)),
                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                        className: "bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden",
+                        children: [
+                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                className: "p-6 border-b border-gray-100 bg-gray-50 flex justify-between items-center",
+                                children: [
+                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h2", {
+                                        className: "font-bold text-gray-800 flex items-center gap-2",
+                                        children: [
+                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                className: "text-2xl",
+                                                children: "🎫"
+                                            }, void 0, false, {
+                                                fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
+                                                lineNumber: 168,
+                                                columnNumber: 29
+                                            }, ("TURBOPACK compile-time value", void 0)),
+                                            "Impresora Totem / Kiosco"
+                                        ]
+                                    }, void 0, true, {
+                                        fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
+                                        lineNumber: 167,
+                                        columnNumber: 25
+                                    }, ("TURBOPACK compile-time value", void 0)),
+                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                        className: "text-xs font-bold px-2 py-1 bg-green-100 text-green-600 rounded",
+                                        children: "Atención"
+                                    }, void 0, false, {
+                                        fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
+                                        lineNumber: 171,
+                                        columnNumber: 25
+                                    }, ("TURBOPACK compile-time value", void 0))
+                                ]
+                            }, void 0, true, {
+                                fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
+                                lineNumber: 166,
+                                columnNumber: 21
+                            }, ("TURBOPACK compile-time value", void 0)),
+                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                className: "p-6 space-y-6",
+                                children: [
+                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                        children: [
+                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("label", {
+                                                className: "block text-sm font-bold text-gray-700 mb-2",
+                                                children: "Ancho del Papel"
+                                            }, void 0, false, {
+                                                fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
+                                                lineNumber: 175,
+                                                columnNumber: 29
+                                            }, ("TURBOPACK compile-time value", void 0)),
+                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                className: "grid grid-cols-2 gap-4",
+                                                children: [
+                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                        onClick: ()=>updateHardwareConfig({
+                                                                kiosk_printer_width: '80mm'
+                                                            }),
+                                                        className: `p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${hardware.kiosk_printer_width === '80mm' ? 'border-green-500 bg-green-50 text-green-700' : 'border-gray-200 hover:border-gray-300 text-gray-500'}`,
+                                                        children: [
+                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                                className: "text-2xl font-bold",
+                                                                children: "80mm"
+                                                            }, void 0, false, {
+                                                                fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
+                                                                lineNumber: 184,
+                                                                columnNumber: 37
+                                                            }, ("TURBOPACK compile-time value", void 0)),
+                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                                className: "text-xs",
+                                                                children: "Estándar"
+                                                            }, void 0, false, {
+                                                                fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
+                                                                lineNumber: 185,
+                                                                columnNumber: 37
+                                                            }, ("TURBOPACK compile-time value", void 0))
+                                                        ]
+                                                    }, void 0, true, {
+                                                        fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
+                                                        lineNumber: 177,
+                                                        columnNumber: 33
+                                                    }, ("TURBOPACK compile-time value", void 0)),
+                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                                        onClick: ()=>updateHardwareConfig({
+                                                                kiosk_printer_width: '58mm'
+                                                            }),
+                                                        className: `p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${hardware.kiosk_printer_width === '58mm' ? 'border-green-500 bg-green-50 text-green-700' : 'border-gray-200 hover:border-gray-300 text-gray-500'}`,
+                                                        children: [
+                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                                className: "text-xl font-bold",
+                                                                children: "58mm"
+                                                            }, void 0, false, {
+                                                                fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
+                                                                lineNumber: 194,
+                                                                columnNumber: 37
+                                                            }, ("TURBOPACK compile-time value", void 0)),
+                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                                                className: "text-xs",
+                                                                children: "Compacto"
+                                                            }, void 0, false, {
+                                                                fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
+                                                                lineNumber: 195,
+                                                                columnNumber: 37
+                                                            }, ("TURBOPACK compile-time value", void 0))
+                                                        ]
+                                                    }, void 0, true, {
+                                                        fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
+                                                        lineNumber: 187,
+                                                        columnNumber: 33
+                                                    }, ("TURBOPACK compile-time value", void 0))
+                                                ]
+                                            }, void 0, true, {
+                                                fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
+                                                lineNumber: 176,
+                                                columnNumber: 29
+                                            }, ("TURBOPACK compile-time value", void 0))
+                                        ]
+                                    }, void 0, true, {
+                                        fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
+                                        lineNumber: 174,
+                                        columnNumber: 25
+                                    }, ("TURBOPACK compile-time value", void 0)),
+                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                        children: [
+                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("label", {
+                                                className: "block text-sm font-bold text-gray-700 mb-2",
+                                                children: "Mensaje de Bienvenida"
+                                            }, void 0, false, {
+                                                fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
+                                                lineNumber: 201,
+                                                columnNumber: 29
+                                            }, ("TURBOPACK compile-time value", void 0)),
+                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
+                                                type: "text",
+                                                value: hardware.kiosk_welcome_message || '',
+                                                onChange: (e)=>updateHardwareConfig({
+                                                        kiosk_welcome_message: e.target.value
+                                                    }),
+                                                placeholder: "Ej: Bienvenido a Farmacias Vallenar",
+                                                className: "w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-green-500 outline-none"
+                                            }, void 0, false, {
+                                                fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
+                                                lineNumber: 202,
+                                                columnNumber: 29
+                                            }, ("TURBOPACK compile-time value", void 0))
+                                        ]
+                                    }, void 0, true, {
+                                        fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
+                                        lineNumber: 200,
+                                        columnNumber: 25
+                                    }, ("TURBOPACK compile-time value", void 0)),
+                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                        onClick: ()=>{
+                                            __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].success('Enviando ticket de fila de prueba...');
+                                        // In a real app, this would call PrinterService.printQueueTicket(...)
+                                        },
+                                        className: "w-full py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition-colors flex items-center justify-center gap-2",
+                                        children: [
+                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$printer$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Printer$3e$__["Printer"], {
+                                                size: 18
+                                            }, void 0, false, {
+                                                fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
+                                                lineNumber: 218,
+                                                columnNumber: 29
+                                            }, ("TURBOPACK compile-time value", void 0)),
+                                            "Probar Ticket de Fila"
+                                        ]
+                                    }, void 0, true, {
+                                        fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
+                                        lineNumber: 211,
+                                        columnNumber: 25
+                                    }, ("TURBOPACK compile-time value", void 0))
+                                ]
+                            }, void 0, true, {
+                                fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
+                                lineNumber: 173,
+                                columnNumber: 21
+                            }, ("TURBOPACK compile-time value", void 0))
+                        ]
+                    }, void 0, true, {
+                        fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
+                        lineNumber: 165,
+                        columnNumber: 17
+                    }, ("TURBOPACK compile-time value", void 0)),
+                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                         className: "md:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden",
                         children: [
                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1285,14 +1469,14 @@ const HardwarePage = ()=>{
                                                 className: "text-orange-500"
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                                lineNumber: 168,
+                                                lineNumber: 228,
                                                 columnNumber: 29
                                             }, ("TURBOPACK compile-time value", void 0)),
                                             "Prueba de Escáner"
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                        lineNumber: 167,
+                                        lineNumber: 227,
                                         columnNumber: 25
                                     }, ("TURBOPACK compile-time value", void 0)),
                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1303,7 +1487,7 @@ const HardwarePage = ()=>{
                                                 children: "Teclado (Wedge)"
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                                lineNumber: 172,
+                                                lineNumber: 232,
                                                 columnNumber: 29
                                             }, ("TURBOPACK compile-time value", void 0)),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
@@ -1311,19 +1495,19 @@ const HardwarePage = ()=>{
                                                 children: "HID Nativo"
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                                lineNumber: 173,
+                                                lineNumber: 233,
                                                 columnNumber: 29
                                             }, ("TURBOPACK compile-time value", void 0))
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                        lineNumber: 171,
+                                        lineNumber: 231,
                                         columnNumber: 25
                                     }, ("TURBOPACK compile-time value", void 0))
                                 ]
                             }, void 0, true, {
                                 fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                lineNumber: 166,
+                                lineNumber: 226,
                                 columnNumber: 21
                             }, ("TURBOPACK compile-time value", void 0)),
                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1340,7 +1524,7 @@ const HardwarePage = ()=>{
                                                         children: "Área de Prueba"
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                                        lineNumber: 179,
+                                                        lineNumber: 239,
                                                         columnNumber: 33
                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1354,26 +1538,26 @@ const HardwarePage = ()=>{
                                                                 className: "w-full px-4 py-4 pl-12 rounded-xl border-2 border-dashed border-gray-300 focus:border-orange-500 focus:ring-4 focus:ring-orange-100 outline-none text-lg font-mono transition-all"
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                                                lineNumber: 181,
+                                                                lineNumber: 241,
                                                                 columnNumber: 37
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$scan$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Scan$3e$__["Scan"], {
                                                                 className: "absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                                                lineNumber: 188,
+                                                                lineNumber: 248,
                                                                 columnNumber: 37
                                                             }, ("TURBOPACK compile-time value", void 0))
                                                         ]
                                                     }, void 0, true, {
                                                         fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                                        lineNumber: 180,
+                                                        lineNumber: 240,
                                                         columnNumber: 33
                                                     }, ("TURBOPACK compile-time value", void 0))
                                                 ]
                                             }, void 0, true, {
                                                 fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                                lineNumber: 178,
+                                                lineNumber: 238,
                                                 columnNumber: 29
                                             }, ("TURBOPACK compile-time value", void 0)),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1384,7 +1568,7 @@ const HardwarePage = ()=>{
                                                         children: "Velocidad"
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                                        lineNumber: 192,
+                                                        lineNumber: 252,
                                                         columnNumber: 33
                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1395,7 +1579,7 @@ const HardwarePage = ()=>{
                                                                 className: scanSpeed !== null ? 'text-yellow-500' : 'text-gray-300'
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                                                lineNumber: 194,
+                                                                lineNumber: 254,
                                                                 columnNumber: 37
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
@@ -1403,13 +1587,13 @@ const HardwarePage = ()=>{
                                                                 children: scanSpeed ? `${scanSpeed}ms` : '--'
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                                                lineNumber: 195,
+                                                                lineNumber: 255,
                                                                 columnNumber: 37
                                                             }, ("TURBOPACK compile-time value", void 0))
                                                         ]
                                                     }, void 0, true, {
                                                         fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                                        lineNumber: 193,
+                                                        lineNumber: 253,
                                                         columnNumber: 33
                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -1417,19 +1601,19 @@ const HardwarePage = ()=>{
                                                         children: "Latencia entre caracteres"
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                                        lineNumber: 197,
+                                                        lineNumber: 257,
                                                         columnNumber: 33
                                                     }, ("TURBOPACK compile-time value", void 0))
                                                 ]
                                             }, void 0, true, {
                                                 fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                                lineNumber: 191,
+                                                lineNumber: 251,
                                                 columnNumber: 29
                                             }, ("TURBOPACK compile-time value", void 0))
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                        lineNumber: 177,
+                                        lineNumber: 237,
                                         columnNumber: 25
                                     }, ("TURBOPACK compile-time value", void 0)),
                                     testBarcode && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1439,7 +1623,7 @@ const HardwarePage = ()=>{
                                                 size: 18
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                                lineNumber: 202,
+                                                lineNumber: 262,
                                                 columnNumber: 33
                                             }, ("TURBOPACK compile-time value", void 0)),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
@@ -1447,7 +1631,7 @@ const HardwarePage = ()=>{
                                                 children: "Código detectado:"
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                                lineNumber: 203,
+                                                lineNumber: 263,
                                                 columnNumber: 33
                                             }, ("TURBOPACK compile-time value", void 0)),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
@@ -1455,25 +1639,25 @@ const HardwarePage = ()=>{
                                                 children: testBarcode
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                                lineNumber: 204,
+                                                lineNumber: 264,
                                                 columnNumber: 33
                                             }, ("TURBOPACK compile-time value", void 0))
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                        lineNumber: 201,
+                                        lineNumber: 261,
                                         columnNumber: 29
                                     }, ("TURBOPACK compile-time value", void 0))
                                 ]
                             }, void 0, true, {
                                 fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                                lineNumber: 176,
+                                lineNumber: 236,
                                 columnNumber: 21
                             }, ("TURBOPACK compile-time value", void 0))
                         ]
                     }, void 0, true, {
                         fileName: "[project]/src/presentation/pages/settings/HardwarePage.tsx",
-                        lineNumber: 165,
+                        lineNumber: 225,
                         columnNumber: 17
                     }, ("TURBOPACK compile-time value", void 0))
                 ]

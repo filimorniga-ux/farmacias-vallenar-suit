@@ -88,7 +88,7 @@ export interface InventoryBatch {
 }
 
 // --- Recursos Humanos ---
-export type AttendanceStatus = 'IN' | 'OUT' | 'LUNCH';
+export type AttendanceStatus = 'IN' | 'OUT' | 'LUNCH' | 'ON_PERMISSION';
 
 export type JobTitle =
     | 'QUIMICO_FARMACEUTICO'
@@ -135,13 +135,17 @@ export interface EmployeeProfile {
     current_status: AttendanceStatus;
 }
 
+export type AttendanceType = 'CHECK_IN' | 'CHECK_OUT' | 'BREAK_START' | 'BREAK_END' | 'PERMISSION_START' | 'PERMISSION_END' | 'MEDICAL_LEAVE' | 'EMERGENCY' | 'WORK_ACCIDENT';
+
 export interface AttendanceLog {
     id: string;
     employee_id: string;
     timestamp: number;
-    type: 'CHECK_IN' | 'CHECK_OUT' | 'LUNCH_START' | 'LUNCH_END';
+    type: AttendanceType;
     overtime_minutes?: number;
     delay_minutes?: number;
+    observation?: string;
+    evidence_photo_url?: string;
 }
 
 // --- Venta y Clientes ---
@@ -306,6 +310,8 @@ export interface HardwareConfig {
     auto_print_pos: boolean;
     auto_print_labels: boolean;
     scanner_mode: 'KEYBOARD_WEDGE' | 'HID';
+    kiosk_printer_width?: '58mm' | '80mm';
+    kiosk_welcome_message?: string;
 }
 
 // --- Atención y Filas ---
