@@ -1,9 +1,13 @@
 name: Build & Release Electron
 
+# 1. CONFIGURACIÓN DE PERMISOS (ESTO ES LO QUE FALTABA)
+permissions:
+  contents: write
+
 on:
   push:
     tags:
-      - 'v*' # Se activa al subir un tag como v1.0.1
+      - 'v*'
 
 jobs:
   release:
@@ -20,7 +24,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20 # Versión estable reciente
+          node-version: 20
           cache: 'npm'
 
       - name: Install Dependencies
@@ -31,6 +35,6 @@ jobs:
 
       - name: Build & Publish Electron App
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Token automático de GitHub
-        # Usamos npx para ejecutar electron-builder directamente con la bandera de publicar
+          # GitHub token se inyecta automáticamente, y ahora tiene permiso de escritura
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --publish always
