@@ -150,9 +150,10 @@ const InventoryPage: React.FC = () => {
                 </div>
             </div>
 
-            {/* Data Grid */}
-            <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-                <table className="w-full text-left">
+            {/* Data Grid (Desktop) & Cards (Mobile) */}
+            <div className="bg-transparent md:bg-white md:rounded-3xl md:shadow-sm md:border border-slate-200 overflow-hidden">
+                {/* Desktop Table */}
+                <table className="w-full text-left hidden md:table">
                     <thead className="bg-slate-50 text-slate-500 font-bold text-xs uppercase tracking-wider">
                         <tr>
                             <th className="p-4">Producto</th>
@@ -232,6 +233,65 @@ const InventoryPage: React.FC = () => {
                         ))}
                     </tbody>
                 </table>
+
+                {/* Mobile Cards */}
+                <div className="grid grid-cols-1 gap-4 md:hidden pb-20">
+                    {filteredInventory.map(item => (
+                        <div key={item.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col gap-3">
+                            {/* Header */}
+                            <div className="flex justify-between items-start">
+                                <div>
+                                    <h3 className="font-bold text-slate-800 text-lg">{item.name}</h3>
+                                    <p className="text-xs text-slate-500 font-mono">{item.sku}</p>
+                                    <p className="text-xs text-slate-400">{item.laboratory}</p>
+                                </div>
+                                <div className="flex gap-1 flex-wrap justify-end max-w-[100px]">
+                                    {item.bioequivalent && <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-[10px] font-bold">BIO</span>}
+                                    {item.storage_condition === 'REFRIGERADO' && <span className="px-2 py-1 bg-cyan-100 text-cyan-700 rounded-lg text-[10px] font-bold">FRIO</span>}
+                                    {['R', 'RR', 'RCH'].includes(item.condition) && <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-lg text-[10px] font-bold">RET</span>}
+                                </div>
+                            </div>
+
+                            {/* Body */}
+                            <div className="grid grid-cols-2 gap-4 py-3 border-y border-slate-50">
+                                <div>
+                                    <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Stock</p>
+                                    <p className={`text-2xl font-bold ${item.stock_actual <= item.stock_min ? 'text-red-600' : 'text-slate-800'}`}>
+                                        {item.stock_actual}
+                                    </p>
+                                    <p className="text-[10px] text-slate-400">Min: {item.stock_min}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Precio</p>
+                                    <p className="text-2xl font-bold text-slate-800">
+                                        ${(item.price_sell_box || item.price || 0).toLocaleString()}
+                                    </p>
+                                    <p className="text-[10px] text-slate-400">
+                                        Unit: ${(item.price_sell_unit ? item.price_sell_unit : Math.round((item.price_sell_box || item.price || 0) / (item.units_per_box || item.unit_count || 1))).toLocaleString()}
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Footer Actions */}
+                            <div className="flex gap-3 mt-1">
+                                {canManageInventory && (
+                                    <button
+                                        onClick={() => { setEditingItem(item); setIsEditModalOpen(true); }}
+                                        className="flex-1 h-12 bg-blue-50 text-blue-600 font-bold rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-transform"
+                                    >
+                                        <Edit size={20} /> Editar
+                                    </button>
+                                )}
+                                {canDelete && (
+                                    <button className="h-12 w-12 bg-slate-50 text-slate-400 rounded-xl flex items-center justify-center hover:text-red-600 hover:bg-red-50 active:scale-95 transition-all">
+                                        <Trash2 size={20} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
                 {filteredInventory.length === 0 && (
                     <div className="p-12 text-center text-slate-400">
                         <Package size={48} className="mx-auto mb-4 opacity-50" />
