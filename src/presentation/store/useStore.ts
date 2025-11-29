@@ -620,15 +620,26 @@ export const usePharmaStore = create<PharmaState>()(
             // --- Importación Masiva ---
             importInventory: (items: InventoryBatch[]) => {
                 set((state) => {
-                    // In a real app, this would be a backend call.
-                    // Here we merge with existing inventory or add new.
                     const newInventory = [...state.inventory];
 
                     items.forEach(newItem => {
-                        // Check if product exists (by SKU) to update or add
-                        // For simplicity in this mock, we just push new items
-                        // In production, we should check for duplicates and handle batches properly
-                        newInventory.push(newItem);
+                        const existingIndex = newInventory.findIndex(i => i.sku === newItem.sku);
+
+                        if (existingIndex >= 0) {
+                            // MERGE: Update existing item
+                            const existingItem = newInventory[existingIndex];
+                            newInventory[existingIndex] = {
+                                ...existingItem,
+                                stock_actual: existingItem.stock_actual + newItem.stock_actual, // Add stock
+                                price: newItem.price_sell_box || newItem.price, // Update price
+                                price_sell_box: newItem.price_sell_box,
+                                cost_net: newItem.cost_net || existingItem.cost_net, // Update cost if provided
+                                location_id: newItem.location_id || existingItem.location_id
+                            };
+                        } else {
+                            // ADD: New item
+                            newInventory.push(newItem);
+                        }
                     });
 
                     return { inventory: newInventory };
