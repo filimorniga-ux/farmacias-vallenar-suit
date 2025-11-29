@@ -38,11 +38,15 @@ const AttendanceKioskPage: React.FC = () => {
         if (!selectedEmployee) return;
         setMessage({ text: 'Coloque su dedo en el sensor...', type: 'success' });
 
-        const result = await WebAuthnService.verifyCredential(selectedEmployee.id);
-        if (result.success) {
-            handleAttendanceAction();
-        } else {
-            setMessage({ text: result.message, type: 'error' });
+        try {
+            const credential = await WebAuthnService.authenticateCredential(selectedEmployee.biometric_credentials || []);
+            if (credential) {
+                handleAttendanceAction();
+            } else {
+                setMessage({ text: 'Autenticación fallida', type: 'error' });
+            }
+        } catch (error) {
+            setMessage({ text: 'Error de autenticación biométrica', type: 'error' });
         }
     };
 
@@ -86,7 +90,13 @@ const AttendanceKioskPage: React.FC = () => {
 
     const processAction = (type: 'CHECK_IN' | 'CHECK_OUT' | 'LUNCH_START' | 'LUNCH_END') => {
         if (!authenticatedEmployee) return;
-        registerAttendance(authenticatedEmployee.id, type);
+
+        // Map UI actions to Domain Types
+        let attendanceType: any = type;
+        if (type === 'LUNCH_START') attendanceType = 'BREAK_START';
+        if (type === 'LUNCH_END') attendanceType = 'BREAK_END';
+
+        registerAttendance(authenticatedEmployee.id, attendanceType);
 
         setMessage({ text: `Marcaje registrado: ${type}`, type: 'success' });
 
@@ -209,7 +219,7 @@ const AttendanceKioskPage: React.FC = () => {
                         >
                             {/* Status Indicator */}
                             <div className={`absolute top-4 right-4 w-4 h-4 rounded-full ${emp.current_status === 'IN' ? 'bg-green-500 animate-pulse' :
-                                    emp.current_status === 'LUNCH' ? 'bg-amber-500' : 'bg-slate-300'
+                                emp.current_status === 'LUNCH' ? 'bg-amber-500' : 'bg-slate-300'
                                 }`} />
 
                             <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-500 font-bold text-2xl">
@@ -218,7 +228,7 @@ const AttendanceKioskPage: React.FC = () => {
                             <h3 className="font-bold text-slate-800 text-lg">{emp.name}</h3>
                             <p className="text-sm text-slate-500">{emp.role}</p>
                             <span className={`mt-3 px-3 py-1 rounded-full text-xs font-bold ${emp.current_status === 'IN' ? 'bg-green-100 text-green-700' :
-                                    emp.current_status === 'LUNCH' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'
+                                emp.current_status === 'LUNCH' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'
                                 }`}>
                                 {emp.current_status === 'IN' ? 'TRABAJANDO' :
                                     emp.current_status === 'LUNCH' ? 'EN COLACIÓN' : 'FUERA'}

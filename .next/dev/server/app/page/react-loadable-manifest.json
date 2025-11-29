@@ -2,7 +2,7 @@
   "[project]/src/App.tsx [app-client] (ecmascript, next/dynamic entry)": {
     "id": "[project]/src/App.tsx [app-client] (ecmascript, next/dynamic entry)",
     "files": [
-      "static/chunks/_79a30772._.js",
+      "static/chunks/_3a6b0c69._.js",
       "static/chunks/src_presentation_components_pos_d635192c._.js",
       "static/chunks/src_presentation_components_POSMainScreen_tsx_6d47edad._.js",
       "static/chunks/src_presentation_components_inventory_c0f921e6._.js",
@@ -12,7 +12,7 @@
       "static/chunks/src_presentation_pages_ReportsPage_tsx_04f98f51._.js",
       "static/chunks/src_presentation_pages_396c1309._.js",
       "static/chunks/src_presentation_300df0ea._.js",
-      "static/chunks/src_714d46ab._.js",
+      "static/chunks/src_d53bb2dc._.js",
       "static/chunks/node_modules_react-router_dist_development_chunk-4WY6JWTD_mjs_4de964aa._.js",
       "static/chunks/node_modules_framer-motion_dist_es_7048033e._.js",
       "static/chunks/node_modules_motion-dom_dist_es_a3821813._.js",
@@ -23,18 +23,18 @@
       "static/chunks/node_modules_042756f1._.js",
       "static/chunks/src_App_tsx_b8474123._.js",
       "static/chunks/src_domain_services_TigerDataService_ts_faa4f1d2._.js",
-      "static/chunks/src_domain_services_TigerDataService_ts_074a999e._.js",
-      "static/chunks/node_modules_1501d2f9._.js",
+      "static/chunks/src_domain_services_TigerDataService_ts_e074497a._.js",
+      "static/chunks/node_modules_2e5397cf._.js",
       "static/chunks/node_modules_99f701e9._.js",
-      "static/chunks/node_modules_jspdf_dist_jspdf_es_min_074a999e.js",
+      "static/chunks/node_modules_jspdf_dist_jspdf_es_min_e074497a.js",
       "static/chunks/node_modules_html2canvas_dist_html2canvas_6fe6250c.js",
-      "static/chunks/node_modules_html2canvas_dist_html2canvas_5f6c5041.js",
+      "static/chunks/node_modules_html2canvas_dist_html2canvas_6adcfe94.js",
       "static/chunks/node_modules_dompurify_dist_purify_es_mjs_61e0c95e._.js",
-      "static/chunks/node_modules_dompurify_dist_purify_es_mjs_5f6c5041._.js",
+      "static/chunks/node_modules_dompurify_dist_purify_es_mjs_6adcfe94._.js",
       "static/chunks/node_modules_69103133._.js",
-      "static/chunks/node_modules_canvg_lib_index_es_5f6c5041.js",
+      "static/chunks/node_modules_canvg_lib_index_es_6adcfe94.js",
       "static/chunks/node_modules_jspdf-autotable_dist_jspdf_plugin_autotable_mjs_8e2179b1._.js",
-      "static/chunks/node_modules_jspdf-autotable_dist_jspdf_plugin_autotable_mjs_074a999e._.js"
+      "static/chunks/node_modules_jspdf-autotable_dist_jspdf_plugin_autotable_mjs_e074497a._.js"
     ]
   }
 }

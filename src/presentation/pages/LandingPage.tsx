@@ -32,7 +32,7 @@ const LandingPage: React.FC = () => {
     // Security: Auto-logout when landing on this page
     useEffect(() => {
         logout();
-        console.log("🔒 Sesión cerrada por seguridad al volver al inicio.");
+        // Sesión cerrada por seguridad al volver al inicio.
     }, []);
 
     // Navigate after successful login (when user state updates)

@@ -30,7 +30,7 @@ export const useKioskGuard = (enabled: boolean = true) => {
                     await document.documentElement.requestFullscreen();
                 }
             } catch (err) {
-                console.log('Fullscreen request denied or not supported');
+                // Fullscreen request denied or not supported
             }
         };
 
