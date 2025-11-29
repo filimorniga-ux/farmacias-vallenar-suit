@@ -6523,7 +6523,7 @@ const InventoryPage = ()=>{
                                                             className: "font-bold text-slate-800 text-lg",
                                                             children: [
                                                                 "$",
-                                                                (item.price_sell_box || item.price).toLocaleString()
+                                                                (item.price_sell_box || item.price || 0).toLocaleString()
                                                             ]
                                                         }, void 0, true, {
                                                             fileName: "[project]/src/presentation/pages/InventoryPage.tsx",
@@ -6534,7 +6534,7 @@ const InventoryPage = ()=>{
                                                             className: "text-xs font-bold text-slate-400",
                                                             children: [
                                                                 "($",
-                                                                item.price_sell_unit ? item.price_sell_unit.toLocaleString() : Math.round((item.price_sell_box || item.price) / (item.units_per_box || item.unit_count || 1)).toLocaleString(),
+                                                                item.price_sell_unit ? item.price_sell_unit.toLocaleString() : Math.round((item.price_sell_box || item.price || 0) / (item.units_per_box || item.unit_count || 1)).toLocaleString(),
                                                                 " / un)"
                                                             ]
                                                         }, void 0, true, {
@@ -6546,7 +6546,7 @@ const InventoryPage = ()=>{
                                                             className: "text-[10px] font-mono text-slate-300 mt-1",
                                                             children: [
                                                                 "Costo: $",
-                                                                (item.cost_net || item.cost_price).toLocaleString()
+                                                                (item.cost_net || item.cost_price || 0).toLocaleString()
                                                             ]
                                                         }, void 0, true, {
                                                             fileName: "[project]/src/presentation/pages/InventoryPage.tsx",
