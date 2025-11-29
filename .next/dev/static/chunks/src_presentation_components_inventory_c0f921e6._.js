@@ -2664,6 +2664,9 @@ var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$re
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$circle$2d$check$2d$big$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__CheckCircle$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/circle-check-big.js [app-client] (ecmascript) <export default as CheckCircle>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$download$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Download$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/download.js [app-client] (ecmascript) <export default as Download>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$loader$2d$circle$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Loader2$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/loader-circle.js [app-client] (ecmascript) <export default as Loader2>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$file$2d$type$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__FileType$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/file-type.js [app-client] (ecmascript) <export default as FileType>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$pen$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Edit2$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/pen.js [app-client] (ecmascript) <export default as Edit2>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$save$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Save$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/save.js [app-client] (ecmascript) <export default as Save>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$dropzone$2f$dist$2f$es$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$locals$3e$__ = __turbopack_context__.i("[project]/node_modules/react-dropzone/dist/es/index.js [app-client] (ecmascript) <locals>");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$xlsx$2f$xlsx$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/xlsx/xlsx.mjs [app-client] (ecmascript)");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/sonner/dist/index.mjs [app-client] (ecmascript)");
@@ -2684,6 +2687,85 @@ const BulkImportModal = ({ isOpen, onClose })=>{
     const [step, setStep] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])('UPLOAD');
     const [importedData, setImportedData] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])([]);
     const [isProcessing, setIsProcessing] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])(false);
+    const [importFormat, setImportFormat] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])('OFFICIAL');
+    // --- Parsing Logic ---
+    const parseOfficialRow = (row)=>{
+        const errors = [];
+        const sku = row[0]?.toString() || '';
+        const name = row[1]?.toString() || '';
+        const price_sell = parseFloat(row[4]) || 0;
+        if (!sku) errors.push('Falta SKU');
+        if (!name) errors.push('Falta Nombre');
+        if (price_sell <= 0) errors.push('Precio inválido');
+        return {
+            id: (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$uuid$2f$dist$2f$v4$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__v4$3e$__["v4"])(),
+            sku,
+            name,
+            dci: row[2]?.toString(),
+            laboratory: row[3]?.toString(),
+            price_sell,
+            cost_net: parseFloat(row[5]) || 0,
+            stock: parseInt(row[6]) || 0,
+            lot_number: row[7]?.toString() || 'S/L',
+            expiry_date: row[8]?.toString() || '',
+            location: row[9]?.toString(),
+            is_refrigerated: row[10]?.toString(),
+            isValid: errors.length === 0,
+            errors,
+            needs_review: false
+        };
+    };
+    const parseLegacyRow = (row)=>{
+        const errors = [];
+        // Legacy Format Mapping (Hypothetical based on requirements)
+        // Col 0: Barcode (SKU)
+        // Col 1: Product Name (Complex String)
+        // Col 2: Stock
+        // Col 3: Price Sell
+        // Col 4: Cost Net
+        // Col 5: Category/Location (Optional)
+        const sku = row[0]?.toString() || '';
+        const rawName = row[1]?.toString() || '';
+        const stock = parseInt(row[2]) || 0;
+        const price_sell = parseFloat(row[3]) || 0;
+        const cost_net = parseFloat(row[4]) || 0;
+        const location = row[5]?.toString() || 'BODEGA_CENTRAL';
+        if (!sku) errors.push('Falta SKU');
+        if (!rawName) errors.push('Falta Nombre');
+        // Intelligent Parsing: "AMOXICILINA 500MG LAB CHILE" -> Name + Lab
+        let name = rawName;
+        let laboratory = 'GENERICO';
+        // Regex to find "LAB" or "LABORATORIO" and split
+        const labRegex = /(.*)\s+(?:LAB|LABORATORIO)\.?\s+(.*)/i;
+        const match = rawName.match(labRegex);
+        if (match) {
+            name = match[1].trim();
+            laboratory = match[2].trim();
+        }
+        // Defaults for missing data
+        const lot_number = 'LOTE-MIGRACION';
+        // Default Expiry: 1 Year from now
+        const nextYear = new Date();
+        nextYear.setFullYear(nextYear.getFullYear() + 1);
+        const expiry_date = nextYear.toLocaleDateString('es-CL'); // DD/MM/YYYY
+        return {
+            id: (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$uuid$2f$dist$2f$v4$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__v4$3e$__["v4"])(),
+            sku,
+            name,
+            dci: name,
+            laboratory,
+            price_sell,
+            cost_net,
+            stock,
+            lot_number,
+            expiry_date,
+            location,
+            is_refrigerated: 'NO',
+            isValid: errors.length === 0,
+            errors,
+            needs_review: true // Always flag legacy for review
+        };
+    };
     const onDrop = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useCallback"])({
         "BulkImportModal.useCallback[onDrop]": (acceptedFiles)=>{
             const file = acceptedFiles[0];
@@ -2705,35 +2787,17 @@ const BulkImportModal = ({ isOpen, onClose })=>{
                         // Skip header row
                         const rows = jsonData.slice(1);
                         const parsedRows = rows.map({
-                            "BulkImportModal.useCallback[onDrop].parsedRows": (row, index)=>{
-                                const errors = [];
-                                const sku = row[0]?.toString() || '';
-                                const name = row[1]?.toString() || '';
-                                const price_sell = parseFloat(row[4]) || 0;
-                                if (!sku) errors.push('Falta SKU');
-                                if (!name) errors.push('Falta Nombre');
-                                if (price_sell <= 0) errors.push('Precio inválido');
-                                return {
-                                    sku,
-                                    name,
-                                    dci: row[2]?.toString(),
-                                    laboratory: row[3]?.toString(),
-                                    price_sell,
-                                    cost_net: parseFloat(row[5]) || 0,
-                                    stock: parseInt(row[6]) || 0,
-                                    lot_number: row[7]?.toString() || 'S/L',
-                                    expiry_date: row[8]?.toString(),
-                                    location: row[9]?.toString(),
-                                    is_refrigerated: row[10]?.toString(),
-                                    isValid: errors.length === 0,
-                                    errors
-                                };
+                            "BulkImportModal.useCallback[onDrop].parsedRows": (row)=>{
+                                return importFormat === 'OFFICIAL' ? parseOfficialRow(row) : parseLegacyRow(row);
                             }
                         }["BulkImportModal.useCallback[onDrop].parsedRows"]).filter({
                             "BulkImportModal.useCallback[onDrop].parsedRows": (r)=>r.sku || r.name
-                        }["BulkImportModal.useCallback[onDrop].parsedRows"]); // Filter empty rows
+                        }["BulkImportModal.useCallback[onDrop].parsedRows"]);
                         setImportedData(parsedRows);
                         setStep('PREVIEW');
+                        if (importFormat === 'LEGACY') {
+                            __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].info(`Se detectaron ${parsedRows.length} productos. Se asignaron valores por defecto para revisión.`);
+                        }
                     } catch (error) {
                         console.error(error);
                         __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].error('Error al procesar el archivo Excel');
@@ -2744,7 +2808,9 @@ const BulkImportModal = ({ isOpen, onClose })=>{
             })["BulkImportModal.useCallback[onDrop]"];
             reader.readAsArrayBuffer(file);
         }
-    }["BulkImportModal.useCallback[onDrop]"], []);
+    }["BulkImportModal.useCallback[onDrop]"], [
+        importFormat
+    ]);
     const { getRootProps, getInputProps, isDragActive } = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$dropzone$2f$dist$2f$es$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$locals$3e$__["useDropzone"])({
         onDrop,
         accept: {
@@ -2753,6 +2819,9 @@ const BulkImportModal = ({ isOpen, onClose })=>{
             ],
             'application/vnd.ms-excel': [
                 '.xls'
+            ],
+            'text/csv': [
+                '.csv'
             ]
         },
         maxFiles: 1
@@ -2792,10 +2861,20 @@ const BulkImportModal = ({ isOpen, onClose })=>{
         __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$xlsx$2f$xlsx$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["utils"].book_append_sheet(wb, ws, 'Plantilla');
         __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$xlsx$2f$xlsx$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["writeFile"](wb, 'Formato_Vallenar.xlsx');
     };
+    const handleUpdateRow = (id, field, value)=>{
+        setImportedData((prev)=>prev.map((row)=>{
+                if (row.id === id) {
+                    return {
+                        ...row,
+                        [field]: value
+                    };
+                }
+                return row;
+            }));
+    };
     const handleImport = async ()=>{
         setIsProcessing(true);
         try {
-            // Convert ImportedRow to InventoryBatch format
             const validRows = importedData.filter((r)=>r.isValid);
             if (validRows.length === 0) {
                 __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].error('No hay datos válidos para importar');
@@ -2805,26 +2884,40 @@ const BulkImportModal = ({ isOpen, onClose })=>{
                 // Parse date DD/MM/YYYY to timestamp
                 let expiry = Date.now() + 31536000000; // Default 1 year
                 if (row.expiry_date) {
+                    // Handle different date formats if needed, but assuming DD/MM/YYYY from parser
                     const parts = row.expiry_date.split('/');
                     if (parts.length === 3) {
                         expiry = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0])).getTime();
+                    } else if (row.expiry_date.includes('-')) {
+                        const parts = row.expiry_date.split('-');
+                        if (parts.length === 3) {
+                            // Try YYYY-MM-DD
+                            expiry = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])).getTime();
+                        }
                     }
                 }
                 return {
                     id: (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$uuid$2f$dist$2f$v4$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__v4$3e$__["v4"])(),
                     sku: row.sku,
                     name: row.name,
-                    dci: row.dci,
-                    laboratory: row.laboratory,
+                    dci: row.dci || row.name,
+                    laboratory: row.laboratory || 'GENERICO',
                     price_sell: row.price_sell,
                     cost_net: row.cost_net,
                     stock_actual: row.stock,
                     lot_number: row.lot_number,
                     expiry_date: expiry,
-                    location_id: 'BODEGA_CENTRAL',
+                    location_id: row.location || 'BODEGA_CENTRAL',
                     is_refrigerated: row.is_refrigerated?.toUpperCase() === 'SI',
-                    status: 'AVAILABLE'
-                }; // Using any to bypass strict type check for now, assuming store handles mapping
+                    status: 'AVAILABLE',
+                    // Default values for required fields in InventoryBatch
+                    isp_register: 'PENDIENTE',
+                    format: 'UNIDAD',
+                    units_per_box: 1,
+                    is_bioequivalent: false,
+                    condition: 'VD',
+                    category: 'MEDICAMENTO'
+                };
             });
             await importInventory(itemsToImport);
             __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$sonner$2f$dist$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["toast"].success(`${itemsToImport.length} productos importados exitosamente`);
@@ -2841,10 +2934,11 @@ const BulkImportModal = ({ isOpen, onClose })=>{
     if (!isOpen) return null;
     const validCount = importedData.filter((r)=>r.isValid).length;
     const errorCount = importedData.length - validCount;
+    const reviewCount = importedData.filter((r)=>r.needs_review).length;
     return /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
         className: "fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4",
         children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-            className: "bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col",
+            className: "bg-white rounded-2xl shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col",
             children: [
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                     className: "p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-2xl",
@@ -2858,28 +2952,28 @@ const BulkImportModal = ({ isOpen, onClose })=>{
                                             className: "text-green-600"
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                            lineNumber: 181,
+                                            lineNumber: 284,
                                             columnNumber: 29
                                         }, ("TURBOPACK compile-time value", void 0)),
-                                        "Importación Masiva"
+                                        "Importación Masiva Inteligente"
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                    lineNumber: 180,
+                                    lineNumber: 283,
                                     columnNumber: 25
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
                                     className: "text-sm text-gray-500",
-                                    children: "Carga de inventario desde Excel"
+                                    children: "Carga de inventario desde Excel (Oficial o Legacy)"
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                    lineNumber: 184,
+                                    lineNumber: 287,
                                     columnNumber: 25
                                 }, ("TURBOPACK compile-time value", void 0))
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                            lineNumber: 179,
+                            lineNumber: 282,
                             columnNumber: 21
                         }, ("TURBOPACK compile-time value", void 0)),
                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -2890,18 +2984,18 @@ const BulkImportModal = ({ isOpen, onClose })=>{
                                 className: "text-gray-500"
                             }, void 0, false, {
                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                lineNumber: 187,
+                                lineNumber: 290,
                                 columnNumber: 25
                             }, ("TURBOPACK compile-time value", void 0))
                         }, void 0, false, {
                             fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                            lineNumber: 186,
+                            lineNumber: 289,
                             columnNumber: 21
                         }, ("TURBOPACK compile-time value", void 0))
                     ]
                 }, void 0, true, {
                     fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                    lineNumber: 178,
+                    lineNumber: 281,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0)),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -2910,60 +3004,200 @@ const BulkImportModal = ({ isOpen, onClose })=>{
                         className: "h-full flex flex-col items-center justify-center gap-8",
                         children: [
                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                className: "text-center max-w-md",
+                                className: "bg-gray-50 p-1 rounded-xl flex gap-1 border border-gray-200",
                                 children: [
-                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                        className: "bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-green-600",
-                                        children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$upload$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Upload$3e$__["Upload"], {
-                                            size: 32
-                                        }, void 0, false, {
-                                            fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                            lineNumber: 197,
-                                            columnNumber: 37
-                                        }, ("TURBOPACK compile-time value", void 0))
-                                    }, void 0, false, {
-                                        fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                        lineNumber: 196,
-                                        columnNumber: 33
-                                    }, ("TURBOPACK compile-time value", void 0)),
-                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h3", {
-                                        className: "text-xl font-bold text-gray-800 mb-2",
-                                        children: "Sube tu archivo Excel"
-                                    }, void 0, false, {
-                                        fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                        lineNumber: 199,
-                                        columnNumber: 33
-                                    }, ("TURBOPACK compile-time value", void 0)),
-                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                        className: "text-gray-500 mb-6",
-                                        children: "Para asegurar una carga correcta, descargue nuestra plantilla oficial y copie sus datos en ella."
-                                    }, void 0, false, {
-                                        fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                        lineNumber: 200,
-                                        columnNumber: 33
-                                    }, ("TURBOPACK compile-time value", void 0)),
                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
-                                        onClick: handleDownloadTemplate,
-                                        className: "px-6 py-3 bg-white border-2 border-green-500 text-green-600 font-bold rounded-xl hover:bg-green-50 transition-colors flex items-center gap-2 mx-auto",
+                                        onClick: ()=>setImportFormat('OFFICIAL'),
+                                        className: `px-6 py-3 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${importFormat === 'OFFICIAL' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`,
                                         children: [
-                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$download$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Download$3e$__["Download"], {
-                                                size: 20
+                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$file$2d$spreadsheet$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__FileSpreadsheet$3e$__["FileSpreadsheet"], {
+                                                size: 18
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                lineNumber: 207,
+                                                lineNumber: 308,
                                                 columnNumber: 37
                                             }, ("TURBOPACK compile-time value", void 0)),
-                                            "Descargar Plantilla Excel (.xlsx)"
+                                            "Plantilla Oficial Vallenar"
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                        lineNumber: 203,
+                                        lineNumber: 301,
+                                        columnNumber: 33
+                                    }, ("TURBOPACK compile-time value", void 0)),
+                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                        onClick: ()=>setImportFormat('LEGACY'),
+                                        className: `px-6 py-3 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${importFormat === 'LEGACY' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`,
+                                        children: [
+                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$file$2d$type$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__FileType$3e$__["FileType"], {
+                                                size: 18
+                                            }, void 0, false, {
+                                                fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                lineNumber: 318,
+                                                columnNumber: 37
+                                            }, ("TURBOPACK compile-time value", void 0)),
+                                            "Formato Histórico / Legacy"
+                                        ]
+                                    }, void 0, true, {
+                                        fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                        lineNumber: 311,
                                         columnNumber: 33
                                     }, ("TURBOPACK compile-time value", void 0))
                                 ]
                             }, void 0, true, {
                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                lineNumber: 195,
+                                lineNumber: 300,
+                                columnNumber: 29
+                            }, ("TURBOPACK compile-time value", void 0)),
+                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                className: "text-center max-w-md",
+                                children: importFormat === 'OFFICIAL' ? /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Fragment"], {
+                                    children: [
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                            className: "bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-green-600",
+                                            children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$upload$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Upload$3e$__["Upload"], {
+                                                size: 32
+                                            }, void 0, false, {
+                                                fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                lineNumber: 327,
+                                                columnNumber: 45
+                                            }, ("TURBOPACK compile-time value", void 0))
+                                        }, void 0, false, {
+                                            fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                            lineNumber: 326,
+                                            columnNumber: 41
+                                        }, ("TURBOPACK compile-time value", void 0)),
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h3", {
+                                            className: "text-xl font-bold text-gray-800 mb-2",
+                                            children: "Sube tu plantilla oficial"
+                                        }, void 0, false, {
+                                            fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                            lineNumber: 329,
+                                            columnNumber: 41
+                                        }, ("TURBOPACK compile-time value", void 0)),
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                            className: "text-gray-500 mb-6",
+                                            children: "Estructura estricta. Ideal para cargas limpias y validadas."
+                                        }, void 0, false, {
+                                            fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                            lineNumber: 330,
+                                            columnNumber: 41
+                                        }, ("TURBOPACK compile-time value", void 0)),
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                            onClick: handleDownloadTemplate,
+                                            className: "px-6 py-3 bg-white border-2 border-green-500 text-green-600 font-bold rounded-xl hover:bg-green-50 transition-colors flex items-center gap-2 mx-auto",
+                                            children: [
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$download$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Download$3e$__["Download"], {
+                                                    size: 20
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                    lineNumber: 337,
+                                                    columnNumber: 45
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                "Descargar Plantilla"
+                                            ]
+                                        }, void 0, true, {
+                                            fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                            lineNumber: 333,
+                                            columnNumber: 41
+                                        }, ("TURBOPACK compile-time value", void 0))
+                                    ]
+                                }, void 0, true) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Fragment"], {
+                                    children: [
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                            className: "bg-orange-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-orange-600",
+                                            children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$file$2d$type$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__FileType$3e$__["FileType"], {
+                                                size: 32
+                                            }, void 0, false, {
+                                                fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                lineNumber: 344,
+                                                columnNumber: 45
+                                            }, ("TURBOPACK compile-time value", void 0))
+                                        }, void 0, false, {
+                                            fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                            lineNumber: 343,
+                                            columnNumber: 41
+                                        }, ("TURBOPACK compile-time value", void 0)),
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h3", {
+                                            className: "text-xl font-bold text-gray-800 mb-2",
+                                            children: "Importador Inteligente Legacy"
+                                        }, void 0, false, {
+                                            fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                            lineNumber: 346,
+                                            columnNumber: 41
+                                        }, ("TURBOPACK compile-time value", void 0)),
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                            className: "text-gray-500 mb-6",
+                                            children: "Sube tu Excel antiguo. El sistema intentará separar Nombre/Laboratorio y rellenará datos faltantes (Lotes, Fechas) para revisión."
+                                        }, void 0, false, {
+                                            fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                            lineNumber: 347,
+                                            columnNumber: 41
+                                        }, ("TURBOPACK compile-time value", void 0)),
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                            className: "text-xs text-left bg-orange-50 p-4 rounded-lg border border-orange-100 text-orange-800",
+                                            children: [
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("strong", {
+                                                    children: "Columnas esperadas (sin encabezado):"
+                                                }, void 0, false, {
+                                                    fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                    lineNumber: 351,
+                                                    columnNumber: 45
+                                                }, ("TURBOPACK compile-time value", void 0)),
+                                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("ul", {
+                                                    className: "list-disc pl-4 mt-1 space-y-1",
+                                                    children: [
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("li", {
+                                                            children: "Col A: Código Barras (SKU)"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                            lineNumber: 353,
+                                                            columnNumber: 49
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("li", {
+                                                            children: 'Col B: Nombre Completo (ej: "AMOXICILINA LAB CHILE")'
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                            lineNumber: 354,
+                                                            columnNumber: 49
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("li", {
+                                                            children: "Col C: Stock"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                            lineNumber: 355,
+                                                            columnNumber: 49
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("li", {
+                                                            children: "Col D: Precio Venta"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                            lineNumber: 356,
+                                                            columnNumber: 49
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("li", {
+                                                            children: "Col E: Costo Neto"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                            lineNumber: 357,
+                                                            columnNumber: 49
+                                                        }, ("TURBOPACK compile-time value", void 0))
+                                                    ]
+                                                }, void 0, true, {
+                                                    fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                    lineNumber: 352,
+                                                    columnNumber: 45
+                                                }, ("TURBOPACK compile-time value", void 0))
+                                            ]
+                                        }, void 0, true, {
+                                            fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                            lineNumber: 350,
+                                            columnNumber: 41
+                                        }, ("TURBOPACK compile-time value", void 0))
+                                    ]
+                                }, void 0, true)
+                            }, void 0, false, {
+                                fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                lineNumber: 323,
                                 columnNumber: 29
                             }, ("TURBOPACK compile-time value", void 0)),
                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -2976,7 +3210,7 @@ const BulkImportModal = ({ isOpen, onClose })=>{
                                             ...getInputProps()
                                         }, void 0, false, {
                                             fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                            lineNumber: 220,
+                                            lineNumber: 372,
                                             columnNumber: 37
                                         }, ("TURBOPACK compile-time value", void 0)),
                                         isProcessing ? /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -2987,20 +3221,20 @@ const BulkImportModal = ({ isOpen, onClose })=>{
                                                     size: 32
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                    lineNumber: 223,
+                                                    lineNumber: 375,
                                                     columnNumber: 45
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
-                                                    children: "Procesando archivo..."
+                                                    children: "Procesando e interpretando datos..."
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                    lineNumber: 224,
+                                                    lineNumber: 376,
                                                     columnNumber: 45
                                                 }, ("TURBOPACK compile-time value", void 0))
                                             ]
                                         }, void 0, true, {
                                             fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                            lineNumber: 222,
+                                            lineNumber: 374,
                                             columnNumber: 41
                                         }, ("TURBOPACK compile-time value", void 0)) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Fragment"], {
                                             children: [
@@ -3009,15 +3243,15 @@ const BulkImportModal = ({ isOpen, onClose })=>{
                                                     children: "Arrastra y suelta tu archivo aquí"
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                    lineNumber: 228,
+                                                    lineNumber: 380,
                                                     columnNumber: 45
                                                 }, ("TURBOPACK compile-time value", void 0)),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
                                                     className: "text-gray-400 text-sm",
-                                                    children: "o haz clic para seleccionar"
+                                                    children: "Soporta .xlsx, .xls, .csv"
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                    lineNumber: 231,
+                                                    lineNumber: 383,
                                                     columnNumber: 45
                                                 }, ("TURBOPACK compile-time value", void 0))
                                             ]
@@ -3025,18 +3259,18 @@ const BulkImportModal = ({ isOpen, onClose })=>{
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                    lineNumber: 213,
+                                    lineNumber: 365,
                                     columnNumber: 33
                                 }, ("TURBOPACK compile-time value", void 0))
                             }, void 0, false, {
                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                lineNumber: 212,
+                                lineNumber: 364,
                                 columnNumber: 29
                             }, ("TURBOPACK compile-time value", void 0))
                         ]
                     }, void 0, true, {
                         fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                        lineNumber: 194,
+                        lineNumber: 297,
                         columnNumber: 25
                     }, ("TURBOPACK compile-time value", void 0)) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                         className: "h-full flex flex-col",
@@ -3052,17 +3286,17 @@ const BulkImportModal = ({ isOpen, onClose })=>{
                                                 size: 24
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                lineNumber: 241,
+                                                lineNumber: 393,
                                                 columnNumber: 37
                                             }, ("TURBOPACK compile-time value", void 0)),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                                                 children: [
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
                                                         className: "text-sm text-green-800 font-bold",
-                                                        children: "Registros Válidos"
+                                                        children: "Listos para Importar"
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                        lineNumber: 243,
+                                                        lineNumber: 395,
                                                         columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -3070,20 +3304,61 @@ const BulkImportModal = ({ isOpen, onClose })=>{
                                                         children: validCount
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                        lineNumber: 244,
+                                                        lineNumber: 396,
                                                         columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0))
                                                 ]
                                             }, void 0, true, {
                                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                lineNumber: 242,
+                                                lineNumber: 394,
                                                 columnNumber: 37
                                             }, ("TURBOPACK compile-time value", void 0))
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                        lineNumber: 240,
+                                        lineNumber: 392,
                                         columnNumber: 33
+                                    }, ("TURBOPACK compile-time value", void 0)),
+                                    reviewCount > 0 && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                        className: "flex-1 bg-orange-50 border border-orange-200 rounded-xl p-4 flex items-center gap-3",
+                                        children: [
+                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$pen$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Edit2$3e$__["Edit2"], {
+                                                className: "text-orange-600",
+                                                size: 24
+                                            }, void 0, false, {
+                                                fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                lineNumber: 401,
+                                                columnNumber: 41
+                                            }, ("TURBOPACK compile-time value", void 0)),
+                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                children: [
+                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                                        className: "text-sm text-orange-800 font-bold",
+                                                        children: "Requieren Revisión"
+                                                    }, void 0, false, {
+                                                        fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                        lineNumber: 403,
+                                                        columnNumber: 45
+                                                    }, ("TURBOPACK compile-time value", void 0)),
+                                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                                        className: "text-2xl font-bold text-orange-700",
+                                                        children: reviewCount
+                                                    }, void 0, false, {
+                                                        fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                        lineNumber: 404,
+                                                        columnNumber: 45
+                                                    }, ("TURBOPACK compile-time value", void 0))
+                                                ]
+                                            }, void 0, true, {
+                                                fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                lineNumber: 402,
+                                                columnNumber: 41
+                                            }, ("TURBOPACK compile-time value", void 0))
+                                        ]
+                                    }, void 0, true, {
+                                        fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                        lineNumber: 400,
+                                        columnNumber: 37
                                     }, ("TURBOPACK compile-time value", void 0)),
                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                                         className: "flex-1 bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3",
@@ -3093,17 +3368,17 @@ const BulkImportModal = ({ isOpen, onClose })=>{
                                                 size: 24
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                lineNumber: 248,
+                                                lineNumber: 409,
                                                 columnNumber: 37
                                             }, ("TURBOPACK compile-time value", void 0)),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                                                 children: [
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
                                                         className: "text-sm text-red-800 font-bold",
-                                                        children: "Errores Encontrados"
+                                                        children: "Errores Bloqueantes"
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                        lineNumber: 250,
+                                                        lineNumber: 411,
                                                         columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0)),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -3111,162 +3386,210 @@ const BulkImportModal = ({ isOpen, onClose })=>{
                                                         children: errorCount
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                        lineNumber: 251,
+                                                        lineNumber: 412,
                                                         columnNumber: 41
                                                     }, ("TURBOPACK compile-time value", void 0))
                                                 ]
                                             }, void 0, true, {
                                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                lineNumber: 249,
+                                                lineNumber: 410,
                                                 columnNumber: 37
                                             }, ("TURBOPACK compile-time value", void 0))
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                        lineNumber: 247,
+                                        lineNumber: 408,
                                         columnNumber: 33
                                     }, ("TURBOPACK compile-time value", void 0))
                                 ]
                             }, void 0, true, {
                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                lineNumber: 239,
+                                lineNumber: 391,
                                 columnNumber: 29
                             }, ("TURBOPACK compile-time value", void 0)),
                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                className: "flex-1 overflow-auto border border-gray-200 rounded-xl",
+                                className: "flex-1 overflow-auto border border-gray-200 rounded-xl shadow-inner bg-gray-50",
                                 children: [
                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("table", {
-                                        className: "w-full text-sm text-left",
+                                        className: "w-full text-sm text-left border-collapse",
                                         children: [
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("thead", {
-                                                className: "bg-gray-50 text-gray-700 font-bold sticky top-0",
+                                                className: "bg-white text-gray-700 font-bold sticky top-0 shadow-sm z-10",
                                                 children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("tr", {
                                                     children: [
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("th", {
-                                                            className: "p-3",
+                                                            className: "p-3 border-b",
                                                             children: "Estado"
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                            lineNumber: 260,
+                                                            lineNumber: 421,
                                                             columnNumber: 45
                                                         }, ("TURBOPACK compile-time value", void 0)),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("th", {
-                                                            className: "p-3",
+                                                            className: "p-3 border-b",
                                                             children: "SKU"
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                            lineNumber: 261,
+                                                            lineNumber: 422,
                                                             columnNumber: 45
                                                         }, ("TURBOPACK compile-time value", void 0)),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("th", {
-                                                            className: "p-3",
-                                                            children: "Nombre"
+                                                            className: "p-3 border-b",
+                                                            children: "Nombre Producto"
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                            lineNumber: 262,
+                                                            lineNumber: 423,
                                                             columnNumber: 45
                                                         }, ("TURBOPACK compile-time value", void 0)),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("th", {
-                                                            className: "p-3",
+                                                            className: "p-3 border-b",
+                                                            children: "Laboratorio"
+                                                        }, void 0, false, {
+                                                            fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                            lineNumber: 424,
+                                                            columnNumber: 45
+                                                        }, ("TURBOPACK compile-time value", void 0)),
+                                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("th", {
+                                                            className: "p-3 border-b",
                                                             children: "Precio"
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                            lineNumber: 263,
+                                                            lineNumber: 425,
                                                             columnNumber: 45
                                                         }, ("TURBOPACK compile-time value", void 0)),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("th", {
-                                                            className: "p-3",
+                                                            className: "p-3 border-b",
                                                             children: "Stock"
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                            lineNumber: 264,
+                                                            lineNumber: 426,
                                                             columnNumber: 45
                                                         }, ("TURBOPACK compile-time value", void 0)),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("th", {
-                                                            className: "p-3",
+                                                            className: "p-3 border-b w-32",
                                                             children: "Lote"
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                            lineNumber: 265,
+                                                            lineNumber: 427,
                                                             columnNumber: 45
                                                         }, ("TURBOPACK compile-time value", void 0)),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("th", {
-                                                            className: "p-3",
+                                                            className: "p-3 border-b w-32",
                                                             children: "Vencimiento"
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                            lineNumber: 266,
+                                                            lineNumber: 428,
                                                             columnNumber: 45
                                                         }, ("TURBOPACK compile-time value", void 0))
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                    lineNumber: 259,
+                                                    lineNumber: 420,
                                                     columnNumber: 41
                                                 }, ("TURBOPACK compile-time value", void 0))
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                lineNumber: 258,
+                                                lineNumber: 419,
                                                 columnNumber: 37
                                             }, ("TURBOPACK compile-time value", void 0)),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("tbody", {
-                                                className: "divide-y divide-gray-100",
-                                                children: importedData.slice(0, 100).map((row, i)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("tr", {
-                                                        className: row.isValid ? 'hover:bg-gray-50' : 'bg-red-50 hover:bg-red-100',
+                                                className: "divide-y divide-gray-100 bg-white",
+                                                children: importedData.slice(0, 200).map((row)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("tr", {
+                                                        className: `group transition-colors ${!row.isValid ? 'bg-red-50' : row.needs_review ? 'bg-orange-50/50 hover:bg-orange-50' : 'hover:bg-gray-50'}`,
                                                         children: [
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
                                                                 className: "p-3",
-                                                                children: row.isValid ? /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$circle$2d$check$2d$big$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__CheckCircle$3e$__["CheckCircle"], {
-                                                                    size: 16,
-                                                                    className: "text-green-500"
-                                                                }, void 0, false, {
-                                                                    fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                                    lineNumber: 274,
-                                                                    columnNumber: 57
-                                                                }, ("TURBOPACK compile-time value", void 0)) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                                                    className: "group relative",
+                                                                children: !row.isValid ? /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                                    className: "group/tooltip relative",
                                                                     children: [
                                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$triangle$2d$alert$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__AlertTriangle$3e$__["AlertTriangle"], {
                                                                             size: 16,
                                                                             className: "text-red-500 cursor-help"
                                                                         }, void 0, false, {
                                                                             fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                                            lineNumber: 277,
+                                                                            lineNumber: 440,
                                                                             columnNumber: 61
                                                                         }, ("TURBOPACK compile-time value", void 0)),
                                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                                                                            className: "absolute left-6 top-0 bg-red-800 text-white text-xs p-2 rounded shadow-lg w-48 hidden group-hover:block z-10",
+                                                                            className: "absolute left-6 top-0 bg-red-800 text-white text-xs p-2 rounded shadow-lg w-48 hidden group-hover/tooltip:block z-20",
                                                                             children: row.errors.join(', ')
                                                                         }, void 0, false, {
                                                                             fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                                            lineNumber: 278,
+                                                                            lineNumber: 441,
                                                                             columnNumber: 61
                                                                         }, ("TURBOPACK compile-time value", void 0))
                                                                     ]
                                                                 }, void 0, true, {
                                                                     fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                                    lineNumber: 276,
+                                                                    lineNumber: 439,
+                                                                    columnNumber: 57
+                                                                }, ("TURBOPACK compile-time value", void 0)) : row.needs_review ? /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                                                    title: "Datos autogenerados. Revise si es necesario.",
+                                                                    children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$pen$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Edit2$3e$__["Edit2"], {
+                                                                        size: 16,
+                                                                        className: "text-orange-500"
+                                                                    }, void 0, false, {
+                                                                        fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                                        lineNumber: 447,
+                                                                        columnNumber: 61
+                                                                    }, ("TURBOPACK compile-time value", void 0))
+                                                                }, void 0, false, {
+                                                                    fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                                    lineNumber: 446,
+                                                                    columnNumber: 57
+                                                                }, ("TURBOPACK compile-time value", void 0)) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$circle$2d$check$2d$big$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__CheckCircle$3e$__["CheckCircle"], {
+                                                                    size: 16,
+                                                                    className: "text-green-500"
+                                                                }, void 0, false, {
+                                                                    fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                                    lineNumber: 450,
                                                                     columnNumber: 57
                                                                 }, ("TURBOPACK compile-time value", void 0))
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                                lineNumber: 272,
+                                                                lineNumber: 437,
                                                                 columnNumber: 49
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
-                                                                className: "p-3 font-mono",
+                                                                className: "p-3 font-mono text-xs",
                                                                 children: row.sku
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                                lineNumber: 284,
+                                                                lineNumber: 453,
                                                                 columnNumber: 49
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
                                                                 className: "p-3 font-bold text-gray-800",
-                                                                children: row.name
+                                                                children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
+                                                                    type: "text",
+                                                                    value: row.name,
+                                                                    onChange: (e)=>handleUpdateRow(row.id, 'name', e.target.value),
+                                                                    className: "bg-transparent border-none focus:ring-1 focus:ring-blue-500 rounded w-full text-sm font-bold"
+                                                                }, void 0, false, {
+                                                                    fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                                    lineNumber: 455,
+                                                                    columnNumber: 53
+                                                                }, ("TURBOPACK compile-time value", void 0))
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                                lineNumber: 285,
+                                                                lineNumber: 454,
+                                                                columnNumber: 49
+                                                            }, ("TURBOPACK compile-time value", void 0)),
+                                                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
+                                                                className: "p-3 text-gray-600",
+                                                                children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
+                                                                    type: "text",
+                                                                    value: row.laboratory,
+                                                                    onChange: (e)=>handleUpdateRow(row.id, 'laboratory', e.target.value),
+                                                                    className: "bg-transparent border-none focus:ring-1 focus:ring-blue-500 rounded w-full text-xs"
+                                                                }, void 0, false, {
+                                                                    fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                                    lineNumber: 463,
+                                                                    columnNumber: 53
+                                                                }, ("TURBOPACK compile-time value", void 0))
+                                                            }, void 0, false, {
+                                                                fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                                lineNumber: 462,
                                                                 columnNumber: 49
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
@@ -3277,7 +3600,7 @@ const BulkImportModal = ({ isOpen, onClose })=>{
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                                lineNumber: 286,
+                                                                lineNumber: 470,
                                                                 columnNumber: 49
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
@@ -3285,69 +3608,88 @@ const BulkImportModal = ({ isOpen, onClose })=>{
                                                                 children: row.stock
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                                lineNumber: 287,
+                                                                lineNumber: 471,
                                                                 columnNumber: 49
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
                                                                 className: "p-3",
-                                                                children: row.lot_number
+                                                                children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
+                                                                    type: "text",
+                                                                    value: row.lot_number,
+                                                                    onChange: (e)=>handleUpdateRow(row.id, 'lot_number', e.target.value),
+                                                                    className: `w-full px-2 py-1 rounded border text-xs ${row.lot_number === 'LOTE-MIGRACION' ? 'border-orange-300 bg-orange-50 text-orange-800' : 'border-gray-200'}`
+                                                                }, void 0, false, {
+                                                                    fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                                    lineNumber: 473,
+                                                                    columnNumber: 53
+                                                                }, ("TURBOPACK compile-time value", void 0))
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                                lineNumber: 288,
+                                                                lineNumber: 472,
                                                                 columnNumber: 49
                                                             }, ("TURBOPACK compile-time value", void 0)),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("td", {
                                                                 className: "p-3",
-                                                                children: row.expiry_date
+                                                                children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
+                                                                    type: "text",
+                                                                    value: row.expiry_date,
+                                                                    onChange: (e)=>handleUpdateRow(row.id, 'expiry_date', e.target.value),
+                                                                    className: "w-full px-2 py-1 rounded border border-gray-200 text-xs",
+                                                                    placeholder: "DD/MM/YYYY"
+                                                                }, void 0, false, {
+                                                                    fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
+                                                                    lineNumber: 482,
+                                                                    columnNumber: 53
+                                                                }, ("TURBOPACK compile-time value", void 0))
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                                lineNumber: 289,
+                                                                lineNumber: 481,
                                                                 columnNumber: 49
                                                             }, ("TURBOPACK compile-time value", void 0))
                                                         ]
-                                                    }, i, true, {
+                                                    }, row.id, true, {
                                                         fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                        lineNumber: 271,
+                                                        lineNumber: 433,
                                                         columnNumber: 45
                                                     }, ("TURBOPACK compile-time value", void 0)))
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                                lineNumber: 269,
+                                                lineNumber: 431,
                                                 columnNumber: 37
                                             }, ("TURBOPACK compile-time value", void 0))
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                        lineNumber: 257,
+                                        lineNumber: 418,
                                         columnNumber: 33
                                     }, ("TURBOPACK compile-time value", void 0)),
-                                    importedData.length > 100 && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                    importedData.length > 200 && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                                         className: "p-4 text-center text-gray-500 text-sm bg-gray-50 border-t border-gray-200",
                                         children: [
-                                            "Mostrando primeros 100 de ",
+                                            "Mostrando primeros 200 de ",
                                             importedData.length,
-                                            " registros"
+                                            " registros. Los demás se importarán correctamente."
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                        lineNumber: 295,
+                                        lineNumber: 495,
                                         columnNumber: 37
                                     }, ("TURBOPACK compile-time value", void 0))
                                 ]
                             }, void 0, true, {
                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                lineNumber: 256,
+                                lineNumber: 417,
                                 columnNumber: 29
                             }, ("TURBOPACK compile-time value", void 0))
                         ]
                     }, void 0, true, {
                         fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                        lineNumber: 238,
+                        lineNumber: 390,
                         columnNumber: 25
                     }, ("TURBOPACK compile-time value", void 0))
                 }, void 0, false, {
                     fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                    lineNumber: 192,
+                    lineNumber: 295,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0)),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -3363,7 +3705,7 @@ const BulkImportModal = ({ isOpen, onClose })=>{
                                 children: "Cancelar"
                             }, void 0, false, {
                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                lineNumber: 308,
+                                lineNumber: 508,
                                 columnNumber: 29
                             }, ("TURBOPACK compile-time value", void 0)),
                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -3375,48 +3717,48 @@ const BulkImportModal = ({ isOpen, onClose })=>{
                                         className: "animate-spin"
                                     }, void 0, false, {
                                         fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                        lineNumber: 322,
+                                        lineNumber: 522,
                                         columnNumber: 49
-                                    }, ("TURBOPACK compile-time value", void 0)) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$upload$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Upload$3e$__["Upload"], {
+                                    }, ("TURBOPACK compile-time value", void 0)) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$save$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Save$3e$__["Save"], {
                                         size: 20
                                     }, void 0, false, {
                                         fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                        lineNumber: 322,
+                                        lineNumber: 522,
                                         columnNumber: 88
                                     }, ("TURBOPACK compile-time value", void 0)),
-                                    "Importar ",
+                                    "Confirmar e Importar (",
                                     validCount,
-                                    " Productos"
+                                    ")"
                                 ]
                             }, void 0, true, {
                                 fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                                lineNumber: 317,
+                                lineNumber: 517,
                                 columnNumber: 29
                             }, ("TURBOPACK compile-time value", void 0))
                         ]
                     }, void 0, true) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {}, void 0, false, {
                         fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                        lineNumber: 327,
+                        lineNumber: 527,
                         columnNumber: 25
                     }, ("TURBOPACK compile-time value", void 0))
                 }, void 0, false, {
                     fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-                    lineNumber: 305,
+                    lineNumber: 505,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0))
             ]
         }, void 0, true, {
             fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-            lineNumber: 176,
+            lineNumber: 279,
             columnNumber: 13
         }, ("TURBOPACK compile-time value", void 0))
     }, void 0, false, {
         fileName: "[project]/src/presentation/components/inventory/BulkImportModal.tsx",
-        lineNumber: 175,
+        lineNumber: 278,
         columnNumber: 9
     }, ("TURBOPACK compile-time value", void 0));
 };
-_s(BulkImportModal, "IB/zhMDuEUn5UPxzxqnuO1VLyTA=", false, function() {
+_s(BulkImportModal, "Um/0I9qUjnGeOxIRhCt9kk1BQRk=", false, function() {
     return [
         __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$presentation$2f$store$2f$useStore$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["usePharmaStore"],
         __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$dropzone$2f$dist$2f$es$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$locals$3e$__["useDropzone"]

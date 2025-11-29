@@ -1,6 +1,8 @@
-(globalThis.TURBOPACK_CHUNK_LISTS || (globalThis.TURBOPACK_CHUNK_LISTS = [])).push({
-    script: typeof document === "object" ? document.currentScript : undefined,
-    chunks: [
+(globalThis.TURBOPACK || (globalThis.TURBOPACK = [])).push([typeof document === "object" ? document.currentScript : undefined,
+"[project]/src/App.tsx [app-client] (ecmascript, next/dynamic entry, async loader)", ((__turbopack_context__) => {
+
+__turbopack_context__.v((parentImport) => {
+    return Promise.all([
   "static/chunks/_4acc7d40._.js",
   "static/chunks/src_presentation_components_pos_d635192c._.js",
   "static/chunks/src_presentation_components_POSMainScreen_tsx_6d47edad._.js",
@@ -19,7 +21,11 @@
   "static/chunks/node_modules_xlsx_xlsx_mjs_fef98e92._.js",
   "static/chunks/node_modules_recharts_es6_ddd4990a._.js",
   "static/chunks/node_modules_@reduxjs_toolkit_b00a18bb._.js",
-  "static/chunks/node_modules_042756f1._.js"
-],
-    source: "dynamic"
+  "static/chunks/node_modules_042756f1._.js",
+  "static/chunks/src_App_tsx_b8474123._.js"
+].map((chunk) => __turbopack_context__.l(chunk))).then(() => {
+        return parentImport("[project]/src/App.tsx [app-client] (ecmascript, next/dynamic entry)");
+    });
 });
+}),
+]);

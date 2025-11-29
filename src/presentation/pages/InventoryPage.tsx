@@ -199,14 +199,14 @@ const InventoryPage: React.FC = () => {
                                 </td>
                                 <td className="p-4 text-right">
                                     <div className="flex flex-col items-end">
-                                        <span className="font-bold text-slate-800 text-lg">${(item.price_sell_box || item.price).toLocaleString()}</span>
+                                        <span className="font-bold text-slate-800 text-lg">${(item.price_sell_box || item.price || 0).toLocaleString()}</span>
                                         <span className="text-xs font-bold text-slate-400">
-                                            (${item.price_sell_unit ? item.price_sell_unit.toLocaleString() : Math.round((item.price_sell_box || item.price) / (item.units_per_box || item.unit_count || 1)).toLocaleString()} / un)
+                                            (${item.price_sell_unit ? item.price_sell_unit.toLocaleString() : Math.round((item.price_sell_box || item.price || 0) / (item.units_per_box || item.unit_count || 1)).toLocaleString()} / un)
                                         </span>
                                         {/* Security: Only Managers see Cost */}
                                         {(user?.role === 'MANAGER' || user?.role === 'ADMIN') && (
                                             <span className="text-[10px] font-mono text-slate-300 mt-1">
-                                                Costo: ${(item.cost_net || item.cost_price).toLocaleString()}
+                                                Costo: ${(item.cost_net || item.cost_price || 0).toLocaleString()}
                                             </span>
                                         )}
                                     </div>
