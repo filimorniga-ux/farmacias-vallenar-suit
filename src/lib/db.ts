@@ -1,44 +1,44 @@
 import { Pool } from 'pg';
 
-// Disable SSL verification for self-signed certs in development
-if (process.env.NODE_ENV !== 'production') {
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-}
+// Detectar si estamos en Producción (Vercel) o Desarrollo
+const isProduction = process.env.NODE_ENV === 'production';
 
-const pool = new Pool({
-    // La conexión se sigue leyendo de la variable DATABASE_URL
+// Configuración de conexión
+const connectionConfig = {
     connectionString: process.env.DATABASE_URL,
-    // [PARCHE CRÍTICO PARA EL ENTORNO LOCAL]
-    ssl: {
-        rejectUnauthorized: false,
-    },
-});
+    ssl: isProduction
+        ? { rejectUnauthorized: true } // Producción: SSL Estricto (Tiger Data lo requiere)
+        : { rejectUnauthorized: false }, // Local: SSL Permisivo (Para evitar errores de certificado propio)
+    max: 10, // Límite de conexiones para no saturar (Serverless friendly)
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000,
+};
 
-// Handle idle client errors to prevent crash
-pool.on('error', (err, client) => {
-    console.error('Unexpected error on idle client', err);
-    // Don't exit the process, just log it
-});
+// Singleton para evitar múltiples pools en hot-reload
+let pool: Pool;
+
+if (!global.postgresPool) {
+    global.postgresPool = new Pool(connectionConfig);
+}
+pool = global.postgresPool;
+// Hack para TypeScript global scope
+declare global {
+    var postgresPool: Pool | undefined;
+}
 
 export async function query(text: string, params?: any[]) {
     const start = Date.now();
     try {
         const res = await pool.query(text, params);
         const duration = Date.now() - start;
-        console.log('Executed query', { text, duration, rows: res.rowCount });
+        // Log solo en desarrollo para no ensuciar producción
+        if (!isProduction) {
+            console.log('Ejecutando query', { text, duration, rows: res.rowCount });
+        }
         return res;
     } catch (error) {
-        console.warn('⚠️ Safe Mode: Database connection failed. Returning empty data.');
-        // console.error('Database Error:', error); // Uncomment for debugging
-        // Return a safe mock object to prevent app crash
-        return {
-            rows: [],
-            rowCount: 0,
-            command: '',
-            oid: 0,
-            fields: []
-        };
+        console.error('❌ Error Base de Datos:', error);
+        // Retornamos error para que el Frontend sepa que falló y active el modo Offline si es necesario
+        throw error;
     }
 }
-
-export default pool;
