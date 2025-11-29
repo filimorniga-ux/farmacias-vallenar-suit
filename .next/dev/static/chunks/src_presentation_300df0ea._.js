@@ -8,8 +8,8 @@ __turbopack_context__.s([
 ]);
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$zustand$2f$esm$2f$react$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/zustand/esm/react.mjs [app-client] (ecmascript)");
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$zustand$2f$esm$2f$middleware$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/zustand/esm/middleware.mjs [app-client] (ecmascript)");
-var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$actions$2f$data$3a$cd6dfe__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$text$2f$javascript$3e$__ = __turbopack_context__.i("[project]/src/actions/data:cd6dfe [app-client] (ecmascript) <text/javascript>");
-var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$actions$2f$data$3a$50187d__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$text$2f$javascript$3e$__ = __turbopack_context__.i("[project]/src/actions/data:50187d [app-client] (ecmascript) <text/javascript>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$actions$2f$data$3a$c3f8dc__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$text$2f$javascript$3e$__ = __turbopack_context__.i("[project]/src/actions/data:c3f8dc [app-client] (ecmascript) <text/javascript>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$actions$2f$data$3a$57544d__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$text$2f$javascript$3e$__ = __turbopack_context__.i("[project]/src/actions/data:57544d [app-client] (ecmascript) <text/javascript>");
 ;
 ;
 ;
@@ -582,8 +582,8 @@ const usePharmaStore = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_
             });
             try {
                 const [inventory, employees] = await Promise.all([
-                    (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$actions$2f$data$3a$cd6dfe__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$text$2f$javascript$3e$__["fetchInventory"])(),
-                    (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$actions$2f$data$3a$50187d__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$text$2f$javascript$3e$__["fetchEmployees"])()
+                    (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$actions$2f$data$3a$c3f8dc__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$text$2f$javascript$3e$__["fetchInventory"])(),
+                    (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$actions$2f$data$3a$57544d__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$text$2f$javascript$3e$__["fetchEmployees"])()
                 ]);
                 // Si falla la DB (Safe Mode devuelve []), mantenemos lo que haya o usamos un fallback mínimo si está vacío
                 if (inventory.length > 0) set({
@@ -602,12 +602,7 @@ const usePharmaStore = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_
                     cashMovements: state.cashMovements,
                     expenses: state.expenses
                 });
-                console.log('✅ Data Synced & Tiger Data Initialized:', {
-                    inventoryCount: state.inventory.length,
-                    employeeCount: state.employees.length,
-                    salesCount: state.salesHistory.length,
-                    source: inventory.length > 0 ? 'DB' : 'MOCK/CACHE'
-                });
+            // ✅ Data Synced & Tiger Data Initialized
             } catch (error) {
                 console.error('❌ Sync failed:', error);
                 // Show a friendly toast to the user
@@ -792,7 +787,8 @@ const usePharmaStore = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_
                     price: item.price,
                     quantity: quantity,
                     allows_commission: item.allows_commission,
-                    active_ingredients: item.active_ingredients
+                    active_ingredients: item.active_ingredients,
+                    cost_price: item.cost_price || 0
                 };
                 return {
                     cart: [
@@ -859,7 +855,8 @@ const usePharmaStore = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_
                             price: item.price,
                             quantity: item.quantity,
                             allows_commission: item.allows_commission || false,
-                            active_ingredients: item.active_ingredients
+                            active_ingredients: item.active_ingredients,
+                            cost_price: item.cost_price || 0
                         })),
                     total: state.cart.reduce((a, b)=>a + b.price * b.quantity, 0),
                     payment_method: paymentMethod,
@@ -874,7 +871,7 @@ const usePharmaStore = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_
                     console.error('❌ Failed to save sale to Tiger Data');
                     return false;
                 }
-                console.log('✅ Sale saved to Tiger Data:', result.transactionId);
+                // ✅ Sale saved to Tiger Data
                 // 3. Update local inventory (deduct stock)
                 const newInventory = state.inventory.map((item)=>{
                     const cartItem = state.cart.find((c)=>c.sku === item.sku);
@@ -903,12 +900,6 @@ const usePharmaStore = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_
                         ...state.salesHistory,
                         saleTransaction
                     ]
-                });
-                console.log('✅ Sale processed successfully:', {
-                    items: saleTransaction.items.length,
-                    total: saleTransaction.total,
-                    paymentMethod,
-                    customer: customer?.fullName
                 });
                 return true;
             } catch (error) {
@@ -1304,8 +1295,8 @@ const usePharmaStore = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_
                             }
                         }
                     } else {
-                        // Handle DAMAGED (Log incident, move to quarantine, etc.)
-                        console.log(`Item ${recItem.batchId} received DAMAGED.Quantity: ${recItem.quantity} `);
+                    // Handle DAMAGED (Log incident, move to quarantine, etc.)
+                    // Item received DAMAGED
                     }
                 });
                 // Update Shipment Status
@@ -1608,7 +1599,7 @@ const useLocationStore = (0, __TURBOPACK__imported__module__$5b$project$5d2f$nod
                 set({
                     currentLocation: target
                 });
-                console.log(`📍 Location switched to: ${target.name} (${target.type})`);
+                // 📍 Location switched
                 if (onSuccess) onSuccess();
             }
         },
@@ -1897,7 +1888,7 @@ const useKioskGuard = (enabled = true)=>{
                             await document.documentElement.requestFullscreen();
                         }
                     } catch (err) {
-                        console.log('Fullscreen request denied or not supported');
+                    // Fullscreen request denied or not supported
                     }
                 }
             }["useKioskGuard.useEffect.enterFullScreen"];

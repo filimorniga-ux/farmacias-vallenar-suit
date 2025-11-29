@@ -68,7 +68,7 @@ const LandingPage = ()=>{
     (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useEffect"])({
         "LandingPage.useEffect": ()=>{
             logout();
-            console.log("🔒 Sesión cerrada por seguridad al volver al inicio.");
+        // Sesión cerrada por seguridad al volver al inicio.
         }
     }["LandingPage.useEffect"], []);
     // Navigate after successful login (when user state updates)
@@ -4566,7 +4566,7 @@ const HRPage = ()=>{
     const handleSaveEmployee = (updatedEmployee)=>{
         // In a real app, dispatch an action to update the store
         // For now, we'll just log it and show a toast
-        console.log('Saving employee:', updatedEmployee);
+        // Mock update in local state for demo purposes if needed,
         // Mock update in local state for demo purposes if needed, 
         // but ideally usePharmaStore should have an updateEmployee action.
         // Since we don't have it exposed in the store interface yet, we'll assume it's handled or add it later.
@@ -6777,12 +6777,19 @@ const AttendanceKioskPage = ()=>{
             text: 'Coloque su dedo en el sensor...',
             type: 'success'
         });
-        const result = await __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$infrastructure$2f$biometrics$2f$WebAuthnService$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["WebAuthnService"].verifyCredential(selectedEmployee.id);
-        if (result.success) {
-            handleAttendanceAction();
-        } else {
+        try {
+            const credential = await __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$infrastructure$2f$biometrics$2f$WebAuthnService$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["WebAuthnService"].authenticateCredential(selectedEmployee.biometric_credentials || []);
+            if (credential) {
+                handleAttendanceAction();
+            } else {
+                setMessage({
+                    text: 'Autenticación fallida',
+                    type: 'error'
+                });
+            }
+        } catch (error) {
             setMessage({
-                text: result.message,
+                text: 'Error de autenticación biométrica',
                 type: 'error'
             });
         }
@@ -6820,7 +6827,11 @@ const AttendanceKioskPage = ()=>{
     };
     const processAction = (type)=>{
         if (!authenticatedEmployee) return;
-        registerAttendance(authenticatedEmployee.id, type);
+        // Map UI actions to Domain Types
+        let attendanceType = type;
+        if (type === 'LUNCH_START') attendanceType = 'BREAK_START';
+        if (type === 'LUNCH_END') attendanceType = 'BREAK_END';
+        registerAttendance(authenticatedEmployee.id, attendanceType);
         setMessage({
             text: `Marcaje registrado: ${type}`,
             type: 'success'
@@ -6840,7 +6851,7 @@ const AttendanceKioskPage = ()=>{
                     className: "mb-6 text-slate-500"
                 }, void 0, false, {
                     fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                    lineNumber: 104,
+                    lineNumber: 114,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0)),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h1", {
@@ -6848,7 +6859,7 @@ const AttendanceKioskPage = ()=>{
                     children: "Terminal Bloqueado"
                 }, void 0, false, {
                     fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                    lineNumber: 105,
+                    lineNumber: 115,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0)),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -6856,7 +6867,7 @@ const AttendanceKioskPage = ()=>{
                     children: "Este dispositivo no está activo como Kiosco de Asistencia. Se requiere autorización de un Gerente para activarlo."
                 }, void 0, false, {
                     fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                    lineNumber: 106,
+                    lineNumber: 116,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0)),
                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -6865,13 +6876,13 @@ const AttendanceKioskPage = ()=>{
                     children: "Activar Terminal"
                 }, void 0, false, {
                     fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                    lineNumber: 110,
+                    lineNumber: 120,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0))
             ]
         }, void 0, true, {
             fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-            lineNumber: 103,
+            lineNumber: 113,
             columnNumber: 13
         }, ("TURBOPACK compile-time value", void 0));
     }
@@ -6886,7 +6897,7 @@ const AttendanceKioskPage = ()=>{
                         children: authenticatedEmployee.name.charAt(0)
                     }, void 0, false, {
                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                        lineNumber: 124,
+                        lineNumber: 134,
                         columnNumber: 21
                     }, ("TURBOPACK compile-time value", void 0)),
                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h2", {
@@ -6897,7 +6908,7 @@ const AttendanceKioskPage = ()=>{
                         ]
                     }, void 0, true, {
                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                        lineNumber: 127,
+                        lineNumber: 137,
                         columnNumber: 21
                     }, ("TURBOPACK compile-time value", void 0)),
                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -6905,7 +6916,7 @@ const AttendanceKioskPage = ()=>{
                         children: "Selecciona tu marcaje"
                     }, void 0, false, {
                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                        lineNumber: 128,
+                        lineNumber: 138,
                         columnNumber: 21
                     }, ("TURBOPACK compile-time value", void 0)),
                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -6919,14 +6930,14 @@ const AttendanceKioskPage = ()=>{
                                         className: "rotate-180"
                                     }, void 0, false, {
                                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                        lineNumber: 136,
+                                        lineNumber: 146,
                                         columnNumber: 33
                                     }, ("TURBOPACK compile-time value", void 0)),
                                     " ENTRADA"
                                 ]
                             }, void 0, true, {
                                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                lineNumber: 132,
+                                lineNumber: 142,
                                 columnNumber: 29
                             }, ("TURBOPACK compile-time value", void 0)),
                             (authenticatedEmployee.current_status === 'IN' || authenticatedEmployee.current_status === 'LUNCH') && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Fragment"], {
@@ -6937,14 +6948,14 @@ const AttendanceKioskPage = ()=>{
                                         children: [
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$coffee$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__Coffee$3e$__["Coffee"], {}, void 0, false, {
                                                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                                lineNumber: 147,
+                                                lineNumber: 157,
                                                 columnNumber: 41
                                             }, ("TURBOPACK compile-time value", void 0)),
                                             " SALIDA A COLACIÓN"
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                        lineNumber: 143,
+                                        lineNumber: 153,
                                         columnNumber: 37
                                     }, ("TURBOPACK compile-time value", void 0)),
                                     authenticatedEmployee.current_status === 'LUNCH' && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -6953,14 +6964,14 @@ const AttendanceKioskPage = ()=>{
                                         children: [
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$arrow$2d$right$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__ArrowRight$3e$__["ArrowRight"], {}, void 0, false, {
                                                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                                lineNumber: 156,
+                                                lineNumber: 166,
                                                 columnNumber: 41
                                             }, ("TURBOPACK compile-time value", void 0)),
                                             " VUELTA DE COLACIÓN"
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                        lineNumber: 152,
+                                        lineNumber: 162,
                                         columnNumber: 37
                                     }, ("TURBOPACK compile-time value", void 0)),
                                     authenticatedEmployee.current_status === 'IN' && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -6969,14 +6980,14 @@ const AttendanceKioskPage = ()=>{
                                         children: [
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$log$2d$out$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__LogOut$3e$__["LogOut"], {}, void 0, false, {
                                                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                                lineNumber: 165,
+                                                lineNumber: 175,
                                                 columnNumber: 41
                                             }, ("TURBOPACK compile-time value", void 0)),
                                             " FIN DE JORNADA"
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                        lineNumber: 161,
+                                        lineNumber: 171,
                                         columnNumber: 37
                                     }, ("TURBOPACK compile-time value", void 0))
                                 ]
@@ -6984,7 +6995,7 @@ const AttendanceKioskPage = ()=>{
                         ]
                     }, void 0, true, {
                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                        lineNumber: 130,
+                        lineNumber: 140,
                         columnNumber: 21
                     }, ("TURBOPACK compile-time value", void 0)),
                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -6993,18 +7004,18 @@ const AttendanceKioskPage = ()=>{
                         children: "Cancelar"
                     }, void 0, false, {
                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                        lineNumber: 172,
+                        lineNumber: 182,
                         columnNumber: 21
                     }, ("TURBOPACK compile-time value", void 0))
                 ]
             }, void 0, true, {
                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                lineNumber: 123,
+                lineNumber: 133,
                 columnNumber: 17
             }, ("TURBOPACK compile-time value", void 0))
         }, void 0, false, {
             fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-            lineNumber: 122,
+            lineNumber: 132,
             columnNumber: 13
         }, ("TURBOPACK compile-time value", void 0));
     }
@@ -7022,7 +7033,7 @@ const AttendanceKioskPage = ()=>{
                                 size: 32
                             }, void 0, false, {
                                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                lineNumber: 188,
+                                lineNumber: 198,
                                 columnNumber: 21
                             }, ("TURBOPACK compile-time value", void 0)),
                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -7032,7 +7043,7 @@ const AttendanceKioskPage = ()=>{
                                         children: "Control de Asistencia"
                                     }, void 0, false, {
                                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                        lineNumber: 190,
+                                        lineNumber: 200,
                                         columnNumber: 25
                                     }, ("TURBOPACK compile-time value", void 0)),
                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -7044,19 +7055,19 @@ const AttendanceKioskPage = ()=>{
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                        lineNumber: 191,
+                                        lineNumber: 201,
                                         columnNumber: 25
                                     }, ("TURBOPACK compile-time value", void 0))
                                 ]
                             }, void 0, true, {
                                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                lineNumber: 189,
+                                lineNumber: 199,
                                 columnNumber: 21
                             }, ("TURBOPACK compile-time value", void 0))
                         ]
                     }, void 0, true, {
                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                        lineNumber: 187,
+                        lineNumber: 197,
                         columnNumber: 17
                     }, ("TURBOPACK compile-time value", void 0)),
                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -7066,18 +7077,18 @@ const AttendanceKioskPage = ()=>{
                             size: 20
                         }, void 0, false, {
                             fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                            lineNumber: 195,
+                            lineNumber: 205,
                             columnNumber: 21
                         }, ("TURBOPACK compile-time value", void 0))
                     }, void 0, false, {
                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                        lineNumber: 194,
+                        lineNumber: 204,
                         columnNumber: 17
                     }, ("TURBOPACK compile-time value", void 0))
                 ]
             }, void 0, true, {
                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                lineNumber: 186,
+                lineNumber: 196,
                 columnNumber: 13
             }, ("TURBOPACK compile-time value", void 0)),
             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -7101,7 +7112,7 @@ const AttendanceKioskPage = ()=>{
                                     className: `absolute top-4 right-4 w-4 h-4 rounded-full ${emp.current_status === 'IN' ? 'bg-green-500 animate-pulse' : emp.current_status === 'LUNCH' ? 'bg-amber-500' : 'bg-slate-300'}`
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                    lineNumber: 211,
+                                    lineNumber: 221,
                                     columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -7109,7 +7120,7 @@ const AttendanceKioskPage = ()=>{
                                     children: emp.name.charAt(0)
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                    lineNumber: 215,
+                                    lineNumber: 225,
                                     columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h3", {
@@ -7117,7 +7128,7 @@ const AttendanceKioskPage = ()=>{
                                     children: emp.name
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                    lineNumber: 218,
+                                    lineNumber: 228,
                                     columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -7125,7 +7136,7 @@ const AttendanceKioskPage = ()=>{
                                     children: emp.role
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                    lineNumber: 219,
+                                    lineNumber: 229,
                                     columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0)),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
@@ -7133,23 +7144,23 @@ const AttendanceKioskPage = ()=>{
                                     children: emp.current_status === 'IN' ? 'TRABAJANDO' : emp.current_status === 'LUNCH' ? 'EN COLACIÓN' : 'FUERA'
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                    lineNumber: 220,
+                                    lineNumber: 230,
                                     columnNumber: 29
                                 }, ("TURBOPACK compile-time value", void 0))
                             ]
                         }, emp.id, true, {
                             fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                            lineNumber: 203,
+                            lineNumber: 213,
                             columnNumber: 25
                         }, ("TURBOPACK compile-time value", void 0)))
                 }, void 0, false, {
                     fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                    lineNumber: 201,
+                    lineNumber: 211,
                     columnNumber: 17
                 }, ("TURBOPACK compile-time value", void 0))
             }, void 0, false, {
                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                lineNumber: 200,
+                lineNumber: 210,
                 columnNumber: 13
             }, ("TURBOPACK compile-time value", void 0)),
             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$framer$2d$motion$2f$dist$2f$es$2f$components$2f$AnimatePresence$2f$index$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["AnimatePresence"], {
@@ -7188,12 +7199,12 @@ const AttendanceKioskPage = ()=>{
                                     size: 24
                                 }, void 0, false, {
                                     fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                    lineNumber: 250,
+                                    lineNumber: 260,
                                     columnNumber: 33
                                 }, ("TURBOPACK compile-time value", void 0))
                             }, void 0, false, {
                                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                lineNumber: 246,
+                                lineNumber: 256,
                                 columnNumber: 29
                             }, ("TURBOPACK compile-time value", void 0)),
                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -7204,7 +7215,7 @@ const AttendanceKioskPage = ()=>{
                                         children: selectedEmployee.name.charAt(0)
                                     }, void 0, false, {
                                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                        lineNumber: 254,
+                                        lineNumber: 264,
                                         columnNumber: 33
                                     }, ("TURBOPACK compile-time value", void 0)),
                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("h3", {
@@ -7215,7 +7226,7 @@ const AttendanceKioskPage = ()=>{
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                        lineNumber: 257,
+                                        lineNumber: 267,
                                         columnNumber: 33
                                     }, ("TURBOPACK compile-time value", void 0)),
                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -7223,13 +7234,13 @@ const AttendanceKioskPage = ()=>{
                                         children: "Verifica tu identidad para continuar"
                                     }, void 0, false, {
                                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                        lineNumber: 258,
+                                        lineNumber: 268,
                                         columnNumber: 33
                                     }, ("TURBOPACK compile-time value", void 0))
                                 ]
                             }, void 0, true, {
                                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                lineNumber: 253,
+                                lineNumber: 263,
                                 columnNumber: 29
                             }, ("TURBOPACK compile-time value", void 0)),
                             message && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -7237,7 +7248,7 @@ const AttendanceKioskPage = ()=>{
                                 children: message.text
                             }, void 0, false, {
                                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                lineNumber: 262,
+                                lineNumber: 272,
                                 columnNumber: 33
                             }, ("TURBOPACK compile-time value", void 0)),
                             authMethod === 'BIOMETRIC' ? /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -7252,7 +7263,7 @@ const AttendanceKioskPage = ()=>{
                                                 className: "text-blue-500 group-hover:scale-110 transition-transform"
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                                lineNumber: 274,
+                                                lineNumber: 284,
                                                 columnNumber: 41
                                             }, ("TURBOPACK compile-time value", void 0)),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
@@ -7260,13 +7271,13 @@ const AttendanceKioskPage = ()=>{
                                                 children: "Tocar Sensor de Huella"
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                                lineNumber: 275,
+                                                lineNumber: 285,
                                                 columnNumber: 41
                                             }, ("TURBOPACK compile-time value", void 0))
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                        lineNumber: 270,
+                                        lineNumber: 280,
                                         columnNumber: 37
                                     }, ("TURBOPACK compile-time value", void 0)),
                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -7278,12 +7289,12 @@ const AttendanceKioskPage = ()=>{
                                                     className: "w-full border-t border-slate-200"
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                                    lineNumber: 279,
+                                                    lineNumber: 289,
                                                     columnNumber: 93
                                                 }, ("TURBOPACK compile-time value", void 0))
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                                lineNumber: 279,
+                                                lineNumber: 289,
                                                 columnNumber: 41
                                             }, ("TURBOPACK compile-time value", void 0)),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -7293,18 +7304,18 @@ const AttendanceKioskPage = ()=>{
                                                     children: "O usa tu PIN"
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                                    lineNumber: 280,
+                                                    lineNumber: 290,
                                                     columnNumber: 95
                                                 }, ("TURBOPACK compile-time value", void 0))
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                                lineNumber: 280,
+                                                lineNumber: 290,
                                                 columnNumber: 41
                                             }, ("TURBOPACK compile-time value", void 0))
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                        lineNumber: 278,
+                                        lineNumber: 288,
                                         columnNumber: 37
                                     }, ("TURBOPACK compile-time value", void 0)),
                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -7313,13 +7324,13 @@ const AttendanceKioskPage = ()=>{
                                         children: "Ingresar PIN Manualmente"
                                     }, void 0, false, {
                                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                        lineNumber: 283,
+                                        lineNumber: 293,
                                         columnNumber: 37
                                     }, ("TURBOPACK compile-time value", void 0))
                                 ]
                             }, void 0, true, {
                                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                lineNumber: 269,
+                                lineNumber: 279,
                                 columnNumber: 33
                             }, ("TURBOPACK compile-time value", void 0)) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                                 className: "space-y-6",
@@ -7331,7 +7342,7 @@ const AttendanceKioskPage = ()=>{
                                                 children: "Ingresa tu PIN de 4 dígitos"
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                                lineNumber: 293,
+                                                lineNumber: 303,
                                                 columnNumber: 41
                                             }, ("TURBOPACK compile-time value", void 0)),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
@@ -7344,13 +7355,13 @@ const AttendanceKioskPage = ()=>{
                                                 autoFocus: true
                                             }, void 0, false, {
                                                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                                lineNumber: 294,
+                                                lineNumber: 304,
                                                 columnNumber: 41
                                             }, ("TURBOPACK compile-time value", void 0))
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                        lineNumber: 292,
+                                        lineNumber: 302,
                                         columnNumber: 37
                                     }, ("TURBOPACK compile-time value", void 0)),
                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -7369,7 +7380,7 @@ const AttendanceKioskPage = ()=>{
                                         children: "Confirmar PIN"
                                     }, void 0, false, {
                                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                        lineNumber: 304,
+                                        lineNumber: 314,
                                         columnNumber: 37
                                     }, ("TURBOPACK compile-time value", void 0)),
                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -7378,35 +7389,35 @@ const AttendanceKioskPage = ()=>{
                                         children: "Volver a Huella Digital"
                                     }, void 0, false, {
                                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                        lineNumber: 317,
+                                        lineNumber: 327,
                                         columnNumber: 37
                                     }, ("TURBOPACK compile-time value", void 0))
                                 ]
                             }, void 0, true, {
                                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                                lineNumber: 291,
+                                lineNumber: 301,
                                 columnNumber: 33
                             }, ("TURBOPACK compile-time value", void 0))
                         ]
                     }, void 0, true, {
                         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                        lineNumber: 240,
+                        lineNumber: 250,
                         columnNumber: 25
                     }, ("TURBOPACK compile-time value", void 0))
                 }, void 0, false, {
                     fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                    lineNumber: 234,
+                    lineNumber: 244,
                     columnNumber: 21
                 }, ("TURBOPACK compile-time value", void 0))
             }, void 0, false, {
                 fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-                lineNumber: 232,
+                lineNumber: 242,
                 columnNumber: 13
             }, ("TURBOPACK compile-time value", void 0))
         ]
     }, void 0, true, {
         fileName: "[project]/src/presentation/pages/AttendanceKioskPage.tsx",
-        lineNumber: 184,
+        lineNumber: 194,
         columnNumber: 9
     }, ("TURBOPACK compile-time value", void 0));
 };

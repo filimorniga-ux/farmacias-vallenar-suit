@@ -462,12 +462,7 @@ export const usePharmaStore = create<PharmaState>()(
                         expenses: state.expenses
                     });
 
-                    console.log('✅ Data Synced & Tiger Data Initialized:', {
-                        inventoryCount: state.inventory.length,
-                        employeeCount: state.employees.length,
-                        salesCount: state.salesHistory.length,
-                        source: inventory.length > 0 ? 'DB' : 'MOCK/CACHE'
-                    });
+                    // ✅ Data Synced & Tiger Data Initialized
                 } catch (error) {
                     console.error('❌ Sync failed:', error);
                     // Show a friendly toast to the user
@@ -617,7 +612,8 @@ export const usePharmaStore = create<PharmaState>()(
                     price: item.price,
                     quantity: quantity,
                     allows_commission: item.allows_commission,
-                    active_ingredients: item.active_ingredients
+                    active_ingredients: item.active_ingredients,
+                    cost_price: item.cost_price || 0
                 };
                 return { cart: [...state.cart, newItem] };
             }),
@@ -675,7 +671,8 @@ export const usePharmaStore = create<PharmaState>()(
                             price: item.price,
                             quantity: item.quantity,
                             allows_commission: item.allows_commission || false,
-                            active_ingredients: item.active_ingredients
+                            active_ingredients: item.active_ingredients,
+                            cost_price: item.cost_price || 0
                         })),
                         total: state.cart.reduce((a, b) => a + b.price * b.quantity, 0),
                         payment_method: paymentMethod as any,
@@ -695,7 +692,7 @@ export const usePharmaStore = create<PharmaState>()(
                         return false;
                     }
 
-                    console.log('✅ Sale saved to Tiger Data:', result.transactionId);
+                    // ✅ Sale saved to Tiger Data
 
                     // 3. Update local inventory (deduct stock)
                     const newInventory = state.inventory.map(item => {
@@ -721,13 +718,6 @@ export const usePharmaStore = create<PharmaState>()(
                         cart: [],
                         currentCustomer: null,
                         salesHistory: [...state.salesHistory, saleTransaction]
-                    });
-
-                    console.log('✅ Sale processed successfully:', {
-                        items: saleTransaction.items.length,
-                        total: saleTransaction.total,
-                        paymentMethod,
-                        customer: customer?.fullName
                     });
 
                     return true;
@@ -1081,7 +1071,7 @@ export const usePharmaStore = create<PharmaState>()(
                         }
                     } else {
                         // Handle DAMAGED (Log incident, move to quarantine, etc.)
-                        console.log(`Item ${recItem.batchId} received DAMAGED.Quantity: ${recItem.quantity} `);
+                        // Item received DAMAGED
                     }
                 });
 

@@ -26,19 +26,19 @@ export class PrinterService {
     static async printFractionalLabel(item: any, config: PrinterConfig) {
         console.log('🏷️ PRINTING LABEL (ART 40 B):', item.name);
         console.log('   Pac: ', item.original_name);
-        console.log('   Cant:', item.quantity);
-        console.log('   QF Supervisor: Javiera Rojas (DT)'); // Mocked for now, should come from store
-        console.log('   Registro ISP: F-2244/19'); // Mocked, should come from item
-        console.log('   "Para mayor información consulte a su prescriptor o farmacéutico."');
+        // Cant
+        // QF Supervisor
+        // Registro ISP
+        // Para mayor información
         // Simulate label printing
     }
 
     static async printVoucher(movement: CashMovement, config: PrinterConfig) {
         if (!config.auto_print_cash) return;
 
-        console.log('🖨️ PRINTING VOUCHER:', movement.id);
-        console.log('TYPE:', movement.type);
-        console.log('AMOUNT:', movement.amount);
+        // 🖨️ PRINTING VOUCHER
+        // TYPE
+        // AMOUNT
 
         // alert(`🖨️ Imprimiendo Comprobante de ${movement.type}`);
     }
@@ -46,8 +46,8 @@ export class PrinterService {
     static async printQueueTicket(ticket: QueueTicket, config: PrinterConfig) {
         if (!config.auto_print_queue) return;
 
-        console.log('🖨️ PRINTING QUEUE TICKET:', ticket.number);
-        console.log('BRANCH:', ticket.branch_id);
+        // 🖨️ PRINTING QUEUE TICKET
+        // BRANCH
 
         // alert(`🖨️ Imprimiendo Turno ${ticket.number}`);
     }

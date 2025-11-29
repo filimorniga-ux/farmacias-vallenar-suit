@@ -86,7 +86,7 @@ export const useLocationStore = create<LocationState>()(
                 const target = get().locations.find(l => l.id === id);
                 if (target) {
                     set({ currentLocation: target });
-                    console.log(`📍 Location switched to: ${target.name} (${target.type})`);
+                    // 📍 Location switched
                     if (onSuccess) onSuccess();
                 }
             },

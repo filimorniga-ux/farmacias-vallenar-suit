@@ -34,7 +34,7 @@ const HRPage = () => {
     const handleSaveEmployee = (updatedEmployee: EmployeeProfile) => {
         // In a real app, dispatch an action to update the store
         // For now, we'll just log it and show a toast
-        console.log('Saving employee:', updatedEmployee);
+        // Mock update in local state for demo purposes if needed,
 
         // Mock update in local state for demo purposes if needed, 
         // but ideally usePharmaStore should have an updateEmployee action.
