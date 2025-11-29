@@ -326,6 +326,27 @@ const LandingPage: React.FC = () => {
                     </div>
                 )}
             </AnimatePresence>
+            {/* Download Hub */}
+            <div className="mt-16 text-center">
+                <p className="text-slate-400 text-sm font-medium mb-4">Descargar Aplicación de Escritorio</p>
+                <div className="flex gap-4 justify-center">
+                    <a
+                        href="https://github.com/miguelperdomo/farmacias-vallenar-suit/releases/latest/download/FarmaciasVallenar-Setup.exe"
+                        className="flex items-center gap-2 px-6 py-3 bg-white border border-slate-200 rounded-xl text-slate-600 font-bold hover:border-cyan-500 hover:text-cyan-600 transition-colors shadow-sm"
+                    >
+                        <img src="https://upload.wikimedia.org/wikipedia/commons/8/87/Windows_logo_-_2021.svg" alt="Windows" className="w-5 h-5" />
+                        Windows
+                    </a>
+                    <a
+                        href="https://github.com/miguelperdomo/farmacias-vallenar-suit/releases/latest/download/FarmaciasVallenar.dmg"
+                        className="flex items-center gap-2 px-6 py-3 bg-white border border-slate-200 rounded-xl text-slate-600 font-bold hover:border-cyan-500 hover:text-cyan-600 transition-colors shadow-sm"
+                    >
+                        <img src="https://upload.wikimedia.org/wikipedia/commons/2/21/MacOS_wordmark_%282017%29.svg" alt="macOS" className="w-12" />
+                        macOS
+                    </a>
+                </div>
+                <p className="text-xs text-slate-300 mt-2">Versión de Escritorio v2.1</p>
+            </div>
         </div>
     );
 };

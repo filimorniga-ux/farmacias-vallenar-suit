@@ -2,12 +2,44 @@
   "name": "farmacias-vallenar-suit",
   "private": true,
   "version": "0.0.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/filimorniga-ux/farmacias-vallenar-suit.git"
+  },
+  "author": "Farmacias Vallenar",
+  "main": "electron/main.js",
   "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "next lint",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "build:desktop": "electron-builder"
+  },
+  "build": {
+    "appId": "com.farmaciasvallenar.erp",
+    "productName": "Farmacias Vallenar Suit",
+    "mac": {
+      "category": "public.app-category.business",
+      "target": [
+        "dmg"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "public/favicon.ico"
+    },
+    "directories": {
+      "output": "dist-desktop"
+    },
+    "files": [
+      "electron/**/*",
+      "public/**/*",
+      "package.json"
+    ]
   },
   "dependencies": {
     "@headlessui/react": "^2.2.9",
@@ -44,6 +76,9 @@
     "@types/react-dom": "^19.2.3",
     "@types/react-dropzone": "^4.2.2",
     "autoprefixer": "^10.4.22",
+    "concurrently": "^9.2.1",
+    "electron": "^39.2.4",
+    "electron-builder": "^26.0.12",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
@@ -51,6 +86,7 @@
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.17",
     "typescript": "~5.9.3",
-    "typescript-eslint": "^8.46.4"
+    "typescript-eslint": "^8.46.4",
+    "wait-on": "^9.0.3"
   }
 }

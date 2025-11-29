@@ -70,32 +70,69 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
         };
     };
 
-    const parseLegacyRow = (row: any[]): ImportedRow => {
+    const parseLegacyRow = (row: any[], index: number): ImportedRow => {
         const errors: string[] = [];
-        // Legacy Format Mapping (Hypothetical based on requirements)
-        // Col 0: Barcode (SKU)
-        // Col 1: Product Name (Complex String)
-        // Col 2: Stock
-        // Col 3: Price Sell
-        // Col 4: Cost Net
-        // Col 5: Category/Location (Optional)
 
-        const sku = row[0]?.toString() || '';
-        const rawName = row[1]?.toString() || '';
-        const stock = parseInt(row[2]) || 0;
-        const price_sell = parseFloat(row[3]) || 0;
-        const cost_net = parseFloat(row[4]) || 0;
-        const location = row[5]?.toString() || 'BODEGA_CENTRAL';
+        // MAPPING BASED ON "FORMATO F1"
+        // Col 0: Código Barras (SKU)
+        // Col 1: Stock
+        // Col 2: Precio Venta
+        // Col 3: Costo Neto Prom. Unitario
+        // Col 4: Grupo de Producto
+        // Col 5: Producto (Nombre Completo)
 
-        if (!sku) errors.push('Falta SKU');
+        // NOTE: The user prompt had conflicting info on column order in two sections. 
+        // "LÓGICA DE PARSEO" listed them in one way, "UI" hint in another.
+        // I will implement a robust check or assume the "UI" hint order as it's more visual, 
+        // BUT I will also check if the row has data in expected places.
+
+        // Let's try to detect if it's the "UI" hint order (SKU, Name, Stock, Price, Cost) 
+        // or the "Logic" order (SKU, Stock, Price, Cost, Group, Name).
+        // Usually "Producto" is a text string. "Stock", "Price", "Cost" are numbers.
+
+        // Heuristic: Check if Col 1 is a number (Stock) or String (Name)
+        let sku = row[0]?.toString() || '';
+        let rawName = '';
+        let stock = 0;
+        let price_sell = 0;
+        let cost_net = 0;
+        let group = '';
+
+        const col1 = row[1];
+        const isCol1Number = !isNaN(parseFloat(col1)) && isFinite(col1);
+
+        if (isCol1Number) {
+            // LOGIC ORDER: SKU, Stock, Price, Cost, Group, Name
+            stock = parseInt(row[1]) || 0;
+            price_sell = parseFloat(row[2]) || 0;
+            cost_net = parseFloat(row[3]) || 0;
+            group = row[4]?.toString() || '';
+            rawName = row[5]?.toString() || '';
+        } else {
+            // UI HINT ORDER: SKU, Name, Stock, Price, Cost
+            // Assuming Group might be Col 5
+            rawName = row[1]?.toString() || '';
+            stock = parseInt(row[2]) || 0;
+            price_sell = parseFloat(row[3]) || 0;
+            cost_net = parseFloat(row[4]) || 0;
+            group = row[5]?.toString() || '';
+        }
+
+        // 1. SKU Generation
+        if (!sku) {
+            sku = `SKU-GEN-${index + 1}`;
+            errors.push('SKU Generado Automáticamente');
+        }
+
         if (!rawName) errors.push('Falta Nombre');
 
-        // Intelligent Parsing: "AMOXICILINA 500MG LAB CHILE" -> Name + Lab
+        // 2. Intelligent Parsing: "NOMBRE + DCI + LAB"
         let name = rawName;
         let laboratory = 'GENERICO';
 
-        // Regex to find "LAB" or "LABORATORIO" and split
-        const labRegex = /(.*)\s+(?:LAB|LABORATORIO)\.?\s+(.*)/i;
+        // Regex to find "LAB " or "LAB." and extract what follows
+        // Example: "AMOXICILINA 500MG LAB CHILE" -> Name: "AMOXICILINA 500MG", Lab: "CHILE"
+        const labRegex = /(.*?)\s+(?:LAB|LABORATORIO|LAB\.)\s+(.*)/i;
         const match = rawName.match(labRegex);
 
         if (match) {
@@ -103,30 +140,31 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
             laboratory = match[2].trim();
         }
 
-        // Defaults for missing data
-        const lot_number = 'LOTE-MIGRACION';
+        // 3. Defaults & Inferences
+        const lot_number = 'SIN-LOTE-MIGRACION';
+        const expiry_date = '31/12/2025'; // Default future date
 
-        // Default Expiry: 1 Year from now
-        const nextYear = new Date();
-        nextYear.setFullYear(nextYear.getFullYear() + 1);
-        const expiry_date = nextYear.toLocaleDateString('es-CL'); // DD/MM/YYYY
+        let category = 'MEDICAMENTO';
+        if (group.toUpperCase().includes('NATURAL') || group.toUpperCase().includes('SUPLEMENTO')) {
+            category = 'SUPLEMENTO';
+        }
 
         return {
             id: uuidv4(),
             sku,
             name,
-            dci: name, // Guess DCI is same as name for legacy
+            dci: name, // Default DCI to Name
             laboratory,
             price_sell,
             cost_net,
             stock,
             lot_number,
             expiry_date,
-            location,
+            location: group || 'BODEGA_CENTRAL',
             is_refrigerated: 'NO',
-            isValid: errors.length === 0,
+            isValid: errors.length === 0 || (errors.length === 1 && errors[0].includes('SKU')), // Valid even if SKU generated
             errors,
-            needs_review: true // Always flag legacy for review
+            needs_review: true // Always flag for review
         };
     };
 
@@ -148,10 +186,10 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                 // Skip header row
                 const rows = jsonData.slice(1) as any[][];
 
-                const parsedRows: ImportedRow[] = rows.map((row) => {
+                const parsedRows: ImportedRow[] = rows.map((row, index) => {
                     return importFormat === 'OFFICIAL'
                         ? parseOfficialRow(row)
-                        : parseLegacyRow(row);
+                        : parseLegacyRow(row, index);
                 }).filter(r => r.sku || r.name);
 
                 setImportedData(parsedRows);
@@ -301,8 +339,8 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                                 <button
                                     onClick={() => setImportFormat('OFFICIAL')}
                                     className={`px-6 py-3 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${importFormat === 'OFFICIAL'
-                                            ? 'bg-white text-green-600 shadow-sm'
-                                            : 'text-gray-500 hover:text-gray-700'
+                                        ? 'bg-white text-green-600 shadow-sm'
+                                        : 'text-gray-500 hover:text-gray-700'
                                         }`}
                                 >
                                     <FileSpreadsheet size={18} />
@@ -311,8 +349,8 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                                 <button
                                     onClick={() => setImportFormat('LEGACY')}
                                     className={`px-6 py-3 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${importFormat === 'LEGACY'
-                                            ? 'bg-white text-orange-600 shadow-sm'
-                                            : 'text-gray-500 hover:text-gray-700'
+                                        ? 'bg-white text-orange-600 shadow-sm'
+                                        : 'text-gray-500 hover:text-gray-700'
                                         }`}
                                 >
                                     <FileType size={18} />
@@ -348,14 +386,16 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                                             Sube tu Excel antiguo. El sistema intentará separar Nombre/Laboratorio y rellenará datos faltantes (Lotes, Fechas) para revisión.
                                         </p>
                                         <div className="text-xs text-left bg-orange-50 p-4 rounded-lg border border-orange-100 text-orange-800">
-                                            <strong>Columnas esperadas (sin encabezado):</strong>
+                                            <strong>Columnas esperadas (flexible):</strong>
                                             <ul className="list-disc pl-4 mt-1 space-y-1">
-                                                <li>Col A: Código Barras (SKU)</li>
+                                                <li>Col A: Código Barras (Si falta, se genera auto)</li>
                                                 <li>Col B: Nombre Completo (ej: "AMOXICILINA LAB CHILE")</li>
                                                 <li>Col C: Stock</li>
                                                 <li>Col D: Precio Venta</li>
                                                 <li>Col E: Costo Neto</li>
+                                                <li>Col F: Grupo/Ubicación (Opcional)</li>
                                             </ul>
+                                            <p className="mt-2 text-[10px] opacity-80">* El sistema intentará detectar si el orden es diferente (ej: Stock en Col B).</p>
                                         </div>
                                     </>
                                 )}
@@ -431,8 +471,8 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                                     <tbody className="divide-y divide-gray-100 bg-white">
                                         {importedData.slice(0, 200).map((row) => (
                                             <tr key={row.id} className={`group transition-colors ${!row.isValid ? 'bg-red-50' :
-                                                    row.needs_review ? 'bg-orange-50/50 hover:bg-orange-50' :
-                                                        'hover:bg-gray-50'
+                                                row.needs_review ? 'bg-orange-50/50 hover:bg-orange-50' :
+                                                    'hover:bg-gray-50'
                                                 }`}>
                                                 <td className="p-3">
                                                     {!row.isValid ? (
