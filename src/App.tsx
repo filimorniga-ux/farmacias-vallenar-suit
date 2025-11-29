@@ -9,6 +9,7 @@ import { Toaster } from 'sonner';
 // Components
 import LocationSelector from './presentation/components/layout/LocationSelector';
 import NotificationCenter from './presentation/components/ui/NotificationCenter';
+import BottomNavigation from './presentation/components/layout/BottomNavigation';
 
 // Pages
 import LandingPage from './presentation/pages/LandingPage';
@@ -101,12 +102,9 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
             </aside>
 
             {/* Main Content */}
-            <main className="flex-1 flex flex-col h-full overflow-hidden relative">
+            <main className="flex-1 flex flex-col h-full overflow-hidden relative pb-20 md:pb-0">
                 {/* Mobile Header */}
                 <header className="md:hidden bg-white p-4 shadow-sm flex justify-between items-center z-40">
-                    <button onClick={() => setIsMobileMenuOpen(true)} className="text-slate-600">
-                        <Menu size={24} />
-                    </button>
                     <span className="font-bold text-slate-800">Farmacias Vallenar</span>
                     <LocationSelector />
                 </header>
@@ -131,6 +129,9 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                         </motion.div>
                     </AnimatePresence>
                 </div>
+
+                {/* Mobile Bottom Navigation */}
+                <BottomNavigation onMenuClick={() => setIsMobileMenuOpen(true)} />
             </main>
         </div>
     );
