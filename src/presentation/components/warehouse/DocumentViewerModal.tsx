@@ -81,7 +81,7 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({ isOpen, onClo
                                         </div>
                                         {isAdmin && (
                                             <button
-                                                onClick={() => handleDelete(doc.key as any, doc.index)}
+                                                onClick={() => handleDelete(doc.key as any, (doc as any).index)}
                                                 className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                                             >
                                                 <Trash2 size={16} />

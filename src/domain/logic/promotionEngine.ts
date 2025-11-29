@@ -84,7 +84,8 @@ export const applyPromotions = (
     });
 
     const finalTotal = itemsWithDiscounts.reduce((sum, item) => {
-        const price = item.discount ? item.discount.finalPrice : item.price;
+        const hasDiscount = 'discount' in item;
+        const price = hasDiscount ? (item as any).discount.finalPrice : item.price;
         return sum + (price * item.quantity);
     }, 0);
 
