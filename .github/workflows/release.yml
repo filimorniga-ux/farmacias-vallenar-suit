@@ -1,9 +1,9 @@
-name: Build/Release
+name: Build & Release Electron
 
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*' # Se activa al subir un tag como v1.0.1
 
 jobs:
   release:
@@ -20,7 +20,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 20 # Versión estable reciente
           cache: 'npm'
 
       - name: Install Dependencies
@@ -29,13 +29,8 @@ jobs:
       - name: Build Next.js App
         run: npm run build
 
-      - name: Build & Release Electron App
-        uses: electron-userland/electron-builder-action@v5
-        with:
-          # GitHub token, automatically provided to the action
-          # (No need to define this secret in the repo settings)
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
-          # If the commit is tagged with a version (e.g. "v1.0.0"),
-          # release the app after building
-          release: true
+      - name: Build & Publish Electron App
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Token automático de GitHub
+        # Usamos npx para ejecutar electron-builder directamente con la bandera de publicar
+        run: npx electron-builder --publish always
