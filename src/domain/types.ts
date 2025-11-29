@@ -177,6 +177,7 @@ export interface SaleItem {
     active_ingredients?: string[]; // Optional for backward compatibility or if not loaded
     is_fractional?: boolean;
     original_name?: string;
+    cost_price?: number; // Added for financial reporting
 }
 
 export interface SaleTransaction {
@@ -192,6 +193,7 @@ export interface SaleTransaction {
     dte_code?: string; // Código SII
     dte_status?: 'CONFIRMED_DTE' | 'FISCALIZED_BY_VOUCHER';
     dte_folio?: string; // Folio Boleta o N/A
+    branch_id?: string; // Added for location tracking
 }
 
 // --- Cadena de Suministro ---
@@ -275,6 +277,7 @@ export interface CartItem {
     active_ingredients?: string[];
     is_fractional?: boolean;
     original_name?: string;
+    cost_price?: number; // Added for financial reporting
 }
 
 export interface PurchaseOrderItem {
