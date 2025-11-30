@@ -18,6 +18,7 @@ import {
     AttendanceStatus,
     AttendanceType
 } from '../../domain/types';
+import { TigerDataService } from '../../domain/services/TigerDataService';
 import { fetchEmployees } from '../../actions/sync';
 import { MOCK_INVENTORY, MOCK_EMPLOYEES, MOCK_SUPPLIERS, MOCK_SHIPMENTS } from '../../domain/mocks';
 
@@ -164,7 +165,7 @@ export const usePharmaStore = create<PharmaState>()(
             syncData: async () => {
                 set({ isLoading: true });
                 try {
-                    const { TigerDataService } = await import('../../domain/services/TigerDataService');
+                    // const { TigerDataService } = await import('../../domain/services/TigerDataService'); // REMOVED
                     const [inventory, employees] = await Promise.all([
                         TigerDataService.fetchInventory(),
                         fetchEmployees()
@@ -177,7 +178,7 @@ export const usePharmaStore = create<PharmaState>()(
                     const state = get();
 
                     // Initialize TigerDataService with current store data
-                    const { TigerDataService } = await import('../../domain/services/TigerDataService');
+                    // const { TigerDataService } = await import('../../domain/services/TigerDataService'); // REMOVED
                     TigerDataService.initializeStorage({
                         products: state.inventory,
                         employees: state.employees,
@@ -416,7 +417,7 @@ export const usePharmaStore = create<PharmaState>()(
                     };
 
                     // 2. CRITICAL: Save to Tiger Data BEFORE clearing cart
-                    const { TigerDataService } = await import('../../domain/services/TigerDataService');
+                    // const { TigerDataService } = await import('../../domain/services/TigerDataService'); // REMOVED
                     const result = await TigerDataService.saveSaleTransaction(
                         saleTransaction,
                         'SUCURSAL_CENTRO' // TODO: Get from location context
