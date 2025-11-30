@@ -46,6 +46,9 @@ export async function POST(request: Request) {
         // For massive datasets, we could use pg-copy-streams, but for ~4000 items, 
         // a loop with prepared statements is acceptable and safer for conflict handling.
         for (const product of products) {
+            // Map cost_net (new standard) to cost_price (legacy DB column)
+            const cost = product.cost_net || product.cost_price || 0;
+
             await client.query(queryText, [
                 product.id,
                 product.sku,
@@ -55,7 +58,7 @@ export async function POST(request: Request) {
                 product.location_id || 'BODEGA_CENTRAL',
                 product.stock_actual || 0,
                 product.price || 0,
-                product.cost_price || 0,
+                cost, // Mapped cost
                 product.format || 'UNIDAD',
                 product.is_bioequivalent || false,
                 product.category || 'MEDICAMENTO'
@@ -73,7 +76,11 @@ export async function POST(request: Request) {
         await client.query('ROLLBACK');
         console.error('❌ [API] Bulk import failed:', error);
         return NextResponse.json(
-            { error: 'Failed to import batch', details: (error as Error).message },
+            {
+                error: 'Failed to import batch',
+                details: (error as Error).message,
+                code: (error as any).code // PostgreSQL error code
+            },
             { status: 500 }
         );
     } finally {
