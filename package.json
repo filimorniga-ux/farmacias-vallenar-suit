@@ -29,8 +29,7 @@
     "win": {
       "target": [
         "nsis"
-      ],
-      "icon": "public/favicon.ico"
+      ]
     },
     "directories": {
       "output": "dist-desktop"
