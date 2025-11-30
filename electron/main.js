@@ -7,7 +7,6 @@ function createWindow() {
         height: 800,
         title: "Farmacias Vallenar Suit",
         autoHideMenuBar: true, // Native app feel
-        icon: path.join(__dirname, '../public/favicon.ico'),
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
