@@ -13,7 +13,7 @@ const connectionConfig = {
 };
 
 // Singleton Pattern corregido para TypeScript
-let pool: Pool;
+export let pool: Pool;
 
 if (!global.postgresPool) {
     global.postgresPool = new Pool(connectionConfig);
