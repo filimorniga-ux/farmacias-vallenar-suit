@@ -59,6 +59,52 @@ export const TigerDataService = {
      * Future: GET /api/inventory?location={locationId}
      */
     /**
+     * 0. Bulk Upload Inventory (Chunks)
+     * @param products - Array of products to upload
+     * @param onProgress - Optional callback for progress updates
+     */
+    uploadBulkInventory: async (
+        products: InventoryBatch[],
+        onProgress?: (progress: number, message: string) => void
+    ) => {
+        const BATCH_SIZE = 50; // Enviar de a 50 para no saturar
+        const total = products.length;
+        let processed = 0;
+
+        for (let i = 0; i < total; i += BATCH_SIZE) {
+            const chunk = products.slice(i, i + BATCH_SIZE);
+
+            try {
+                // Llamada al API Route que maneja la transacción SQL
+                const response = await fetch('/api/inventory/batch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ products: chunk }),
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Error al cargar lote');
+                }
+
+                processed += chunk.length;
+
+                // Actualizar barra de progreso si existe callback
+                if (onProgress) {
+                    const percentage = Math.round((processed / total) * 100);
+                    onProgress(percentage, `Guardando ${processed} de ${total}...`);
+                }
+
+            } catch (error) {
+                console.error('Error en carga masiva:', error);
+                throw error; // Detener proceso si falla un lote crítico
+            }
+        }
+
+        return { success: true, count: total };
+    },
+
+    /**
      * 1. Fetch Inventory (Robust with Fallback)
      * @returns Promise<InventoryBatch[]>
      */
