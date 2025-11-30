@@ -58,16 +58,30 @@ export const TigerDataService = {
      * 
      * Future: GET /api/inventory?location={locationId}
      */
-    fetchProducts: async (locationId: string): Promise<InventoryBatch[]> => {
-        return simulateNetworkCall(() => {
-            // Filter products by location
-            const products = inMemoryStorage.products.filter(
-                p => p.location_id === locationId || p.location_id === 'ALL'
-            );
+    /**
+     * 1. Fetch Inventory (Robust with Fallback)
+     * @returns Promise<InventoryBatch[]>
+     */
+    fetchInventory: async (): Promise<InventoryBatch[]> => {
+        console.log('🐯 [Tiger Data] Fetching inventory...');
+        try {
+            // 1. Try to fetch from Server Action (DB)
+            const { fetchInventory } = await import('../../actions/sync');
+            const dbInventory = await fetchInventory();
 
-            console.log(`📦 [Tiger Data] Fetched ${products.length} products for location: ${locationId}`);
-            return products;
-        }, 'fetchProducts');
+            if (dbInventory && dbInventory.length > 0) {
+                console.log(`✅ [Tiger Data] Loaded ${dbInventory.length} items from DB`);
+                return dbInventory;
+            }
+
+            console.warn('⚠️ [Tiger Data] DB returned empty, using MOCK data as fallback');
+            throw new Error('Empty DB result');
+        } catch (error) {
+            console.error('❌ [Tiger Data] DB Fetch failed, using MOCK data:', error);
+            // 2. Fallback to Mock Data
+            const { MOCK_INVENTORY } = await import('../mocks');
+            return MOCK_INVENTORY;
+        }
     },
 
     /**

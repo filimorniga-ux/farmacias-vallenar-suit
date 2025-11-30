@@ -4,8 +4,10 @@ import { query } from '../lib/db';
 import { InventoryBatch, EmployeeProfile } from '../domain/types';
 
 export async function fetchInventory(): Promise<InventoryBatch[]> {
+    console.log('Fetching inventory from DB...');
     try {
-        const res = await query('SELECT * FROM productos');
+        const res = await query('SELECT * FROM products');
+        console.log(`✅ Fetched ${res.rows.length} products from DB`);
 
         // Map DB columns to Domain Type
         // Assuming DB columns might be snake_case or slightly different. 
@@ -51,7 +53,7 @@ export async function fetchInventory(): Promise<InventoryBatch[]> {
             supplier_id: row.supplier_id || row.proveedor_id || 'SUP-001'
         }));
     } catch (error) {
-        console.error('Error fetching inventory:', error);
+        console.error('❌ Error fetching inventory:', error);
         return [];
     }
 }

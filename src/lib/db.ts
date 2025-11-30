@@ -20,7 +20,7 @@ let pool: Pool;
 if (!global.postgresPool) {
     global.postgresPool = new Pool(connectionConfig);
 }
-pool = global.postgresPool;
+export { pool };
 // Hack para TypeScript global scope
 declare global {
     var postgresPool: Pool | undefined;
