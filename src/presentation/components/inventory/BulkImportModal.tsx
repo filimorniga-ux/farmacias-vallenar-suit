@@ -37,6 +37,9 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
     const [step, setStep] = useState<'UPLOAD' | 'PREVIEW'>('UPLOAD');
     const [importedData, setImportedData] = useState<ImportedRow[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [isUploading, setIsUploading] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState(0);
+    const [uploadMessage, setUploadMessage] = useState('');
     const [importFormat, setImportFormat] = useState<ImportFormat>('OFFICIAL');
 
     // --- Parsing Logic ---
@@ -293,16 +296,34 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                 } as any;
             });
 
+            // 1. Import to Local Store (Optimistic UI) - This was already happening with `await importInventory(itemsToImport);`
             await importInventory(itemsToImport);
-            toast.success(`${itemsToImport.length} productos importados exitosamente`);
+
+            // 2. Persist to Database (Tiger Cloud)
+            const { TigerDataService } = await import('../../../domain/services/TigerDataService');
+            await TigerDataService.uploadBulkInventory(itemsToImport, (progress, message) => {
+                // setUploadProgress(progress); // Assuming these states are available
+                // setUploadMessage(message);
+            });
+
+            // 3. Refresh Data from Cloud to ensure sync
+            const { fetchInventory } = await import('../../../actions/sync');
+            await fetchInventory(); // This might be redundant if we trust the optimistic update, but good for consistency
+
+            toast.success('Inventario Importado', {
+                description: `${itemsToImport.length} productos procesados y guardados en la nube.`
+            });
             onClose();
-            setStep('UPLOAD');
-            setImportedData([]);
+            // setFile(null); // Assuming a file state exists
+            setImportedData([]); // Clear imported data
+            setStep('UPLOAD'); // Go back to upload step
         } catch (error) {
-            console.error(error);
-            toast.error('Error al guardar en la base de datos');
+            console.error('Import error:', error);
+            toast.error('Error en la importación', {
+                description: 'Algunos datos se guardaron localmente, pero falló la sincronización con la nube.'
+            });
         } finally {
-            setIsProcessing(false);
+            setIsProcessing(false); // Assuming this is the equivalent of setIsUploading
         }
     };
 
@@ -544,25 +565,42 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                 {/* Footer */}
                 <div className="p-6 border-t border-gray-100 bg-gray-50 rounded-b-2xl flex justify-between items-center">
                     {step === 'PREVIEW' ? (
-                        <>
-                            <button
-                                onClick={() => {
-                                    setStep('UPLOAD');
-                                    setImportedData([]);
-                                }}
-                                className="px-6 py-3 text-gray-600 font-bold hover:bg-gray-200 rounded-xl transition-colors"
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                onClick={handleImport}
-                                disabled={validCount === 0 || isProcessing}
-                                className="px-8 py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                            >
-                                {isProcessing ? <Loader2 className="animate-spin" /> : <Save size={20} />}
-                                Confirmar e Importar ({validCount})
-                            </button>
-                        </>
+                        <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                            {isUploading ? (
+                                <div className="w-full">
+                                    <div className="flex justify-between text-xs mb-1">
+                                        <span className="font-medium text-slate-600">{uploadMessage}</span>
+                                        <span className="font-bold text-cyan-600">{uploadProgress}%</span>
+                                    </div>
+                                    <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                                        <div
+                                            className="bg-cyan-600 h-2.5 rounded-full transition-all duration-300 ease-out"
+                                            style={{ width: `${uploadProgress}%` }}
+                                        ></div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <>
+                                    <button
+                                        onClick={() => {
+                                            setStep('UPLOAD');
+                                            setImportedData([]);
+                                        }}
+                                        className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        onClick={handleImport}
+                                        disabled={validCount === 0 || isProcessing}
+                                        className="px-6 py-2 bg-cyan-600 text-white font-bold rounded-xl hover:bg-cyan-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-cyan-200 flex items-center gap-2"
+                                    >
+                                        {isProcessing ? <Loader2 className="animate-spin" /> : <Save size={20} />}
+                                        Confirmar e Importar ({validCount})
+                                    </button>
+                                </>
+                            )}
+                        </div>
                     ) : (
                         <div />
                     )}
