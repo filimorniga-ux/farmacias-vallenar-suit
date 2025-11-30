@@ -84,7 +84,8 @@ export const TigerDataService = {
 
                 if (!response.ok) {
                     const errorData = await response.json();
-                    throw new Error(errorData.error || 'Error al cargar lote');
+                    const errorMessage = `${errorData.error} - Details: ${errorData.details || 'No details'} (Code: ${errorData.code || 'N/A'})`;
+                    throw new Error(errorMessage);
                 }
 
                 processed += chunk.length;
