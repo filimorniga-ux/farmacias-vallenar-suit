@@ -16,6 +16,10 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
     const [activeBatches, setActiveBatches] = useState<InventoryBatch[]>([]);
     const [newTag, setNewTag] = useState('');
 
+    // Unique Options for Creatable Selects
+    const uniqueLabs = React.useMemo(() => Array.from(new Set(inventory.map(i => i.laboratory))).filter(Boolean).sort(), [inventory]);
+    const uniqueCategories = React.useMemo(() => Array.from(new Set(inventory.map(i => i.category))).filter(Boolean).sort(), [inventory]);
+
     useEffect(() => {
         if (product) {
             setFormData({
@@ -32,6 +36,15 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
 
     const handleSave = () => {
         if (product.id) {
+            // SKU Validation
+            if (formData.sku !== product.sku) {
+                const skuExists = inventory.some(i => i.sku === formData.sku && i.id !== product.id);
+                if (skuExists) {
+                    toast.error('El SKU ya existe en otro producto');
+                    return;
+                }
+            }
+
             // Update the main product (and potentially all batches if we want to sync shared data)
             // For now, we update the specific batch passed as "product"
             updateProduct(product.id, formData);
@@ -149,6 +162,19 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
                                 </h3>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">SKU (Código Interno)</label>
+                                        <div className="relative">
+                                            <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                            <input
+                                                type="text"
+                                                className="w-full pl-10 p-3 border border-slate-200 rounded-xl font-mono text-slate-700 focus:border-cyan-500 focus:outline-none bg-slate-50"
+                                                value={formData.sku || ''}
+                                                onChange={e => setFormData({ ...formData, sku: e.target.value })}
+                                                placeholder="SKU..."
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Código de Barras (EAN)</label>
                                         <div className="relative">
                                             <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
@@ -159,6 +185,22 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
                                                 onChange={e => setFormData({ ...formData, barcode: e.target.value })}
                                                 placeholder="Escanea aquí..."
                                             />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Categoría</label>
+                                        <div className="relative">
+                                            <Tag className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                            <input
+                                                list="categories-list"
+                                                className="w-full pl-10 p-3 border border-slate-200 rounded-xl font-bold text-slate-700 focus:border-cyan-500 focus:outline-none bg-slate-50"
+                                                value={formData.category || ''}
+                                                onChange={e => setFormData({ ...formData, category: e.target.value })}
+                                                placeholder="Seleccionar o crear..."
+                                            />
+                                            <datalist id="categories-list">
+                                                {uniqueCategories.map(cat => <option key={cat} value={cat} />)}
+                                            </datalist>
                                         </div>
                                     </div>
                                     <div>
@@ -202,11 +244,15 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
                                     <div>
                                         <label className="block text-xs font-bold text-amber-800/60 mb-1">Laboratorio</label>
                                         <input
-                                            type="text"
+                                            list="labs-list"
                                             className="w-full p-3 border border-amber-200 rounded-xl font-bold bg-white"
                                             value={formData.laboratory || ''}
                                             onChange={e => setFormData({ ...formData, laboratory: e.target.value })}
+                                            placeholder="Seleccionar o crear..."
                                         />
+                                        <datalist id="labs-list">
+                                            {uniqueLabs.map(lab => <option key={lab} value={lab} />)}
+                                        </datalist>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-amber-800/60 mb-1">Registro ISP</label>

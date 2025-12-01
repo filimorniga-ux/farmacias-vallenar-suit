@@ -329,6 +329,28 @@ export const TigerDataService = {
     },
 
     /**
+     * 8. Authenticate User
+     * @param userId - User ID (RUT)
+     * @param pin - Access PIN
+     * @returns Promise<{ success: boolean; user: EmployeeProfile }>
+     */
+    authenticate: async (
+        userId: string,
+        pin: string
+    ): Promise<{ success: boolean; user: EmployeeProfile }> => {
+        return simulateNetworkCall(() => {
+            const employee = inMemoryStorage.employees.find(e => e.id === userId && e.access_pin === pin);
+
+            if (!employee) {
+                throw new Error('Invalid credentials');
+            }
+
+            console.log(`🔐 [Tiger Data] User authenticated: ${employee.name}`);
+            return { success: true, user: employee };
+        }, 'authenticate');
+    },
+
+    /**
      * UTILITY: Get current storage state (for debugging)
      */
     getStorageState: () => {
