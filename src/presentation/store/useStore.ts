@@ -958,8 +958,8 @@ export const usePharmaStore = create<PharmaState>()(
             }
         }),
         {
-            name: 'farmacias-vallenar-v6-prices', // Force cache clear - Price Structure Update
-            version: 6,
+            name: 'farmacias-vallenar-v7-pins', // Force cache clear - PIN Update
+            version: 7,
             storage: createJSONStorage(() => localStorage),
             partialize: (state) => ({
                 user: state.user,

@@ -40,7 +40,7 @@ export async function fetchInventory(): Promise<InventoryBatch[]> {
             cost_price: Number(row.cost_price) || 0,
 
             // Logistics
-            stock_actual: Number(row.stock_actual || row.stock) || 0,
+            stock_actual: Number(row.stock_total || row.stock_actual || row.stock) || 0,
             stock_min: Number(row.stock_min || row.stock_min) || 5,
             stock_max: Number(row.stock_max) || 100,
             expiry_date: row.vencimiento ? new Date(row.vencimiento).getTime() : Date.now() + 31536000000,
