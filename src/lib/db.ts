@@ -8,7 +8,6 @@ const connectionConfig = {
     connectionString: process.env.DATABASE_URL,
     ssl: isProduction ? { rejectUnauthorized: true } : { rejectUnauthorized: false },
     max: 10,
-    idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,
 };
 
@@ -16,9 +15,27 @@ const connectionConfig = {
 export let pool: Pool;
 
 if (!global.postgresPool) {
-    global.postgresPool = new Pool(connectionConfig);
+    console.log('🔌 Initializing PostgreSQL Pool...');
+    try {
+        global.postgresPool = new Pool(connectionConfig);
+
+        // Test connection immediately
+        global.postgresPool.on('error', (err) => {
+            console.error('🔥 Unexpected error on idle client', err);
+        });
+
+        global.postgresPool.connect().then(client => {
+            console.log('✅ Database connected successfully to:', connectionConfig.connectionString?.split('@')[1]); // Log host only for security
+            client.release();
+        }).catch(err => {
+            console.error('❌ FATAL: Could not connect to database:', err.message);
+        });
+
+    } catch (err) {
+        console.error('❌ Failed to create pool:', err);
+    }
 }
-pool = global.postgresPool;
+pool = global.postgresPool as Pool;
 
 // Hack de tipo global
 declare global {

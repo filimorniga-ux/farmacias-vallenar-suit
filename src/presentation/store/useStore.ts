@@ -148,7 +148,7 @@ export const usePharmaStore = create<PharmaState>()(
         (set, get) => ({
             // --- Auth ---
             user: null, // ALWAYS start logged out - force login
-            employees: MOCK_EMPLOYEES,
+            employees: [], // ⚠️ DEBUG: Start empty to prove DB connection
             login: (userId, pin) => {
                 const { employees } = get();
                 const employee = employees.find(e => e.id === userId && e.access_pin === pin);
@@ -203,7 +203,7 @@ export const usePharmaStore = create<PharmaState>()(
             },
 
             // --- Inventory ---
-            inventory: MOCK_INVENTORY, // Start with real data
+            inventory: [], // ⚠️ DEBUG: Start empty to prove DB connection
             suppliers: MOCK_SUPPLIERS,
             supplierDocuments: [],
             purchaseOrders: [],
@@ -958,8 +958,8 @@ export const usePharmaStore = create<PharmaState>()(
             }
         }),
         {
-            name: 'farmacias-vallenar-v8-master-pin', // Force cache clear - Master PIN Update
-            version: 8,
+            name: 'farmacias-vallenar-DEBUG-v1', // ⚠️ DEBUG MODE: Force clean slate
+            version: 1,
             storage: createJSONStorage(() => localStorage),
             partialize: (state) => ({
                 user: state.user,

@@ -63,19 +63,19 @@ export async function fetchEmployees(): Promise<EmployeeProfile[]> {
         const res = await query('SELECT * FROM users');
 
         return res.rows.map((row: any) => ({
-            id: row.id?.toString() || `EMP-${Math.random()}`,
-            rut: row.rut || 'SIN-RUT',
-            name: row.name || 'Usuario Sistema',
-            role: row.role || 'CASHIER',
-            access_pin: row.pin || '0000',
-            status: row.status || 'ACTIVE',
+            id: row.id.toString(),
+            rut: row.rut,
+            name: row.name,
+            role: row.role,
+            access_pin: row.access_pin || row.pin, // Match DB column (access_pin)
+            status: row.status,
             current_status: 'OUT',
-            job_title: 'CAJERO_VENDEDOR', // Default for sync
+            job_title: row.job_title || 'EMPLEADO',
             labor_data: {
-                base_salary: 500000,
-                afp: 'MODELO',
-                isapre: 'FONASA',
-                contract_hours: 45
+                base_salary: Number(row.base_salary) || 0,
+                afp: row.afp || 'MODELO',
+                isapre: row.isapre || 'FONASA',
+                contract_hours: Number(row.weekly_hours) || 45
             }
         }));
     } catch (error) {

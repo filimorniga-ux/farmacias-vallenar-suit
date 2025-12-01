@@ -49,8 +49,7 @@ export async function POST(request: Request) {
                 laboratory = EXCLUDED.laboratory,
                 stock_total = products.stock_total + EXCLUDED.stock_total, -- Merge stock
                 price_sell_box = EXCLUDED.price_sell_box,
-                cost_net = EXCLUDED.cost_net,
-                updated_at = NOW()
+                cost_net = EXCLUDED.cost_net
             RETURNING id;
         `;
 
