@@ -175,23 +175,23 @@ const InventoryPage: React.FC = () => {
                                 <td className="p-4">
                                     <div className="text-sm font-bold text-slate-700">{item.laboratory}</div>
                                     <div className="text-xs text-slate-500 font-mono">{item.isp_register || 'SIN REGISTRO'}</div>
-                                    <div className="text-xs text-slate-400 mt-1">{item.format} x{item.unit_count}</div>
+                                    <div className="text-xs text-slate-400 mt-1">{item.format} x{item.units_per_box || item.unit_count || 1}</div>
                                 </td>
                                 <td className="p-4">
                                     <div className="flex gap-1 flex-wrap">
-                                        {item.bioequivalent && <span title="Bioequivalente" className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-xs font-bold border border-emerald-200">BIO</span>}
-                                        {item.storage_condition === 'REFRIGERADO' && <span title="Cadena de Frío" className="px-2 py-1 bg-cyan-100 text-cyan-700 rounded-lg text-xs font-bold border border-cyan-200">FRIO</span>}
+                                        {item.is_bioequivalent && <span title="Bioequivalente" className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-xs font-bold border border-emerald-200">BIO</span>}
+                                        {item.is_refrigerated && <span title="Cadena de Frío" className="px-2 py-1 bg-cyan-100 text-cyan-700 rounded-lg text-xs font-bold border border-cyan-200">FRIO</span>}
                                         {['R', 'RR', 'RCH'].includes(item.condition) && <span title="Receta Retenida" className="px-2 py-1 bg-purple-100 text-purple-700 rounded-lg text-xs font-bold border border-purple-200">RET</span>}
-                                        {item.is_generic && <span title="Genérico" className="px-2 py-1 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold border border-slate-200">GEN</span>}
+                                        {/* item.is_generic is not in InventoryBatch type, assuming logic based on name or other field if needed, or removing if not available */}
                                     </div>
                                 </td>
                                 <td className="p-4">
                                     <div className="flex flex-col items-start">
-                                        <span className={`text-lg font-bold ${item.stock_actual <= item.stock_min ? 'text-red-600' : 'text-slate-800'}`}>
+                                        <span className={`text-lg font-bold ${item.stock_actual <= (item.stock_minimo_seguridad || 5) ? 'text-red-600' : 'text-slate-800'}`}>
                                             {item.stock_actual} un.
                                         </span>
-                                        <span className={`text-xs font-bold ${item.stock_actual <= item.stock_min ? 'text-red-500' : 'text-slate-400'}`}>
-                                            Min: {item.stock_min}
+                                        <span className={`text-xs font-bold ${item.stock_actual <= (item.stock_minimo_seguridad || 5) ? 'text-red-500' : 'text-slate-400'}`}>
+                                            Min: {item.stock_minimo_seguridad || 5}
                                         </span>
                                         <span className={`text-xs mt-1 px-1.5 py-0.5 rounded ${new Date(item.expiry_date).getTime() - Date.now() < 1000 * 60 * 60 * 24 * 90 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>
                                             Vence: {new Date(item.expiry_date).toLocaleDateString()}
@@ -246,8 +246,8 @@ const InventoryPage: React.FC = () => {
                                     <p className="text-xs text-slate-400">{item.laboratory}</p>
                                 </div>
                                 <div className="flex gap-1 flex-wrap justify-end max-w-[100px]">
-                                    {item.bioequivalent && <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-[10px] font-bold">BIO</span>}
-                                    {item.storage_condition === 'REFRIGERADO' && <span className="px-2 py-1 bg-cyan-100 text-cyan-700 rounded-lg text-[10px] font-bold">FRIO</span>}
+                                    {item.is_bioequivalent && <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-[10px] font-bold">BIO</span>}
+                                    {item.is_refrigerated && <span className="px-2 py-1 bg-cyan-100 text-cyan-700 rounded-lg text-[10px] font-bold">FRIO</span>}
                                     {['R', 'RR', 'RCH'].includes(item.condition) && <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-lg text-[10px] font-bold">RET</span>}
                                 </div>
                             </div>
@@ -256,10 +256,10 @@ const InventoryPage: React.FC = () => {
                             <div className="grid grid-cols-2 gap-4 py-3 border-y border-slate-50">
                                 <div>
                                     <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Stock</p>
-                                    <p className={`text-2xl font-bold ${item.stock_actual <= item.stock_min ? 'text-red-600' : 'text-slate-800'}`}>
+                                    <p className={`text-2xl font-bold ${item.stock_actual <= (item.stock_minimo_seguridad || 5) ? 'text-red-600' : 'text-slate-800'}`}>
                                         {item.stock_actual}
                                     </p>
-                                    <p className="text-[10px] text-slate-400">Min: {item.stock_min}</p>
+                                    <p className="text-[10px] text-slate-400">Min: {item.stock_minimo_seguridad || 5}</p>
                                 </div>
                                 <div className="text-right">
                                     <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Precio</p>

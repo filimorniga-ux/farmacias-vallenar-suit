@@ -2,7 +2,7 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { LayoutDashboard, ShoppingCart, Users, Settings, LogOut, Menu, X, Stethoscope, Package, Briefcase, BarChart3, Truck, UserCircle, Clock, Building2, MapPin } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Users, Settings, LogOut, Menu, X, Stethoscope, Package, Briefcase, BarChart3, Truck, UserCircle, Clock, Building2, MapPin, Wrench } from 'lucide-react';
 import { usePharmaStore } from './presentation/store/useStore';
 import { Toaster } from 'sonner';
 
@@ -29,6 +29,7 @@ import { SuppliersPage } from './presentation/pages/SuppliersPage';
 import { SupplierProfile } from './presentation/pages/SupplierProfile';
 import NetworkPage from './presentation/pages/NetworkPage';
 import PriceCheckPage from './presentation/pages/PriceCheckPage';
+import InventorySettings from './presentation/pages/settings/InventorySettings';
 
 const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
     const { user, logout } = usePharmaStore();
@@ -39,6 +40,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
         // { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard', roles: ['MANAGER', 'QF'] }, // Removed per user request
         { icon: ShoppingCart, label: 'Punto de Venta', path: '/pos', roles: ['CASHIER', 'QF', 'MANAGER'] },
         { icon: Package, label: 'Inventario', path: '/inventory', roles: ['WAREHOUSE', 'MANAGER', 'QF'] },
+        { icon: Wrench, label: 'Mantenimiento DB', path: '/inventory/maintenance', roles: ['MANAGER', 'ADMIN'], isDanger: true },
         { icon: Truck, label: 'Operaciones WMS', path: '/warehouse', roles: ['WAREHOUSE', 'MANAGER', 'QF'] },
         { icon: Building2, label: 'Proveedores', path: '/suppliers', roles: ['MANAGER', 'QF', 'WAREHOUSE'] },
         { icon: BarChart3, label: 'Reportes & BI', path: '/reports', roles: ['MANAGER', 'QF'] },
@@ -74,7 +76,12 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                             key={item.path}
                             to={item.path}
                             onClick={() => setIsMobileMenuOpen(false)}
-                            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${location.pathname === item.path ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-900/50' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${location.pathname === item.path
+                                    ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-900/50'
+                                    : (item as any).isDanger
+                                        ? 'text-red-400 hover:bg-red-900/30 hover:text-red-200'
+                                        : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                                }`}
                         >
                             <item.icon size={20} />
                             <span className="font-medium">{item.label}</span>
@@ -165,6 +172,7 @@ const App: React.FC = () => {
                 <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
                 <Route path="/pos" element={<ProtectedRoute><POSMainScreen /></ProtectedRoute>} />
                 <Route path="/inventory" element={<ProtectedRoute><InventoryPage /></ProtectedRoute>} />
+                <Route path="/inventory/maintenance" element={<ProtectedRoute><InventorySettings /></ProtectedRoute>} />
                 <Route path="/warehouse" element={<ProtectedRoute><WarehouseOps /></ProtectedRoute>} />
                 <Route path="/suppliers" element={<ProtectedRoute><SuppliersPage /></ProtectedRoute>} />
                 <Route path="/suppliers/:id" element={<ProtectedRoute><SupplierProfile /></ProtectedRoute>} />

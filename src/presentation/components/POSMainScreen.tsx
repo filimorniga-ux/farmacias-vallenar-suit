@@ -245,25 +245,25 @@ const POSMainScreen: React.FC = () => {
     return (
         <div className="flex h-[calc(100vh-80px)] bg-slate-100 overflow-hidden">
 
-            {/* COL 1: Búsqueda (20%) */}
-            <div className="w-[25%] flex flex-col p-6 pr-3 gap-4">
+            {/* COL 1: Búsqueda (20% Desktop, 100% Mobile) */}
+            <div className="w-full md:w-[25%] flex flex-col p-4 md:p-6 md:pr-3 gap-4 h-full">
                 <div className="bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col h-full overflow-hidden">
-                    <div className="p-6 border-b border-slate-100">
+                    <div className="p-4 md:p-6 border-b border-slate-100">
                         <div className="relative w-full">
                             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={24} />
                             <input
                                 type="text"
                                 placeholder="Buscar..."
-                                className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-200 rounded-2xl focus:border-cyan-500 focus:outline-none transition-colors font-bold text-lg"
+                                className="w-full pl-12 pr-4 py-3 md:py-4 bg-slate-50 border-2 border-slate-200 rounded-2xl focus:border-cyan-500 focus:outline-none transition-colors font-bold text-base md:text-lg"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                                 autoFocus
                             />
                         </div>
-                        <p className="text-xs text-slate-400 mt-2 text-center">Escanee un producto para agregarlo rápido</p>
+                        <p className="text-xs text-slate-400 mt-2 text-center hidden md:block">Escanee un producto para agregarlo rápido</p>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-24 md:pb-4">
                         {searchTerm ? (
                             filteredInventory.map(item => (
                                 <div
@@ -302,17 +302,44 @@ const POSMainScreen: React.FC = () => {
                 </div>
             </div>
 
-            {/* COL 2: Carrito y Pago (80%) */}
-            <div className="flex-1 flex flex-col p-6 pl-0 gap-4">
-                <div className="flex-1 bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden flex flex-col">
+            {/* Mobile Floating Cart Button */}
+            <div className="fixed bottom-4 left-4 right-4 md:hidden z-40">
+                <button
+                    onClick={() => setActiveTab('CART')} // Reusing activeTab logic or we can add a new state for mobile cart open
+                    className="w-full bg-emerald-600 text-white p-4 rounded-2xl shadow-xl flex justify-between items-center font-bold"
+                >
+                    <div className="flex items-center gap-2">
+                        <ShoppingCart size={20} />
+                        <span>Ver Carrito ({cart.reduce((acc, item) => acc + item.quantity, 0)})</span>
+                    </div>
+                    <span className="text-xl">${cartTotal.toLocaleString()}</span>
+                </button>
+            </div>
+
+            {/* COL 2: Carrito y Pago (80% Desktop, Overlay Mobile) */}
+            <div className={`
+                fixed inset-0 z-50 bg-slate-100 md:static md:bg-transparent md:z-auto
+                flex-1 flex flex-col p-4 md:p-6 md:pl-0 gap-4
+                transition-transform duration-300 ease-in-out
+                ${activeTab === 'CART' ? 'translate-y-0' : 'translate-y-full md:translate-y-0'}
+            `}>
+                <div className="flex-1 bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden flex flex-col h-full">
                     {/* Header */}
-                    <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                    <div className="p-4 md:p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                         <div className="flex items-center gap-4">
-                            <div className="bg-cyan-100 p-3 rounded-2xl text-cyan-700">
+                            {/* Mobile Close Button */}
+                            <button
+                                onClick={() => setActiveTab('AI')} // Hack to close cart on mobile (switch to 'AI' or any non-CART state if we used that logic, but actually we should probably use a separate state or just toggle class)
+                                className="md:hidden p-2 -ml-2 text-slate-400"
+                            >
+                                <TrendingDown size={24} />
+                            </button>
+
+                            <div className="bg-cyan-100 p-2 md:p-3 rounded-2xl text-cyan-700 hidden md:block">
                                 <ShoppingCart size={28} />
                             </div>
                             <div>
-                                <h1 className="text-2xl font-extrabold text-slate-800">Carrito de Compra</h1>
+                                <h1 className="text-xl md:text-2xl font-extrabold text-slate-800">Carrito</h1>
                                 <div className="flex items-center gap-2 mt-1">
                                     {currentCustomer ? (
                                         <div className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg border border-emerald-100">
@@ -327,41 +354,42 @@ const POSMainScreen: React.FC = () => {
                                         </div>
                                     ) : (
                                         <div className="flex items-center gap-2">
-                                            <span className="text-xs text-slate-400 font-bold">👤 Cliente: Anónimo</span>
+                                            <span className="text-xs text-slate-400 font-bold hidden md:inline">👤 Cliente: Anónimo</span>
                                             <button
                                                 onClick={() => setIsCustomerSelectModalOpen(true)}
                                                 className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded-md hover:bg-slate-200 transition"
                                             >
-                                                ASIGNAR
+                                                + CLIENTE
                                             </button>
                                         </div>
                                     )}
                                 </div>
                             </div>
-                            {/* Shift Status Badge */}
-                            <div className={`px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 ${currentShift?.status === 'OPEN' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {/* Shift Status Badge - Compact on Mobile */}
+                            <div className={`px-2 md:px-4 py-1 md:py-2 rounded-lg font-bold text-[10px] md:text-sm flex items-center gap-2 ${currentShift?.status === 'OPEN' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                                 <div className={`w-2 h-2 rounded-full ${currentShift?.status === 'OPEN' ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
-                                {currentShift?.status === 'OPEN' ? `TURNO #${currentShift.shiftNumber} - ABIERTO` : 'CAJA CERRADA'}
+                                <span className="hidden md:inline">{currentShift?.status === 'OPEN' ? `TURNO #${currentShift.shiftNumber} - ABIERTO` : 'CAJA CERRADA'}</span>
+                                <span className="md:hidden">{currentShift?.status === 'OPEN' ? `#${currentShift.shiftNumber}` : 'CERRADO'}</span>
                             </div>
                         </div>
-                        <div className="flex gap-3">
+                        <div className="flex gap-2 md:gap-3">
                             <button
                                 onClick={() => setIsCashModalOpen(true)}
-                                className="flex items-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl hover:bg-blue-700 font-bold transition-colors shadow-lg shadow-blue-200"
+                                className="flex items-center gap-2 bg-blue-600 text-white px-3 md:px-5 py-2 md:py-3 rounded-xl hover:bg-blue-700 font-bold transition-colors shadow-lg shadow-blue-200"
                             >
                                 <DollarSign size={20} />
-                                <span className="hidden lg:inline">Gestión Caja</span>
+                                <span className="hidden lg:inline">Caja</span>
                             </button>
                             <button
                                 onClick={() => setIsManualItemModalOpen(true)}
-                                className="flex items-center gap-2 bg-purple-100 text-purple-700 px-5 py-3 rounded-xl hover:bg-purple-200 font-bold transition-colors"
+                                className="flex items-center gap-2 bg-purple-100 text-purple-700 px-3 md:px-5 py-2 md:py-3 rounded-xl hover:bg-purple-200 font-bold transition-colors"
                             >
                                 <Plus size={20} />
-                                <span className="hidden lg:inline">Item Manual</span>
+                                <span className="hidden lg:inline">Manual</span>
                             </button>
                             <button
                                 onClick={clearCart}
-                                className="flex items-center gap-2 bg-red-50 text-red-600 px-5 py-3 rounded-xl hover:bg-red-100 font-bold transition-colors"
+                                className="flex items-center gap-2 bg-red-50 text-red-600 px-3 md:px-5 py-2 md:py-3 rounded-xl hover:bg-red-100 font-bold transition-colors"
                             >
                                 <X size={20} />
                                 <span className="hidden lg:inline">Limpiar</span>
@@ -370,7 +398,7 @@ const POSMainScreen: React.FC = () => {
                     </div>
 
                     {/* Cart Items */}
-                    <div className="flex-1 overflow-y-auto p-6">
+                    <div className="flex-1 overflow-y-auto p-4 md:p-6">
                         {cart.length === 0 ? (
                             <div className="h-full flex flex-col items-center justify-center text-slate-300">
                                 <ShoppingCart size={80} className="mb-6 opacity-20" />
@@ -385,7 +413,7 @@ const POSMainScreen: React.FC = () => {
                                         <div key={item.id} className="flex justify-between items-center p-3 bg-white rounded-xl border border-slate-100 shadow-sm group hover:border-purple-200 transition-all">
                                             <div className="flex-1">
                                                 <div className="flex items-center gap-2 mb-1">
-                                                    <h3 className="font-bold text-slate-800">{fullItem ? formatProductLabel(fullItem) : item.name}</h3>
+                                                    <h3 className="font-bold text-slate-800 text-sm md:text-base">{fullItem ? formatProductLabel(fullItem) : item.name}</h3>
                                                     {item.discount && (
                                                         <span className="bg-purple-100 text-purple-700 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
                                                             <Tag size={10} /> OFERTA
@@ -427,8 +455,8 @@ const POSMainScreen: React.FC = () => {
                     </div>
 
                     {/* Footer / Total */}
-                    <div className="bg-slate-900 text-white p-8 flex justify-between items-center">
-                        <div className="flex gap-8">
+                    <div className="bg-slate-900 text-white p-6 md:p-8 flex flex-col md:flex-row justify-between items-center gap-4">
+                        <div className="flex gap-8 w-full md:w-auto justify-between md:justify-start">
                             <div>
                                 <p className="text-slate-400 text-sm mb-1">Ítems</p>
                                 <p className="text-2xl font-bold">{cart.reduce((acc, item) => acc + item.quantity, 0)}</p>
@@ -438,15 +466,15 @@ const POSMainScreen: React.FC = () => {
                                 <p className="text-2xl font-bold">${cartTotal.toLocaleString()}</p>
                             </div>
                         </div>
-                        <div className="flex items-center gap-8">
-                            <div className="text-right">
+                        <div className="flex flex-col md:flex-row items-center gap-4 md:gap-8 w-full md:w-auto">
+                            <div className="text-right w-full md:w-auto flex justify-between md:block items-center">
                                 <p className="text-slate-400 text-sm mb-1">Total a Pagar</p>
-                                <p className="text-5xl font-extrabold text-emerald-400">${cartTotal.toLocaleString()}</p>
+                                <p className="text-4xl md:text-5xl font-extrabold text-emerald-400">${cartTotal.toLocaleString()}</p>
                             </div>
                             <button
                                 onClick={handlePrePayment}
                                 disabled={cart.length === 0 || !currentShift || currentShift.status === 'CLOSED'}
-                                className="bg-emerald-500 hover:bg-emerald-400 text-emerald-950 px-12 py-6 rounded-2xl font-extrabold text-2xl shadow-lg shadow-emerald-900/50 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                                className="w-full md:w-auto bg-emerald-500 hover:bg-emerald-400 text-emerald-950 px-8 md:px-12 py-4 md:py-6 rounded-2xl font-extrabold text-xl md:text-2xl shadow-lg shadow-emerald-900/50 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                             >
                                 PAGAR (F9)
                             </button>

@@ -75,104 +75,71 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
         };
     };
 
-    const parseLegacyRow = (row: any[], index: number): ImportedRow => {
+    const parseLegacyRow = (row: any, index: number): ImportedRow => {
         const errors: string[] = [];
 
-        // SMART HEURISTIC: Anchor on the "Name" column
-        // We look for the first column that is a string, has length > 3, and is NOT a number.
-        let nameIdx = -1;
-        for (let i = 0; i < row.length; i++) {
-            const val = row[i];
-            if (typeof val === 'string' && val.length > 3 && isNaN(parseFloat(val))) {
-                nameIdx = i;
-                break;
-            }
+        // --- ROBUST COLUMN MAPPING ---
+        // 1. SKU / Barcode (Barcode-First Strategy)
+        let rawSku = row['Código Barras'] || row['Codigo Barras'] || row['SKU'] || row['Codigo'] || '';
+        // Clean: Remove non-alphanumeric (spaces, dots, etc)
+        let sku = String(rawSku).trim().replace(/[^0-9a-zA-Z]/g, '');
+
+        // 2. Name / Product
+        let rawName = row['Producto'] || row['Nombre'] || row['Descripcion'] || '';
+
+        // 3. Prices & Stock (Clean non-numeric chars)
+        const cleanNumber = (val: any) => {
+            if (typeof val === 'number') return val;
+            if (!val) return 0;
+            // Remove $ and dots (thousands separator), keep comma if decimal? 
+            // Usually Excel exports numbers as numbers. If string: "$ 1.000" -> 1000
+            return parseInt(String(val).replace(/[^0-9]/g, '')) || 0;
+        };
+
+        let price_sell = cleanNumber(row['Precio Venta '] || row['Precio Venta'] || row['Precio']);
+        let cost_net = cleanNumber(row['Costo Neto Prom. Unitario'] || row['Costo'] || row['Costo Neto']);
+        let stock = cleanNumber(row['Stock'] || row['Cantidad'] || row['Saldo']);
+
+        // --- FALLBACKS & GENERATION ---
+
+        // 1. SKU Generation (INT- prefix for internal codes)
+        if (!sku || sku.length < 3) {
+            sku = `INT-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+            errors.push('SKU Generado Internamente (Faltaba Código Barras)');
+        } else {
+            // Valid Barcode found
         }
 
-        // Default mapping if no name found (fallback to standard)
-        if (nameIdx === -1) nameIdx = 1;
-
-        let sku = '';
-        let rawName = row[nameIdx]?.toString() || '';
-        let stock = 0;
-        let price_sell = 0;
-        let cost_net = 0;
-
-        // 1. Try to find SKU to the left of Name
-        if (nameIdx > 0) {
-            sku = row[nameIdx - 1]?.toString() || '';
-        }
-        // If SKU is still empty or looks like an index, try col 0 if nameIdx was > 1
-        if ((!sku || sku.length < 3) && nameIdx > 1) {
-            const altSku = row[0]?.toString();
-            if (altSku && altSku.length > 3) sku = altSku;
+        if (!rawName) {
+            rawName = 'PRODUCTO SIN NOMBRE';
+            errors.push('Falta Nombre');
         }
 
-        // 2. Find Stock, Price, Cost to the right of Name
-        // We look for the first 3 numbers after Name
-        let numbersFound: number[] = [];
-        for (let i = nameIdx + 1; i < row.length; i++) {
-            const val = row[i];
-            // Clean currency symbols if string
-            const cleanVal = typeof val === 'string' ? val.replace(/[$,.]/g, '') : val;
-            const num = parseFloat(cleanVal);
-            if (!isNaN(num) && isFinite(num)) {
-                numbersFound.push(num);
-            }
-        }
+        // --- INTELLIGENT PARSER V55 LOGIC ---
+        let cleanName = rawName;
+        let laboratory = 'GENÉRICO'; // Default
+        let units_per_box = 1; // Default
 
-        // Standard Vallenar Mapping: Stock, Price, Cost
-        if (numbersFound.length > 0) stock = numbersFound[0];
-        if (numbersFound.length > 1) price_sell = numbersFound[1];
-        if (numbersFound.length > 2) cost_net = numbersFound[2];
-
-        // Sanity Check: If Stock is huge (> 50000) and SKU is empty, maybe Stock IS the SKU (Barcode)
-        if (stock > 50000 && !sku) {
-            sku = stock.toString();
-            stock = 0;
-            if (numbersFound.length > 1) stock = numbersFound[1];
-        }
-
-        // 1. SKU Generation
-        if (!sku) {
-            sku = `SKU-GEN-${index + 1}`;
-            errors.push('SKU Generado Automáticamente');
-        }
-
-        if (!rawName) errors.push('Falta Nombre');
-
-        // 2. Intelligent Parsing: "NOMBRE + DCI + LAB"
-        let name = rawName;
-        let laboratory = 'GENERICO';
-        let units_per_box = 1;
-
-        // A. Extract Laboratory (Look for "LAB." or "LAB " at end)
-        // Regex: Matches "LAB" followed by anything until end, case insensitive
-        const labRegex = /(.*?)\s+(?:LAB\.|LABORATORIO|LAB)\s+(.*)$/i;
-        const labMatch = name.match(labRegex);
-
+        // 1. EXTRAER LABORATORIO (Busca "LAB." o "LAB " al final)
+        // Regex: Detecta "LAB" seguido de cualquier cosa hasta el final
+        const labMatch = rawName.match(/\sLAB[\.\s]\s*(.+)$/i);
         if (labMatch) {
-            name = labMatch[1].trim(); // Name without Lab
-            laboratory = labMatch[2].trim();
+            laboratory = labMatch[1].trim(); // "PHARMARIS"
+            cleanName = cleanName.replace(labMatch[0], ''); // Borra esa parte del nombre
         }
 
-        // B. Extract Units (Look for "X30", "30 COMP", "30 UNID")
-        // Regex: Matches "X" followed by digits OR digits followed by COMP/CAPS/UNID
-        const unitsRegex = /X\s?(\d+)|(\d+)\s?(?:COMP|CAPS|UNID|SOBRES|TABLETAS)/i;
-        const unitsMatch = name.match(unitsRegex);
-
-        if (unitsMatch) {
-            // Group 1 is for "X30", Group 2 is for "30 COMP"
-            const unitsStr = unitsMatch[1] || unitsMatch[2];
-            units_per_box = parseInt(unitsStr) || 1;
-
-            // Optional: Clean units from name? 
-            // name = name.replace(unitsMatch[0], '').trim(); 
-            // User didn't explicitly ask to remove units from name, but usually cleaner. 
-            // Let's keep it in name for safety unless it looks very detached.
+        // 2. EXTRAER UNIDADES (Busca "X30", "X 30", "X30COMP")
+        // Regex: Detecta una X seguida de dígitos
+        const unitMatch = cleanName.match(/X\s?(\d+)(\s?[A-Z]+)?/i);
+        if (unitMatch) {
+            units_per_box = parseInt(unitMatch[1]); // "30"
+            cleanName = cleanName.replace(unitMatch[0], ''); // Borra "X30COMP" del nombre
         }
 
-        // 3. Calculate Unit Price
+        // 3. LIMPIEZA FINAL DEL NOMBRE
+        cleanName = cleanName.trim().replace(/\s+$/, '');
+
+        // 4. CÁLCULO PRECIO UNITARIO
         let price_sell_unit = 0;
         if (price_sell > 0 && units_per_box > 0) {
             price_sell_unit = Math.round(price_sell / units_per_box);
@@ -180,13 +147,13 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
             price_sell_unit = price_sell; // Fallback
         }
 
-        // 4. Defaults & Inferences
+        // 5. Defaults & Inferences
         const lot_number = 'SIN-LOTE-MIGRACION';
         const expiry_date = '31/12/2025';
 
         // Infer Category
         let category = 'MEDICAMENTO';
-        const upperName = name.toUpperCase();
+        const upperName = cleanName.toUpperCase();
         if (upperName.includes('SHAMPOO') || upperName.includes('JABON') || upperName.includes('CREMA')) {
             category = 'COSMETICA';
         } else if (upperName.includes('VITAMINA') || upperName.includes('SUPLEMENTO')) {
@@ -196,14 +163,14 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
         return {
             id: uuidv4(),
             sku,
-            name,
-            dci: name,
+            name: cleanName,
+            dci: cleanName,
             laboratory,
             price_sell,
-            price_sell_unit, // New field
+            price_sell_unit, // <--- VITAL
             cost_net,
             stock,
-            units_per_box, // New field
+            units_per_box,
             lot_number,
             expiry_date,
             location: 'BODEGA_CENTRAL',
@@ -227,16 +194,18 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                 const workbook = XLSX.read(data, { type: 'array' });
                 const sheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[sheetName];
-                const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                let parsedRows: ImportedRow[] = [];
 
-                // Skip header row
-                const rows = jsonData.slice(1) as any[][];
-
-                const parsedRows: ImportedRow[] = rows.map((row, index) => {
-                    return importFormat === 'OFFICIAL'
-                        ? parseOfficialRow(row)
-                        : parseLegacyRow(row, index);
-                }).filter(r => r.sku || r.name);
+                if (importFormat === 'OFFICIAL') {
+                    // Official format uses strict array indexing
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                    const rows = jsonData.slice(1) as any[][]; // Skip header
+                    parsedRows = rows.map(parseOfficialRow).filter(r => r.sku || r.name);
+                } else {
+                    // Legacy format uses Header Names (Object based)
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet); // Returns objects
+                    parsedRows = jsonData.map((row: any, index: number) => parseLegacyRow(row, index)).filter(r => r.sku || r.name);
+                }
 
                 setImportedData(parsedRows);
                 setStep('PREVIEW');
@@ -298,24 +267,27 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                 return;
             }
 
-            const itemsToImport = validRows.map(row => {
-                // Parse date DD/MM/YYYY to timestamp
+            // --- DEDUPLICATION LOGIC ---
+            const uniqueMap = new Map<string, any>();
+
+            validRows.forEach(row => {
+                const existing = uniqueMap.get(row.sku);
+
+                // Parse date DD/MM/YYYY to timestamp (Logic moved here for cleaner map)
                 let expiry = Date.now() + 31536000000; // Default 1 year
                 if (row.expiry_date) {
-                    // Handle different date formats if needed, but assuming DD/MM/YYYY from parser
                     const parts = row.expiry_date.split('/');
                     if (parts.length === 3) {
                         expiry = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0])).getTime();
                     } else if (row.expiry_date.includes('-')) {
                         const parts = row.expiry_date.split('-');
                         if (parts.length === 3) {
-                            // Try YYYY-MM-DD
                             expiry = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])).getTime();
                         }
                     }
                 }
 
-                return {
+                const itemData = {
                     id: uuidv4(),
                     sku: row.sku,
                     name: row.name,
@@ -329,7 +301,6 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                     location_id: row.location || 'BODEGA_CENTRAL',
                     is_refrigerated: row.is_refrigerated?.toUpperCase() === 'SI',
                     status: 'AVAILABLE',
-                    // Default values for required fields in InventoryBatch
                     isp_register: 'PENDIENTE',
                     format: 'UNIDAD',
                     units_per_box: row.units_per_box || 1,
@@ -337,37 +308,49 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                     is_bioequivalent: false,
                     condition: 'VD',
                     category: 'MEDICAMENTO'
-                } as any;
+                };
+
+                if (existing) {
+                    // MERGE STRATEGY
+                    existing.stock_actual += itemData.stock_actual; // Sum Stock
+                    existing.price_sell = Math.max(existing.price_sell, itemData.price_sell); // Max Price
+                    existing.price_sell_unit = Math.max(existing.price_sell_unit, itemData.price_sell_unit);
+                    // Keep longest name
+                    if (itemData.name.length > existing.name.length) existing.name = itemData.name;
+                } else {
+                    uniqueMap.set(row.sku, itemData);
+                }
             });
 
-            // 1. Import to Local Store (Optimistic UI) - This was already happening with `await importInventory(itemsToImport);`
+            const itemsToImport = Array.from(uniqueMap.values());
+
+            // 1. Import to Local Store (Optimistic UI)
             await importInventory(itemsToImport);
 
             // 2. Persist to Database (Tiger Cloud)
             const { TigerDataService } = await import('../../../domain/services/TigerDataService');
             await TigerDataService.uploadBulkInventory(itemsToImport, (progress, message) => {
-                // setUploadProgress(progress); // Assuming these states are available
+                // setUploadProgress(progress);
                 // setUploadMessage(message);
             });
 
-            // 3. Refresh Data from Cloud to ensure sync
+            // 3. Refresh Data
             const { fetchInventory } = await import('../../../actions/sync');
-            await fetchInventory(); // This might be redundant if we trust the optimistic update, but good for consistency
+            await fetchInventory();
 
-            toast.success('Inventario Importado', {
-                description: `${itemsToImport.length} productos procesados y guardados en la nube.`
+            toast.success('Inventario Importado y Unificado', {
+                description: `${itemsToImport.length} productos únicos procesados (se fusionaron duplicados).`
             });
             onClose();
-            // setFile(null); // Assuming a file state exists
-            setImportedData([]); // Clear imported data
-            setStep('UPLOAD'); // Go back to upload step
+            setImportedData([]);
+            setStep('UPLOAD');
         } catch (error) {
             console.error('Import error:', error);
             toast.error('Error en la importación', {
                 description: 'Algunos datos se guardaron localmente, pero falló la sincronización con la nube.'
             });
         } finally {
-            setIsProcessing(false); // Assuming this is the equivalent of setIsUploading
+            setIsProcessing(false);
         }
     };
 
@@ -447,9 +430,12 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                                             <FileType size={32} />
                                         </div>
                                         <h3 className="text-xl font-bold text-gray-800 mb-2">Importador Inteligente Legacy</h3>
-                                        <p className="text-gray-500 mb-6">
-                                            Sube tu Excel antiguo. El sistema intentará separar Nombre/Laboratorio y rellenará datos faltantes (Lotes, Fechas) para revisión.
+                                        <p className="text-gray-500 mb-4">
+                                            Sube tu Excel antiguo. El sistema intentará separar Nombre/Laboratorio y rellenará datos faltantes.
                                         </p>
+                                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6 text-xs text-blue-800 text-left">
+                                            <strong>⚠️ Nota Importante:</strong> El sistema usará el <u>Código de Barras</u> como SKU principal para facilitar la venta con pistola. Si hay duplicados en el Excel, se sumará el stock.
+                                        </div>
                                         <div className="text-xs text-left bg-orange-50 p-4 rounded-lg border border-orange-100 text-orange-800">
                                             <strong>Columnas esperadas (flexible):</strong>
                                             <ul className="list-disc pl-4 mt-1 space-y-1">
