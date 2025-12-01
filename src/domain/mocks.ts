@@ -59,7 +59,7 @@ export const MOCK_INVENTORY: InventoryBatch[] = [
 
 export const MOCK_EMPLOYEES: EmployeeProfile[] = [
     {
-        id: 'EMP-001',
+        id: 'u1',
         rut: '11.111.111-1',
         name: 'Miguel Pérez',
         role: 'MANAGER',
@@ -77,10 +77,10 @@ export const MOCK_EMPLOYEES: EmployeeProfile[] = [
         allowed_modules: ['POS', 'INVENTORY', 'HR', 'REPORTS', 'SUPPLIERS']
     },
     {
-        id: 'EMP-002',
+        id: 'u2',
         rut: '22.222.222-2',
-        name: 'Javiera Rojas',
-        role: 'QF',
+        name: 'Javiera QF',
+        role: 'ADMIN',
         access_pin: '9080',
         status: 'ACTIVE',
         current_status: 'OUT',
@@ -94,9 +94,9 @@ export const MOCK_EMPLOYEES: EmployeeProfile[] = [
         allowed_modules: ['POS', 'INVENTORY', 'REPORTS', 'SUPPLIERS']
     },
     {
-        id: 'EMP-003',
+        id: 'u3',
         rut: '33.333.333-3',
-        name: 'Camila Cajera',
+        name: 'Cajero 1',
         role: 'CASHIER',
         access_pin: '9080',
         status: 'ACTIVE',
@@ -111,9 +111,9 @@ export const MOCK_EMPLOYEES: EmployeeProfile[] = [
         allowed_modules: ['POS', 'INVENTORY']
     },
     {
-        id: 'EMP-004',
+        id: 'u4',
         rut: '44.444.444-4',
-        name: 'Pedro Bodega',
+        name: 'Bodeguero',
         role: 'WAREHOUSE',
         access_pin: '9080',
         status: 'ACTIVE',
