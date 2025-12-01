@@ -13,7 +13,19 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'No products provided' }, { status: 400 });
         }
 
-        console.log(`📦 [API] Starting bulk import of ${products.length} items...`);
+        console.log(`📦 [API v4 DEBUG] Starting bulk import of ${products.length} items...`);
+
+        // DEBUG: Check actual columns in the DB the app is connected to
+        const columnCheck = await client.query(`
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'products'
+        `);
+        console.log('🔍 [DEBUG] Actual columns in "products" table:', columnCheck.rows.map(r => r.column_name).join(', '));
+
+        // DEBUG: Check DB Host (masked)
+        const dbHost = process.env.DATABASE_URL?.split('@')[1]?.split(':')[0] || 'UNKNOWN';
+        console.log('🌍 [DEBUG] Connected to DB Host:', dbHost);
 
         // Start Transaction
         await client.query('BEGIN');
@@ -22,22 +34,22 @@ export async function POST(request: Request) {
         // We use ON CONFLICT to update existing records
         const queryText = `
             INSERT INTO products (
-                id, sku, name, dci, laboratory, location_id, 
-                stock_actual, price, cost_price, 
+                id, sku, name, dci, laboratory, 
+                stock_total, price_sell_box, cost_net, 
                 format, is_bioequivalent, category
             )
             VALUES (
-                $1, $2, $3, $4, $5, $6, 
-                $7, $8, $9, 
-                $10, $11, $12
+                $1, $2, $3, $4, $5, 
+                $6, $7, $8, 
+                $9, $10, $11
             )
             ON CONFLICT (sku) DO UPDATE SET
                 name = EXCLUDED.name,
                 dci = EXCLUDED.dci,
                 laboratory = EXCLUDED.laboratory,
-                stock_actual = products.stock_actual + EXCLUDED.stock_actual, -- Merge stock
-                price = EXCLUDED.price,
-                cost_price = EXCLUDED.cost_price,
+                stock_total = products.stock_total + EXCLUDED.stock_total, -- Merge stock
+                price_sell_box = EXCLUDED.price_sell_box,
+                cost_net = EXCLUDED.cost_net,
                 updated_at = NOW()
             RETURNING id;
         `;
@@ -48,6 +60,7 @@ export async function POST(request: Request) {
         for (const product of products) {
             // Map cost_net (new standard) to cost_price (legacy DB column)
             const cost = product.cost_net || product.cost_price || 0;
+            const price = product.price_sell_box || product.price || 0;
 
             await client.query(queryText, [
                 product.id,
@@ -55,10 +68,9 @@ export async function POST(request: Request) {
                 product.name,
                 product.dci || '',
                 product.laboratory || 'GENERICO',
-                product.location_id || 'BODEGA_CENTRAL',
                 product.stock_actual || 0,
-                product.price || 0,
-                cost, // Mapped cost
+                price,
+                cost,
                 product.format || 'UNIDAD',
                 product.is_bioequivalent || false,
                 product.category || 'MEDICAMENTO'
@@ -79,7 +91,11 @@ export async function POST(request: Request) {
             {
                 error: 'Failed to import batch',
                 details: (error as Error).message,
-                code: (error as any).code // PostgreSQL error code
+                code: (error as any).code, // PostgreSQL error code
+                debug: {
+                    host: process.env.DATABASE_URL?.split('@')[1]?.split(':')[0] || 'UNKNOWN',
+                    columns: (await client.query("SELECT column_name FROM information_schema.columns WHERE table_name = 'products'")).rows.map(r => r.column_name)
+                }
             },
             { status: 500 }
         );
