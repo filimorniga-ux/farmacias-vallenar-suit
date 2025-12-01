@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Settings, User, Shield, Save, Receipt, Printer, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Settings, User, Shield, Save, Receipt, Printer, ToggleLeft, ToggleRight, AlertTriangle } from 'lucide-react';
 import SiiSettings from './settings/SiiSettings';
 import HardwarePage from './settings/HardwarePage';
+import InventorySettings from './settings/InventorySettings';
 import { useSettingsStore } from '../store/useSettingsStore';
 
 const SettingsPage: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'users' | 'sii' | 'hardware'>('users');
+    const [activeTab, setActiveTab] = useState<'users' | 'sii' | 'hardware' | 'inventory'>('users');
     const { enable_sii_integration, toggleSiiIntegration } = useSettingsStore();
 
     return (
@@ -63,6 +64,16 @@ const SettingsPage: React.FC = () => {
                     >
                         <Printer size={20} />
                         Hardware & Impresión
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('inventory')}
+                        className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'inventory'
+                            ? 'bg-red-50 text-red-700 border-b-2 border-red-600'
+                            : 'text-slate-500 hover:bg-slate-50'
+                            }`}
+                    >
+                        <AlertTriangle size={20} />
+                        Mantenimiento
                     </button>
                 </div>
             </div>
@@ -143,6 +154,7 @@ const SettingsPage: React.FC = () => {
                 )
             )}
             {activeTab === 'hardware' && <HardwarePage />}
+            {activeTab === 'inventory' && <InventorySettings />}
         </div>
     );
 };

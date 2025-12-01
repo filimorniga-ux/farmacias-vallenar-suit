@@ -116,13 +116,14 @@ export const TigerDataService = {
             const { fetchInventory } = await import('../../actions/sync');
             const dbInventory = await fetchInventory();
 
-            if (dbInventory && dbInventory.length > 0) {
+            // Allow empty DB (valid state after truncate)
+            if (dbInventory) {
                 console.log(`✅ [Tiger Data] Loaded ${dbInventory.length} items from DB`);
                 return dbInventory;
             }
 
-            console.warn('⚠️ [Tiger Data] DB returned empty, using MOCK data as fallback');
-            throw new Error('Empty DB result');
+            // Only throw if dbInventory is null/undefined (connection error)
+            throw new Error('DB Connection failed');
         } catch (error) {
             console.error('❌ [Tiger Data] DB Fetch failed, using MOCK data:', error);
             // 2. Fallback to Mock Data
