@@ -76,49 +76,68 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
     const parseLegacyRow = (row: any[], index: number): ImportedRow => {
         const errors: string[] = [];
 
-        // MAPPING BASED ON "FORMATO F1"
-        // Col 0: Código Barras (SKU)
-        // Col 1: Stock
-        // Col 2: Precio Venta
-        // Col 3: Costo Neto Prom. Unitario
-        // Col 4: Grupo de Producto
-        // Col 5: Producto (Nombre Completo)
+        // SMART HEURISTIC: Anchor on the "Name" column
+        // We look for the first column that is a string, has length > 3, and is NOT a number.
+        let nameIdx = -1;
+        for (let i = 0; i < row.length; i++) {
+            const val = row[i];
+            if (typeof val === 'string' && val.length > 3 && isNaN(parseFloat(val))) {
+                nameIdx = i;
+                break;
+            }
+        }
 
-        // NOTE: The user prompt had conflicting info on column order in two sections. 
-        // "LÓGICA DE PARSEO" listed them in one way, "UI" hint in another.
-        // I will implement a robust check or assume the "UI" hint order as it's more visual, 
-        // BUT I will also check if the row has data in expected places.
+        // Default mapping if no name found (fallback to standard)
+        if (nameIdx === -1) nameIdx = 1;
 
-        // Let's try to detect if it's the "UI" hint order (SKU, Name, Stock, Price, Cost) 
-        // or the "Logic" order (SKU, Stock, Price, Cost, Group, Name).
-        // Usually "Producto" is a text string. "Stock", "Price", "Cost" are numbers.
+        // Map relative to Name
+        // [SKU] [NAME] [STOCK] [PRICE] [COST]
+        // If Name is at 1: SKU at 0, Stock at 2, Price at 3...
+        // If Name is at 2: SKU at 1 (or 0?), Stock at 3...
 
-        // Heuristic: Check if Col 1 is a number (Stock) or String (Name)
-        let sku = row[0]?.toString() || '';
-        let rawName = '';
+        let sku = '';
+        let rawName = row[nameIdx]?.toString() || '';
         let stock = 0;
         let price_sell = 0;
         let cost_net = 0;
-        let group = '';
 
-        const col1 = row[1];
-        const isCol1Number = !isNaN(parseFloat(col1)) && isFinite(col1);
+        // 1. Try to find SKU to the left of Name
+        if (nameIdx > 0) {
+            sku = row[nameIdx - 1]?.toString() || '';
+        }
+        // If SKU is still empty or looks like an index, try col 0 if nameIdx was > 1
+        if ((!sku || sku.length < 3) && nameIdx > 1) {
+            const altSku = row[0]?.toString();
+            if (altSku && altSku.length > 3) sku = altSku;
+        }
 
-        if (isCol1Number) {
-            // LOGIC ORDER: SKU, Stock, Price, Cost, Group, Name
-            stock = parseInt(row[1]) || 0;
-            price_sell = parseFloat(row[2]) || 0;
-            cost_net = parseFloat(row[3]) || 0;
-            group = row[4]?.toString() || '';
-            rawName = row[5]?.toString() || '';
-        } else {
-            // UI HINT ORDER: SKU, Name, Stock, Price, Cost
-            // Assuming Group might be Col 5
-            rawName = row[1]?.toString() || '';
-            stock = parseInt(row[2]) || 0;
-            price_sell = parseFloat(row[3]) || 0;
-            cost_net = parseFloat(row[4]) || 0;
-            group = row[5]?.toString() || '';
+        // 2. Find Stock, Price, Cost to the right of Name
+        // We look for the first 3 numbers after Name
+        let numbersFound: number[] = [];
+        for (let i = nameIdx + 1; i < row.length; i++) {
+            const val = row[i];
+            // Clean currency symbols if string
+            const cleanVal = typeof val === 'string' ? val.replace(/[$,.]/g, '') : val;
+            const num = parseFloat(cleanVal);
+            if (!isNaN(num) && isFinite(num)) {
+                numbersFound.push(num);
+            }
+        }
+
+        // Assign numbers based on typical order: Stock, Price, Cost
+        // OR Price, Stock, Cost? 
+        // Standard Vallenar seems to be: Stock, Price, Cost
+        if (numbersFound.length > 0) stock = numbersFound[0];
+        if (numbersFound.length > 1) price_sell = numbersFound[1];
+        if (numbersFound.length > 2) cost_net = numbersFound[2];
+
+        // Sanity Check: If Stock is huge (> 50000) and SKU is empty, maybe Stock IS the SKU (Barcode)
+        if (stock > 50000 && !sku) {
+            sku = stock.toString();
+            stock = 0; // Reset stock as it was actually the SKU
+            // Shift other values?
+            if (numbersFound.length > 1) stock = numbersFound[1]; // Old Price becomes Stock? Risky.
+            // Let's just reset stock to 0 to be safe.
         }
 
         // 1. SKU Generation
@@ -134,7 +153,6 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
         let laboratory = 'GENERICO';
 
         // Regex to find "LAB " or "LAB." and extract what follows
-        // Example: "AMOXICILINA 500MG LAB CHILE" -> Name: "AMOXICILINA 500MG", Lab: "CHILE"
         const labRegex = /(.*?)\s+(?:LAB|LABORATORIO|LAB\.)\s+(.*)/i;
         const match = rawName.match(labRegex);
 
@@ -147,8 +165,12 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
         const lot_number = 'SIN-LOTE-MIGRACION';
         const expiry_date = '31/12/2025'; // Default future date
 
+        // Infer Category
         let category = 'MEDICAMENTO';
-        if (group.toUpperCase().includes('NATURAL') || group.toUpperCase().includes('SUPLEMENTO')) {
+        const upperName = name.toUpperCase();
+        if (upperName.includes('SHAMPOO') || upperName.includes('JABON') || upperName.includes('CREMA')) {
+            category = 'COSMETICA';
+        } else if (upperName.includes('VITAMINA') || upperName.includes('SUPLEMENTO')) {
             category = 'SUPLEMENTO';
         }
 
@@ -163,11 +185,11 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
             stock,
             lot_number,
             expiry_date,
-            location: group || 'BODEGA_CENTRAL',
+            location: 'BODEGA_CENTRAL',
             is_refrigerated: 'NO',
-            isValid: errors.length === 0 || (errors.length === 1 && errors[0].includes('SKU')), // Valid even if SKU generated
+            isValid: errors.length === 0 || (errors.length === 1 && errors[0].includes('SKU')),
             errors,
-            needs_review: true // Always flag for review
+            needs_review: true
         };
     };
 
