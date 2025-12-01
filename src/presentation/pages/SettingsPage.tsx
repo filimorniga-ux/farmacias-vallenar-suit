@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
-import { Settings, User, Shield, Save, Receipt, Printer, ToggleLeft, ToggleRight, AlertTriangle } from 'lucide-react';
+import { Settings, User, Shield, Save, Receipt, Printer, ToggleLeft, ToggleRight, AlertTriangle, CreditCard } from 'lucide-react';
 import SiiSettings from './settings/SiiSettings';
 import HardwarePage from './settings/HardwarePage';
 import InventorySettings from './settings/InventorySettings';
+import InfrastructureBillingPanel from '../components/settings/InfrastructureBillingPanel';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { usePharmaStore } from '../store/useStore';
 
 const SettingsPage: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'users' | 'sii' | 'hardware' | 'inventory'>('users');
+    const [activeTab, setActiveTab] = useState<'users' | 'sii' | 'hardware' | 'inventory' | 'billing'>('users');
     const { enable_sii_integration, toggleSiiIntegration } = useSettingsStore();
+    const { user } = usePharmaStore();
 
     return (
         <div className="p-6 bg-slate-50 min-h-screen">
@@ -34,10 +37,10 @@ const SettingsPage: React.FC = () => {
 
             {/* Tabs */}
             <div className="bg-white rounded-t-3xl shadow-sm border border-slate-200 overflow-hidden max-w-7xl">
-                <div className="flex border-b border-slate-200">
+                <div className="flex border-b border-slate-200 overflow-x-auto">
                     <button
                         onClick={() => setActiveTab('users')}
-                        className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'users'
+                        className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'users'
                             ? 'bg-cyan-50 text-cyan-700 border-b-2 border-cyan-600'
                             : 'text-slate-500 hover:bg-slate-50'
                             }`}
@@ -47,7 +50,7 @@ const SettingsPage: React.FC = () => {
                     </button>
                     <button
                         onClick={() => setActiveTab('sii')}
-                        className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'sii'
+                        className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'sii'
                             ? 'bg-green-50 text-green-700 border-b-2 border-green-600'
                             : 'text-slate-500 hover:bg-slate-50'
                             }`}
@@ -57,7 +60,7 @@ const SettingsPage: React.FC = () => {
                     </button>
                     <button
                         onClick={() => setActiveTab('hardware')}
-                        className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'hardware'
+                        className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'hardware'
                             ? 'bg-purple-50 text-purple-700 border-b-2 border-purple-600'
                             : 'text-slate-500 hover:bg-slate-50'
                             }`}
@@ -67,7 +70,7 @@ const SettingsPage: React.FC = () => {
                     </button>
                     <button
                         onClick={() => setActiveTab('inventory')}
-                        className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'inventory'
+                        className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'inventory'
                             ? 'bg-red-50 text-red-700 border-b-2 border-red-600'
                             : 'text-slate-500 hover:bg-slate-50'
                             }`}
@@ -75,6 +78,20 @@ const SettingsPage: React.FC = () => {
                         <AlertTriangle size={20} />
                         Mantenimiento
                     </button>
+
+                    {/* Infrastructure Billing Tab (Manager Only) */}
+                    {(user?.role === 'MANAGER' || user?.role === 'ADMIN') && (
+                        <button
+                            onClick={() => setActiveTab('billing')}
+                            className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'billing'
+                                ? 'bg-amber-50 text-amber-700 border-b-2 border-amber-600'
+                                : 'text-slate-500 hover:bg-slate-50'
+                                }`}
+                        >
+                            <CreditCard size={20} />
+                            Suscripción & Pagos
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -155,8 +172,16 @@ const SettingsPage: React.FC = () => {
             )}
             {activeTab === 'hardware' && <HardwarePage />}
             {activeTab === 'inventory' && <InventorySettings />}
+
+            {/* Billing Tab Content */}
+            {activeTab === 'billing' && (
+                <div className="bg-white rounded-b-3xl shadow-sm border border-t-0 border-slate-200 overflow-hidden max-w-7xl p-8">
+                    <InfrastructureBillingPanel />
+                </div>
+            )}
         </div>
     );
 };
+
 
 export default SettingsPage;

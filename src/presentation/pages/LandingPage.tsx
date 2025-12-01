@@ -4,6 +4,7 @@ import { usePharmaStore } from '../store/useStore';
 import { ShoppingCart, Truck, Users, Clock, Lock, ArrowRight, BarChart3, Building2, Ticket, MapPin, ScanBarcode } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { EmployeeProfile } from '../../domain/types';
+import AppIcon from '../components/ui/AppIcon';
 
 const LandingPage: React.FC = () => {
     const navigate = useNavigate();
@@ -63,11 +64,11 @@ const LandingPage: React.FC = () => {
         setError('');
     };
 
-    const handleLogin = (e: React.FormEvent) => {
+    const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedEmployee) return;
 
-        if (login(selectedEmployee.id, pin)) {
+        if (await login(selectedEmployee.id, pin)) {
             setIsLoginModalOpen(false);
             // Navigation will happen via useEffect when user state updates
         } else {
@@ -84,26 +85,27 @@ const LandingPage: React.FC = () => {
         setError('');
     };
 
-    const BentoCard = ({ title, icon: Icon, color, route, desc }: any) => (
+    const BentoCard = ({ title, icon: Icon, gradient, shadowColor, route, desc }: { title: string, icon: any, gradient: string, shadowColor: string, route: string, desc: string }) => (
         <motion.div
-            whileHover={{ scale: 1.02 }}
+            whileHover={{ scale: 1.05, y: -5 }}
             whileTap={{ scale: 0.98 }}
-            className={`relative overflow-hidden rounded-3xl p-8 cursor-pointer shadow-xl transition-all ${color} text-white group`}
+            className={`relative overflow-hidden rounded-3xl p-6 cursor-pointer bg-gradient-to-br ${gradient} shadow-xl shadow-${shadowColor}-500/30 hover:shadow-2xl hover:shadow-${shadowColor}-500/40 transition-all group border border-white/10`}
             onClick={() => handleCardClick(route)}
         >
-            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                <Icon size={120} />
-            </div>
-            <div className="relative z-10 flex flex-col h-full justify-between">
-                <div>
-                    <div className="bg-white/20 w-12 h-12 rounded-2xl flex items-center justify-center mb-4 backdrop-blur-sm">
-                        <Icon size={24} />
-                    </div>
-                    <h3 className="text-2xl font-bold mb-2">{title}</h3>
-                    <p className="text-white/80 text-sm font-medium">{desc}</p>
+            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity bg-white blur-3xl w-32 h-32 rounded-full -mr-10 -mt-10"></div>
+
+            <div className="relative z-10 flex flex-col h-full justify-between items-start">
+                <div className="mb-6 bg-white/20 p-3 rounded-2xl backdrop-blur-sm shadow-inner border border-white/20 group-hover:scale-110 transition-transform">
+                    <Icon className="text-white" size={32} />
                 </div>
-                <div className="flex items-center text-sm font-bold mt-4">
-                    ACCEDER <ArrowRight size={16} className="ml-2" />
+
+                <div>
+                    <h3 className="text-xl font-extrabold text-white mb-2 leading-tight drop-shadow-sm">{title}</h3>
+                    <p className="text-slate-100 text-sm font-medium leading-relaxed opacity-90">{desc}</p>
+                </div>
+
+                <div className="mt-6 flex items-center text-xs font-bold text-white uppercase tracking-wider group-hover:translate-x-1 transition-transform bg-white/20 px-3 py-1.5 rounded-lg backdrop-blur-sm border border-white/10">
+                    Acceder <ArrowRight size={14} className="ml-2" />
                 </div>
             </div>
         </motion.div>
@@ -123,7 +125,8 @@ const LandingPage: React.FC = () => {
                 <BentoCard
                     title="GERENCIA & BI"
                     icon={BarChart3}
-                    color="bg-gradient-to-br from-purple-600 to-pink-600"
+                    gradient="from-indigo-500 to-purple-600"
+                    shadowColor="indigo"
                     route="/dashboard"
                     desc="Reportes y Análisis Ejecutivo"
                 />
@@ -132,7 +135,8 @@ const LandingPage: React.FC = () => {
                 <BentoCard
                     title="ADMINISTRACIÓN"
                     icon={Building2}
-                    color="bg-gradient-to-br from-blue-500 to-cyan-600"
+                    gradient="from-cyan-500 to-blue-600"
+                    shadowColor="cyan"
                     route="/inventory"
                     desc="Inventario y Gestión de Stock"
                 />
@@ -141,7 +145,8 @@ const LandingPage: React.FC = () => {
                 <BentoCard
                     title="Punto de Venta"
                     icon={ShoppingCart}
-                    color="bg-gradient-to-br from-emerald-500 to-teal-600"
+                    gradient="from-emerald-400 to-cyan-600"
+                    shadowColor="emerald"
                     route="/pos"
                     desc="Ventas, Recetas y Caja"
                 />
@@ -150,7 +155,8 @@ const LandingPage: React.FC = () => {
                 <BentoCard
                     title="Logística"
                     icon={Truck}
-                    color="bg-gradient-to-br from-orange-400 to-red-500"
+                    gradient="from-orange-400 to-pink-600"
+                    shadowColor="orange"
                     route="/warehouse"
                     desc="Inventario y Operaciones WMS"
                 />
@@ -159,7 +165,8 @@ const LandingPage: React.FC = () => {
                 <BentoCard
                     title="GESTIÓN DE RED"
                     icon={MapPin}
-                    color="bg-gradient-to-br from-slate-700 to-slate-900"
+                    gradient="from-slate-700 to-slate-900"
+                    shadowColor="slate"
                     route="/network"
                     desc="Sucursales, Equipos y Kioscos"
                 />
@@ -168,7 +175,8 @@ const LandingPage: React.FC = () => {
                 <BentoCard
                     title="RELOJ CONTROL"
                     icon={Clock}
-                    color="bg-amber-500"
+                    gradient="from-pink-500 to-rose-500"
+                    shadowColor="pink"
                     route="/access"
                     desc="Modo Kiosco para asistencia y marcaje biométrico."
                 />
@@ -176,7 +184,8 @@ const LandingPage: React.FC = () => {
                 <BentoCard
                     title="TOTEM DE FILAS"
                     icon={Ticket}
-                    color="bg-pink-500"
+                    gradient="from-fuchsia-500 to-purple-600"
+                    shadowColor="fuchsia"
                     route="/queue"
                     desc="Auto-atención de clientes y emisión de números."
                 />
@@ -184,7 +193,8 @@ const LandingPage: React.FC = () => {
                 <BentoCard
                     title="CONSULTOR DE PRECIOS"
                     icon={ScanBarcode}
-                    color="bg-indigo-600"
+                    gradient="from-violet-500 to-indigo-600"
+                    shadowColor="violet"
                     route="/price-check"
                     desc="Escáner de precios para clientes"
                 />

@@ -179,101 +179,103 @@ const InventoryPage: React.FC = () => {
                 <div className="bg-transparent md:bg-white md:rounded-3xl md:shadow-sm md:border border-slate-200 overflow-hidden min-h-full relative">
 
                     {/* Desktop Table */}
-                    <table className="w-full text-left hidden md:table">
-                        <thead className="bg-slate-50 text-slate-500 font-bold text-xs uppercase tracking-wider sticky top-0 z-10 shadow-sm">
-                            <tr>
-                                <th className="p-4 bg-slate-50">Producto</th>
-                                <th className="p-4 bg-slate-50">Detalle</th>
-                                <th className="p-4 bg-slate-50">Atributos</th>
-                                <th className="p-4 bg-slate-50">Stock</th>
-                                <th className="p-4 text-right bg-slate-50">Precio</th>
-                                <th className="p-4 text-center bg-slate-50">Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody
-                            className="divide-y divide-slate-100 text-sm"
-                            style={{
-                                height: `${tableVirtualizer.getTotalSize()}px`,
-                                width: '100%',
-                                position: 'relative',
-                            }}
-                        >
-                            {tableVirtualizer.getVirtualItems().map(virtualRow => {
-                                const item = filteredInventory[virtualRow.index];
-                                return (
-                                    <tr
-                                        key={item.id}
-                                        className="hover:bg-slate-50 transition group absolute w-full"
-                                        style={{
-                                            height: `${virtualRow.size}px`,
-                                            transform: `translateY(${virtualRow.start}px)`,
-                                        }}
-                                    >
-                                        <td className="p-4">
-                                            <div className="font-bold text-slate-800 text-lg">{item.name}</div>
-                                            <div className="text-sm text-slate-500 font-bold">{item.dci}</div>
-                                            <div className="text-xs text-slate-400 font-mono mt-1">{item.sku}</div>
-                                        </td>
-                                        <td className="p-4">
-                                            <div className="text-sm font-bold text-slate-700">{item.laboratory}</div>
-                                            <div className="text-xs text-slate-500 font-mono">{item.isp_register || 'SIN REGISTRO'}</div>
-                                            <div className="text-xs text-slate-400 mt-1">{item.format} x{item.units_per_box || item.unit_count || 1}</div>
-                                        </td>
-                                        <td className="p-4">
-                                            <div className="flex gap-1 flex-wrap">
-                                                {item.is_bioequivalent && <span title="Bioequivalente" className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-xs font-bold border border-emerald-200">BIO</span>}
-                                                {item.storage_condition === 'REFRIGERADO' && <span title="Cadena de Frío" className="px-2 py-1 bg-cyan-100 text-cyan-700 rounded-lg text-xs font-bold border border-cyan-200">FRIO</span>}
-                                                {['R', 'RR', 'RCH'].includes(item.condition) && <span title="Receta Retenida" className="px-2 py-1 bg-purple-100 text-purple-700 rounded-lg text-xs font-bold border border-purple-200">RET</span>}
-                                            </div>
-                                        </td>
-                                        <td className="p-4">
-                                            <div className="flex flex-col items-start">
-                                                <span className={`text-lg font-bold ${item.stock_actual <= (item.stock_min || 5) ? 'text-red-600' : 'text-slate-800'}`}>
-                                                    {item.stock_actual} un.
-                                                </span>
-                                                <span className={`text-xs font-bold ${item.stock_actual <= (item.stock_min || 5) ? 'text-red-500' : 'text-slate-400'}`}>
-                                                    Min: {item.stock_min || 5}
-                                                </span>
-                                                <span className={`text-xs mt-1 px-1.5 py-0.5 rounded ${new Date(item.expiry_date).getTime() - Date.now() < 1000 * 60 * 60 * 24 * 90 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>
-                                                    Vence: {new Date(item.expiry_date).toLocaleDateString()}
-                                                </span>
-                                            </div>
-                                        </td>
-                                        <td className="p-4 text-right">
-                                            <div className="flex flex-col items-end">
-                                                <span className="font-bold text-slate-800 text-lg">${(item.price_sell_box || item.price || 0).toLocaleString()}</span>
-                                                <span className="text-xs font-bold text-slate-400">
-                                                    (${item.price_sell_unit ? item.price_sell_unit.toLocaleString() : Math.round((item.price_sell_box || item.price || 0) / (item.units_per_box || item.unit_count || 1)).toLocaleString()} / un)
-                                                </span>
-                                                {(user?.role === 'MANAGER' || user?.role === 'ADMIN') && (
-                                                    <span className="text-[10px] font-mono text-slate-300 mt-1">
-                                                        Costo: ${(item.cost_net || item.cost_price || 0).toLocaleString()}
+                    <div className="overflow-x-auto hidden md:block">
+                        <table className="w-full text-left">
+                            <thead className="bg-slate-50 text-slate-500 font-bold text-xs uppercase tracking-wider sticky top-0 z-10 shadow-sm">
+                                <tr>
+                                    <th className="p-4 bg-slate-50">Producto</th>
+                                    <th className="p-4 bg-slate-50">Detalle</th>
+                                    <th className="p-4 bg-slate-50">Atributos</th>
+                                    <th className="p-4 bg-slate-50">Stock</th>
+                                    <th className="p-4 text-right bg-slate-50">Precio</th>
+                                    <th className="p-4 text-center bg-slate-50">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody
+                                className="divide-y divide-slate-100 text-sm"
+                                style={{
+                                    height: `${tableVirtualizer.getTotalSize()}px`,
+                                    width: '100%',
+                                    position: 'relative',
+                                }}
+                            >
+                                {tableVirtualizer.getVirtualItems().map(virtualRow => {
+                                    const item = filteredInventory[virtualRow.index];
+                                    return (
+                                        <tr
+                                            key={item.id}
+                                            className="hover:bg-slate-50 transition group absolute w-full"
+                                            style={{
+                                                height: `${virtualRow.size}px`,
+                                                transform: `translateY(${virtualRow.start}px)`,
+                                            }}
+                                        >
+                                            <td className="p-4">
+                                                <div className="font-bold text-slate-800 text-lg">{item.name}</div>
+                                                <div className="text-sm text-slate-500 font-bold">{item.dci}</div>
+                                                <div className="text-xs text-slate-400 font-mono mt-1">{item.sku}</div>
+                                            </td>
+                                            <td className="p-4">
+                                                <div className="text-sm font-bold text-slate-700">{item.laboratory}</div>
+                                                <div className="text-xs text-slate-500 font-mono">{item.isp_register || 'SIN REGISTRO'}</div>
+                                                <div className="text-xs text-slate-400 mt-1">{item.format} x{item.units_per_box || item.unit_count || 1}</div>
+                                            </td>
+                                            <td className="p-4">
+                                                <div className="flex gap-1 flex-wrap">
+                                                    {item.is_bioequivalent && <span title="Bioequivalente" className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-xs font-bold border border-emerald-200">BIO</span>}
+                                                    {item.storage_condition === 'REFRIGERADO' && <span title="Cadena de Frío" className="px-2 py-1 bg-cyan-100 text-cyan-700 rounded-lg text-xs font-bold border border-cyan-200">FRIO</span>}
+                                                    {['R', 'RR', 'RCH'].includes(item.condition) && <span title="Receta Retenida" className="px-2 py-1 bg-purple-100 text-purple-700 rounded-lg text-xs font-bold border border-purple-200">RET</span>}
+                                                </div>
+                                            </td>
+                                            <td className="p-4">
+                                                <div className="flex flex-col items-start">
+                                                    <span className={`text-lg font-bold ${item.stock_actual <= (item.stock_min || 5) ? 'text-red-600' : 'text-slate-800'}`}>
+                                                        {item.stock_actual} un.
                                                     </span>
-                                                )}
-                                            </div>
-                                        </td>
-                                        <td className="p-4">
-                                            <div className="flex items-center justify-center gap-2">
-                                                {canManageInventory && (
-                                                    <button
-                                                        onClick={() => { setEditingItem(item); setIsEditModalOpen(true); }}
-                                                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                                    >
-                                                        <Edit size={16} />
-                                                    </button>
-                                                )}
-                                                {canDelete && (
-                                                    <button className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                                                        <Trash2 size={16} />
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
+                                                    <span className={`text-xs font-bold ${item.stock_actual <= (item.stock_min || 5) ? 'text-red-500' : 'text-slate-400'}`}>
+                                                        Min: {item.stock_min || 5}
+                                                    </span>
+                                                    <span className={`text-xs mt-1 px-1.5 py-0.5 rounded ${new Date(item.expiry_date).getTime() - Date.now() < 1000 * 60 * 60 * 24 * 90 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>
+                                                        Vence: {new Date(item.expiry_date).toLocaleDateString()}
+                                                    </span>
+                                                </div>
+                                            </td>
+                                            <td className="p-4 text-right">
+                                                <div className="flex flex-col items-end">
+                                                    <span className="font-bold text-slate-800 text-lg">${(item.price_sell_box || item.price || 0).toLocaleString()}</span>
+                                                    <span className="text-xs font-bold text-slate-400">
+                                                        (${item.price_sell_unit ? item.price_sell_unit.toLocaleString() : Math.round((item.price_sell_box || item.price || 0) / (item.units_per_box || item.unit_count || 1)).toLocaleString()} / un)
+                                                    </span>
+                                                    {(user?.role === 'MANAGER' || user?.role === 'ADMIN') && (
+                                                        <span className="text-[10px] font-mono text-slate-300 mt-1">
+                                                            Costo: ${(item.cost_net || item.cost_price || 0).toLocaleString()}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </td>
+                                            <td className="p-4">
+                                                <div className="flex items-center justify-center gap-2">
+                                                    {canManageInventory && (
+                                                        <button
+                                                            onClick={() => { setEditingItem(item); setIsEditModalOpen(true); }}
+                                                            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                        >
+                                                            <Edit size={16} />
+                                                        </button>
+                                                    )}
+                                                    {canDelete && (
+                                                        <button className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
 
                     {/* Mobile Cards */}
                     <div

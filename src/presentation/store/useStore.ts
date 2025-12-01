@@ -28,7 +28,7 @@ interface PharmaState {
     // Auth
     user: EmployeeProfile | null;
     employees: EmployeeProfile[]; // Store loaded employees
-    login: (userId: string, pin: string) => boolean;
+    login: (userId: string, pin: string) => Promise<boolean>;
     logout: () => void;
 
     // Data Sync
@@ -149,12 +149,36 @@ export const usePharmaStore = create<PharmaState>()(
             // --- Auth ---
             user: null, // ALWAYS start logged out - force login
             employees: [], // ⚠️ DEBUG: Start empty to prove DB connection
-            login: (userId, pin) => {
-                const { employees } = get();
-                const employee = employees.find(e => e.id === userId && e.access_pin === pin);
-                if (employee) {
-                    set({ user: employee });
-                    return true;
+            login: async (userId, pin) => {
+                try {
+                    // 1. Online Attempt
+                    const { TigerDataService } = await import('../../domain/services/TigerDataService');
+                    const result = await TigerDataService.authenticate(userId, pin);
+
+                    if (result.success) {
+                        set({ user: result.user });
+                        return true;
+                    }
+                } catch (error) {
+                    console.warn('⚠️ Online login failed, trying offline fallback...', error);
+
+                    // 2. Offline Fallback
+                    const { employees } = get();
+                    const employee = employees.find(e => e.id === userId && e.access_pin === pin);
+
+                    if (employee) {
+                        set({ user: employee });
+
+                        // Notify user about offline mode
+                        import('sonner').then(({ toast }) => {
+                            toast.warning('⚠️ Modo Offline Activado', {
+                                description: 'Iniciando sesión con credenciales locales. Algunas funciones pueden estar limitadas.',
+                                duration: 5000,
+                            });
+                        });
+
+                        return true;
+                    }
                 }
                 return false;
             },
