@@ -7,7 +7,7 @@
     "url": "git+https://github.com/filimorniga-ux/farmacias-vallenar-suit.git"
   },
   "author": "Farmacias Vallenar",
-  "main": "electron/main.js",
+  "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
     "dev": "next dev",
