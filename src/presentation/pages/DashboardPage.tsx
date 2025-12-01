@@ -32,7 +32,8 @@ const DashboardPage: React.FC = () => {
         const totalSales = todaySales.reduce((sum, s) => sum + s.total, 0);
 
         const cashSales = todaySales.filter(s => s.payment_method === 'CASH').reduce((sum, s) => sum + s.total, 0);
-        const digitalSales = todaySales.filter(s => s.payment_method !== 'CASH').reduce((sum, s) => sum + s.total, 0);
+        const cardSales = todaySales.filter(s => s.payment_method === 'DEBIT' || s.payment_method === 'CREDIT').reduce((sum, s) => sum + s.total, 0);
+        const transferSales = todaySales.filter(s => s.payment_method === 'TRANSFER').reduce((sum, s) => sum + s.total, 0);
 
         const todayExpenses = expenses.filter(e => e.date >= startOfDay).reduce((sum, e) => sum + e.amount, 0);
 
@@ -48,13 +49,14 @@ const DashboardPage: React.FC = () => {
         });
 
         // 3. Alerts
-        const lowStockItems = inventory.filter(i => i.stock_actual <= (i.stock_minimo_seguridad || 5)).length;
-        const fridgeAlerts = inventory.filter(i => i.is_refrigerated && i.stock_actual > 0).length; // Just a count for now
+        const lowStockItems = inventory.filter(i => i.stock_actual <= (i.stock_min || 5)).length;
+        const fridgeAlerts = inventory.filter(i => i.storage_condition === 'REFRIGERADO' && i.stock_actual > 0).length; // Just a count for now
 
         return {
             totalSales,
             cashInDrawer,
-            digitalSales,
+            cardSales,
+            transferSales,
             todayExpenses,
             activeStaff,
             lowStockItems,
@@ -197,8 +199,8 @@ const DashboardPage: React.FC = () => {
                                 key={loc.id}
                                 onClick={() => handleLocationSwitch(loc.id)}
                                 className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-all ${currentLocation?.id === loc.id
-                                        ? 'bg-slate-900 text-white shadow-lg shadow-slate-200'
-                                        : 'bg-white border border-slate-200 text-slate-600'
+                                    ? 'bg-slate-900 text-white shadow-lg shadow-slate-200'
+                                    : 'bg-white border border-slate-200 text-slate-600'
                                     }`}
                             >
                                 <MapPin size={14} />
@@ -215,6 +217,7 @@ const DashboardPage: React.FC = () => {
                 <section>
                     <h2 className="text-sm font-bold text-slate-400 mb-4 uppercase tracking-wider">Pulso Financiero (Hoy)</h2>
                     <div className="grid grid-cols-2 gap-4">
+                        {/* 1. Venta Total */}
                         <div className="col-span-2">
                             <StatCard
                                 title="Venta Total"
@@ -225,32 +228,44 @@ const DashboardPage: React.FC = () => {
                                 trend="+12%"
                             />
                         </div>
+
+                        {/* 2. Efectivo Caja */}
                         <StatCard
                             title="Efectivo Caja"
                             value={`$${dashboardData.cashInDrawer.toLocaleString()}`}
                             icon={Wallet}
                             color="bg-emerald-500"
                         />
+
+                        {/* 3. Tarjetas (POS) */}
                         <StatCard
-                            title="Digital / Transf"
-                            value={`$${dashboardData.digitalSales.toLocaleString()}`}
+                            title="Tarjetas (POS)"
+                            value={`$${dashboardData.cardSales.toLocaleString()}`}
                             icon={CreditCard}
                             color="bg-blue-500"
                         />
-                        <div className="col-span-2">
-                            <div className="bg-red-50 rounded-xl p-4 flex items-center justify-between border border-red-100">
-                                <div className="flex items-center gap-3">
-                                    <div className="bg-red-100 p-2 rounded-lg text-red-600">
-                                        <ArrowDownRight size={20} />
-                                    </div>
-                                    <div>
-                                        <p className="text-xs font-bold text-red-400 uppercase">Salidas / Gastos</p>
-                                        <p className="text-lg font-bold text-red-700">${dashboardData.todayExpenses.toLocaleString()}</p>
-                                    </div>
+
+                        {/* 4. Transferencias */}
+                        <StatCard
+                            title="Transferencias"
+                            value={`$${dashboardData.transferSales.toLocaleString()}`}
+                            icon={ArrowRight} // Or Smartphone if imported
+                            color="bg-purple-500"
+                        />
+
+                        {/* 5. Salidas / Gastos */}
+                        <div className="bg-red-50 rounded-2xl p-5 flex flex-col justify-between border border-red-100 h-full relative overflow-hidden">
+                            <div className="absolute top-0 right-0 p-3 opacity-5 text-red-600">
+                                <ArrowDownRight size={64} />
+                            </div>
+                            <div className="flex justify-between items-start mb-2">
+                                <div className="p-2 rounded-xl bg-red-100 text-red-600">
+                                    <ArrowDownRight size={20} />
                                 </div>
-                                <button className="text-xs font-bold text-red-600 bg-white px-3 py-1 rounded-lg border border-red-200 shadow-sm">
-                                    Ver Detalle
-                                </button>
+                            </div>
+                            <div>
+                                <p className="text-red-400 text-xs font-bold uppercase tracking-wider">Salidas / Gastos</p>
+                                <h3 className="text-2xl font-extrabold text-red-700 mt-1">${dashboardData.todayExpenses.toLocaleString()}</h3>
                             </div>
                         </div>
                     </div>

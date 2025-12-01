@@ -4,6 +4,7 @@ import { useCashSession } from '../../hooks/useCashSession';
 import { X, DollarSign, TrendingDown, TrendingUp, ChevronDown, ChevronRight, AlertTriangle, CheckCircle, Lock, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { CashMovementReason } from '../../../domain/types';
+import { generateDailyBackup } from '../../../domain/logic/backupService';
 
 interface CashControlModalProps {
     isOpen: boolean;
@@ -11,7 +12,7 @@ interface CashControlModalProps {
 }
 
 const CashControlModal: React.FC<CashControlModalProps> = ({ isOpen, onClose }) => {
-    const { currentShift, openShift, closeShift, registerCashMovement } = usePharmaStore();
+    const { currentShift, openShift, closeShift, registerCashMovement, salesHistory, cashMovements, inventory } = usePharmaStore();
     const metrics = useCashSession();
 
     const [activeTab, setActiveTab] = useState<'MOVEMENTS' | 'CLOSING'>('MOVEMENTS');
@@ -106,6 +107,15 @@ const CashControlModal: React.FC<CashControlModalProps> = ({ isOpen, onClose }) 
     const handleCloseShift = () => {
         const val = parseInt(closingAmount);
         if (isNaN(val) || val < 0) return;
+
+        // Trigger Backup
+        try {
+            generateDailyBackup(salesHistory, cashMovements, inventory);
+            toast.success('✅ Respaldo de seguridad guardado en Descargas');
+        } catch (error) {
+            console.error('Backup failed:', error);
+            toast.error('Error al generar respaldo automático');
+        }
 
         closeShift(val, 'CURRENT_USER');
         toast.success('Turno cerrado correctamente');

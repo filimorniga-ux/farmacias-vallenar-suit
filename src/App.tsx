@@ -37,7 +37,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
 
     const menuItems = [
-        // { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard', roles: ['MANAGER', 'QF'] }, // Removed per user request
+        { icon: LayoutDashboard, label: 'Resumen General', path: '/dashboard', roles: ['MANAGER'] },
         { icon: ShoppingCart, label: 'Punto de Venta', path: '/pos', roles: ['CASHIER', 'QF', 'MANAGER'] },
         { icon: Package, label: 'Inventario', path: '/inventory', roles: ['WAREHOUSE', 'MANAGER', 'QF'] },
         { icon: Wrench, label: 'Mantenimiento DB', path: '/inventory/maintenance', roles: ['MANAGER', 'ADMIN'], isDanger: true },
@@ -77,10 +77,10 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                             to={item.path}
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${location.pathname === item.path
-                                    ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-900/50'
-                                    : (item as any).isDanger
-                                        ? 'text-red-400 hover:bg-red-900/30 hover:text-red-200'
-                                        : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                                ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-900/50'
+                                : (item as any).isDanger
+                                    ? 'text-red-400 hover:bg-red-900/30 hover:text-red-200'
+                                    : 'text-slate-400 hover:bg-slate-800 hover:text-white'
                                 }`}
                         >
                             <item.icon size={20} />
