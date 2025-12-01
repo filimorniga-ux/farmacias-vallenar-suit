@@ -155,6 +155,7 @@ const AccessControlPage: React.FC = () => {
                     <p className="text-slate-500 mb-8">Ingrese PIN de Supervisor para activar</p>
 
                     <form onSubmit={handleUnlock}>
+                        <input type="text" autoComplete="username" className="hidden" readOnly value="admin" />
                         <input
                             type="password"
                             maxLength={4}
@@ -163,6 +164,7 @@ const AccessControlPage: React.FC = () => {
                             value={adminPin}
                             onChange={(e) => setAdminPin(e.target.value)}
                             placeholder="••••"
+                            autoComplete="current-password"
                         />
                         <button
                             type="submit"
