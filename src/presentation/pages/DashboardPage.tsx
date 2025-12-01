@@ -2,9 +2,11 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
+import { autoBackupService } from '../../domain/services/AutoBackupService';
 import {
     ShoppingCart, Truck, Users, Clock, Lock, ArrowRight, BarChart3, Building2,
-    TrendingUp, Wallet, CreditCard, ArrowDownRight, RefreshCw, MapPin, AlertTriangle, Snowflake
+    TrendingUp, Wallet, CreditCard, ArrowDownRight, RefreshCw, MapPin, AlertTriangle, Snowflake,
+    Cloud, Wifi, WifiOff, ChevronDown, Bell
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { EmployeeProfile } from '../../domain/types';
@@ -21,6 +23,21 @@ const DashboardPage: React.FC = () => {
     const [selectedEmployee, setSelectedEmployee] = useState<EmployeeProfile | null>(null);
     const [step, setStep] = useState<'select' | 'pin'>('select');
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [isOnline, setIsOnline] = useState(true);
+
+    // --- AUTO-BACKUP & NETWORK MONITOR ---
+    useEffect(() => {
+        autoBackupService.start();
+        const updateOnlineStatus = () => setIsOnline(navigator.onLine);
+        window.addEventListener('online', updateOnlineStatus);
+        window.addEventListener('offline', updateOnlineStatus);
+        setIsOnline(navigator.onLine);
+        return () => {
+            autoBackupService.stop();
+            window.removeEventListener('online', updateOnlineStatus);
+            window.removeEventListener('offline', updateOnlineStatus);
+        };
+    }, []);
 
     // --- REAL-TIME DATA AGGREGATION ---
     const dashboardData = useMemo(() => {
@@ -34,48 +51,40 @@ const DashboardPage: React.FC = () => {
         const cashSales = todaySales.filter(s => s.payment_method === 'CASH').reduce((sum, s) => sum + s.total, 0);
         const cardSales = todaySales.filter(s => s.payment_method === 'DEBIT' || s.payment_method === 'CREDIT').reduce((sum, s) => sum + s.total, 0);
         const transferSales = todaySales.filter(s => s.payment_method === 'TRANSFER').reduce((sum, s) => sum + s.total, 0);
+        const digitalSales = cardSales + transferSales;
 
         const todayExpenses = expenses.filter(e => e.date >= startOfDay).reduce((sum, e) => sum + e.amount, 0);
-
-        // Theoretical Cash in Drawer (Simplified: Sales - Expenses)
-        // In a real app, we'd add Initial Fund
-        const cashInDrawer = cashSales - todayExpenses;
+        const cashInDrawer = cashSales - todayExpenses; // Simplified
 
         // 2. Staff On Duty
-        // Filter employees who have checked in today and not checked out
-        const activeStaff = employees.filter(emp => {
-            // Mock logic: status is stored in employee profile for simplicity in this demo
-            return emp.current_status === 'IN' || emp.current_status === 'LUNCH';
-        });
+        const activeStaff = employees.filter(emp => emp.current_status === 'IN' || emp.current_status === 'LUNCH');
 
         // 3. Alerts
         const lowStockItems = inventory.filter(i => i.stock_actual <= (i.stock_min || 5)).length;
-        const fridgeAlerts = inventory.filter(i => i.storage_condition === 'REFRIGERADO' && i.stock_actual > 0).length; // Just a count for now
+        const infrastructureAlert = true; // Hardcoded for now as per request "Pagar Vercel pronto"
 
         return {
             totalSales,
             cashInDrawer,
-            cardSales,
-            transferSales,
+            digitalSales,
             todayExpenses,
             activeStaff,
             lowStockItems,
-            fridgeAlerts
+            infrastructureAlert
         };
-    }, [salesHistory, expenses, employees, inventory, currentLocation]); // Re-calc when data or location changes
+    }, [salesHistory, expenses, employees, inventory, currentLocation]);
 
     // --- HANDLERS ---
-
     const handleRefresh = () => {
         setIsRefreshing(true);
-        setTimeout(() => setIsRefreshing(false), 1500); // Simulate network request
+        setTimeout(() => setIsRefreshing(false), 1500);
     };
 
     const handleLocationSwitch = (locId: string) => {
         switchLocation(locId);
     };
 
-    // --- NAVIGATION & LOGIN LOGIC (Legacy) ---
+    // --- NAVIGATION & LOGIN LOGIC ---
     const ROUTE_TO_ROLES: Record<string, string[]> = {
         '/reports': ['MANAGER'],
         '/settings': ['MANAGER', 'ADMIN', 'QF'],
@@ -113,10 +122,10 @@ const DashboardPage: React.FC = () => {
         setError('');
     };
 
-    const handleLogin = (e: React.FormEvent) => {
+    const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedEmployee) return;
-        if (login(selectedEmployee.id, pin)) {
+        if (await login(selectedEmployee.id, pin)) {
             setIsLoginModalOpen(false);
         } else {
             setError('PIN Incorrecto');
@@ -132,215 +141,217 @@ const DashboardPage: React.FC = () => {
     };
 
     // --- COMPONENTS ---
-
-    const StatCard = ({ title, value, subtext, icon: Icon, color, trend }: any) => (
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between h-full relative overflow-hidden">
-            <div className={`absolute top-0 right-0 p-3 opacity-5 ${color}`}>
+    const FinancialCard = ({ title, value, icon: Icon, gradient, shadowColor, trend }: any) => (
+        <div className={`bg-gradient-to-br ${gradient} p-5 rounded-2xl shadow-lg shadow-${shadowColor}-500/30 text-white relative overflow-hidden group hover:scale-105 transition-transform duration-300`}>
+            <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
                 <Icon size={64} />
             </div>
-            <div className="flex justify-between items-start mb-2">
-                <div className={`p-2 rounded-xl ${color} bg-opacity-10 text-${color.split('-')[1]}-600`}>
-                    <Icon size={20} className={color.replace('bg-', 'text-')} />
+            <div className="flex justify-between items-start mb-2 relative z-10">
+                <div className="p-2 rounded-xl bg-white/20 backdrop-blur-sm">
+                    <Icon size={20} className="text-white" />
                 </div>
                 {trend && (
-                    <span className="text-xs font-bold text-green-600 flex items-center bg-green-50 px-2 py-1 rounded-full">
+                    <span className="text-xs font-bold bg-white/20 px-2 py-1 rounded-full backdrop-blur-sm flex items-center">
                         <TrendingUp size={12} className="mr-1" /> {trend}
                     </span>
                 )}
             </div>
-            <div>
-                <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">{title}</p>
-                <h3 className="text-2xl font-extrabold text-slate-800 mt-1">{value}</h3>
-                {subtext && <p className="text-slate-400 text-xs mt-1">{subtext}</p>}
+            <div className="relative z-10">
+                <p className="text-white/80 text-xs font-bold uppercase tracking-wider">{title}</p>
+                <h3 className="text-2xl font-extrabold mt-1">{value}</h3>
             </div>
         </div>
     );
 
-    const ModuleCard = ({ title, icon: Icon, color, route }: any) => (
+    const ModuleCard = ({ title, icon: Icon, gradient, shadowColor, route }: any) => (
         <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={() => handleCardClick(route)}
-            className="flex flex-col items-center justify-center p-4 bg-white rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-all h-24"
+            className={`flex flex-col items-center justify-center p-4 bg-gradient-to-br ${gradient} rounded-2xl shadow-lg shadow-${shadowColor}-500/30 border border-white/10 hover:shadow-2xl hover:shadow-${shadowColor}-500/40 hover:scale-105 transition-all duration-300 h-24 group relative overflow-hidden`}
         >
-            <div className={`${color} p-2 rounded-full text-white mb-2 shadow-sm`}>
+            <div className="absolute top-0 left-0 w-full h-full bg-white/10 opacity-0 group-hover:opacity-20 transition-opacity" />
+            <div className="bg-white/20 p-2 rounded-full text-white mb-2 backdrop-blur-sm group-hover:scale-110 transition-transform shadow-inner border border-white/20">
                 <Icon size={20} />
             </div>
-            <span className="text-xs font-bold text-slate-700 text-center leading-tight">{title}</span>
+            <span className="text-xs font-bold text-white text-center leading-tight drop-shadow-sm">{title}</span>
         </motion.button>
     );
 
     return (
         <div className="min-h-screen bg-slate-50 pb-20">
-            {/* --- HEADER (Mobile Optimized) --- */}
-            <header className="bg-white sticky top-0 z-30 px-6 py-4 shadow-sm border-b border-slate-100">
-                <div className="flex justify-between items-center mb-4">
+            {/* HEADER */}
+            <header className="bg-white/80 backdrop-blur-md sticky top-0 z-30 border-b border-slate-200 px-6 py-4">
+                <div className="max-w-4xl mx-auto flex justify-between items-center">
                     <div>
-                        <h1 className="text-xl font-extrabold text-slate-900">
-                            Farmacias <span className="text-cyan-600">Vallenar</span>
-                        </h1>
-                        <p className="text-xs text-slate-500 font-medium flex items-center gap-1">
-                            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                            Operación en Tiempo Real
-                        </p>
+                        <h1 className="text-xl font-bold text-slate-800">Hola, {user?.name || 'Invitado'}</h1>
+                        <p className="text-xs text-slate-500 font-medium">{user?.role === 'MANAGER' ? 'Gerente General' : user?.role || 'Usuario'}</p>
                     </div>
-                    <button
-                        onClick={handleRefresh}
-                        className={`p-2 rounded-full bg-slate-50 text-slate-400 hover:text-cyan-600 transition-colors ${isRefreshing ? 'animate-spin' : ''}`}
-                    >
-                        <RefreshCw size={20} />
-                    </button>
-                </div>
 
-                {/* Branch Selector */}
-                <div className="overflow-x-auto pb-2 -mx-6 px-6 scrollbar-hide">
-                    <div className="flex gap-3">
-                        {locations.map(loc => (
-                            <button
-                                key={loc.id}
-                                onClick={() => handleLocationSwitch(loc.id)}
-                                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-all ${currentLocation?.id === loc.id
-                                    ? 'bg-slate-900 text-white shadow-lg shadow-slate-200'
-                                    : 'bg-white border border-slate-200 text-slate-600'
-                                    }`}
-                            >
-                                <MapPin size={14} />
-                                {loc.name}
+                    <div className="flex items-center gap-3">
+                        {/* Location Selector */}
+                        <div className="relative group">
+                            <button className="flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-sm font-bold text-slate-700 transition-colors">
+                                <MapPin size={16} className="text-cyan-600" />
+                                {currentLocation?.name || 'Seleccionar Sucursal'}
+                                <ChevronDown size={14} className="text-slate-400" />
                             </button>
-                        ))}
+                            {/* Dropdown (Simplified) */}
+                            <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden hidden group-hover:block animate-in fade-in slide-in-from-top-2">
+                                {locations.map(loc => (
+                                    <button
+                                        key={loc.id}
+                                        onClick={() => handleLocationSwitch(loc.id)}
+                                        className={`w-full text-left px-4 py-3 text-sm font-medium hover:bg-slate-50 ${currentLocation?.id === loc.id ? 'text-cyan-600 bg-cyan-50' : 'text-slate-600'}`}
+                                    >
+                                        {loc.name}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <button onClick={handleRefresh} className={`p-2 rounded-full hover:bg-slate-100 transition-colors ${isRefreshing ? 'animate-spin text-cyan-600' : 'text-slate-400'}`}>
+                            <RefreshCw size={20} />
+                        </button>
                     </div>
                 </div>
             </header>
 
             <main className="p-6 space-y-8 max-w-md mx-auto md:max-w-4xl">
 
-                {/* --- SECTION 1: FINANCIAL PULSE --- */}
-                <section>
-                    <h2 className="text-sm font-bold text-slate-400 mb-4 uppercase tracking-wider">Pulso Financiero (Hoy)</h2>
-                    <div className="grid grid-cols-2 gap-4">
-                        {/* 1. Venta Total */}
-                        <div className="col-span-2">
-                            <StatCard
-                                title="Venta Total"
-                                value={`$${dashboardData.totalSales.toLocaleString()}`}
-                                subtext="Objetivo Diario: $2.5M"
-                                icon={TrendingUp}
-                                color="bg-green-500"
-                                trend="+12%"
-                            />
+                {/* 1. FINANCIAL PULSE */}
+                <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <FinancialCard
+                        title="Venta Total"
+                        value={`$${dashboardData.totalSales.toLocaleString()}`}
+                        icon={BarChart3}
+                        gradient="from-emerald-400 to-cyan-600"
+                        shadowColor="emerald"
+                        trend="+12%"
+                    />
+                    <FinancialCard
+                        title="Efectivo Caja"
+                        value={`$${dashboardData.cashInDrawer.toLocaleString()}`}
+                        icon={Wallet}
+                        gradient="from-blue-400 to-indigo-600"
+                        shadowColor="blue"
+                    />
+                    <FinancialCard
+                        title="Venta Digital"
+                        value={`$${dashboardData.digitalSales.toLocaleString()}`}
+                        icon={CreditCard}
+                        gradient="from-violet-500 to-purple-600"
+                        shadowColor="violet"
+                    />
+                    <FinancialCard
+                        title="Gastos"
+                        value={`-$${dashboardData.todayExpenses.toLocaleString()}`}
+                        icon={ArrowDownRight}
+                        gradient="from-red-400 to-rose-600"
+                        shadowColor="red"
+                    />
+                </section>
+
+                {/* 2. LIVE OPERATION */}
+                <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Active Staff */}
+                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                                <Users size={18} className="text-cyan-600" /> Personal Activo
+                            </h3>
+                            <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                                {dashboardData.activeStaff.length} Presentes
+                            </span>
                         </div>
+                        <div className="space-y-3">
+                            {dashboardData.activeStaff.length > 0 ? (
+                                dashboardData.activeStaff.map(emp => (
+                                    <div key={emp.id} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded-xl transition-colors">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center text-white font-bold text-xs">
+                                                {emp.name.charAt(0)}
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-bold text-slate-700">{emp.name}</p>
+                                                <p className="text-[10px] text-slate-400">{emp.job_title}</p>
+                                            </div>
+                                        </div>
+                                        <div className="text-xs font-medium text-slate-500 flex items-center gap-1">
+                                            <Clock size={12} /> 08:30
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <p className="text-sm text-slate-400 text-center py-4">No hay personal activo</p>
+                            )}
+                        </div>
+                    </div>
 
-                        {/* 2. Efectivo Caja */}
-                        <StatCard
-                            title="Efectivo Caja"
-                            value={`$${dashboardData.cashInDrawer.toLocaleString()}`}
-                            icon={Wallet}
-                            color="bg-emerald-500"
-                        />
+                    {/* Alerts & Notifications */}
+                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex flex-col gap-4">
+                        <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                            <Bell size={18} className="text-amber-500" /> Alertas & Avisos
+                        </h3>
 
-                        {/* 3. Tarjetas (POS) */}
-                        <StatCard
-                            title="Tarjetas (POS)"
-                            value={`$${dashboardData.cardSales.toLocaleString()}`}
-                            icon={CreditCard}
-                            color="bg-blue-500"
-                        />
-
-                        {/* 4. Transferencias */}
-                        <StatCard
-                            title="Transferencias"
-                            value={`$${dashboardData.transferSales.toLocaleString()}`}
-                            icon={ArrowRight} // Or Smartphone if imported
-                            color="bg-purple-500"
-                        />
-
-                        {/* 5. Salidas / Gastos */}
-                        <div className="bg-red-50 rounded-2xl p-5 flex flex-col justify-between border border-red-100 h-full relative overflow-hidden">
-                            <div className="absolute top-0 right-0 p-3 opacity-5 text-red-600">
-                                <ArrowDownRight size={64} />
-                            </div>
-                            <div className="flex justify-between items-start mb-2">
-                                <div className="p-2 rounded-xl bg-red-100 text-red-600">
-                                    <ArrowDownRight size={20} />
-                                </div>
+                        {/* Stock Alert */}
+                        <div className="flex items-center gap-3 p-3 bg-red-50 border border-red-100 rounded-xl">
+                            <div className="p-2 bg-red-100 text-red-600 rounded-lg">
+                                <AlertTriangle size={20} />
                             </div>
                             <div>
-                                <p className="text-red-400 text-xs font-bold uppercase tracking-wider">Salidas / Gastos</p>
-                                <h3 className="text-2xl font-extrabold text-red-700 mt-1">${dashboardData.todayExpenses.toLocaleString()}</h3>
+                                <p className="text-sm font-bold text-red-700">{dashboardData.lowStockItems} Productos Críticos</p>
+                                <p className="text-xs text-red-500">Stock bajo el mínimo permitido.</p>
                             </div>
+                        </div>
+
+                        {/* Infrastructure Alert (Small) */}
+                        <div className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-100 rounded-xl mt-auto">
+                            <div className="p-2 bg-slate-200 text-slate-600 rounded-lg">
+                                <Cloud size={20} />
+                            </div>
+                            <div className="flex-1">
+                                <p className="text-sm font-bold text-slate-700">Próximo pago servidor</p>
+                                <p className="text-xs text-slate-500">Vence en 5 días (Vercel)</p>
+                            </div>
+                            <button onClick={() => navigate('/settings')} className="text-xs font-bold text-cyan-600 hover:underline">
+                                Ver
+                            </button>
                         </div>
                     </div>
                 </section>
 
-                {/* --- SECTION 2: STAFF MONITOR --- */}
-                <section>
-                    <div className="flex justify-between items-end mb-4">
-                        <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wider">Equipo en Pista</h2>
-                        <span className="text-xs font-bold text-cyan-600 bg-cyan-50 px-2 py-1 rounded-md">
-                            {dashboardData.activeStaff.length} Activos
-                        </span>
-                    </div>
-
-                    <div className="flex gap-4 overflow-x-auto pb-4 -mx-6 px-6 scrollbar-hide">
-                        {dashboardData.activeStaff.length > 0 ? (
-                            dashboardData.activeStaff.map(emp => (
-                                <div key={emp.id} className="min-w-[140px] bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col items-center text-center relative">
-                                    <div className={`absolute top-3 right-3 w-3 h-3 rounded-full border-2 border-white ${emp.current_status === 'LUNCH' ? 'bg-yellow-400' : 'bg-green-500'
-                                        }`}></div>
-                                    <div className="w-14 h-14 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 mb-3 flex items-center justify-center text-xl font-bold text-slate-600">
-                                        {emp.name.charAt(0)}
-                                    </div>
-                                    <p className="text-sm font-bold text-slate-800 truncate w-full">{emp.name.split(' ')[0]}</p>
-                                    <p className="text-[10px] text-slate-400 font-medium uppercase mb-2">{emp.job_title}</p>
-
-                                    <div className={`text-[10px] font-bold px-2 py-1 rounded-full ${emp.current_status === 'LUNCH' ? 'bg-yellow-50 text-yellow-700' : 'bg-green-50 text-green-700'
-                                        }`}>
-                                        {emp.current_status === 'LUNCH' ? 'COLACIÓN' : 'EN TURNO'}
-                                    </div>
-                                </div>
-                            ))
-                        ) : (
-                            <div className="w-full text-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-slate-400 text-sm">
-                                No hay personal registrado en turno
-                            </div>
-                        )}
-                    </div>
-                </section>
-
-                {/* --- SECTION 3: ALERTS --- */}
-                {(dashboardData.lowStockItems > 0 || dashboardData.fridgeAlerts > 0) && (
-                    <section>
-                        <h2 className="text-sm font-bold text-slate-400 mb-4 uppercase tracking-wider">Alertas Operativas</h2>
-                        <div className="space-y-3">
-                            {dashboardData.lowStockItems > 0 && (
-                                <div className="bg-orange-50 border border-orange-100 p-4 rounded-xl flex items-center gap-3">
-                                    <AlertTriangle className="text-orange-500" size={20} />
-                                    <div className="flex-1">
-                                        <p className="text-sm font-bold text-orange-800">Stock Crítico</p>
-                                        <p className="text-xs text-orange-600">{dashboardData.lowStockItems} productos requieren reposición urgente.</p>
-                                    </div>
-                                </div>
-                            )}
-                            {dashboardData.fridgeAlerts > 0 && (
-                                <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-center gap-3">
-                                    <Snowflake className="text-blue-500" size={20} />
-                                    <div className="flex-1">
-                                        <p className="text-sm font-bold text-blue-800">Cadena de Frío</p>
-                                        <p className="text-xs text-blue-600">Monitoreando {dashboardData.fridgeAlerts} productos refrigerados.</p>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </section>
-                )}
-
-                {/* --- SECTION 4: QUICK ACCESS (MODULES) --- */}
+                {/* 3. QUICK ACCESS MODULES */}
                 <section>
                     <h2 className="text-sm font-bold text-slate-400 mb-4 uppercase tracking-wider">Módulos de Sistema</h2>
                     <div className="grid grid-cols-4 gap-3">
-                        <ModuleCard title="Ventas" icon={ShoppingCart} color="bg-emerald-500" route="/pos" />
-                        <ModuleCard title="Bodega" icon={Truck} color="bg-orange-500" route="/warehouse" />
-                        <ModuleCard title="Admin" icon={Building2} color="bg-blue-500" route="/settings" />
-                        <ModuleCard title="Reportes" icon={BarChart3} color="bg-purple-600" route="/reports" />
+                        <ModuleCard
+                            title="Ventas"
+                            icon={ShoppingCart}
+                            gradient="from-emerald-400 to-cyan-600"
+                            shadowColor="cyan"
+                            route="/pos"
+                        />
+                        <ModuleCard
+                            title="Bodega"
+                            icon={Truck}
+                            gradient="from-orange-400 to-pink-600"
+                            shadowColor="orange"
+                            route="/warehouse"
+                        />
+                        <ModuleCard
+                            title="Admin"
+                            icon={Building2}
+                            gradient="from-indigo-500 to-purple-600"
+                            shadowColor="indigo"
+                            route="/settings"
+                        />
+                        <ModuleCard
+                            title="Reportes"
+                            icon={BarChart3}
+                            gradient="from-blue-400 to-indigo-600"
+                            shadowColor="blue"
+                            route="/reports"
+                        />
                     </div>
                 </section>
 
@@ -357,7 +368,7 @@ const DashboardPage: React.FC = () => {
                 </button>
             </div>
 
-            {/* Login Modal (Reused) */}
+            {/* Login Modal */}
             <AnimatePresence>
                 {isLoginModalOpen && (
                     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
