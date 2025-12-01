@@ -25,6 +25,8 @@ interface ImportedRow {
     expiry_date: string; // DD/MM/YYYY
     location?: string;
     is_refrigerated?: string; // SI/NO
+    units_per_box?: number;
+    price_sell_unit?: number;
     isValid: boolean;
     errors: string[];
     needs_review?: boolean;
@@ -90,11 +92,6 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
         // Default mapping if no name found (fallback to standard)
         if (nameIdx === -1) nameIdx = 1;
 
-        // Map relative to Name
-        // [SKU] [NAME] [STOCK] [PRICE] [COST]
-        // If Name is at 1: SKU at 0, Stock at 2, Price at 3...
-        // If Name is at 2: SKU at 1 (or 0?), Stock at 3...
-
         let sku = '';
         let rawName = row[nameIdx]?.toString() || '';
         let stock = 0;
@@ -124,9 +121,7 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
             }
         }
 
-        // Assign numbers based on typical order: Stock, Price, Cost
-        // OR Price, Stock, Cost? 
-        // Standard Vallenar seems to be: Stock, Price, Cost
+        // Standard Vallenar Mapping: Stock, Price, Cost
         if (numbersFound.length > 0) stock = numbersFound[0];
         if (numbersFound.length > 1) price_sell = numbersFound[1];
         if (numbersFound.length > 2) cost_net = numbersFound[2];
@@ -134,10 +129,8 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
         // Sanity Check: If Stock is huge (> 50000) and SKU is empty, maybe Stock IS the SKU (Barcode)
         if (stock > 50000 && !sku) {
             sku = stock.toString();
-            stock = 0; // Reset stock as it was actually the SKU
-            // Shift other values?
-            if (numbersFound.length > 1) stock = numbersFound[1]; // Old Price becomes Stock? Risky.
-            // Let's just reset stock to 0 to be safe.
+            stock = 0;
+            if (numbersFound.length > 1) stock = numbersFound[1];
         }
 
         // 1. SKU Generation
@@ -151,19 +144,45 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
         // 2. Intelligent Parsing: "NOMBRE + DCI + LAB"
         let name = rawName;
         let laboratory = 'GENERICO';
+        let units_per_box = 1;
 
-        // Regex to find "LAB " or "LAB." and extract what follows
-        const labRegex = /(.*?)\s+(?:LAB|LABORATORIO|LAB\.)\s+(.*)/i;
-        const match = rawName.match(labRegex);
+        // A. Extract Laboratory (Look for "LAB." or "LAB " at end)
+        // Regex: Matches "LAB" followed by anything until end, case insensitive
+        const labRegex = /(.*?)\s+(?:LAB\.|LABORATORIO|LAB)\s+(.*)$/i;
+        const labMatch = name.match(labRegex);
 
-        if (match) {
-            name = match[1].trim();
-            laboratory = match[2].trim();
+        if (labMatch) {
+            name = labMatch[1].trim(); // Name without Lab
+            laboratory = labMatch[2].trim();
         }
 
-        // 3. Defaults & Inferences
+        // B. Extract Units (Look for "X30", "30 COMP", "30 UNID")
+        // Regex: Matches "X" followed by digits OR digits followed by COMP/CAPS/UNID
+        const unitsRegex = /X\s?(\d+)|(\d+)\s?(?:COMP|CAPS|UNID|SOBRES|TABLETAS)/i;
+        const unitsMatch = name.match(unitsRegex);
+
+        if (unitsMatch) {
+            // Group 1 is for "X30", Group 2 is for "30 COMP"
+            const unitsStr = unitsMatch[1] || unitsMatch[2];
+            units_per_box = parseInt(unitsStr) || 1;
+
+            // Optional: Clean units from name? 
+            // name = name.replace(unitsMatch[0], '').trim(); 
+            // User didn't explicitly ask to remove units from name, but usually cleaner. 
+            // Let's keep it in name for safety unless it looks very detached.
+        }
+
+        // 3. Calculate Unit Price
+        let price_sell_unit = 0;
+        if (price_sell > 0 && units_per_box > 0) {
+            price_sell_unit = Math.round(price_sell / units_per_box);
+        } else {
+            price_sell_unit = price_sell; // Fallback
+        }
+
+        // 4. Defaults & Inferences
         const lot_number = 'SIN-LOTE-MIGRACION';
-        const expiry_date = '31/12/2025'; // Default future date
+        const expiry_date = '31/12/2025';
 
         // Infer Category
         let category = 'MEDICAMENTO';
@@ -178,11 +197,13 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
             id: uuidv4(),
             sku,
             name,
-            dci: name, // Default DCI to Name
+            dci: name,
             laboratory,
             price_sell,
+            price_sell_unit, // New field
             cost_net,
             stock,
+            units_per_box, // New field
             lot_number,
             expiry_date,
             location: 'BODEGA_CENTRAL',
@@ -311,7 +332,8 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                     // Default values for required fields in InventoryBatch
                     isp_register: 'PENDIENTE',
                     format: 'UNIDAD',
-                    units_per_box: 1,
+                    units_per_box: row.units_per_box || 1,
+                    price_sell_unit: row.price_sell_unit || row.price_sell,
                     is_bioequivalent: false,
                     condition: 'VD',
                     category: 'MEDICAMENTO'
@@ -505,7 +527,9 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                                             <th className="p-3 border-b">SKU</th>
                                             <th className="p-3 border-b">Nombre Producto</th>
                                             <th className="p-3 border-b">Laboratorio</th>
+                                            <th className="p-3 border-b">Unidades</th>
                                             <th className="p-3 border-b">Precio</th>
+                                            <th className="p-3 border-b">P. Unit</th>
                                             <th className="p-3 border-b">Stock</th>
                                             <th className="p-3 border-b w-32">Lote</th>
                                             <th className="p-3 border-b w-32">Vencimiento</th>
@@ -550,7 +574,11 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                                                         className="bg-transparent border-none focus:ring-1 focus:ring-blue-500 rounded w-full text-xs"
                                                     />
                                                 </td>
-                                                <td className="p-3">${row.price_sell.toLocaleString()}</td>
+                                                <td className="p-3 text-center bg-blue-50/50 font-mono text-xs text-blue-700">
+                                                    {row.units_per_box || 1}
+                                                </td>
+                                                <td className="p-3 font-bold">${row.price_sell.toLocaleString()}</td>
+                                                <td className="p-3 text-xs text-slate-500">${row.price_sell_unit?.toLocaleString()}</td>
                                                 <td className="p-3">{row.stock}</td>
                                                 <td className="p-3">
                                                     <input
