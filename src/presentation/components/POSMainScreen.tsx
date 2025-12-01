@@ -24,6 +24,7 @@ import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { formatProductLabel } from '../../domain/logic/productDisplay';
 import { useSettingsStore } from '@/presentation/store/useSettingsStore';
 import { applyPromotions } from '../../domain/logic/promotionEngine';
+import MobileActionScroll from './ui/MobileActionScroll';
 
 const POSMainScreen: React.FC = () => {
     useKioskGuard(true); // Enable Kiosk Lock
@@ -409,28 +410,30 @@ const POSMainScreen: React.FC = () => {
                                 <span className="md:hidden">{currentShift?.status === 'OPEN' ? `#${currentShift.shiftNumber}` : 'CERRADO'}</span>
                             </div>
                         </div>
-                        <div className="flex gap-2 md:gap-3">
-                            <button
-                                onClick={() => setIsCashModalOpen(true)}
-                                className="flex items-center gap-2 bg-blue-600 text-white px-3 md:px-5 py-2 md:py-3 rounded-xl hover:bg-blue-700 font-bold transition-colors shadow-lg shadow-blue-200"
-                            >
-                                <DollarSign size={20} />
-                                <span className="hidden lg:inline">Caja</span>
-                            </button>
-                            <button
-                                onClick={() => setIsManualItemModalOpen(true)}
-                                className="flex items-center gap-2 bg-purple-100 text-purple-700 px-3 md:px-5 py-2 md:py-3 rounded-xl hover:bg-purple-200 font-bold transition-colors"
-                            >
-                                <Plus size={20} />
-                                <span className="hidden lg:inline">Manual</span>
-                            </button>
-                            <button
-                                onClick={clearCart}
-                                className="flex items-center gap-2 bg-red-50 text-red-600 px-3 md:px-5 py-2 md:py-3 rounded-xl hover:bg-red-100 font-bold transition-colors"
-                            >
-                                <X size={20} />
-                                <span className="hidden lg:inline">Limpiar</span>
-                            </button>
+                        <div className="flex gap-2 md:gap-3 overflow-hidden w-full md:w-auto">
+                            <MobileActionScroll className="w-full md:w-auto justify-end">
+                                <button
+                                    onClick={() => setIsCashModalOpen(true)}
+                                    className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-blue-700 font-bold transition-colors shadow-lg shadow-blue-200 whitespace-nowrap"
+                                >
+                                    <DollarSign size={20} />
+                                    <span className="hidden lg:inline">Caja</span>
+                                </button>
+                                <button
+                                    onClick={() => setIsManualItemModalOpen(true)}
+                                    className="flex items-center gap-2 bg-purple-100 text-purple-700 px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-purple-200 font-bold transition-colors whitespace-nowrap"
+                                >
+                                    <Plus size={20} />
+                                    <span className="hidden lg:inline">Manual</span>
+                                </button>
+                                <button
+                                    onClick={clearCart}
+                                    className="flex items-center gap-2 bg-red-50 text-red-600 px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-red-100 font-bold transition-colors whitespace-nowrap"
+                                >
+                                    <X size={20} />
+                                    <span className="hidden lg:inline">Limpiar</span>
+                                </button>
+                            </MobileActionScroll>
                         </div>
                     </div>
 

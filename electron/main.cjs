@@ -13,7 +13,7 @@ function createWindow() {
         },
     });
 
-    // Load the production URL
+    // URL OFICIAL DE PRODUCCIÓN
     win.loadURL('https://farmacias-vallenar-suit.vercel.app');
 
     // Open external links in default browser

@@ -7,6 +7,7 @@ import StockTransferModal from '../components/inventory/StockTransferModal';
 import InventoryEditModal from '../components/inventory/InventoryEditModal';
 import BulkImportModal from '../components/inventory/BulkImportModal';
 import { hasPermission } from '../../domain/security/roles';
+import MobileActionScroll from '../components/ui/MobileActionScroll';
 
 const InventoryPage: React.FC = () => {
     const { inventory, user } = usePharmaStore();
@@ -86,17 +87,18 @@ const InventoryPage: React.FC = () => {
         <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
             <div className="p-6 pb-0 shrink-0">
                 {/* Header */}
-                <header className="mb-6 flex justify-between items-end">
+                <header className="mb-6 flex flex-col md:flex-row md:justify-between md:items-end gap-4">
                     <div>
                         <h1 className="text-3xl font-extrabold text-slate-900 flex items-center gap-3">
                             <Package className="text-cyan-600" /> Maestro de Inventario
                         </h1>
                         <p className="text-slate-500 mt-1">WMS & Control de Stock</p>
                     </div>
-                    <div className="flex gap-3">
+
+                    <MobileActionScroll>
                         <button
                             onClick={() => setIsTransferModalOpen(true)}
-                            className="px-6 py-3 bg-white text-slate-700 font-bold rounded-xl border border-slate-200 hover:bg-slate-50 transition flex items-center gap-2"
+                            className="px-6 py-3 bg-white text-slate-700 font-bold rounded-full border border-slate-200 hover:bg-slate-50 transition flex items-center gap-2 whitespace-nowrap"
                         >
                             <ArrowRightLeft size={18} /> Transferir
                         </button>
@@ -104,69 +106,66 @@ const InventoryPage: React.FC = () => {
                             <>
                                 <button
                                     onClick={() => setIsImportModalOpen(true)}
-                                    className="px-6 py-3 bg-white text-green-700 font-bold rounded-xl border border-green-200 hover:bg-green-50 transition flex items-center gap-2"
+                                    className="px-6 py-3 bg-white text-green-700 font-bold rounded-full border border-green-200 hover:bg-green-50 transition flex items-center gap-2 whitespace-nowrap"
                                 >
                                     <FileSpreadsheet size={18} /> Importar Excel
                                 </button>
                                 <button
                                     onClick={() => setIsEntryModalOpen(true)}
-                                    className="px-6 py-3 bg-cyan-600 text-white font-bold rounded-xl hover:bg-cyan-700 transition shadow-lg shadow-cyan-200 flex items-center gap-2"
+                                    className="px-6 py-3 bg-cyan-600 text-white font-bold rounded-full hover:bg-cyan-700 transition shadow-lg shadow-cyan-200 flex items-center gap-2 whitespace-nowrap"
                                 >
-                                    <Plus size={18} /> Nuevo Producto / Ingreso
+                                    <Plus size={18} /> Nuevo Producto
                                 </button>
                             </>
                         )}
-                    </div>
+                    </MobileActionScroll>
                 </header>
 
-                {/* Tabs & Filters */}
-                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden mb-6">
-                    <div className="border-b border-slate-100 flex">
-                        <button
-                            onClick={() => setActiveTab('MEDS')}
-                            className={`flex-1 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'MEDS' ? 'border-cyan-500 text-cyan-700 bg-cyan-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                        >
-                            💊 MEDICAMENTOS
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('RETAIL')}
-                            className={`flex-1 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'RETAIL' ? 'border-pink-500 text-pink-700 bg-pink-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                        >
-                            🛍️ RETAIL
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('CONTROLLED')}
-                            className={`flex-1 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'CONTROLLED' ? 'border-purple-500 text-purple-700 bg-purple-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                        >
-                            🔒 CONTROLADOS
-                        </button>
-                    </div>
+                <div className="flex gap-0 border-b border-slate-200 mb-6">
+                    <button
+                        onClick={() => setActiveTab('MEDS')}
+                        className={`flex-1 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'MEDS' ? 'border-cyan-500 text-cyan-700 bg-cyan-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                    >
+                        💊 MEDICAMENTOS
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('RETAIL')}
+                        className={`flex-1 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'RETAIL' ? 'border-pink-500 text-pink-700 bg-pink-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                    >
+                        🛍️ RETAIL
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('CONTROLLED')}
+                        className={`flex-1 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'CONTROLLED' ? 'border-purple-500 text-purple-700 bg-purple-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                    >
+                        🔒 CONTROLADOS
+                    </button>
+                </div>
 
-                    <div className="p-4 flex gap-4 items-center bg-slate-50/50">
-                        <div className="relative flex-1">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                            <input
-                                type="text"
-                                placeholder="Buscar por SKU, Nombre, DCI..."
-                                className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl focus:border-cyan-500 focus:outline-none"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                            />
-                        </div>
-                        <div className="flex gap-2">
-                            <button
-                                onClick={() => setFilters(f => ({ ...f, expiring: !f.expiring }))}
-                                className={`px-3 py-2 rounded-lg text-xs font-bold border flex items-center gap-2 transition ${filters.expiring ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-white text-slate-500 border-slate-200'}`}
-                            >
-                                <AlertTriangle size={14} /> Por Vencer
-                            </button>
-                            <button
-                                onClick={() => setFilters(f => ({ ...f, critical: !f.critical }))}
-                                className={`px-3 py-2 rounded-lg text-xs font-bold border flex items-center gap-2 transition ${filters.critical ? 'bg-red-100 text-red-700 border-red-200' : 'bg-white text-slate-500 border-slate-200'}`}
-                            >
-                                <Filter size={14} /> Stock Crítico
-                            </button>
-                        </div>
+                <div className="p-4 flex gap-4 items-center bg-slate-50/50">
+                    <div className="relative flex-1">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                        <input
+                            type="text"
+                            placeholder="Buscar por SKU, Nombre, DCI..."
+                            className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl focus:border-cyan-500 focus:outline-none"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                    </div>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => setFilters(f => ({ ...f, expiring: !f.expiring }))}
+                            className={`px-3 py-2 rounded-lg text-xs font-bold border flex items-center gap-2 transition ${filters.expiring ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-white text-slate-500 border-slate-200'}`}
+                        >
+                            <AlertTriangle size={14} /> Por Vencer
+                        </button>
+                        <button
+                            onClick={() => setFilters(f => ({ ...f, critical: !f.critical }))}
+                            className={`px-3 py-2 rounded-lg text-xs font-bold border flex items-center gap-2 transition ${filters.critical ? 'bg-red-100 text-red-700 border-red-200' : 'bg-white text-slate-500 border-slate-200'}`}
+                        >
+                            <Filter size={14} /> Stock Crítico
+                        </button>
                     </div>
                 </div>
             </div>

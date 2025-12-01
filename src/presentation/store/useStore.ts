@@ -65,6 +65,7 @@ interface PharmaState {
     // Inventory Actions
     updateProduct: (id: string, data: Partial<InventoryBatch>) => void;
     updateBatchDetails: (productId: string, batchId: string, data: Partial<InventoryBatch>) => void;
+    registerStockMovement: (batchId: string, quantity: number, type: 'SALE' | 'TRANSFER_OUT' | 'TRANSFER_IN' | 'ADJUSTMENT' | 'RECEIPT') => void;
 
     // Printer & Hardware
     printerConfig: PrinterConfig;
@@ -344,6 +345,29 @@ export const usePharmaStore = create<PharmaState>()(
                         return item;
                     })
                 }));
+            },
+
+            registerStockMovement: (batchId, quantity, type) => {
+                set((state) => {
+                    const updatedInventory = state.inventory.map(item => {
+                        if (item.id === batchId) {
+                            const newStock = item.stock_actual + quantity;
+
+                            // Sync with TigerDataService (Fire and forget for now, but ideally await)
+                            import('../../domain/services/TigerDataService').then(({ TigerDataService }) => {
+                                TigerDataService.updateInventoryStock(
+                                    item.id,
+                                    Math.abs(quantity),
+                                    quantity > 0 ? 'ADD' : 'SUBTRACT'
+                                ).catch(console.error);
+                            });
+
+                            return { ...item, stock_actual: newStock };
+                        }
+                        return item;
+                    });
+                    return { inventory: updatedInventory };
+                });
             },
             addToCart: (item, quantity = 1) => set((state) => {
                 const existingItem = state.cart.find(i => i.id === item.id);
@@ -760,15 +784,30 @@ export const usePharmaStore = create<PharmaState>()(
                     }
                 };
 
-                // Deduct stock from Origin
+                // Deduct stock from Origin using registerStockMovement logic
+                // We can't call get().registerStockMovement inside set(), so we do it manually or via get() outside
+                // But since we are inside set(), we can just update the inventory here directly as before, 
+                // OR better: use the logic we just defined.
+
                 const updatedInventory = [...state.inventory];
+
                 shipmentData.items.forEach(item => {
                     const batchIndex = updatedInventory.findIndex(b => b.id === item.batchId);
                     if (batchIndex !== -1) {
+                        // 1. Update Local State
                         updatedInventory[batchIndex] = {
                             ...updatedInventory[batchIndex],
                             stock_actual: updatedInventory[batchIndex].stock_actual - item.quantity
                         };
+
+                        // 2. Sync with TigerDataService
+                        import('../../domain/services/TigerDataService').then(({ TigerDataService }) => {
+                            TigerDataService.updateInventoryStock(
+                                item.batchId,
+                                item.quantity,
+                                'SUBTRACT'
+                            ).catch(console.error);
+                        });
                     }
                 });
 
