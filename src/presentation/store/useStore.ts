@@ -757,7 +757,8 @@ export const usePharmaStore = create<PharmaState>()(
             shipments: MOCK_SHIPMENTS,
             warehouseIncidents: [],
 
-            createDispatch: (shipmentData) => set((state) => {
+            createDispatch: (shipmentData) => {
+                const state = get();
                 const now = Date.now();
 
                 // Enrich items with Batch Data
@@ -784,38 +785,15 @@ export const usePharmaStore = create<PharmaState>()(
                     }
                 };
 
-                // Deduct stock from Origin using registerStockMovement logic
-                // We can't call get().registerStockMovement inside set(), so we do it manually or via get() outside
-                // But since we are inside set(), we can just update the inventory here directly as before, 
-                // OR better: use the logic we just defined.
-
-                const updatedInventory = [...state.inventory];
-
+                // Deduct stock using registerStockMovement
                 shipmentData.items.forEach(item => {
-                    const batchIndex = updatedInventory.findIndex(b => b.id === item.batchId);
-                    if (batchIndex !== -1) {
-                        // 1. Update Local State
-                        updatedInventory[batchIndex] = {
-                            ...updatedInventory[batchIndex],
-                            stock_actual: updatedInventory[batchIndex].stock_actual - item.quantity
-                        };
-
-                        // 2. Sync with TigerDataService
-                        import('../../domain/services/TigerDataService').then(({ TigerDataService }) => {
-                            TigerDataService.updateInventoryStock(
-                                item.batchId,
-                                item.quantity,
-                                'SUBTRACT'
-                            ).catch(console.error);
-                        });
-                    }
+                    state.registerStockMovement(item.batchId, -item.quantity, 'TRANSFER_OUT');
                 });
 
-                return {
-                    shipments: [...state.shipments, newShipment],
-                    inventory: updatedInventory
-                };
-            }),
+                set((currentState) => ({
+                    shipments: [...currentState.shipments, newShipment]
+                }));
+            },
 
             confirmReception: (shipmentId, evidenceData) => set((state) => {
                 const shipmentIndex = state.shipments.findIndex(s => s.id === shipmentId);
