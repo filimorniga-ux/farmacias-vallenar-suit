@@ -10,8 +10,8 @@ import { SaleTransaction, InventoryBatch, EmployeeProfile, CashMovement, Expense
  * Future Mode: Replace with fetch/axios calls to Tiger Data API
  */
 
-const SIMULATE_NETWORK_DELAY = 800; // ms
-const SIMULATE_FAILURE_RATE = 0.05; // 5% chance of simulated failure
+const SIMULATE_NETWORK_DELAY = 200; // ms - Faster for dev
+const SIMULATE_FAILURE_RATE = 0; // 0% chance of failure - Stable for dev
 
 // Simulated in-memory storage (will be replaced by real DB)
 let inMemoryStorage = {

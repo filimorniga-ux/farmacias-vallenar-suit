@@ -16,6 +16,13 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose }) => {
     const { currentLocation } = useLocationStore();
     const [step, setStep] = useState(1);
 
+    // Debug: Check inventory connection
+    React.useEffect(() => {
+        if (isOpen) {
+            console.log("Inventario disponible para despacho:", inventory.length);
+        }
+    }, [isOpen, inventory]);
+
     // Step 1: Route
     const [originId, setOriginId] = useState(currentLocation?.id || 'BODEGA_CENTRAL');
     const [destinationId, setDestinationId] = useState('');
@@ -61,7 +68,7 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose }) => {
                     handleUpdateQuantity(existing.batchId, existing.quantity + 1);
                     toast.success(`+1 ${bestBatch.name} (Lote: ${bestBatch.lot_number})`);
                 } else {
-                    toast.error(`Stock insuficiente. Solo quedan ${existing.max} unidades.`);
+                    toast.error(`Stock insuficiente (Max: ${existing.max})`);
                 }
             } else {
                 if (bestBatch.stock_actual > 0) {
@@ -109,7 +116,7 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose }) => {
         setSelectedItems(items => items.map(i => {
             if (i.batchId === batchId) {
                 if (qty > i.max) {
-                    toast.error(`Stock insuficiente. Máximo disponible: ${i.max}`);
+                    toast.error(`Stock insuficiente (Max: ${i.max})`);
                     return i;
                 }
                 return { ...i, quantity: Math.min(Math.max(1, qty), i.max) };
@@ -335,7 +342,7 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose }) => {
                                                 <div className="flex justify-between items-center text-sm text-gray-600 mb-3">
                                                     <span className="flex items-center gap-1"><Package size={14} /> Lote: {item.lot_number || 'N/A'}</span>
                                                     <span className={`font-bold ${item.stock_actual > 0 ? 'text-blue-600' : 'text-red-500'}`}>
-                                                        Stock Disponible: {item.stock_actual}
+                                                        Stock Actual en Bodega: {item.stock_actual}
                                                     </span>
                                                 </div>
 
