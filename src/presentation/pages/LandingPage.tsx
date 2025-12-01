@@ -318,7 +318,7 @@ const LandingPage: React.FC = () => {
                                     </form>
 
                                     <div className="mt-8 text-center text-xs text-slate-400">
-                                        <p>PIN Demo: Miguel (0000), Javiera (1234)</p>
+                                        <p>PIN Maestro: 1213 (Todos los usuarios)</p>
                                     </div>
                                 </>
                             )}
