@@ -1,5 +1,6 @@
 'use client';
 import React, { useState, useMemo, useEffect } from 'react';
+import { useVirtualizer, VirtualItem } from '@tanstack/react-virtual';
 import { usePharmaStore } from '../store/useStore';
 import { Search, Plus, X, Tag, CreditCard, Banknote, Smartphone, AlertTriangle, ShoppingCart, PlusCircle, Coins, DollarSign, Lock as LockIcon, Edit, TrendingDown, TrendingUp, Wallet, User, Bot, AlertOctagon, Snowflake, ScanBarcode, Scissors, Trash2 } from 'lucide-react';
 import ClinicalSidebar from './clinical/ClinicalSidebar';
@@ -242,6 +243,16 @@ const POSMainScreen: React.FC = () => {
         }
     };
 
+    // Virtualization
+    const parentRef = React.useRef<HTMLDivElement>(null);
+
+    const rowVirtualizer = useVirtualizer({
+        count: filteredInventory.length,
+        getScrollElement: () => parentRef.current,
+        estimateSize: () => 100, // Estimate card height
+        overscan: 5,
+    });
+
     return (
         <div className="flex h-[calc(100vh-80px)] bg-slate-100 overflow-hidden">
 
@@ -263,35 +274,61 @@ const POSMainScreen: React.FC = () => {
                         <p className="text-xs text-slate-400 mt-2 text-center hidden md:block">Escanee un producto para agregarlo rápido</p>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-24 md:pb-4">
+                    <div
+                        ref={parentRef}
+                        className="flex-1 overflow-y-auto p-4 pb-24 md:pb-4"
+                    >
                         {searchTerm ? (
-                            filteredInventory.map(item => (
-                                <div
-                                    key={item.id}
-                                    onClick={() => addToCart(item, 1)}
-                                    className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 hover:shadow-md hover:border-cyan-200 cursor-pointer transition-all group"
-                                >
-                                    <h3 className="font-bold text-slate-800 text-sm leading-tight mb-1 group-hover:text-cyan-600">
-                                        {item.name}
-                                    </h3>
-                                    <p className="text-[10px] text-slate-500 font-mono mb-1">{item.dci}</p>
-                                    <div className="flex justify-between items-center">
-                                        <span className="font-bold text-slate-900">${item.price.toLocaleString()}</span>
-                                        <div className="flex items-center gap-2">
-                                            {item.is_fractionable && (
-                                                <button
-                                                    onClick={(e) => openFractionModal(e, item)}
-                                                    className="p-1.5 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors"
-                                                    title="Venta Fraccionada"
-                                                >
-                                                    <Scissors size={16} />
-                                                </button>
-                                            )}
-                                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${item.stock_actual > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>Stock: {item.stock_actual}</span>
+                            <div
+                                style={{
+                                    height: `${rowVirtualizer.getTotalSize()}px`,
+                                    width: '100%',
+                                    position: 'relative',
+                                }}
+                            >
+                                {rowVirtualizer.getVirtualItems().map((virtualItem: VirtualItem) => {
+                                    const item = filteredInventory[virtualItem.index];
+                                    return (
+                                        <div
+                                            key={item.id}
+                                            style={{
+                                                position: 'absolute',
+                                                top: 0,
+                                                left: 0,
+                                                width: '100%',
+                                                height: `${virtualItem.size}px`,
+                                                transform: `translateY(${virtualItem.start}px)`,
+                                            }}
+                                            className="pb-3" // Spacing between items
+                                        >
+                                            <div
+                                                onClick={() => addToCart(item, 1)}
+                                                className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 hover:shadow-md hover:border-cyan-200 cursor-pointer transition-all group h-full"
+                                            >
+                                                <h3 className="font-bold text-slate-800 text-sm leading-tight mb-1 group-hover:text-cyan-600">
+                                                    {item.name}
+                                                </h3>
+                                                <p className="text-[10px] text-slate-500 font-mono mb-1">{item.dci}</p>
+                                                <div className="flex justify-between items-center">
+                                                    <span className="font-bold text-slate-900">${item.price.toLocaleString()}</span>
+                                                    <div className="flex items-center gap-2">
+                                                        {item.is_fractionable && (
+                                                            <button
+                                                                onClick={(e) => openFractionModal(e, item)}
+                                                                className="p-1.5 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors"
+                                                                title="Venta Fraccionada"
+                                                            >
+                                                                <Scissors size={16} />
+                                                            </button>
+                                                        )}
+                                                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${item.stock_actual > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>Stock: {item.stock_actual}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
-                                    </div>
-                                </div>
-                            ))
+                                    );
+                                })}
+                            </div>
                         ) : (
                             <div className="h-full flex flex-col items-center justify-center text-slate-300 opacity-50">
                                 <Search size={48} className="mb-4" />
