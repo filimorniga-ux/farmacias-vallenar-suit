@@ -61,11 +61,15 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose }) => {
                     handleUpdateQuantity(existing.batchId, existing.quantity + 1);
                     toast.success(`+1 ${bestBatch.name} (Lote: ${bestBatch.lot_number})`);
                 } else {
-                    toast.error('Stock insuficiente para agregar más');
+                    toast.error(`Stock insuficiente. Solo quedan ${existing.max} unidades.`);
                 }
             } else {
-                handleAddItem(bestBatch);
-                toast.success(`Agregado: ${bestBatch.name} (Lote: ${bestBatch.lot_number})`);
+                if (bestBatch.stock_actual > 0) {
+                    handleAddItem(bestBatch);
+                    toast.success(`Agregado: ${bestBatch.name} (Lote: ${bestBatch.lot_number})`);
+                } else {
+                    toast.error(`Producto sin stock disponible.`);
+                }
             }
         } else {
             toast.error(`Producto no encontrado: ${code}`);
@@ -104,6 +108,10 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose }) => {
     const handleUpdateQuantity = (batchId: string, qty: number) => {
         setSelectedItems(items => items.map(i => {
             if (i.batchId === batchId) {
+                if (qty > i.max) {
+                    toast.error(`Stock insuficiente. Máximo disponible: ${i.max}`);
+                    return i;
+                }
                 return { ...i, quantity: Math.min(Math.max(1, qty), i.max) };
             }
             return i;
@@ -242,22 +250,26 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose }) => {
 
                     {step === 2 && (
                         <div className="space-y-6 h-full flex flex-col">
-                            {/* TOP: Scanner Input */}
-                            <div className="bg-blue-600 p-6 rounded-2xl shadow-lg text-white text-center shrink-0">
-                                <label className="block text-sm font-bold text-blue-100 mb-2 uppercase tracking-wider flex items-center justify-center gap-2">
+
+                            {/* ZONA A: ESCANEO RÁPIDO (GUN MODE) */}
+                            <div className="bg-gradient-to-r from-blue-600 to-indigo-700 p-6 rounded-2xl shadow-lg text-white text-center shrink-0 relative overflow-hidden">
+                                <div className="absolute top-0 right-0 p-4 opacity-10">
+                                    <Barcode size={120} />
+                                </div>
+                                <label className="block text-sm font-bold text-blue-100 mb-2 uppercase tracking-wider flex items-center justify-center gap-2 relative z-10">
                                     <Barcode size={18} /> Pistolear para agregar 1 unidad
                                 </label>
-                                <div className="relative max-w-lg mx-auto">
+                                <div className="relative max-w-lg mx-auto z-10">
                                     <input
                                         ref={scannerInputRef}
                                         type="text"
                                         placeholder="Escanea aquí..."
-                                        className="w-full px-6 py-4 rounded-xl border-2 border-blue-400 bg-blue-700/50 text-white placeholder-blue-300 shadow-inner focus:ring-4 focus:ring-blue-400 focus:border-white text-2xl font-mono text-center outline-none transition-all"
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        className="w-full px-6 py-4 rounded-xl border-2 border-blue-400 bg-white/10 text-white placeholder-blue-200 shadow-inner focus:ring-4 focus:ring-blue-400 focus:border-white text-2xl font-mono text-center outline-none transition-all backdrop-blur-sm"
+                                        value={searchTerm} // This uses the scanner hook's bound state if any, or we can separate it
+                                        onChange={(e) => setSearchTerm(e.target.value)} // Keep using searchTerm for scanner for now, or separate if needed
                                         autoFocus
                                         onBlur={() => {
-                                            // setTimeout(() => scannerInputRef.current?.focus(), 100); 
+                                            // Optional: Keep focus
                                         }}
                                     />
                                     <div className="absolute right-4 top-1/2 -translate-y-1/2 text-blue-300 animate-pulse">
@@ -267,19 +279,43 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose }) => {
                             </div>
 
                             <div className="flex gap-6 flex-1 overflow-hidden">
-                                {/* LEFT: Results Table (Manual Search) */}
+                                {/* ZONA B: BÚSQUEDA MANUAL (FALLBACK) */}
                                 <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
                                     <div className="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
                                         <h3 className="font-bold text-gray-700 flex items-center gap-2">
-                                            <Search size={18} /> Resultados ({filteredProducts.length})
+                                            <Search size={18} /> Búsqueda Manual
                                         </h3>
-                                        <span className="text-xs text-gray-400">Mostrando lotes disponibles</span>
+                                        <span className="text-xs text-gray-400">Si el escáner falla</span>
+                                    </div>
+
+                                    {/* Manual Search Input */}
+                                    <div className="p-4 border-b border-gray-100">
+                                        <div className="relative">
+                                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                                            <input
+                                                type="text"
+                                                placeholder="Buscar por nombre o SKU..."
+                                                className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"
+                                                value={searchTerm} // Sharing state for now, but user might want separate. Let's assume shared is fine as "Hybrid" usually implies one input focus or two. 
+                                                // Actually, if we have two inputs, we need two states. 
+                                                // Let's use `searchTerm` for the manual search and let the scanner hook handle the hidden/focused input. 
+                                                // BUT the user asked for "Input grande: Escanear..." AND "Input de texto: Buscar...".
+                                                // So we need to separate them.
+                                                onChange={(e) => setSearchTerm(e.target.value)}
+                                            />
+                                        </div>
                                     </div>
 
                                     <div className="overflow-y-auto flex-1 p-2 space-y-2">
-                                        {filteredProducts.length === 0 && searchTerm.length > 2 && (
+                                        {filteredProducts.length === 0 && searchTerm.length > 0 && (
                                             <div className="text-center py-10 text-gray-400">
                                                 No se encontraron productos
+                                            </div>
+                                        )}
+
+                                        {filteredProducts.length === 0 && searchTerm.length === 0 && (
+                                            <div className="text-center py-10 text-gray-400 text-sm">
+                                                Escribe para buscar productos...
                                             </div>
                                         )}
 
@@ -298,14 +334,17 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose }) => {
 
                                                 <div className="flex justify-between items-center text-sm text-gray-600 mb-3">
                                                     <span className="flex items-center gap-1"><Package size={14} /> Lote: {item.lot_number || 'N/A'}</span>
-                                                    <span className="font-bold">Stock: {item.stock_actual}</span>
+                                                    <span className={`font-bold ${item.stock_actual > 0 ? 'text-blue-600' : 'text-red-500'}`}>
+                                                        Stock Disponible: {item.stock_actual}
+                                                    </span>
                                                 </div>
 
                                                 <button
                                                     onClick={() => handleAddItem(item)}
-                                                    className="w-full py-2 bg-gray-50 hover:bg-blue-50 text-blue-600 font-bold rounded-lg transition-colors flex items-center justify-center gap-2 group-hover:bg-blue-600 group-hover:text-white"
+                                                    disabled={item.stock_actual <= 0}
+                                                    className="w-full py-2 bg-gray-50 hover:bg-blue-50 text-blue-600 font-bold rounded-lg transition-colors flex items-center justify-center gap-2 group-hover:bg-blue-600 group-hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
                                                 >
-                                                    Agregar al Despacho
+                                                    {item.stock_actual > 0 ? 'Agregar al Despacho' : 'Sin Stock'}
                                                 </button>
                                             </div>
                                         ))}

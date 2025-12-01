@@ -20,7 +20,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
         { icon: LayoutDashboard, label: 'Resumen General', path: '/dashboard', roles: ['MANAGER'], color: 'indigo' as AppThemeColor },
         { icon: ShoppingCart, label: 'Punto de Venta', path: '/pos', roles: ['CASHIER', 'QF', 'MANAGER'], color: 'emerald' as AppThemeColor },
         { icon: Package, label: 'Inventario', path: '/inventory', roles: ['WAREHOUSE', 'MANAGER', 'QF'], color: 'cyan' as AppThemeColor },
-        { icon: Wrench, label: 'Mantenimiento DB', path: '/inventory/maintenance', roles: ['MANAGER', 'ADMIN'], isDanger: true, color: 'red' as AppThemeColor },
+
         { icon: Truck, label: 'Operaciones WMS', path: '/warehouse', roles: ['WAREHOUSE', 'MANAGER', 'QF'], color: 'amber' as AppThemeColor },
         { icon: Building2, label: 'Proveedores', path: '/suppliers', roles: ['MANAGER', 'QF', 'WAREHOUSE'], color: 'blue' as AppThemeColor },
         { icon: BarChart3, label: 'Reportes & BI', path: '/reports', roles: ['MANAGER', 'QF'], color: 'purple' as AppThemeColor },
