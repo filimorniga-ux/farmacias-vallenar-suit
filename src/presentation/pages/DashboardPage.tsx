@@ -66,7 +66,8 @@ const DashboardPage: React.FC = () => {
         return {
             totalSales,
             cashInDrawer,
-            digitalSales,
+            cardSales,
+            transferSales,
             todayExpenses,
             activeStaff,
             lowStockItems,
@@ -219,7 +220,7 @@ const DashboardPage: React.FC = () => {
             <main className="p-6 space-y-8 max-w-md mx-auto md:max-w-4xl">
 
                 {/* 1. FINANCIAL PULSE */}
-                <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <section className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
                     <FinancialCard
                         title="Venta Total"
                         value={`$${dashboardData.totalSales.toLocaleString()}`}
@@ -236,10 +237,17 @@ const DashboardPage: React.FC = () => {
                         shadowColor="blue"
                     />
                     <FinancialCard
-                        title="Venta Digital"
-                        value={`$${dashboardData.digitalSales.toLocaleString()}`}
+                        title="Tarjetas"
+                        value={`$${dashboardData.cardSales.toLocaleString()}`}
                         icon={CreditCard}
-                        gradient="from-violet-500 to-purple-600"
+                        gradient="from-cyan-500 to-blue-600"
+                        shadowColor="cyan"
+                    />
+                    <FinancialCard
+                        title="Transferencias"
+                        value={`$${dashboardData.transferSales.toLocaleString()}`}
+                        icon={ArrowRight}
+                        gradient="from-violet-500 to-fuchsia-600"
                         shadowColor="violet"
                     />
                     <FinancialCard
