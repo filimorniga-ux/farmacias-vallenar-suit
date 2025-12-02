@@ -82,7 +82,12 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
     const parseLegacyRow = (row: any, index: number): ImportedRow => {
         const errors: string[] = [];
 
-        // --- ROBUST & SIMPLE PARSER (Direct Extraction) ---
+        // --- BULLETPROOF PARSER HELPERS ---
+        const cleanStr = (val: any) => String(val || '').trim();
+        const cleanNum = (val: any) => {
+            if (typeof val === 'number') return val;
+            return parseInt(String(val || '0').replace(/[^0-9]/g, ''), 10) || 0;
+        };
 
         // Helper: Find value by fuzzy column name
         const findVal = (row: any, keys: string[]) => {
@@ -92,108 +97,58 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
             return foundKey ? row[foundKey] : null;
         };
 
-        // 1. NOMBRE & LABORATORIO (Smart Regex Parser)
-        let rawName = findVal(row, ['producto', 'nombre', 'descripcion']) || 'SIN NOMBRE';
-        let cleanName = String(rawName).trim();
-        let laboratory = 'GENÉRICO';
-
-        // Regex para extraer laboratorio al final (Ej: "PARACETAMOL 500MG LAB CHILE")
-        const labMatch = cleanName.match(/\sLAB[\.\s]\s*(.+)$/i);
-        if (labMatch) {
-            laboratory = labMatch[1].trim(); // Extrae "CHILE", "SAVAL", etc.
-            cleanName = cleanName.replace(labMatch[0], '').trim(); // Quita el laboratorio del nombre
-        }
-
-        // 2. SKU (Sanitización Científica)
+        // 1. SKU (Prioridad o Generado)
         let rawSku = findVal(row, ['código barras', 'codigo barras', 'sku', 'barcode', 'code', 'codigo']);
-        let sku = rawSku ? String(rawSku).trim() : '';
+        let sku = cleanStr(rawSku);
 
-        // Fix Scientific Notation (e.g. "7.80E+12")
+        // Fix Scientific Notation
         if (sku.includes('E+')) {
             sku = Number(rawSku).toLocaleString('fullwide', { useGrouping: false });
         }
 
-        // 3. PRECIO VENTA
-        let rawPrice = findVal(row, ['precio venta', 'pvp', 'precio', 'venta', 'valor']);
-        let price_sell = 0;
-        if (rawPrice) {
-            price_sell = parseInt(String(rawPrice).replace(/[^0-9]/g, ''), 10) || 0;
+        if (sku.length < 3) {
+            sku = `GEN-${Math.floor(Math.random() * 1000000)}`;
+            // errors.push('SKU Generado'); // Silent generation
         }
 
-        // 4. STOCK
-        let rawStock = findVal(row, ['stock', 'cantidad', 'saldo']);
-        let stock = parseInt(String(rawStock || 0), 10);
+        // 2. NOMBRE (Sin cortar de más)
+        let name = cleanStr(findVal(row, ['producto', 'nombre', 'descripcion', 'descripción']));
+        if (!name) name = "PRODUCTO DESCONOCIDO";
 
-        // 5. COSTO (Auto-fill si falta)
-        let rawCost = findVal(row, ['costo neto', 'ppp', 'costo']);
-        let cost_net = 0;
-        if (rawCost) {
-            cost_net = parseInt(String(rawCost).replace(/[^0-9]/g, ''), 10) || 0;
-        } else {
-            // Default to 0 if not found, to be safe. Or estimate.
-            // Let's keep estimate for now but make it safe.
-            cost_net = price_sell > 0 ? Math.round(price_sell * 0.7) : 0;
+        // 3. PRECIOS & STOCK
+        const price = cleanNum(findVal(row, ['precio venta', 'pvp', 'precio', 'venta', 'valor']));
+        const stock = cleanNum(findVal(row, ['stock', 'cantidad', 'saldo']));
+
+        // Costo (Estimado si falta)
+        let cost_net = cleanNum(findVal(row, ['costo neto', 'ppp', 'costo']));
+        if (cost_net === 0 && price > 0) {
+            cost_net = Math.round(price * 0.7);
         }
 
-        // --- FALLBACKS & GENERATION ---
-
-        // 1. SKU Generation (Silent Error Handling)
-        if (!sku || sku.length < 3) {
-            sku = `GEN-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
-            // errors.push('SKU Generado (Faltaba en Excel)'); // No longer an error, just a note if needed
-        }
-
-        if (cleanName === 'SIN NOMBRE' || !cleanName) {
-            errors.push('Falta Nombre');
-        }
-
-        if (price_sell <= 0 && stock > 0) {
-            // Warning but maybe allow? Let's require price for now as it's critical for POS.
-            // Actually, user said "Si tengo Nombre y Precio, el producto ENTRA".
-            errors.push('Falta Precio');
-        }
-
-        // 5. OTROS (Defaults de Migración - OPCIONALES)
-        const dci = cleanName; // Default DCI to Name if missing
-        const units_per_box = 1;
-        const price_sell_unit = price_sell;
-
-        // Auto-fill Obligatorios (Relaxed)
-        const lot_number = 'GENERAL'; // Generic Lot
-        const expiry_date = '31/12/2030'; // Far future default
-        const isp_register = ''; // Optional
-        const is_bioequivalent = false;
-
-        // Infer Category (Smart Location)
-        let category = 'MEDICAMENTO';
-        let location = findVal(row, ['grupo', 'categoría', 'ubicacion']) || 'BODEGA_CENTRAL';
-        const upperName = cleanName.toUpperCase();
-        if (upperName.includes('SHAMPOO') || upperName.includes('JABON') || upperName.includes('CREMA')) {
-            category = 'COSMETICA';
-        } else if (upperName.includes('VITAMINA') || upperName.includes('SUPLEMENTO')) {
-            category = 'SUPLEMENTO';
-        }
+        // 4. OTROS (Defaults Seguros)
+        const dci = name; // Usamos nombre como DCI temporal
+        const laboratory = 'GENÉRICO';
 
         return {
             id: uuidv4(),
             sku,
-            name: cleanName,
+            name,
             dci,
             laboratory,
-            price_sell,
-            price: price_sell,
-            price_sell_box: price_sell,
-            price_sell_unit,
+            price_sell: price,
+            price: price,
+            price_sell_box: price,
+            price_sell_unit: price,
             cost_net,
             stock,
-            units_per_box,
-            lot_number,
-            expiry_date,
+            units_per_box: 1,
+            lot_number: 'GENERAL',
+            expiry_date: '31/12/2030',
             location: 'BODEGA_CENTRAL',
             is_refrigerated: 'NO',
-            isValid: errors.length === 0,
+            isValid: true, // SIEMPRE VÁLIDO (Fail-Safe)
             errors,
-            needs_review: sku.startsWith('GEN-') // Flag for review if SKU was generated
+            needs_review: sku.startsWith('GEN-') || name === "PRODUCTO DESCONOCIDO"
         };
     };
 
@@ -216,21 +171,21 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                 let parsedRows: ImportedRow[] = [];
 
                 if (importFormat === 'OFFICIAL') {
-                    // Official format uses strict array indexing
                     const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-                    const rows = jsonData.slice(1) as any[][]; // Skip header
+                    const rows = jsonData.slice(1) as any[][];
                     parsedRows = rows.map(parseOfficialRow).filter(r => r.sku || r.name);
                 } else {
-                    // Legacy format uses Header Names (Object based)
-                    const jsonData = XLSX.utils.sheet_to_json(worksheet); // Returns objects
-                    parsedRows = jsonData.map((row: any, index: number) => parseLegacyRow(row, index)).filter(r => r.sku || r.name);
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet);
+                    parsedRows = jsonData.map((row: any, index: number) => parseLegacyRow(row, index));
                 }
 
                 setImportedData(parsedRows);
                 setStep('PREVIEW');
 
                 if (importFormat === 'LEGACY') {
-                    toast.info(`Se detectaron ${parsedRows.length} productos. Se asignaron valores por defecto para revisión.`);
+                    toast.info(`Se procesaron ${parsedRows.length} productos.`, {
+                        description: 'Modo Flexible activado: Se han rellenado datos faltantes.'
+                    });
                 }
             } catch (error) {
                 console.error(error);
@@ -278,11 +233,14 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
 
     const handleImport = async () => {
         setIsProcessing(true);
+        let successCount = 0;
+        let errorCount = 0;
+
         try {
             const validRows = importedData.filter(r => r.isValid);
 
             if (validRows.length === 0) {
-                toast.error('No hay datos válidos para importar');
+                toast.error('No hay datos para importar');
                 return;
             }
 
@@ -292,17 +250,12 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
             validRows.forEach(row => {
                 const existing = uniqueMap.get(row.sku);
 
-                // Parse date DD/MM/YYYY to timestamp (Logic moved here for cleaner map)
+                // Parse date DD/MM/YYYY to timestamp
                 let expiry = Date.now() + 31536000000; // Default 1 year
                 if (row.expiry_date) {
                     const parts = row.expiry_date.split('/');
                     if (parts.length === 3) {
                         expiry = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0])).getTime();
-                    } else if (row.expiry_date.includes('-')) {
-                        const parts = row.expiry_date.split('-');
-                        if (parts.length === 3) {
-                            expiry = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])).getTime();
-                        }
                     }
                 }
 
@@ -320,22 +273,24 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                     location_id: row.location || 'BODEGA_CENTRAL',
                     is_refrigerated: row.is_refrigerated?.toUpperCase() === 'SI',
                     status: 'AVAILABLE',
-                    isp_register: 'PENDIENTE',
-                    format: 'UNIDAD',
+                    isp_register: '', // Allow empty
+                    format: '', // Allow empty
                     units_per_box: row.units_per_box || 1,
                     price_sell_unit: row.price_sell_unit || row.price_sell,
                     is_bioequivalent: false,
                     condition: 'VD',
-                    category: 'MEDICAMENTO'
+                    category: 'MEDICAMENTO',
+                    // Ensure price persistence fields are set
+                    price: row.price_sell,
+                    price_sell_box: row.price_sell
                 };
 
                 if (existing) {
                     // MERGE STRATEGY
-                    existing.stock_actual += itemData.stock_actual; // Sum Stock
-                    existing.price_sell = Math.max(existing.price_sell, itemData.price_sell); // Max Price
-                    existing.price_sell_unit = Math.max(existing.price_sell_unit, itemData.price_sell_unit);
-                    // Keep longest name
-                    if (itemData.name.length > existing.name.length) existing.name = itemData.name;
+                    existing.stock_actual += itemData.stock_actual;
+                    existing.price_sell = Math.max(existing.price_sell, itemData.price_sell);
+                    existing.price = existing.price_sell; // Sync
+                    existing.price_sell_box = existing.price_sell; // Sync
                 } else {
                     uniqueMap.set(row.sku, itemData);
                 }
@@ -348,26 +303,35 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
 
             // 2. Persist to Database (Tiger Cloud)
             const { TigerDataService } = await import('../../../domain/services/TigerDataService');
+
+            // Use try/catch for the API call to handle partial failures if possible, 
+            // though currently uploadBulkInventory throws on error.
+            // We rely on the service to handle batching.
             await TigerDataService.uploadBulkInventory(itemsToImport, (progress, message) => {
                 // setUploadProgress(progress);
-                // setUploadMessage(message);
             });
+
+            successCount = itemsToImport.length;
 
             // 3. Refresh Data
             const { fetchInventory } = await import('../../../actions/sync');
             await fetchInventory();
 
-            toast.success('Inventario Importado y Unificado', {
-                description: `${itemsToImport.length} productos únicos procesados (se fusionaron duplicados).`
+            toast.success('Importación Completada', {
+                description: `Se importaron ${successCount} productos correctamente.`
             });
+
             onClose();
             setImportedData([]);
             setStep('UPLOAD');
+
         } catch (error) {
             console.error('Import error:', error);
-            toast.error('Error en la importación', {
-                description: 'Algunos datos se guardaron localmente, pero falló la sincronización con la nube.'
+            toast.error('Error durante la importación', {
+                description: 'Hubo un problema al guardar los datos en la nube. Verifique su conexión.'
             });
+            // Even if it fails, we might have some success if we implemented partial batching in service,
+            // but for now we assume all-or-nothing for the batch unless service changes.
         } finally {
             setIsProcessing(false);
         }

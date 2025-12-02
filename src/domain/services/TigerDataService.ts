@@ -73,32 +73,42 @@ export const TigerDataService = {
 
         for (let i = 0; i < total; i += BATCH_SIZE) {
             const chunk = products.slice(i, i + BATCH_SIZE);
+            let retries = 3;
+            let success = false;
 
-            try {
-                // Llamada al API Route que maneja la transacción SQL
-                const response = await fetch('/api/inventory/batch', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ products: chunk }),
-                });
+            while (retries > 0 && !success) {
+                try {
+                    // Llamada al API Route que maneja la transacción SQL
+                    const response = await fetch('/api/inventory/batch', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ products: chunk }),
+                    });
 
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    const errorMessage = `${errorData.error} - Details: ${errorData.details || 'No details'} (Code: ${errorData.code || 'N/A'})`;
-                    throw new Error(errorMessage);
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        const errorMessage = `${errorData.error} - Details: ${errorData.details || 'No details'} (Code: ${errorData.code || 'N/A'})`;
+                        throw new Error(errorMessage);
+                    }
+
+                    processed += chunk.length;
+                    success = true;
+
+                    // Actualizar barra de progreso si existe callback
+                    if (onProgress) {
+                        const percentage = Math.round((processed / total) * 100);
+                        onProgress(percentage, `Guardando ${processed} de ${total}...`);
+                    }
+
+                } catch (error) {
+                    console.error(`Error en carga masiva (Intento ${4 - retries}/3):`, error);
+                    retries--;
+                    if (retries === 0) {
+                        throw error; // Detener proceso si falla tras 3 intentos
+                    }
+                    // Wait 1 second before retrying
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                 }
-
-                processed += chunk.length;
-
-                // Actualizar barra de progreso si existe callback
-                if (onProgress) {
-                    const percentage = Math.round((processed / total) * 100);
-                    onProgress(percentage, `Guardando ${processed} de ${total}...`);
-                }
-
-            } catch (error) {
-                console.error('Error en carga masiva:', error);
-                throw error; // Detener proceso si falla un lote crítico
             }
         }
 
