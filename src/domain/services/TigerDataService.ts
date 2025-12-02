@@ -347,12 +347,13 @@ export const TigerDataService = {
     authenticate: async (
         userId: string,
         pin: string
-    ): Promise<{ success: boolean; user: EmployeeProfile }> => {
+    ): Promise<{ success: boolean; user?: EmployeeProfile; error?: string }> => {
         return simulateNetworkCall(() => {
             const employee = inMemoryStorage.employees.find(e => e.id === userId && e.access_pin === pin);
 
             if (!employee) {
-                throw new Error('Invalid credentials');
+                console.warn(`⚠️ [Tiger Data] Auth failed for user ${userId}. Invalid credentials.`);
+                return { success: false, error: 'Invalid credentials' };
             }
 
             console.log(`🔐 [Tiger Data] User authenticated: ${employee.name}`);
