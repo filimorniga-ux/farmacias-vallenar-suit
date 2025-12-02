@@ -67,10 +67,10 @@ const PriceCheckPage: React.FC = () => {
         if (!searchTerm) return false;
         const term = searchTerm.toLowerCase();
         return (
-            item.name.toLowerCase().includes(term) ||
-            item.dci.toLowerCase().includes(term) ||
-            (item.laboratory && item.laboratory.toLowerCase().includes(term)) ||
-            (item.brand && item.brand.toLowerCase().includes(term))
+            (item.name || '').toLowerCase().includes(term) ||
+            (item.dci || '').toLowerCase().includes(term) ||
+            (item.laboratory || '').toLowerCase().includes(term) ||
+            (item.brand || '').toLowerCase().includes(term)
         );
     }).slice(0, 6); // Limit results
 
