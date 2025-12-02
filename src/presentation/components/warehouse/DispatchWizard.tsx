@@ -44,11 +44,12 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
 
     // Initial State Setup (Handled by Remounting)
     useEffect(() => {
+        console.log("WMS Inventory Count:", inventory.length); // Debug log
         // Focus scanner on mount
         if (isOpen) {
             setTimeout(() => scannerInputRef.current?.focus(), 100);
         }
-    }, [isOpen]);
+    }, [isOpen, inventory]);
 
     // Filter Inventory
     const originInventory = useMemo(() => {
@@ -61,8 +62,10 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
             });
             return Array.from(uniqueProducts.values());
         }
-        return inventory.filter(item => item.location_id === originId && item.stock_actual > 0);
-    }, [inventory, originId, mode]);
+        // GLOBAL INVENTORY ACCESS: We load everything with stock > 0
+        // We do NOT filter by originId anymore to allow finding products anywhere
+        return inventory.filter(item => item.stock_actual > 0);
+    }, [inventory, mode]);
 
     // Sound Effect
     const playBeep = () => {
@@ -125,6 +128,7 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
         return originInventory.filter(item =>
             item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             item.sku.includes(searchTerm) ||
+            (item.dci && item.dci.toLowerCase().includes(searchTerm.toLowerCase())) ||
             (item.lot_number && item.lot_number.toLowerCase().includes(searchTerm.toLowerCase()))
         ).slice(0, 10);
     }, [originInventory, searchTerm]);
@@ -386,7 +390,7 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
                                                 <div className="flex justify-between items-start mb-2">
                                                     <div>
                                                         <p className="font-bold text-gray-800">{item.name}</p>
-                                                        <p className="text-xs text-gray-500 font-mono">SKU: {item.sku}</p>
+                                                        <p className="text-xs text-gray-500 font-mono">SKU: {item.sku} • Ubicación: {item.location_id}</p>
                                                     </div>
                                                     {mode !== 'PURCHASE' && (
                                                         <span className={`px-2 py-1 rounded text-xs font-bold ${(item.expiry_date && item.expiry_date < now + 2592000000) ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'
