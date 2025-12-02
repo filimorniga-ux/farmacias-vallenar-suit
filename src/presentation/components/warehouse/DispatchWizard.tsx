@@ -126,10 +126,10 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
     const filteredProducts = useMemo(() => {
         if (!searchTerm) return [];
         return originInventory.filter(item =>
-            item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            item.sku.includes(searchTerm) ||
-            (item.dci && item.dci.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            (item.lot_number && item.lot_number.toLowerCase().includes(searchTerm.toLowerCase()))
+            (item.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (item.sku || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (item.dci || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (item.lot_number || '').toLowerCase().includes(searchTerm.toLowerCase())
         ).slice(0, 10);
     }, [originInventory, searchTerm]);
 
