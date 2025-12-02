@@ -25,12 +25,12 @@ export interface InventoryBatch {
     id: string;
     sku: string;
     name: string;
-    dci: string; // Principio Activo
-    laboratory: string; // Laboratorio
-    isp_register: string; // Registro ISP
-    format: string; // Comprimido, Jarabe
-    units_per_box: number; // Unidades por caja (para precio unitario)
-    is_bioequivalent: boolean; // Es Bioequivalente
+    dci?: string; // Principio Activo (Optional)
+    laboratory?: string; // Laboratorio (Optional)
+    isp_register?: string; // Registro ISP (Optional)
+    format?: string; // Comprimido, Jarabe (Optional)
+    units_per_box?: number; // Unidades por caja (Optional, Default 1)
+    is_bioequivalent?: boolean; // Es Bioequivalente (Optional)
 
     // Legacy / Optional / Derived
     concentration: string;
