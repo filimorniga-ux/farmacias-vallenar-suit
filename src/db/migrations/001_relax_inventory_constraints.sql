@@ -14,3 +14,4 @@ ALTER TABLE products ALTER COLUMN category SET DEFAULT 'MEDICAMENTO';
 -- Note: If lotes table does not exist or has different structure, these might fail.
 -- We wrap in a DO block to avoid errors if table doesn't exist, or just execute and ignore if it fails (manual run).
 -- For now, we focus on products table which is the main blocker.
+git tag v1.0.10
