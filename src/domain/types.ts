@@ -263,7 +263,7 @@ export interface SupplierDocument {
     related_po_id?: string; // Link to Purchase Order
 }
 
-export type POStatus = 'SUGGESTED' | 'DRAFT' | 'SENT' | 'PARTIAL' | 'COMPLETED';
+export type POStatus = 'SUGGESTED' | 'DRAFT' | 'SENT' | 'PARTIAL' | 'COMPLETED' | 'CANCELLED';
 
 export interface CartItem {
     id: string; // Batch ID
@@ -388,7 +388,7 @@ export interface Shipment {
     type: 'INBOUND_PROVIDER' | 'INTERNAL_TRANSFER' | 'RETURN';
     origin_location_id: string; // Bodega o Proveedor
     destination_location_id: string; // Sucursal receptora
-    status: 'PREPARING' | 'IN_TRANSIT' | 'DELIVERED' | 'RECEIVED_WITH_DISCREPANCY';
+    status: 'PREPARING' | 'IN_TRANSIT' | 'DELIVERED' | 'RECEIVED_WITH_DISCREPANCY' | 'CANCELLED';
 
     transport_data: {
         carrier: string; // Ej: Starken, Chilexpress
