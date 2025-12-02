@@ -19,6 +19,8 @@ interface ImportedRow {
     dci?: string;
     laboratory?: string;
     price_sell: number;
+    price: number;
+    price_sell_box: number;
     cost_net: number;
     stock: number;
     lot_number: string;
@@ -63,6 +65,8 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
             dci: row[2]?.toString(),
             laboratory: row[3]?.toString(),
             price_sell,
+            price: price_sell,
+            price_sell_box: price_sell,
             cost_net: parseFloat(row[5]) || 0,
             stock: parseInt(row[6]) || 0,
             lot_number: row[7]?.toString() || 'S/L',
@@ -78,81 +82,83 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
     const parseLegacyRow = (row: any, index: number): ImportedRow => {
         const errors: string[] = [];
 
-        // --- ROBUST COLUMN MAPPING ---
-        // 1. SKU / Barcode (Barcode-First Strategy)
-        let rawSku = row['Código Barras'] || row['Codigo Barras'] || row['SKU'] || row['Codigo'] || '';
-        // Clean: Remove non-alphanumeric (spaces, dots, etc)
-        let sku = String(rawSku).trim().replace(/[^0-9a-zA-Z]/g, '');
+        // --- ROBUST & SIMPLE PARSER (Direct Extraction) ---
 
-        // 2. Name / Product
-        let rawName = row['Producto'] || row['Nombre'] || row['Descripcion'] || '';
-
-        // 3. Prices & Stock (Clean non-numeric chars)
-        const cleanNumber = (val: any) => {
-            if (typeof val === 'number') return val;
-            if (!val) return 0;
-            // Remove $ and dots (thousands separator), keep comma if decimal? 
-            // Usually Excel exports numbers as numbers. If string: "$ 1.000" -> 1000
-            return parseInt(String(val).replace(/[^0-9]/g, '')) || 0;
+        // Helper: Find value by fuzzy column name
+        const findVal = (row: any, keys: string[]) => {
+            const foundKey = Object.keys(row).find(k =>
+                keys.some(key => k.toLowerCase().trim() === key.toLowerCase())
+            );
+            return foundKey ? row[foundKey] : null;
         };
 
-        let price_sell = cleanNumber(row['Precio Venta '] || row['Precio Venta'] || row['Precio']);
-        let cost_net = cleanNumber(row['Costo Neto Prom. Unitario'] || row['Costo'] || row['Costo Neto']);
-        let stock = cleanNumber(row['Stock'] || row['Cantidad'] || row['Saldo']);
+        // 1. NOMBRE & LABORATORIO (Smart Regex Parser)
+        let rawName = findVal(row, ['producto', 'nombre', 'descripcion']) || 'SIN NOMBRE';
+        let cleanName = String(rawName).trim();
+        let laboratory = 'GENÉRICO';
+
+        // Regex para extraer laboratorio al final (Ej: "PARACETAMOL 500MG LAB CHILE")
+        const labMatch = cleanName.match(/\sLAB[\.\s]\s*(.+)$/i);
+        if (labMatch) {
+            laboratory = labMatch[1].trim(); // Extrae "CHILE", "SAVAL", etc.
+            cleanName = cleanName.replace(labMatch[0], '').trim(); // Quita el laboratorio del nombre
+        }
+
+        // 2. SKU (Sanitización Científica)
+        let rawSku = findVal(row, ['código barras', 'codigo barras', 'sku', 'barcode']);
+        let sku = rawSku ? String(rawSku).trim() : '';
+
+        // Fix Scientific Notation (e.g. "7.80E+12")
+        if (sku.includes('E+')) {
+            sku = Number(rawSku).toLocaleString('fullwide', { useGrouping: false });
+        }
+
+        // 3. PRECIO VENTA
+        let rawPrice = findVal(row, ['precio venta', 'pvp', 'precio', 'venta']);
+        let price_sell = 0;
+        if (rawPrice) {
+            price_sell = parseInt(String(rawPrice).replace(/[^0-9]/g, ''), 10) || 0;
+        }
+
+        // 4. STOCK
+        let rawStock = findVal(row, ['stock', 'cantidad', 'saldo']);
+        let stock = parseInt(String(rawStock || 0), 10);
+
+        // 5. COSTO (Auto-fill si falta)
+        let rawCost = findVal(row, ['costo neto', 'ppp', 'costo']);
+        let cost_net = 0;
+        if (rawCost) {
+            cost_net = parseInt(String(rawCost).replace(/[^0-9]/g, ''), 10) || 0;
+        } else {
+            cost_net = Math.round(price_sell * 0.7); // Estimado 70% del precio venta
+        }
 
         // --- FALLBACKS & GENERATION ---
 
-        // 1. SKU Generation (INT- prefix for internal codes)
+        // 1. SKU Generation (Silent Error Handling)
         if (!sku || sku.length < 3) {
-            sku = `INT-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
-            errors.push('SKU Generado Internamente (Faltaba Código Barras)');
-        } else {
-            // Valid Barcode found
+            sku = `GEN-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+            errors.push('SKU Generado (Faltaba en Excel)');
         }
 
-        if (!rawName) {
-            rawName = 'PRODUCTO SIN NOMBRE';
+        if (cleanName === 'SIN NOMBRE') {
             errors.push('Falta Nombre');
         }
 
-        // --- INTELLIGENT PARSER V55 LOGIC ---
-        let cleanName = rawName;
-        let laboratory = 'GENÉRICO'; // Default
-        let units_per_box = 1; // Default
+        // 5. OTROS (Defaults de Migración)
+        const dci = cleanName;
+        const units_per_box = 1;
+        const price_sell_unit = price_sell;
 
-        // 1. EXTRAER LABORATORIO (Busca "LAB." o "LAB " al final)
-        // Regex: Detecta "LAB" seguido de cualquier cosa hasta el final
-        const labMatch = rawName.match(/\sLAB[\.\s]\s*(.+)$/i);
-        if (labMatch) {
-            laboratory = labMatch[1].trim(); // "PHARMARIS"
-            cleanName = cleanName.replace(labMatch[0], ''); // Borra esa parte del nombre
-        }
-
-        // 2. EXTRAER UNIDADES (Busca "X30", "X 30", "X30COMP")
-        // Regex: Detecta una X seguida de dígitos
-        const unitMatch = cleanName.match(/X\s?(\d+)(\s?[A-Z]+)?/i);
-        if (unitMatch) {
-            units_per_box = parseInt(unitMatch[1]); // "30"
-            cleanName = cleanName.replace(unitMatch[0], ''); // Borra "X30COMP" del nombre
-        }
-
-        // 3. LIMPIEZA FINAL DEL NOMBRE
-        cleanName = cleanName.trim().replace(/\s+$/, '');
-
-        // 4. CÁLCULO PRECIO UNITARIO
-        let price_sell_unit = 0;
-        if (price_sell > 0 && units_per_box > 0) {
-            price_sell_unit = Math.round(price_sell / units_per_box);
-        } else {
-            price_sell_unit = price_sell; // Fallback
-        }
-
-        // 5. Defaults & Inferences
-        const lot_number = 'SIN-LOTE-MIGRACION';
+        // Auto-fill Obligatorios
+        const lot_number = 'MIGRACION-INI';
         const expiry_date = '31/12/2025';
+        const isp_register = 'PENDIENTE';
+        const is_bioequivalent = false;
 
-        // Infer Category
+        // Infer Category (Smart Location)
         let category = 'MEDICAMENTO';
+        let location = findVal(row, ['grupo', 'categoría', 'ubicacion']) || 'BODEGA_CENTRAL';
         const upperName = cleanName.toUpperCase();
         if (upperName.includes('SHAMPOO') || upperName.includes('JABON') || upperName.includes('CREMA')) {
             category = 'COSMETICA';
@@ -164,10 +170,12 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
             id: uuidv4(),
             sku,
             name: cleanName,
-            dci: cleanName,
+            dci,
             laboratory,
             price_sell,
-            price_sell_unit, // <--- VITAL
+            price: price_sell,
+            price_sell_box: price_sell,
+            price_sell_unit,
             cost_net,
             stock,
             units_per_box,
@@ -190,7 +198,10 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
 
         reader.onload = (e) => {
             try {
-                const data = new Uint8Array(e.target?.result as ArrayBuffer);
+                const result = e.target?.result;
+                if (!result) throw new Error("No se pudo leer el archivo");
+
+                const data = new Uint8Array(result as ArrayBuffer);
                 const workbook = XLSX.read(data, { type: 'array' });
                 const sheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[sheetName];
@@ -563,7 +574,7 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                                                 <td className="p-3 text-center bg-blue-50/50 font-mono text-xs text-blue-700">
                                                     {row.units_per_box || 1}
                                                 </td>
-                                                <td className="p-3 font-bold">${row.price_sell.toLocaleString()}</td>
+                                                <td className="p-3 font-bold">${(row.price_sell || 0).toLocaleString()}</td>
                                                 <td className="p-3 text-xs text-slate-500">${row.price_sell_unit?.toLocaleString()}</td>
                                                 <td className="p-3">{row.stock}</td>
                                                 <td className="p-3">

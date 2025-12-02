@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Trash2, RotateCcw, AlertTriangle, Search, CheckCircle, AlertOctagon } from 'lucide-react';
 import { toast } from 'sonner';
+import { usePharmaStore } from '../../store/useStore';
 
 const InventorySettings: React.FC = () => {
+    const { clearInventory } = usePharmaStore();
     const [isProcessing, setIsProcessing] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [deleteConfirmation, setDeleteConfirmation] = useState('');
@@ -11,7 +13,8 @@ const InventorySettings: React.FC = () => {
     const executeAction = async (action: string, payload: any = {}) => {
         setIsProcessing(true);
         try {
-            const res = await fetch('/api/inventory/maintenance', {
+            const endpoint = action === 'TRUNCATE' ? '/api/inventory/truncate' : '/api/inventory/deduplicate';
+            const res = await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action, ...payload })
@@ -32,6 +35,12 @@ const InventorySettings: React.FC = () => {
                 toast.success(data.message);
                 setShowDeleteModal(false);
                 setDeleteConfirmation('');
+                if (action === 'TRUNCATE') {
+                    clearInventory(); // Clear local store immediately
+                }
+                if (action === 'MERGE_DUPLICATES') {
+                    setDuplicates([]); // Clear duplicates list
+                }
             }
 
         } catch (error) {
@@ -124,6 +133,17 @@ const InventorySettings: React.FC = () => {
                                     ))}
                                 </ul>
                             </div>
+                        )}
+
+                        {duplicates.length > 0 && (
+                            <button
+                                onClick={() => executeAction('MERGE_DUPLICATES')}
+                                disabled={isProcessing}
+                                className="mt-2 px-6 py-2 bg-orange-600 text-white font-bold rounded-lg hover:bg-orange-700 transition w-full flex items-center justify-center gap-2"
+                            >
+                                <AlertTriangle size={18} />
+                                {isProcessing ? 'Fusionando...' : 'Fusionar Duplicados (Fix)'}
+                            </button>
                         )}
                     </div>
                 </div>
