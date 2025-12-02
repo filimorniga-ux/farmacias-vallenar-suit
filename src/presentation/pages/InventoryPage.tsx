@@ -72,8 +72,8 @@ const InventoryPage: React.FC = () => {
     const tableVirtualizer = useVirtualizer({
         count: filteredInventory.length,
         getScrollElement: () => parentRef.current,
-        estimateSize: () => 80, // Approximate row height
-        overscan: 10,
+        estimateSize: () => 60, // Tuned for performance
+        overscan: 5,
     });
 
     const cardVirtualizer = useVirtualizer({
@@ -190,24 +190,20 @@ const InventoryPage: React.FC = () => {
                                     <th className="p-4 text-center bg-slate-50">Acciones</th>
                                 </tr>
                             </thead>
-                            <tbody
-                                className="divide-y divide-slate-100 text-sm"
-                                style={{
-                                    height: `${tableVirtualizer.getTotalSize()}px`,
-                                    width: '100%',
-                                    position: 'relative',
-                                }}
-                            >
+                            <tbody className="divide-y divide-slate-100 text-sm">
+                                {tableVirtualizer.getVirtualItems().length > 0 && (
+                                    <tr>
+                                        <td style={{ height: `${tableVirtualizer.getVirtualItems()[0].start}px` }} colSpan={6} />
+                                    </tr>
+                                )}
                                 {tableVirtualizer.getVirtualItems().map(virtualRow => {
                                     const item = filteredInventory[virtualRow.index];
                                     return (
                                         <tr
                                             key={item.id}
-                                            className="hover:bg-slate-50 transition group absolute w-full"
-                                            style={{
-                                                height: `${virtualRow.size}px`,
-                                                transform: `translateY(${virtualRow.start}px)`,
-                                            }}
+                                            ref={tableVirtualizer.measureElement}
+                                            data-index={virtualRow.index}
+                                            className="hover:bg-slate-50 transition group"
                                         >
                                             <td className="p-4">
                                                 <div className="font-bold text-slate-800 text-lg">{item.name}</div>
@@ -272,6 +268,11 @@ const InventoryPage: React.FC = () => {
                                         </tr>
                                     );
                                 })}
+                                {tableVirtualizer.getVirtualItems().length > 0 && (
+                                    <tr>
+                                        <td style={{ height: `${tableVirtualizer.getTotalSize() - tableVirtualizer.getVirtualItems()[tableVirtualizer.getVirtualItems().length - 1].end}px` }} colSpan={6} />
+                                    </tr>
+                                )}
                             </tbody>
                         </table>
                     </div>

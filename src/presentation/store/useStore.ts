@@ -33,6 +33,7 @@ interface PharmaState {
 
     // Data Sync
     isLoading: boolean;
+    isInitialized: boolean;
     syncData: () => Promise<void>;
 
     // Inventory
@@ -66,6 +67,7 @@ interface PharmaState {
     updateProduct: (id: string, data: Partial<InventoryBatch>) => void;
     updateBatchDetails: (productId: string, batchId: string, data: Partial<InventoryBatch>) => void;
     registerStockMovement: (batchId: string, quantity: number, type: 'SALE' | 'TRANSFER_OUT' | 'TRANSFER_IN' | 'ADJUSTMENT' | 'RECEIPT') => void;
+    clearInventory: () => void;
 
     // Printer & Hardware
     printerConfig: PrinterConfig;
@@ -187,7 +189,12 @@ export const usePharmaStore = create<PharmaState>()(
 
             // --- Data Sync ---
             isLoading: false,
+            isInitialized: false,
             syncData: async () => {
+                if (get().isInitialized) {
+                    console.log('🔄 Data already synced, skipping...');
+                    return;
+                }
                 set({ isLoading: true });
                 try {
                     // const { TigerDataService } = await import('../../domain/services/TigerDataService'); // REMOVED
@@ -213,6 +220,7 @@ export const usePharmaStore = create<PharmaState>()(
                     });
 
                     // ✅ Data Synced & Tiger Data Initialized
+                    set({ isInitialized: true });
                 } catch (error) {
                     console.error('❌ Sync failed:', error);
                     // Show a friendly toast to the user
@@ -369,6 +377,7 @@ export const usePharmaStore = create<PharmaState>()(
                     return { inventory: updatedInventory };
                 });
             },
+            clearInventory: () => set({ inventory: [] }),
             addToCart: (item, quantity = 1) => set((state) => {
                 const existingItem = state.cart.find(i => i.id === item.id);
                 if (existingItem) {
