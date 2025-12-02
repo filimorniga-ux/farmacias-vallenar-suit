@@ -46,7 +46,8 @@ interface PharmaState {
     addNewProduct: (product: InventoryBatch) => void;
     transferStock: (batchId: string, targetLocation: 'BODEGA_CENTRAL' | 'SUCURSAL_CENTRO' | 'SUCURSAL_NORTE' | 'KIOSCO', quantity: number) => void;
     addPurchaseOrder: (po: PurchaseOrder) => void;
-    receivePurchaseOrder: (poId: string, receivedItems: { sku: string, received_qty: number }[]) => void;
+    receivePurchaseOrder: (poId: string, receivedItems: { sku: string, receivedQty: number }[], destinationLocationId: string) => void;
+    cancelPurchaseOrder: (poId: string) => void;
 
     // SRM Actions
     addSupplier: (supplier: Omit<Supplier, 'id'>) => void;
@@ -117,6 +118,7 @@ interface PharmaState {
     createDispatch: (shipmentData: Omit<Shipment, 'id' | 'status' | 'created_at' | 'updated_at'>) => void;
     confirmReception: (shipmentId: string, data: { photos: string[], notes: string, receivedItems: { batchId: string, quantity: number, condition: 'GOOD' | 'DAMAGED' }[] }) => void;
     uploadLogisticsDocument: (shipmentId: string, type: 'INVOICE' | 'GUIDE' | 'PHOTO', url: string, observations?: string) => void;
+    cancelShipment: (shipmentId: string) => void;
 
     // Import
     importInventory: (items: InventoryBatch[]) => void;
@@ -204,8 +206,15 @@ export const usePharmaStore = create<PharmaState>()(
                     ]);
 
                     // Si falla la DB (Safe Mode devuelve []), mantenemos lo que haya o usamos un fallback mínimo si está vacío
+                    // Si falla la DB (Safe Mode devuelve []), mantenemos lo que haya o usamos un fallback mínimo si está vacío
                     if (inventory.length > 0) set({ inventory });
-                    if (employees.length > 0) set({ employees });
+
+                    if (employees.length > 0) {
+                        set({ employees });
+                    } else {
+                        console.warn('⚠️ No employees found in DB, using MOCK_EMPLOYEES');
+                        set({ employees: MOCK_EMPLOYEES });
+                    }
 
                     const state = get();
 
@@ -285,26 +294,51 @@ export const usePharmaStore = create<PharmaState>()(
                 return { inventory: updatedInventory };
             }),
             addPurchaseOrder: (po) => set((state) => ({ purchaseOrders: [...state.purchaseOrders, po] })),
-            receivePurchaseOrder: (poId, receivedItems) => set((state) => {
-                // 1. Actualizar estado de la PO
+            receivePurchaseOrder: (poId, receivedItems, destinationLocationId) => set((state) => {
+                // NOTE: We update inventory directly here instead of using registerStockMovement
+                // because we are potentially creating NEW batches or updating complex attributes.
+                // In a real backend scenario, this would be an API call to 'receive-po'.
+                const updatedInventory = [...state.inventory];
                 const updatedPOs = state.purchaseOrders.map(po =>
                     po.id === poId ? { ...po, status: 'COMPLETED' as const } : po
                 );
 
-                // 2. Actualizar Inventario
-                const updatedInventory = [...state.inventory];
-                receivedItems.forEach(rec => {
-                    const itemIndex = updatedInventory.findIndex(i => i.sku === rec.sku);
-                    if (itemIndex >= 0) {
-                        updatedInventory[itemIndex] = {
-                            ...updatedInventory[itemIndex],
-                            stock_actual: updatedInventory[itemIndex].stock_actual + rec.received_qty
-                        };
+                receivedItems.forEach(recItem => {
+                    if (recItem.receivedQty > 0) {
+                        const existingBatchIndex = updatedInventory.findIndex(i => i.sku === recItem.sku && i.location_id === destinationLocationId);
+
+                        if (existingBatchIndex >= 0) {
+                            updatedInventory[existingBatchIndex] = {
+                                ...updatedInventory[existingBatchIndex],
+                                stock_actual: updatedInventory[existingBatchIndex].stock_actual + recItem.receivedQty
+                            };
+                        } else {
+                            // Try to find product definition from another batch
+                            const productDef = updatedInventory.find(i => i.sku === recItem.sku);
+                            if (productDef) {
+                                updatedInventory.push({
+                                    ...productDef,
+                                    id: `BATCH-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                                    location_id: destinationLocationId,
+                                    stock_actual: recItem.receivedQty
+                                });
+                            }
+                        }
                     }
+                });
+
+                import('sonner').then(({ toast }) => {
+                    toast.success(`Orden ${poId} recepcionada correctamente`);
                 });
 
                 return { purchaseOrders: updatedPOs, inventory: updatedInventory };
             }),
+
+            cancelPurchaseOrder: (poId) => set((state) => ({
+                purchaseOrders: state.purchaseOrders.map(po =>
+                    po.id === poId ? { ...po, status: 'CANCELLED' as any } : po // Casting as any because CANCELLED might not be in POStatus yet, need to check types.ts
+                )
+            })),
 
             // --- SRM Actions ---
             addSupplier: (supplierData) => set((state) => ({
@@ -803,6 +837,48 @@ export const usePharmaStore = create<PharmaState>()(
                     shipments: [...currentState.shipments, newShipment]
                 }));
             },
+            cancelShipment: (shipmentId) => set((state) => {
+                const shipment = state.shipments.find(s => s.id === shipmentId);
+                if (!shipment || shipment.status !== 'IN_TRANSIT') return {};
+
+                const updatedInventory = [...state.inventory];
+
+                // Restore stock to origin
+                // NOTE: Direct manipulation to handle potential batch recreation if it was depleted.
+                shipment.items.forEach(item => {
+                    const originBatchIndex = updatedInventory.findIndex(i => i.sku === item.sku && i.location_id === shipment.origin_location_id);
+
+                    if (originBatchIndex >= 0) {
+                        updatedInventory[originBatchIndex] = {
+                            ...updatedInventory[originBatchIndex],
+                            stock_actual: updatedInventory[originBatchIndex].stock_actual + item.quantity
+                        };
+                    } else {
+                        // Create new batch if missing in origin (unlikely but possible)
+                        const productDef = updatedInventory.find(i => i.sku === item.sku);
+                        if (productDef) {
+                            updatedInventory.push({
+                                ...productDef,
+                                id: `RESTORE-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                                location_id: shipment.origin_location_id,
+                                stock_actual: item.quantity
+                            });
+                        }
+                    }
+                });
+
+                const updatedShipments = state.shipments.map(s =>
+                    s.id === shipmentId ? { ...s, status: 'CANCELLED' as const } : s
+                );
+
+                import('sonner').then(({ toast }) => {
+                    toast.success('Envío cancelado y stock restaurado');
+                });
+
+                return { shipments: updatedShipments, inventory: updatedInventory };
+            }),
+
+
 
             confirmReception: (shipmentId, evidenceData) => set((state) => {
                 const shipmentIndex = state.shipments.findIndex(s => s.id === shipmentId);

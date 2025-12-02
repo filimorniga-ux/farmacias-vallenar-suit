@@ -1,26 +1,33 @@
 import React, { useState } from 'react';
+import { Package, Truck, ArrowRight, CheckCircle, Search, Filter, Calendar, Clock, ArrowDown, ArrowUp, X, MapPin, FileText, Camera, RotateCcw, ShoppingCart, Ban } from 'lucide-react';
 import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
-import { Package, Truck, ArrowRight, CheckCircle, AlertTriangle, Search, Filter, FileText, Camera, MapPin, Clock, Download, X, Calendar, ArrowUp, ArrowDown, Edit2 } from 'lucide-react';
-import { Shipment } from '../../domain/types';
+import { Shipment, PurchaseOrder } from '../../domain/types';
 import UnifiedReception from '../components/warehouse/UnifiedReception';
-import DispatchWizard from '../components/warehouse/DispatchWizard';
 import DocumentViewerModal from '../components/warehouse/DocumentViewerModal';
 import ScanReceptionModal from '../components/warehouse/ScanReceptionModal';
+import DispatchWizard from '../components/warehouse/DispatchWizard';
+import BlindReceptionModal from '../components/scm/BlindReceptionModal';
+import MobileActionScroll from '../components/ui/MobileActionScroll';
 import { toast } from 'sonner';
 
 export const WarehouseOps = () => {
-    const { shipments } = usePharmaStore();
+    const { shipments, purchaseOrders, cancelShipment, cancelPurchaseOrder, receivePurchaseOrder } = usePharmaStore();
     const { currentLocation } = useLocationStore();
-    const [activeTab, setActiveTab] = useState<'INBOUND' | 'OUTBOUND' | 'TRANSIT' | 'REVERSE'>('INBOUND');
+    const [activeTab, setActiveTab] = useState<'INBOUND' | 'OUTBOUND' | 'TRANSIT' | 'REVERSE' | 'SUPPLIER_ORDERS'>('INBOUND');
     const [searchTerm, setSearchTerm] = useState('');
 
     // Modal States
     const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null);
+    const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
+
     const [isReceptionModalOpen, setIsReceptionModalOpen] = useState(false);
     const [isScanReceptionOpen, setIsScanReceptionOpen] = useState(false);
     const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
+    const [isReturnModalOpen, setIsReturnModalOpen] = useState(false); // For Returns
+    const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false); // For Pedido Express
     const [isDocViewerOpen, setIsDocViewerOpen] = useState(false);
+    const [isBlindReceptionOpen, setIsBlindReceptionOpen] = useState(false); // For PO Reception
 
     // Advanced Filters State
     const [showFilterPanel, setShowFilterPanel] = useState(false);
@@ -38,72 +45,112 @@ export const WarehouseOps = () => {
         toast.success('Filtros limpiados');
     };
 
-    // Filter Logic - LOCATION-AWARE + DATE RANGE + SORTING
-    const filteredShipments = shipments
-        .filter(s => {
-            // 1. Text Search Filter
-            const matchesSearch =
-                s.transport_data.tracking_number.includes(searchTerm) ||
-                s.origin_location_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                s.items.some(i => i.sku.includes(searchTerm));
+    // Filter Logic
+    const filteredItems = (() => {
+        let items: (Shipment | PurchaseOrder)[] = [];
 
-            if (!matchesSearch) return false;
+        if (activeTab === 'SUPPLIER_ORDERS') {
+            items = purchaseOrders;
+        } else {
+            items = shipments;
+        }
 
-            // 2. Date Range Filter
-            let matchesDate = true;
-            const itemDate = new Date(s.created_at).getTime();
+        return items
+            .filter(item => {
+                // 1. Text Search
+                const searchStr = searchTerm.toLowerCase();
+                let matchesSearch = false;
 
-            if (dateRange.start) {
-                const startDate = new Date(dateRange.start).getTime();
-                matchesDate = matchesDate && itemDate >= startDate;
-            }
+                if ('transport_data' in item) { // Shipment
+                    matchesSearch =
+                        item.transport_data.tracking_number.toLowerCase().includes(searchStr) ||
+                        item.origin_location_id.toLowerCase().includes(searchStr) ||
+                        item.items.some(i => i.sku.toLowerCase().includes(searchStr));
+                } else { // PurchaseOrder
+                    matchesSearch =
+                        item.id.toLowerCase().includes(searchStr) ||
+                        item.supplier_id.toLowerCase().includes(searchStr);
+                }
 
-            if (dateRange.end) {
-                const endDate = new Date(dateRange.end);
-                endDate.setHours(23, 59, 59, 999); // Include entire end day
-                matchesDate = matchesDate && itemDate <= endDate.getTime();
-            }
+                if (!matchesSearch) return false;
 
-            if (!matchesDate) return false;
+                // 2. Date Range
+                let matchesDate = true;
+                const itemDate = new Date(item.created_at).getTime();
 
-            // 3. Location-based Filter (WAREHOUSE vs STORE logic)
-            if (isWarehouse) {
-                if (activeTab === 'INBOUND') return false;
-                if (activeTab === 'OUTBOUND') return s.origin_location_id === currentLocationId;
-                if (activeTab === 'TRANSIT') return s.status === 'IN_TRANSIT' && s.origin_location_id === currentLocationId;
-                if (activeTab === 'REVERSE') return s.type === 'RETURN' && s.destination_location_id === currentLocationId;
-            } else {
-                if (activeTab === 'INBOUND') return s.status === 'IN_TRANSIT' && s.destination_location_id === currentLocationId;
-                if (activeTab === 'OUTBOUND') return s.origin_location_id === currentLocationId;
-                if (activeTab === 'TRANSIT') return s.status === 'IN_TRANSIT' && s.origin_location_id === currentLocationId;
-                if (activeTab === 'REVERSE') return s.type === 'RETURN' && s.origin_location_id === currentLocationId;
-            }
+                if (dateRange.start) {
+                    const startDate = new Date(dateRange.start).getTime();
+                    matchesDate = matchesDate && itemDate >= startDate;
+                }
 
-            return false;
-        })
-        .sort((a, b) => {
-            // 4. Chronological Sorting
-            const dateA = new Date(a.created_at).getTime();
-            const dateB = new Date(b.created_at).getTime();
-            return sortOrder === 'newest' ? dateB - dateA : dateA - dateB;
-        });
+                if (dateRange.end) {
+                    const endDate = new Date(dateRange.end);
+                    endDate.setHours(23, 59, 59, 999);
+                    matchesDate = matchesDate && itemDate <= endDate.getTime();
+                }
+
+                if (!matchesDate) return false;
+
+                // 3. Tab & Location Logic
+                if (activeTab === 'SUPPLIER_ORDERS') {
+                    // Show all POs for now, or filter by status if needed
+                    return true;
+                }
+
+                const s = item as Shipment;
+                if (isWarehouse) {
+                    if (activeTab === 'INBOUND') return s.destination_location_id === currentLocationId && s.type !== 'RETURN';
+                    if (activeTab === 'OUTBOUND') return s.origin_location_id === currentLocationId && s.type !== 'RETURN';
+                    if (activeTab === 'TRANSIT') return s.status === 'IN_TRANSIT' && (s.origin_location_id === currentLocationId || s.destination_location_id === currentLocationId);
+                    if (activeTab === 'REVERSE') return s.type === 'RETURN'; // Warehouse sees all returns? Or just those to it?
+                } else {
+                    if (activeTab === 'INBOUND') return s.destination_location_id === currentLocationId && s.status !== 'DELIVERED' && s.type !== 'RETURN';
+                    if (activeTab === 'OUTBOUND') return s.origin_location_id === currentLocationId && s.type !== 'RETURN';
+                    if (activeTab === 'TRANSIT') return s.status === 'IN_TRANSIT' && (s.origin_location_id === currentLocationId || s.destination_location_id === currentLocationId);
+                    if (activeTab === 'REVERSE') return s.type === 'RETURN' && (s.origin_location_id === currentLocationId || s.destination_location_id === currentLocationId);
+                }
+
+                return false;
+            })
+            .sort((a, b) => {
+                const dateA = new Date(a.created_at).getTime();
+                const dateB = new Date(b.created_at).getTime();
+                return sortOrder === 'newest' ? dateB - dateA : dateA - dateB;
+            });
+    })();
 
     const handleReceiveClick = (shipment: Shipment) => {
         setSelectedShipment(shipment);
         setIsReceptionModalOpen(true);
     };
 
+    const handleReceivePO = (po: PurchaseOrder) => {
+        setSelectedPO(po);
+        setIsBlindReceptionOpen(true);
+    };
+
+    const handleBlindReception = (order: PurchaseOrder, receivedItems: { sku: string; receivedQty: number }[]) => {
+        receivePurchaseOrder(order.id, receivedItems, currentLocationId);
+        setIsBlindReceptionOpen(false);
+        setSelectedPO(null);
+    };
+
+    const handleCancelShipment = (id: string) => {
+        if (confirm('¿Estás seguro de cancelar este envío? El stock volverá al origen.')) {
+            cancelShipment(id);
+        }
+    };
+
+    const handleCancelPO = (id: string) => {
+        if (confirm('¿Cancelar este pedido a proveedor?')) {
+            cancelPurchaseOrder(id);
+            toast.success('Pedido cancelado');
+        }
+    };
+
     const handleViewDocs = (shipment: Shipment) => {
         setSelectedShipment(shipment);
         setIsDocViewerOpen(true);
-    };
-
-    const handleEditShipment = (shipment: Shipment) => {
-        // For now, just a toast as requested in "Entregable" logic for Edit button
-        // Real implementation would open a modal to edit transport data
-        toast.info(`Editando envío OT: ${shipment.transport_data.tracking_number}`, {
-            description: 'Funcionalidad de edición de transporte en desarrollo'
-        });
     };
 
     const handlePrintReport = async () => {
@@ -185,51 +232,74 @@ export const WarehouseOps = () => {
                         <FileText className="w-4 h-4" />
                         Reportes
                     </button>
-                    <button
-                        onClick={() => setIsDispatchModalOpen(true)}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 font-bold text-sm shadow-lg shadow-blue-200"
-                    >
-                        <Truck className="w-4 h-4" />
-                        Nuevo Despacho
-                    </button>
+
+                    {activeTab === 'SUPPLIER_ORDERS' ? (
+                        <button
+                            onClick={() => setIsPurchaseModalOpen(true)}
+                            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2 font-bold text-sm shadow-lg shadow-purple-200"
+                        >
+                            <ShoppingCart className="w-4 h-4" />
+                            Nuevo Pedido Express
+                        </button>
+                    ) : activeTab === 'REVERSE' ? (
+                        <button
+                            onClick={() => setIsReturnModalOpen(true)}
+                            className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex items-center gap-2 font-bold text-sm shadow-lg shadow-amber-200"
+                        >
+                            <RotateCcw className="w-4 h-4" />
+                            Nueva Devolución
+                        </button>
+                    ) : (
+                        <button
+                            onClick={() => setIsDispatchModalOpen(true)}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 font-bold text-sm shadow-lg shadow-blue-200"
+                        >
+                            <Truck className="w-4 h-4" />
+                            Nuevo Despacho
+                        </button>
+                    )}
                 </div>
             </div>
 
             {/* Tabs */}
-            <div className="flex gap-4 border-b border-gray-200">
-                <button
-                    onClick={() => setActiveTab('INBOUND')}
-                    className={`pb-3 px-4 font-bold text-sm flex items-center gap-2 transition-colors ${activeTab === 'INBOUND' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
-                >
-                    <ArrowRight className="w-4 h-4 rotate-90" />
-                    Recepción (Inbound)
-                    {shipments.filter(s => s.status === 'IN_TRANSIT' && s.destination_location_id === currentLocationId).length > 0 && (
-                        <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">
-                            {shipments.filter(s => s.status === 'IN_TRANSIT' && s.destination_location_id === currentLocationId).length}
-                        </span>
-                    )}
-                </button>
-                <button
-                    onClick={() => setActiveTab('OUTBOUND')}
-                    className={`pb-3 px-4 font-bold text-sm flex items-center gap-2 transition-colors ${activeTab === 'OUTBOUND' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
-                >
-                    <ArrowRight className="w-4 h-4 -rotate-90" />
-                    Despacho (Outbound)
-                </button>
-                <button
-                    onClick={() => setActiveTab('TRANSIT')}
-                    className={`pb-3 px-4 font-bold text-sm flex items-center gap-2 transition-colors ${activeTab === 'TRANSIT' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
-                >
-                    <Truck className="w-4 h-4" />
-                    En Tránsito
-                </button>
-                <button
-                    onClick={() => setActiveTab('REVERSE')}
-                    className={`pb-3 px-4 font-bold text-sm flex items-center gap-2 transition-colors ${activeTab === 'REVERSE' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
-                >
-                    <AlertTriangle className="w-4 h-4" />
-                    Logística Inversa
-                </button>
+            <div className="border-b border-gray-200">
+                <MobileActionScroll>
+                    <button
+                        onClick={() => setActiveTab('INBOUND')}
+                        className={`pb-3 px-4 font-bold text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${activeTab === 'INBOUND' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                    >
+                        <ArrowRight className="w-4 h-4 rotate-90" />
+                        Recepción
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('OUTBOUND')}
+                        className={`pb-3 px-4 font-bold text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${activeTab === 'OUTBOUND' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                    >
+                        <ArrowRight className="w-4 h-4 -rotate-90" />
+                        Despacho
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('TRANSIT')}
+                        className={`pb-3 px-4 font-bold text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${activeTab === 'TRANSIT' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                    >
+                        <Truck className="w-4 h-4" />
+                        En Tránsito
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('SUPPLIER_ORDERS')}
+                        className={`pb-3 px-4 font-bold text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${activeTab === 'SUPPLIER_ORDERS' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                    >
+                        <ShoppingCart className="w-4 h-4" />
+                        Pedidos Proveedor
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('REVERSE')}
+                        className={`pb-3 px-4 font-bold text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${activeTab === 'REVERSE' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                    >
+                        <RotateCcw className="w-4 h-4" />
+                        Devoluciones
+                    </button>
+                </MobileActionScroll>
             </div>
 
             {/* Search & Filter Bar */}
@@ -254,14 +324,8 @@ export const WarehouseOps = () => {
                     >
                         <Filter className="w-4 h-4" />
                         Filtros
-                        {(dateRange.start || dateRange.end) && (
-                            <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">
-                                {[dateRange.start, dateRange.end].filter(Boolean).length}
-                            </span>
-                        )}
                     </button>
                 </div>
-
                 {/* Advanced Filter Panel */}
                 {showFilterPanel && (
                     <div className="bg-white p-4 rounded-xl shadow-lg border border-slate-200 space-y-4">
@@ -340,7 +404,7 @@ export const WarehouseOps = () => {
                         {/* Action Buttons */}
                         <div className="flex justify-between items-center pt-2 border-t border-gray-200">
                             <div className="text-xs text-gray-600">
-                                {filteredShipments.length} resultado(s) encontrado(s)
+                                {filteredItems.length} resultado(s) encontrado(s)
                             </div>
                             <div className="flex gap-2">
                                 <button
@@ -363,27 +427,7 @@ export const WarehouseOps = () => {
 
             {/* Content Area */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 min-h-[400px] p-6">
-                {activeTab === 'TRANSIT' && (
-                    <div className="mb-6 bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <div className="bg-blue-100 p-2 rounded-lg">
-                                <Truck className="text-blue-600" size={24} />
-                            </div>
-                            <div>
-                                <p className="text-xs font-bold text-blue-600 uppercase">Valorización en Ruta</p>
-                                <p className="text-2xl font-extrabold text-blue-900">
-                                    ${filteredShipments.reduce((sum, s) => sum + s.valuation, 0).toLocaleString()}
-                                </p>
-                            </div>
-                        </div>
-                        <div className="text-right">
-                            <p className="text-xs font-bold text-blue-400 uppercase">Envíos Activos</p>
-                            <p className="text-xl font-bold text-blue-800">{filteredShipments.length}</p>
-                        </div>
-                    </div>
-                )}
-
-                {filteredShipments.length === 0 ? (
+                {filteredItems.length === 0 ? (
                     <div className="text-center py-12 text-gray-400">
                         <Package className="w-16 h-16 mx-auto mb-4 opacity-20" />
                         <h3 className="text-lg font-bold text-gray-500">No hay registros encontrados</h3>
@@ -391,85 +435,138 @@ export const WarehouseOps = () => {
                     </div>
                 ) : (
                     <div className="grid gap-4">
-                        {filteredShipments.map(shipment => (
-                            <div key={shipment.id} className="border border-gray-200 rounded-xl p-5 hover:shadow-md transition-all bg-white group">
-                                <div className="flex justify-between items-start mb-4">
-                                    <div className="flex items-start gap-4">
-                                        <div className={`p-3 rounded-xl ${shipment.type === 'INBOUND_PROVIDER' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}>
-                                            {shipment.type === 'INBOUND_PROVIDER' ? <Package size={24} /> : <Truck size={24} />}
+                        {activeTab === 'SUPPLIER_ORDERS' ? (
+                            // RENDER PURCHASE ORDERS
+                            (filteredItems as PurchaseOrder[]).map(po => (
+                                <div key={po.id} className="border border-gray-200 rounded-xl p-5 hover:shadow-md transition-all bg-white group">
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div className="flex items-start gap-4">
+                                            <div className="p-3 rounded-xl bg-purple-100 text-purple-600">
+                                                <ShoppingCart size={24} />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <span className="font-bold text-lg text-gray-800">PO: {po.id.slice(0, 8)}...</span>
+                                                    <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full uppercase tracking-wide
+                                                        ${po.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' :
+                                                            po.status === 'CANCELLED' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                                                        {po.status}
+                                                    </span>
+                                                </div>
+                                                <p className="text-sm text-gray-500">Proveedor: {po.supplier_id}</p>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <span className="font-bold text-lg text-gray-800">OT: {shipment.transport_data.tracking_number}</span>
-                                                <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full uppercase tracking-wide
-                                                    ${shipment.status === 'IN_TRANSIT' ? 'bg-amber-100 text-amber-700' :
-                                                        shipment.status === 'DELIVERED' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
-                                                    {shipment.status.replace('_', ' ')}
-                                                </span>
-                                            </div>
-                                            <div className="flex items-center gap-4 text-sm text-gray-500">
-                                                <div className="flex items-center gap-1">
-                                                    <MapPin size={14} />
-                                                    <span>{shipment.origin_location_id}</span>
-                                                    <ArrowRight size={14} className="mx-1" />
-                                                    <span className="font-bold text-gray-700">{shipment.destination_location_id}</span>
-                                                </div>
-                                                <div className="flex items-center gap-1">
-                                                    <Clock size={14} />
-                                                    <span>{new Date(shipment.created_at).toLocaleDateString()}</span>
-                                                </div>
-                                            </div>
+                                        <div className="text-right">
+                                            <p className="text-xl font-bold text-gray-800">${po.total_estimated.toLocaleString()}</p>
+                                            <p className="text-xs text-gray-500">{new Date(po.created_at).toLocaleDateString()}</p>
                                         </div>
                                     </div>
-                                    <div className="text-right">
-                                        <p className="text-xs font-bold text-gray-400 uppercase">Transporte</p>
-                                        <div className="flex items-center justify-end gap-2">
-                                            <p className="font-bold text-gray-700">{shipment.transport_data.carrier}</p>
-                                            {activeTab === 'TRANSIT' && (
+                                    <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
+                                        {po.status !== 'COMPLETED' && po.status !== 'CANCELLED' && (
+                                            <>
                                                 <button
-                                                    onClick={() => handleEditShipment(shipment)}
-                                                    className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
-                                                    title="Editar Transporte"
+                                                    onClick={() => handleCancelPO(po.id)}
+                                                    className="px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                                                 >
-                                                    <Edit2 size={12} />
+                                                    Cancelar
                                                 </button>
-                                            )}
-                                        </div>
-                                        <p className="text-xs text-gray-500">{shipment.transport_data.package_count} Bultos</p>
+                                                <button
+                                                    onClick={() => handleReceivePO(po)}
+                                                    className="px-4 py-2 text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 rounded-lg shadow-md shadow-blue-100"
+                                                >
+                                                    Recepcionar
+                                                </button>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
-
-                                <div className="bg-gray-50 rounded-lg p-3 mb-4 flex items-center gap-4 overflow-x-auto">
-                                    {shipment.items.slice(0, 5).map((item, idx) => (
-                                        <div key={idx} className="flex-shrink-0 bg-white border border-gray-200 px-3 py-1.5 rounded-md shadow-sm">
-                                            <p className="text-xs font-bold text-gray-700">{item.name}</p>
-                                            <p className="text-[10px] text-gray-400">Cant: {item.quantity}</p>
+                            ))
+                        ) : (
+                            // RENDER SHIPMENTS
+                            (filteredItems as Shipment[]).map(shipment => (
+                                <div key={shipment.id} className="border border-gray-200 rounded-xl p-5 hover:shadow-md transition-all bg-white group">
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div className="flex items-start gap-4">
+                                            <div className={`p-3 rounded-xl ${shipment.type === 'RETURN' ? 'bg-amber-100 text-amber-600' : 'bg-blue-100 text-blue-600'}`}>
+                                                {shipment.type === 'RETURN' ? <RotateCcw size={24} /> : <Truck size={24} />}
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <span className="font-bold text-lg text-gray-800">OT: {shipment.transport_data.tracking_number}</span>
+                                                    <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full uppercase tracking-wide
+                                                        ${shipment.status === 'IN_TRANSIT' ? 'bg-amber-100 text-amber-700' :
+                                                            shipment.status === 'DELIVERED' ? 'bg-emerald-100 text-emerald-700' :
+                                                                shipment.status === 'CANCELLED' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>
+                                                        {shipment.status.replace('_', ' ')}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center gap-4 text-sm text-gray-500">
+                                                    <div className="flex items-center gap-1">
+                                                        <MapPin size={14} />
+                                                        <span>{shipment.origin_location_id}</span>
+                                                        <ArrowRight size={14} className="mx-1" />
+                                                        <span className="font-bold text-gray-700">{shipment.destination_location_id}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1">
+                                                        <Clock size={14} />
+                                                        <span>{new Date(shipment.created_at).toLocaleDateString()}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
-                                    ))}
-                                    {shipment.items.length > 5 && (
-                                        <span className="text-xs font-bold text-gray-400">+{shipment.items.length - 5} más...</span>
-                                    )}
-                                </div>
+                                        <div className="text-right">
+                                            <p className="text-xs font-bold text-gray-400 uppercase">Transporte</p>
+                                            <div className="flex items-center justify-end gap-2">
+                                                <p className="font-bold text-gray-700">{shipment.transport_data.carrier}</p>
+                                            </div>
+                                            <p className="text-xs text-gray-500">{shipment.transport_data.package_count} Bultos</p>
+                                        </div>
+                                    </div>
 
-                                <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
-                                    <button
-                                        onClick={() => handleViewDocs(shipment)}
-                                        className="px-4 py-2 text-sm font-bold text-gray-500 hover:bg-gray-50 rounded-lg transition-colors flex items-center gap-2"
-                                    >
-                                        <FileText size={16} /> Ver Documentos
-                                    </button>
-                                    {activeTab === 'INBOUND' && shipment.status === 'IN_TRANSIT' && (
+                                    <div className="bg-gray-50 rounded-lg p-3 mb-4 flex items-center gap-4 overflow-x-auto">
+                                        {shipment.items.slice(0, 5).map((item, idx) => (
+                                            <div key={idx} className="flex-shrink-0 bg-white border border-gray-200 px-3 py-1.5 rounded-md shadow-sm">
+                                                <p className="text-xs font-bold text-gray-700">{item.name}</p>
+                                                <p className="text-[10px] text-gray-400">Cant: {item.quantity}</p>
+                                            </div>
+                                        ))}
+                                        {shipment.items.length > 5 && (
+                                            <span className="text-xs font-bold text-gray-400">+{shipment.items.length - 5} más...</span>
+                                        )}
+                                    </div>
+
+                                    <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
                                         <button
-                                            onClick={() => handleReceiveClick(shipment)}
-                                            className="px-4 py-2 text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg shadow-md shadow-emerald-100 flex items-center gap-2 transition-all transform hover:scale-105"
+                                            onClick={() => handleViewDocs(shipment)}
+                                            className="px-4 py-2 text-sm font-bold text-gray-500 hover:bg-gray-50 rounded-lg transition-colors flex items-center gap-2"
                                         >
-                                            <CheckCircle size={16} />
-                                            Recepcionar Carga
+                                            <FileText size={16} /> Ver Documentos
                                         </button>
-                                    )}
+
+                                        {/* Cancel Action for In Transit */}
+                                        {shipment.status === 'IN_TRANSIT' && (activeTab === 'OUTBOUND' || activeTab === 'TRANSIT') && (
+                                            <button
+                                                onClick={() => handleCancelShipment(shipment.id)}
+                                                className="px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-2"
+                                            >
+                                                <Ban size={16} /> Cancelar Envío
+                                            </button>
+                                        )}
+
+                                        {/* Receive Action */}
+                                        {(activeTab === 'INBOUND' || activeTab === 'REVERSE') && shipment.status === 'IN_TRANSIT' && (
+                                            <button
+                                                onClick={() => handleReceiveClick(shipment)}
+                                                className="px-4 py-2 text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg shadow-md shadow-emerald-100 flex items-center gap-2 transform hover:scale-105 transition-all"
+                                            >
+                                                <CheckCircle size={16} />
+                                                Recepcionar
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            ))
+                        )}
                     </div>
                 )}
             </div>
@@ -496,11 +593,38 @@ export const WarehouseOps = () => {
                 onClose={() => setIsScanReceptionOpen(false)}
             />
 
-            <DispatchWizard
-                isOpen={isDispatchModalOpen}
-                onClose={() => setIsDispatchModalOpen(false)}
-            />
+            {isDispatchModalOpen && (
+                <DispatchWizard
+                    isOpen={true}
+                    onClose={() => setIsDispatchModalOpen(false)}
+                    mode="DISPATCH"
+                />
+            )}
+
+            {isReturnModalOpen && (
+                <DispatchWizard
+                    isOpen={true}
+                    onClose={() => setIsReturnModalOpen(false)}
+                    mode="RETURN"
+                />
+            )}
+
+            {isPurchaseModalOpen && (
+                <DispatchWizard
+                    isOpen={true}
+                    onClose={() => setIsPurchaseModalOpen(false)}
+                    mode="PURCHASE"
+                />
+            )}
+
+            {selectedPO && (
+                <BlindReceptionModal
+                    isOpen={isBlindReceptionOpen}
+                    onClose={() => { setIsBlindReceptionOpen(false); setSelectedPO(null); }}
+                    order={selectedPO}
+                    onReceive={handleBlindReception}
+                />
+            )}
         </div>
     );
 };
-
