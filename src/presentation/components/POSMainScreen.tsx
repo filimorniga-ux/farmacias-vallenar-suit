@@ -91,9 +91,9 @@ const POSMainScreen: React.FC = () => {
         if (!searchTerm) return []; // Hide by default
         return inventory
             .filter(item =>
-                item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                item.dci.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                item.sku.toLowerCase().includes(searchTerm.toLowerCase())
+                (item.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (item.dci || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (item.sku || '').toLowerCase().includes(searchTerm.toLowerCase())
             )
             .sort((a, b) => a.expiry_date - b.expiry_date); // FEFO: First Expired, First Out
     }, [inventory, searchTerm]);
