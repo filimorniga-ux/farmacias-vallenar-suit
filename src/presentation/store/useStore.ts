@@ -155,36 +155,41 @@ export const usePharmaStore = create<PharmaState>()(
             user: null, // ALWAYS start logged out - force login
             employees: [], // ⚠️ DEBUG: Start empty to prove DB connection
             login: async (userId, pin) => {
+                let authenticatedUser: EmployeeProfile | null = null;
+
+                // 1. Online Attempt
                 try {
-                    // 1. Online Attempt
                     const { TigerDataService } = await import('../../domain/services/TigerDataService');
                     const result = await TigerDataService.authenticate(userId, pin);
-
-                    if (result.success) {
-                        set({ user: result.user });
-                        return true;
+                    if (result.success && result.user) {
+                        authenticatedUser = result.user;
                     }
                 } catch (error) {
-                    console.warn('⚠️ Online login failed, trying offline fallback...', error);
+                    console.warn('⚠️ Online login failed/unreachable, trying offline fallback...', error);
+                }
 
-                    // 2. Offline Fallback
+                // 2. Offline Fallback (if online failed or returned no user)
+                if (!authenticatedUser) {
                     const { employees } = get();
-                    const employee = employees.find(e => e.id === userId && e.access_pin === pin);
+                    const offlineUser = employees.find(e => e.id === userId && e.access_pin === pin);
 
-                    if (employee) {
-                        set({ user: employee });
-
+                    if (offlineUser) {
+                        authenticatedUser = offlineUser;
                         // Notify user about offline mode
                         import('sonner').then(({ toast }) => {
                             toast.warning('⚠️ Modo Offline Activado', {
-                                description: 'Iniciando sesión con credenciales locales. Algunas funciones pueden estar limitadas.',
-                                duration: 5000,
+                                description: 'Iniciando sesión con credenciales locales.',
+                                duration: 4000,
                             });
                         });
-
-                        return true;
                     }
                 }
+
+                if (authenticatedUser) {
+                    set({ user: authenticatedUser });
+                    return true;
+                }
+
                 return false;
             },
             logout: () => set({ user: null }),

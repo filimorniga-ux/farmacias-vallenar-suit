@@ -294,7 +294,11 @@ const SupplyChainPage: React.FC = () => {
                     onClose={() => setIsReceptionModalOpen(false)}
                     order={selectedOrder}
                     onReceive={(order, items) => {
-                        receivePurchaseOrder(order.id, items.map(i => ({ sku: i.sku, received_qty: i.receivedQty })));
+                        receivePurchaseOrder(
+                            order.id,
+                            items.map(i => ({ sku: i.sku, received_qty: i.receivedQty })),
+                            'BODEGA_CENTRAL' // Default location for SCM reception
+                        );
                         setIsReceptionModalOpen(false);
                     }}
                 />
