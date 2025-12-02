@@ -105,7 +105,7 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
         }
 
         // 2. SKU (Sanitización Científica)
-        let rawSku = findVal(row, ['código barras', 'codigo barras', 'sku', 'barcode']);
+        let rawSku = findVal(row, ['código barras', 'codigo barras', 'sku', 'barcode', 'code', 'codigo']);
         let sku = rawSku ? String(rawSku).trim() : '';
 
         // Fix Scientific Notation (e.g. "7.80E+12")
@@ -114,7 +114,7 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
         }
 
         // 3. PRECIO VENTA
-        let rawPrice = findVal(row, ['precio venta', 'pvp', 'precio', 'venta']);
+        let rawPrice = findVal(row, ['precio venta', 'pvp', 'precio', 'venta', 'valor']);
         let price_sell = 0;
         if (rawPrice) {
             price_sell = parseInt(String(rawPrice).replace(/[^0-9]/g, ''), 10) || 0;
@@ -130,7 +130,9 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
         if (rawCost) {
             cost_net = parseInt(String(rawCost).replace(/[^0-9]/g, ''), 10) || 0;
         } else {
-            cost_net = Math.round(price_sell * 0.7); // Estimado 70% del precio venta
+            // Default to 0 if not found, to be safe. Or estimate.
+            // Let's keep estimate for now but make it safe.
+            cost_net = price_sell > 0 ? Math.round(price_sell * 0.7) : 0;
         }
 
         // --- FALLBACKS & GENERATION ---
@@ -138,22 +140,28 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
         // 1. SKU Generation (Silent Error Handling)
         if (!sku || sku.length < 3) {
             sku = `GEN-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
-            errors.push('SKU Generado (Faltaba en Excel)');
+            // errors.push('SKU Generado (Faltaba en Excel)'); // No longer an error, just a note if needed
         }
 
-        if (cleanName === 'SIN NOMBRE') {
+        if (cleanName === 'SIN NOMBRE' || !cleanName) {
             errors.push('Falta Nombre');
         }
 
-        // 5. OTROS (Defaults de Migración)
-        const dci = cleanName;
+        if (price_sell <= 0 && stock > 0) {
+            // Warning but maybe allow? Let's require price for now as it's critical for POS.
+            // Actually, user said "Si tengo Nombre y Precio, el producto ENTRA".
+            errors.push('Falta Precio');
+        }
+
+        // 5. OTROS (Defaults de Migración - OPCIONALES)
+        const dci = cleanName; // Default DCI to Name if missing
         const units_per_box = 1;
         const price_sell_unit = price_sell;
 
-        // Auto-fill Obligatorios
-        const lot_number = 'MIGRACION-INI';
-        const expiry_date = '31/12/2025';
-        const isp_register = 'PENDIENTE';
+        // Auto-fill Obligatorios (Relaxed)
+        const lot_number = 'GENERAL'; // Generic Lot
+        const expiry_date = '31/12/2030'; // Far future default
+        const isp_register = ''; // Optional
         const is_bioequivalent = false;
 
         // Infer Category (Smart Location)
@@ -183,9 +191,9 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
             expiry_date,
             location: 'BODEGA_CENTRAL',
             is_refrigerated: 'NO',
-            isValid: errors.length === 0 || (errors.length === 1 && errors[0].includes('SKU')),
+            isValid: errors.length === 0,
             errors,
-            needs_review: true
+            needs_review: sku.startsWith('GEN-') // Flag for review if SKU was generated
         };
     };
 
