@@ -34,9 +34,9 @@ const InventoryPage: React.FC = () => {
         return inventory.filter(item => {
             // 1. Text Search
             const matchesSearch =
-                item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                item.sku.includes(searchTerm) ||
-                item.dci.toLowerCase().includes(searchTerm.toLowerCase());
+                (item.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (item.sku || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (item.dci || '').toLowerCase().includes(searchTerm.toLowerCase());
 
             if (!matchesSearch) return false;
 
