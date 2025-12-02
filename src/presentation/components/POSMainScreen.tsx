@@ -311,7 +311,7 @@ const POSMainScreen: React.FC = () => {
                                                 </h3>
                                                 <p className="text-[10px] text-slate-500 font-mono mb-1">{item.dci}</p>
                                                 <div className="flex justify-between items-center">
-                                                    <span className="font-bold text-slate-900">${item.price.toLocaleString()}</span>
+                                                    <span className="font-bold text-slate-900">${(item.price || 0).toLocaleString()}</span>
                                                     <div className="flex items-center gap-2">
                                                         {item.is_fractionable && (
                                                             <button
@@ -463,7 +463,7 @@ const POSMainScreen: React.FC = () => {
                                                 <div className="text-xs text-slate-500 flex items-center gap-2">
                                                     <span className="bg-slate-100 px-2 py-1 rounded text-slate-600 font-mono">{item.quantity} un.</span>
                                                     <span>x</span>
-                                                    <span>${item.price.toLocaleString()}</span>
+                                                    <span>${(item.price || 0).toLocaleString()}</span>
                                                     {item.discount && (
                                                         <span className="text-green-600 font-bold ml-1">
                                                             (-${item.discount.discountAmount.toLocaleString()})
@@ -475,10 +475,10 @@ const POSMainScreen: React.FC = () => {
                                                 {item.discount ? (
                                                     <div className="flex flex-col items-end">
                                                         <p className="font-bold text-slate-800 text-lg">${(item.discount.finalPrice * item.quantity).toLocaleString()}</p>
-                                                        <p className="text-xs text-slate-400 line-through">${(item.price * item.quantity).toLocaleString()}</p>
+                                                        <p className="text-xs text-slate-400 line-through">${((item.price || 0) * item.quantity).toLocaleString()}</p>
                                                     </div>
                                                 ) : (
-                                                    <p className="font-bold text-slate-800 text-lg">${(item.price * item.quantity).toLocaleString()}</p>
+                                                    <p className="font-bold text-slate-800 text-lg">${((item.price || 0) * item.quantity).toLocaleString()}</p>
                                                 )}
                                             </div>
                                             <button

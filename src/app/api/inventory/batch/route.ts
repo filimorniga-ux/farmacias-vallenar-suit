@@ -35,19 +35,23 @@ export async function POST(request: Request) {
         const queryText = `
             INSERT INTO products (
                 id, sku, name, dci, laboratory, 
-                stock_total, price_sell_box, cost_net, 
+                price, price_sell_box, cost_net, 
+                stock_total, stock_actual, 
                 format, is_bioequivalent, category
             )
             VALUES (
                 $1, $2, $3, $4, $5, 
-                $6, $7, $8, 
+                $6, $6, $7, 
+                $8, $8, 
                 $9, $10, $11
             )
             ON CONFLICT (sku) DO UPDATE SET
                 name = EXCLUDED.name,
                 dci = EXCLUDED.dci,
                 laboratory = EXCLUDED.laboratory,
-                stock_total = products.stock_total + EXCLUDED.stock_total, -- Merge stock
+                stock_total = products.stock_total + EXCLUDED.stock_total,
+                stock_actual = products.stock_actual + EXCLUDED.stock_actual,
+                price = EXCLUDED.price,
                 price_sell_box = EXCLUDED.price_sell_box,
                 cost_net = EXCLUDED.cost_net
             RETURNING id;
@@ -59,7 +63,14 @@ export async function POST(request: Request) {
         for (const product of products) {
             // Map cost_net (new standard) to cost_price (legacy DB column)
             const cost = product.cost_net || product.cost_price || 0;
-            const price = product.price_sell_box || product.price || 0;
+
+            // Defensive Price Logic: Prioritize 'price' (from frontend) then 'price_sell_box'
+            const priceToSave = product.price || product.price_sell_box || 0;
+
+            // Debug Log for Price Issues
+            if (products.length <= 50) { // Only log if batch is small or sample
+                console.log(`💾 Saving Item: ${product.sku} | Price: ${priceToSave} (Raw: ${product.price}/${product.price_sell_box})`);
+            }
 
             await client.query(queryText, [
                 product.id,
@@ -67,12 +78,12 @@ export async function POST(request: Request) {
                 product.name,
                 product.dci || '',
                 product.laboratory || 'GENERICO',
-                product.stock_actual || 0,
-                price,
-                cost,
-                product.format || 'UNIDAD',
-                product.is_bioequivalent || false,
-                product.category || 'MEDICAMENTO'
+                priceToSave, // $6 (Maps to price AND price_sell_box)
+                cost,  // $7
+                product.stock_actual || 0, // $8 (Maps to stock_total AND stock_actual)
+                product.format || 'UNIDAD', // $9
+                product.is_bioequivalent || false, // $10
+                product.category || 'MEDICAMENTO' // $11
             ]);
         }
 
