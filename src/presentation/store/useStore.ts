@@ -12,6 +12,7 @@ import {
     Promotion,
     GiftCard,
     LoyaltyReward,
+    LoyaltyConfig,
     Shipment,
     StockTransfer,
     WarehouseIncident,
@@ -87,6 +88,8 @@ interface PharmaState {
     customers: Customer[];
     addCustomer: (customer: Omit<Customer, 'id' | 'totalPoints' | 'lastVisit' | 'health_tags' | 'name' | 'age'>) => Customer;
     updateCustomer: (id: string, data: Partial<Customer>) => void;
+    deleteCustomer: (id: string) => void;
+    redeemPoints: (customerId: string, points: number) => boolean;
 
     // BI & Reports
     salesHistory: SaleTransaction[];
@@ -148,15 +151,11 @@ interface PharmaState {
     addCaf: (caf: Omit<SiiCaf, 'id'>) => void;
     getAvailableFolios: (tipoDte: DteTipo) => number;
 
-    // Marketing
-    promotions: Promotion[];
-    giftCards: GiftCard[];
-    loyaltyRewards: LoyaltyReward[];
-    addPromotion: (promo: Promotion) => void;
-    togglePromotion: (id: string) => void;
-    createGiftCard: (amount: number) => GiftCard;
-    redeemGiftCard: (code: string, amount: number) => boolean;
-    getGiftCard: (code: string) => GiftCard | undefined;
+    // Loyalty
+    loyaltyConfig: LoyaltyConfig;
+    updateLoyaltyConfig: (config: Partial<LoyaltyConfig>) => void;
+    calculatePointsEarned: (amount: number) => number;
+    calculateDiscountValue: (points: number) => number;
 }
 
 
@@ -383,6 +382,24 @@ export const usePharmaStore = create<PharmaState>()(
                 printerConfig: { ...state.printerConfig, ...config }
             })),
 
+            // --- Loyalty ---
+            loyaltyConfig: {
+                earn_rate: 100, // $100 = 1 point
+                burn_rate: 1,   // 1 point = $1
+                min_points_to_redeem: 100
+            },
+            updateLoyaltyConfig: (config) => set((state) => ({
+                loyaltyConfig: { ...state.loyaltyConfig, ...config }
+            })),
+            calculatePointsEarned: (amount) => {
+                const { loyaltyConfig } = get();
+                return Math.floor(amount / loyaltyConfig.earn_rate);
+            },
+            calculateDiscountValue: (points) => {
+                const { loyaltyConfig } = get();
+                return points * loyaltyConfig.burn_rate;
+            },
+
             // Actions Implementation
             setCustomer: (customer) => set({ currentCustomer: customer }),
             // --- ACTIONS ---
@@ -410,14 +427,20 @@ export const usePharmaStore = create<PharmaState>()(
                 set((state) => {
                     const updatedInventory = state.inventory.map(item => {
                         if (item.id === batchId) {
-                            const newStock = item.stock_actual + quantity;
+                            let newStock = item.stock_actual;
+
+                            if (type === 'SALE' || type === 'TRANSFER_OUT' || type === 'ADJUSTMENT' && quantity < 0) {
+                                newStock -= Math.abs(quantity);
+                            } else if (type === 'RECEIPT' || type === 'TRANSFER_IN' || type === 'ADJUSTMENT' && quantity > 0) {
+                                newStock += Math.abs(quantity);
+                            }
 
                             // Sync with TigerDataService (Fire and forget for now, but ideally await)
                             import('../../domain/services/TigerDataService').then(({ TigerDataService }) => {
                                 TigerDataService.updateInventoryStock(
                                     item.id,
                                     Math.abs(quantity),
-                                    quantity > 0 ? 'ADD' : 'SUBTRACT'
+                                    (type === 'SALE' || type === 'TRANSFER_OUT' || (type === 'ADJUSTMENT' && quantity < 0)) ? 'SUBTRACT' : 'ADD'
                                 ).catch(console.error);
                             });
 
@@ -554,10 +577,11 @@ export const usePharmaStore = create<PharmaState>()(
 
                     // 4. Update customer points if applicable
                     if (customer) {
-                        const pointsEarned = Math.floor(saleTransaction.total * 0.01); // 1% points
+                        const pointsEarned = state.calculatePointsEarned(saleTransaction.total);
                         state.updateCustomer(customer.id, {
                             totalPoints: customer.totalPoints + pointsEarned,
-                            lastVisit: Date.now()
+                            lastVisit: Date.now(),
+                            total_spent: (customer.total_spent || 0) + saleTransaction.total
                         });
                     }
 
@@ -579,7 +603,22 @@ export const usePharmaStore = create<PharmaState>()(
 
             // --- CRM ---
             customers: [
-                { id: 'C-001', rut: '11.111.111-1', fullName: 'Cliente Frecuente Demo', name: 'Cliente Frecuente Demo', phone: '+56912345678', email: 'demo@cliente.cl', totalPoints: 1500, registrationSource: 'ADMIN', lastVisit: Date.now() - 86400000, age: 45, health_tags: ['HYPERTENSION'] }
+                {
+                    id: 'C-001',
+                    rut: '11.111.111-1',
+                    fullName: 'Cliente Frecuente Demo',
+                    name: 'Cliente Frecuente Demo',
+                    phone: '+56912345678',
+                    email: 'demo@cliente.cl',
+                    totalPoints: 1500,
+                    registrationSource: 'ADMIN',
+                    lastVisit: Date.now() - 86400000,
+                    age: 45,
+                    health_tags: ['HYPERTENSION'],
+                    total_spent: 150000,
+                    tags: ['VIP'],
+                    status: 'ACTIVE'
+                }
             ],
             addCustomer: (data) => {
                 const newCustomer: Customer = {
@@ -589,7 +628,10 @@ export const usePharmaStore = create<PharmaState>()(
                     lastVisit: Date.now(),
                     health_tags: [],
                     name: data.fullName, // Legacy support
-                    age: 0 // Default
+                    age: 0, // Default
+                    total_spent: 0,
+                    tags: [],
+                    status: 'ACTIVE'
                 };
                 set((state) => ({
                     customers: [...state.customers, newCustomer],
@@ -600,6 +642,41 @@ export const usePharmaStore = create<PharmaState>()(
             updateCustomer: (id, data) => set((state) => ({
                 customers: state.customers.map(c => c.id === id ? { ...c, ...data } : c)
             })),
+            deleteCustomer: (id) => set((state) => ({
+                customers: state.customers.map(c => c.id === id ? { ...c, status: 'BANNED' as const } : c)
+            })),
+            redeemPoints: (customerId, points) => {
+                const state = get();
+                const customer = state.customers.find(c => c.id === customerId);
+
+                if (!customer) {
+                    import('sonner').then(({ toast }) => {
+                        toast.error('Cliente no encontrado');
+                    });
+                    return false;
+                }
+
+                if (points < state.loyaltyConfig.min_points_to_redeem) {
+                    import('sonner').then(({ toast }) => {
+                        toast.error(`Mínimo ${state.loyaltyConfig.min_points_to_redeem} puntos requeridos`);
+                    });
+                    return false;
+                }
+
+                if (customer.totalPoints < points) {
+                    import('sonner').then(({ toast }) => {
+                        toast.error('Puntos insuficientes');
+                    });
+                    return false;
+                }
+
+                // Deduct points
+                state.updateCustomer(customerId, {
+                    totalPoints: customer.totalPoints - points
+                });
+
+                return true;
+            },
 
             // --- BI & Reports ---
             salesHistory: [],

@@ -161,10 +161,21 @@ export interface Customer {
     registrationSource: 'KIOSK' | 'POS' | 'ADMIN';
     lastVisit: number; // Timestamp
 
+    // New CRM Fields
+    total_spent: number; // Life-time value
+    tags: string[]; // ['VIP', 'CRONICO', 'TERCERA_EDAD']
+    status: 'ACTIVE' | 'BANNED';
+
     // Legacy/Computed properties for compatibility
     name: string; // Alias for fullName
     age: number; // Derived or optional
     health_tags: HealthTag[];
+}
+
+export interface LoyaltyConfig {
+    earn_rate: number; // Amount to spend to earn 1 point (e.g., 100)
+    burn_rate: number; // Value of 1 point in currency (e.g., 1)
+    min_points_to_redeem: number; // Minimum points required to redeem
 }
 
 export interface SaleItem {
