@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { usePharmaStore } from '../../../presentation/store/useStore';
-import { X, Search, Calendar, Printer, Eye, Lock, FileText, Download, User } from 'lucide-react';
+import { X, Search, Calendar, Printer, Eye, Lock, FileText, Download, User, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { PrinterService } from '../../../domain/services/PrinterService';
 import { SaleTransaction } from '../../../domain/types';
+import ReturnsModal from './ReturnsModal';
 
 interface TransactionHistoryModalProps {
     isOpen: boolean;
@@ -22,8 +23,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
 
     // Detail View
     const [selectedSale, setSelectedSale] = useState<SaleTransaction | null>(null);
-
-    if (!isOpen) return null;
+    const [isReturnsModalOpen, setIsReturnsModalOpen] = useState(false);
 
     const handleLogin = () => {
         const admin = employees.find(e => (e.role === 'ADMIN' || e.role === 'MANAGER') && e.access_pin === adminPin);
@@ -55,6 +55,8 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
         PrinterService.printTicket(sale, printerConfig);
         toast.success('Reimprimiendo ticket...');
     };
+
+    if (!isOpen) return null;
 
     if (!isAuthenticated) {
         return (
@@ -230,12 +232,25 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
                                 >
                                     <Printer size={20} /> Reimprimir Ticket
                                 </button>
-                                {/* Future: Add Void/Cancel button here */}
+                                <button
+                                    onClick={() => setIsReturnsModalOpen(true)}
+                                    className="flex-1 py-3 bg-red-100 hover:bg-red-200 text-red-700 font-bold rounded-xl flex items-center justify-center gap-2 transition-colors"
+                                >
+                                    <RotateCcw size={20} /> Devolución
+                                </button>
                             </div>
                         </div>
                     )}
                 </div>
             </div>
+
+            {selectedSale && (
+                <ReturnsModal
+                    isOpen={isReturnsModalOpen}
+                    onClose={() => setIsReturnsModalOpen(false)}
+                    sale={selectedSale}
+                />
+            )}
         </div>
     );
 };

@@ -7,7 +7,7 @@ import { ClinicalAgent } from '../../domain/logic/clinicalAgent';
 import ClientPanel from './pos/ClientPanel';
 import PrescriptionModal from './pos/PrescriptionModal';
 import ManualItemModal from './pos/ManualItemModal';
-import CashControlModal from './pos/CashControlModal';
+import CashManagementModal from './pos/CashManagementModal'; // Updated import
 import CashOutModal from './pos/CashOutModal';
 import QuickFractionModal from './pos/QuickFractionModal';
 import ShiftManagementModal from './pos/ShiftManagementModal';
@@ -63,6 +63,12 @@ const POSMainScreen: React.FC = () => {
     const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [isScannerOpen, setIsScannerOpen] = useState(false);
+
+    // Modular Cash Management States
+    const [cashModalMode, setCashModalMode] = useState<'AUDIT' | 'CLOSE' | 'MOVEMENT' | null>(null);
+
+    // Mobile View State (Native Experience)
+    const [mobileView, setMobileView] = useState<'CATALOG' | 'CART'>('CATALOG');
 
     // Quote Mode
     const [isQuoteMode, setIsQuoteMode] = useState(false);
@@ -347,8 +353,8 @@ const POSMainScreen: React.FC = () => {
     return (
         <div className="flex h-[calc(100vh-80px)] bg-slate-100 overflow-hidden">
 
-            {/* COL 1: Búsqueda (20% Desktop, 100% Mobile) */}
-            <div className="w-full md:w-[25%] flex flex-col p-4 md:p-6 md:pr-3 gap-4 h-full">
+            {/* COL 1: Búsqueda (Fixed 350px Desktop, 100% Mobile Catalog View) */}
+            <div className={`w-full md:w-[350px] flex-col p-4 md:p-6 md:pr-3 gap-4 h-full ${mobileView === 'CART' ? 'hidden md:flex' : 'flex'}`}>
                 <div className="bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col h-full overflow-hidden">
                     <div className="p-4 md:p-6 border-b border-slate-100">
                         <div className="relative flex items-center"> {/* Added flex items-center here */}
@@ -454,37 +460,38 @@ const POSMainScreen: React.FC = () => {
                 </div>
             </div>
 
-            {/* Mobile Floating Cart Button */}
-            <div className="fixed bottom-4 left-4 right-4 md:hidden z-40">
-                <button
-                    onClick={() => setActiveTab('CART')} // Reusing activeTab logic or we can add a new state for mobile cart open
-                    className="w-full bg-emerald-600 text-white p-4 rounded-2xl shadow-xl flex justify-between items-center font-bold"
-                >
-                    <div className="flex items-center gap-2">
-                        <ShoppingCart size={20} />
-                        <span>Ver Carrito ({cart.reduce((acc, item) => acc + item.quantity, 0)})</span>
-                    </div>
-                    <span className="text-xl">${cartTotal.toLocaleString()}</span>
-                </button>
-            </div>
+            {/* Mobile Floating Cart Button (FAB) - Only in CATALOG view */}
+            {mobileView === 'CATALOG' && cart.length > 0 && (
+                <div className="fixed bottom-20 left-4 right-4 md:hidden z-40">
+                    <button
+                        onClick={() => setMobileView('CART')}
+                        className="w-full bg-emerald-600 text-white p-4 rounded-2xl shadow-xl flex justify-between items-center font-bold animate-in slide-in-from-bottom-5"
+                    >
+                        <div className="flex items-center gap-2">
+                            <ShoppingCart size={20} />
+                            <span>Ver Carrito ({cart.reduce((acc, item) => acc + item.quantity, 0)})</span>
+                        </div>
+                        <span className="text-xl">${cartTotal.toLocaleString()}</span>
+                    </button>
+                </div>
+            )}
 
-            {/* COL 2: Carrito y Pago (80% Desktop, Overlay Mobile) */}
+            {/* COL 2: Carrito y Pago (75% Desktop, 100% Mobile Cart View) */}
             <div className={`
                 fixed inset-0 z-50 bg-slate-100 md:static md:bg-transparent md:z-auto
-                flex-1 flex flex-col p-4 md:p-6 md:pl-0 gap-4
-                transition-transform duration-300 ease-in-out
-                ${activeTab === 'CART' ? 'translate-y-0' : 'translate-y-full md:translate-y-0'}
+                flex-1 flex-col p-4 md:p-6 md:pl-0 gap-4
+                ${mobileView === 'CART' ? 'flex' : 'hidden md:flex'}
             `}>
                 <div className={`flex-1 rounded-3xl shadow-xl border border-slate-200 overflow-hidden flex flex-col h-full transition-colors ${isQuoteMode ? 'bg-amber-50 border-amber-200' : 'bg-white'}`}>
                     {/* Header */}
                     <div className="p-4 md:p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                         <div className="flex items-center gap-4">
-                            {/* Mobile Close Button */}
+                            {/* Mobile Back Button */}
                             <button
-                                onClick={() => setActiveTab('AI')} // Hack to close cart on mobile (switch to 'AI' or any non-CART state if we used that logic, but actually we should probably use a separate state or just toggle class)
-                                className="md:hidden p-2 -ml-2 text-slate-400"
+                                onClick={() => setMobileView('CATALOG')}
+                                className="md:hidden p-2 -ml-2 text-slate-600 hover:bg-slate-200 rounded-full mr-2"
                             >
-                                <TrendingDown size={24} />
+                                <TrendingDown className="rotate-90" size={24} />
                             </button>
 
                             <div className={`p-2 md:p-3 rounded-2xl hidden md:block ${isQuoteMode ? 'bg-amber-100 text-amber-700' : 'bg-cyan-100 text-cyan-700'}`}>
@@ -529,6 +536,42 @@ const POSMainScreen: React.FC = () => {
                         </div>
                         <div className="flex gap-2 md:gap-3 overflow-hidden w-full md:w-auto">
                             <MobileActionScroll className="w-full md:w-auto justify-end">
+                                {currentShift?.status === 'ACTIVE' ? (
+                                    <>
+                                        <button
+                                            onClick={() => setCashModalMode('MOVEMENT')}
+                                            className="flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-blue-100 font-bold transition-colors whitespace-nowrap"
+                                        >
+                                            <TrendingDown size={20} />
+                                            <span className="hidden lg:inline">Ingreso/Gasto</span>
+                                        </button>
+                                        <button
+                                            onClick={() => setCashModalMode('AUDIT')}
+                                            className="flex items-center gap-2 bg-purple-50 text-purple-700 px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-purple-100 font-bold transition-colors whitespace-nowrap"
+                                        >
+                                            <LockIcon size={20} />
+                                            <span className="hidden lg:inline">Arqueo</span>
+                                        </button>
+                                        <button
+                                            onClick={() => setCashModalMode('CLOSE')}
+                                            className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-slate-700 font-bold transition-colors whitespace-nowrap"
+                                        >
+                                            <LockIcon size={20} />
+                                            <span className="hidden lg:inline">Cerrar Turno</span>
+                                        </button>
+                                    </>
+                                ) : (
+                                    <button
+                                        onClick={() => setIsShiftModalOpen(true)}
+                                        className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-green-700 font-bold transition-colors whitespace-nowrap animate-pulse"
+                                    >
+                                        <LockIcon size={20} />
+                                        <span className="hidden lg:inline">Abrir Turno</span>
+                                    </button>
+                                )}
+
+                                <div className="w-px h-8 bg-slate-200 mx-2 hidden md:block"></div>
+
                                 <button
                                     onClick={() => setIsHistoryModalOpen(true)}
                                     className="flex items-center gap-2 bg-slate-100 text-slate-600 px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-slate-200 font-bold transition-colors whitespace-nowrap"
@@ -542,13 +585,6 @@ const POSMainScreen: React.FC = () => {
                                 >
                                     <FileText size={20} />
                                     <span className="hidden lg:inline">{isQuoteMode ? 'Salir Cotiz.' : 'Cotizar'}</span>
-                                </button>
-                                <button
-                                    onClick={() => setIsCashModalOpen(true)}
-                                    className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-blue-700 font-bold transition-colors shadow-lg shadow-blue-200 whitespace-nowrap"
-                                >
-                                    <DollarSign size={20} />
-                                    <span className="hidden lg:inline">Caja</span>
                                 </button>
                                 <button
                                     onClick={() => setIsManualItemModalOpen(true)}
@@ -578,69 +614,152 @@ const POSMainScreen: React.FC = () => {
                             </div>
                         ) : (
                             <div className="space-y-3">
-                                {cartWithDiscounts.map((item) => {
-                                    const fullItem = inventory.find(i => i.id === item.id);
-                                    return (
-                                        <div key={item.id} className="flex justify-between items-center p-3 bg-white rounded-xl border border-slate-100 shadow-sm group hover:border-purple-200 transition-all">
-                                            <div className="flex-1">
-                                                <div className="flex items-center gap-2 mb-1">
-                                                    <h3 className="font-bold text-slate-800 text-sm md:text-base">{fullItem ? formatProductLabel(fullItem) : item.name}</h3>
-                                                    {item.discount && (
-                                                        <span className="bg-purple-100 text-purple-700 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                                                            <Tag size={10} /> OFERTA
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <div className="text-xs text-slate-500 flex items-center gap-2 mt-1">
-                                                    <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200">
-                                                        <button
-                                                            onClick={() => updateCartItemQuantity(item.sku, item.quantity - 1)}
-                                                            className="p-1 hover:bg-slate-200 rounded-l-lg text-slate-600 disabled:opacity-50"
-                                                            disabled={item.quantity <= 1}
-                                                        >
-                                                            <Minus size={14} />
-                                                        </button>
-                                                        <input
-                                                            type="number"
-                                                            value={item.quantity}
-                                                            onChange={(e) => updateCartItemQuantity(item.sku, parseInt(e.target.value) || 1)}
-                                                            className="w-10 text-center bg-transparent font-mono font-bold text-slate-800 outline-none text-sm appearance-none m-0"
-                                                        />
-                                                        <button
-                                                            onClick={() => updateCartItemQuantity(item.sku, item.quantity + 1)}
-                                                            className="p-1 hover:bg-slate-200 rounded-r-lg text-slate-600"
-                                                        >
-                                                            <Plus size={14} />
-                                                        </button>
+                                {/* Desktop Table View (Hidden on Mobile) */}
+                                <div className="hidden md:block overflow-hidden rounded-xl border border-slate-200">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead>
+                                            <tr className="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
+                                                <th className="p-4 font-bold w-[50%]">Producto</th>
+                                                <th className="p-4 font-bold w-[15%] text-center">Cant.</th>
+                                                <th className="p-4 font-bold w-[15%] text-right">Precio</th>
+                                                <th className="p-4 font-bold w-[20%] text-right">Total</th>
+                                                <th className="p-4 font-bold text-center"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 bg-white">
+                                            {cartWithDiscounts.map((item) => {
+                                                const fullItem = inventory.find(i => i.id === item.id);
+                                                return (
+                                                    <tr key={item.id} className="hover:bg-slate-50 transition-colors group">
+                                                        <td className="p-4">
+                                                            <div className="flex flex-col">
+                                                                <span className="font-bold text-slate-800 text-lg leading-tight">
+                                                                    {fullItem ? formatProductLabel(fullItem) : item.name}
+                                                                </span>
+                                                                {item.discount && (
+                                                                    <span className="bg-purple-100 text-purple-700 text-xs font-bold px-2 py-0.5 rounded-full w-fit mt-1 flex items-center gap-1">
+                                                                        <Tag size={12} /> OFERTA
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                        <td className="p-4">
+                                                            <div className="flex items-center justify-center bg-slate-100 rounded-lg border border-slate-200 w-fit mx-auto">
+                                                                <button
+                                                                    onClick={() => updateCartItemQuantity(item.sku, item.quantity - 1)}
+                                                                    className="p-2 hover:bg-slate-200 rounded-l-lg text-slate-600 disabled:opacity-50"
+                                                                    disabled={item.quantity <= 1}
+                                                                >
+                                                                    <Minus size={16} />
+                                                                </button>
+                                                                <input
+                                                                    type="number"
+                                                                    value={item.quantity}
+                                                                    onChange={(e) => updateCartItemQuantity(item.sku, parseInt(e.target.value) || 1)}
+                                                                    className="w-12 text-center bg-transparent font-mono font-bold text-slate-800 outline-none text-lg appearance-none m-0"
+                                                                />
+                                                                <button
+                                                                    onClick={() => updateCartItemQuantity(item.sku, item.quantity + 1)}
+                                                                    className="p-2 hover:bg-slate-200 rounded-r-lg text-slate-600"
+                                                                >
+                                                                    <Plus size={16} />
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                        <td className="p-4 text-right">
+                                                            <span className="text-xl font-bold text-slate-600">
+                                                                ${(item.price || 0).toLocaleString()}
+                                                            </span>
+                                                        </td>
+                                                        <td className="p-4 text-right">
+                                                            {item.discount ? (
+                                                                <div className="flex flex-col items-end">
+                                                                    <span className="font-bold text-slate-800 text-2xl">
+                                                                        ${(item.discount.finalPrice * item.quantity).toLocaleString()}
+                                                                    </span>
+                                                                    <span className="text-sm text-slate-400 line-through">
+                                                                        ${((item.price || 0) * item.quantity).toLocaleString()}
+                                                                    </span>
+                                                                    <span className="text-green-600 font-bold text-xs">
+                                                                        (-${(item.discount.discountAmount * item.quantity).toLocaleString()})
+                                                                    </span>
+                                                                </div>
+                                                            ) : (
+                                                                <span className="font-bold text-slate-800 text-2xl">
+                                                                    ${((item.price || 0) * item.quantity).toLocaleString()}
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td className="p-4 text-center">
+                                                            <button
+                                                                onClick={() => removeFromCart(item.sku)}
+                                                                className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                                                                title="Eliminar"
+                                                            >
+                                                                <Trash2 size={24} />
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                {/* Mobile List View (Hidden on Desktop) */}
+                                <div className="md:hidden space-y-3">
+                                    {cartWithDiscounts.map((item) => {
+                                        const fullItem = inventory.find(i => i.id === item.id);
+                                        return (
+                                            <div key={item.id} className="flex justify-between items-center p-3 bg-white rounded-xl border border-slate-100 shadow-sm">
+                                                <div className="flex-1">
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <h3 className="font-bold text-slate-800 text-base">{fullItem ? formatProductLabel(fullItem) : item.name}</h3>
+                                                        {item.discount && (
+                                                            <span className="bg-purple-100 text-purple-700 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                                                                <Tag size={10} /> OFERTA
+                                                            </span>
+                                                        )}
                                                     </div>
-                                                    <span>x</span>
-                                                    <span>${(item.price || 0).toLocaleString()}</span>
-                                                    {item.discount && (
-                                                        <span className="text-green-600 font-bold ml-1">
-                                                            (-${item.discount.discountAmount.toLocaleString()})
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            <div className="text-right mr-4">
-                                                {item.discount ? (
-                                                    <div className="flex flex-col items-end">
-                                                        <p className="font-bold text-slate-800 text-lg">${(item.discount.finalPrice * item.quantity).toLocaleString()}</p>
-                                                        <p className="text-xs text-slate-400 line-through">${((item.price || 0) * item.quantity).toLocaleString()}</p>
+                                                    <div className="text-xs text-slate-500 flex items-center gap-2 mt-1">
+                                                        <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200">
+                                                            <button
+                                                                onClick={() => updateCartItemQuantity(item.sku, item.quantity - 1)}
+                                                                className="p-1 hover:bg-slate-200 rounded-l-lg text-slate-600 disabled:opacity-50"
+                                                                disabled={item.quantity <= 1}
+                                                            >
+                                                                <Minus size={14} />
+                                                            </button>
+                                                            <input
+                                                                type="number"
+                                                                value={item.quantity}
+                                                                onChange={(e) => updateCartItemQuantity(item.sku, parseInt(e.target.value) || 1)}
+                                                                className="w-10 text-center bg-transparent font-mono font-bold text-slate-800 outline-none text-sm appearance-none m-0"
+                                                            />
+                                                            <button
+                                                                onClick={() => updateCartItemQuantity(item.sku, item.quantity + 1)}
+                                                                className="p-1 hover:bg-slate-200 rounded-r-lg text-slate-600"
+                                                            >
+                                                                <Plus size={14} />
+                                                            </button>
+                                                        </div>
+                                                        <span>x</span>
+                                                        <span className="text-lg font-bold text-slate-700">${(item.price || 0).toLocaleString()}</span>
                                                     </div>
-                                                ) : (
-                                                    <p className="font-bold text-slate-800 text-lg">${((item.price || 0) * item.quantity).toLocaleString()}</p>
-                                                )}
+                                                </div>
+                                                <div className="text-right mr-4">
+                                                    <p className="font-bold text-slate-800 text-xl">${((item.discount?.finalPrice || item.price || 0) * item.quantity).toLocaleString()}</p>
+                                                </div>
+                                                <button
+                                                    onClick={() => removeFromCart(item.sku)}
+                                                    className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                >
+                                                    <Trash2 size={20} />
+                                                </button>
                                             </div>
-                                            <button
-                                                onClick={() => removeFromCart(item.sku)}
-                                                className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                            >
-                                                <Trash2 size={20} />
-                                            </button>
-                                        </div>
-                                    );
-                                })}
+                                        );
+                                    })}
+                                </div>
                             </div>
                         )}
                     </div>
@@ -660,7 +779,7 @@ const POSMainScreen: React.FC = () => {
                         <div className="flex flex-col md:flex-row items-center gap-4 md:gap-8 w-full md:w-auto">
                             <div className="text-right w-full md:w-auto flex justify-between md:block items-center">
                                 <p className="text-slate-400 text-sm mb-1">Total a Pagar</p>
-                                <p className="text-4xl md:text-5xl font-extrabold text-emerald-400">${cartTotal.toLocaleString()}</p>
+                                <p className="text-4xl md:text-6xl font-extrabold text-emerald-400">${cartTotal.toLocaleString()}</p>
                             </div>
                             <button
                                 onClick={handlePrePayment}
@@ -687,10 +806,15 @@ const POSMainScreen: React.FC = () => {
                 onClose={() => setIsManualItemModalOpen(false)}
                 onConfirm={(item) => { addManualItem(item); setIsManualItemModalOpen(false); }}
             />
-            <CashControlModal
-                isOpen={isCashModalOpen}
-                onClose={() => setIsCashModalOpen(false)}
-            />
+
+            {/* Modular Cash Management Modal */}
+            {cashModalMode && (
+                <CashManagementModal // Note: Ensure this is imported correctly as CashManagementModal, not CashControlModal
+                    isOpen={!!cashModalMode}
+                    onClose={() => setCashModalMode(null)}
+                    mode={cashModalMode}
+                />
+            )}
 
             <CashOutModal
                 isOpen={isCashOutModalOpen}
