@@ -76,10 +76,12 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                 )}
             </AnimatePresence>
 
-            {/* Sidebar - Hidden on Mobile/Tablet (< lg) */}
-            <aside className={`hidden lg:flex fixed inset-y-0 left-0 z-50 bg-white border-r border-slate-100 flex-col transition-all duration-300 ease-in-out 
-                lg:relative shadow-none
+            {/* Sidebar - Mobile & Desktop */}
+            <motion.aside
+                className={`fixed inset-y-0 left-0 z-50 bg-white border-r border-slate-100 flex flex-col transition-all duration-300 ease-in-out
+                lg:relative lg:translate-x-0 shadow-xl lg:shadow-none
                 ${isCollapsed ? 'w-20' : 'w-72'}
+                ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
             `}>
                 <div className={`p-6 flex items-center mb-2 ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
                     {!isCollapsed && (
@@ -96,7 +98,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                         </div>
                     )}
 
-                    <button onClick={() => setIsMobileMenuOpen(false)} className="md:hidden text-slate-400 hover:text-slate-600">
+                    <button onClick={() => setIsMobileMenuOpen(false)} className="lg:hidden text-slate-400 hover:text-slate-600">
                         <X size={24} />
                     </button>
                 </div>
@@ -166,7 +168,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                         <LogOut size={16} /> {!isCollapsed && "Cerrar Sesión"}
                     </button>
                 </div>
-            </aside>
+            </motion.aside>
 
             {/* Main Content */}
             <main className="flex-1 flex flex-col h-full overflow-hidden relative pb-20 md:pb-0 bg-slate-50/50">
