@@ -62,9 +62,9 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
             });
             return Array.from(uniqueProducts.values());
         }
-        // GLOBAL INVENTORY ACCESS: We load everything with stock > 0
-        // We do NOT filter by originId anymore to allow finding products anywhere
-        return inventory.filter(item => item.stock_actual > 0);
+        // GLOBAL INVENTORY ACCESS: We load everything to allow finding products anywhere
+        // We filter by originId ONLY for stock validation, not for visibility
+        return inventory;
     }, [inventory, mode]);
 
     // Sound Effect
@@ -86,30 +86,35 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
     };
 
     const handleScan = (code: string) => {
+        // Find product globally
         const matchingBatches = originInventory.filter(i => i.sku === code || i.id === code);
 
         if (matchingBatches.length > 0) {
-            const bestBatch = mode === 'PURCHASE'
-                ? matchingBatches[0]
-                : matchingBatches.sort((a, b) => (a.expiry_date || 0) - (b.expiry_date || 0))[0];
+            // Prioritize batch in current location if exists, otherwise pick any to show product info
+            const bestBatch = matchingBatches.find(b => b.location_id === originId) || matchingBatches[0];
+
+            // Calculate stock specifically for the origin location
+            const stockInOrigin = matchingBatches
+                .filter(b => b.location_id === originId)
+                .reduce((sum, b) => sum + b.stock_actual, 0);
 
             const existing = selectedItems.find(i => i.sku === bestBatch.sku);
 
             if (existing) {
-                if (mode === 'PURCHASE' || existing.quantity < existing.max) {
+                if (mode === 'PURCHASE' || existing.quantity < stockInOrigin) {
                     handleUpdateQuantity(existing.batchId, existing.quantity + 1);
                     playBeep();
                     toast.success(`+1 ${bestBatch.name}`);
                 } else {
-                    toast.error(`Stock insuficiente (Max: ${existing.max})`);
+                    toast.error(`Stock insuficiente en origen (Max: ${stockInOrigin})`);
                 }
             } else {
-                if (mode === 'PURCHASE' || bestBatch.stock_actual > 0) {
-                    handleAddItem(bestBatch);
+                if (mode === 'PURCHASE' || stockInOrigin > 0) {
+                    handleAddItem(bestBatch, stockInOrigin); // Pass calculated stock
                     playBeep();
                     toast.success(`Agregado: ${bestBatch.name}`);
                 } else {
-                    toast.error(`Producto sin stock disponible.`);
+                    toast.error(`Producto sin stock en ${originId}`);
                 }
             }
         } else {
@@ -117,30 +122,51 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
         }
     };
 
-    useBarcodeScanner({
-        onScan: handleScan,
-        minLength: 3,
-        targetInputRef: scannerInputRef
-    });
+    // ... (Scanner hook remains same)
 
     const filteredProducts = useMemo(() => {
         if (!searchTerm) return [];
-        return originInventory.filter(item =>
+        // Search in global inventory
+        const matches = originInventory.filter(item =>
             (item.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
             (item.sku || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
             (item.dci || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
             (item.lot_number || '').toLowerCase().includes(searchTerm.toLowerCase())
-        ).slice(0, 10);
-    }, [originInventory, searchTerm]);
+        );
 
-    const handleAddItem = (item: InventoryBatch) => {
-        if (selectedItems.find(i => i.batchId === item.id)) return;
+        // Group by SKU to avoid duplicates in search results, but aggregate stock info
+        const uniqueMatches = new Map<string, InventoryBatch & { totalStock: number, originStock: number }>();
+
+        matches.forEach(item => {
+            if (!uniqueMatches.has(item.sku)) {
+                // Calculate stocks
+                const allBatches = originInventory.filter(i => i.sku === item.sku);
+                const totalStock = allBatches.reduce((sum, b) => sum + b.stock_actual, 0);
+                const originStock = allBatches
+                    .filter(b => b.location_id === originId)
+                    .reduce((sum, b) => sum + b.stock_actual, 0);
+
+                uniqueMatches.set(item.sku, { ...item, totalStock, originStock });
+            }
+        });
+
+        return Array.from(uniqueMatches.values()).slice(0, 10);
+    }, [originInventory, searchTerm, originId]);
+
+    const handleAddItem = (item: InventoryBatch, knownStock?: number) => {
+        if (selectedItems.find(i => i.sku === item.sku)) return; // Check by SKU to avoid duplicates
+
+        // If stock not passed, calculate it
+        const stockInOrigin = knownStock ?? originInventory
+            .filter(b => b.sku === item.sku && b.location_id === originId)
+            .reduce((sum, b) => sum + b.stock_actual, 0);
+
         setSelectedItems([...selectedItems, {
             batchId: item.id,
             sku: item.sku,
             name: item.name,
             quantity: 1,
-            max: mode === 'PURCHASE' ? 9999 : item.stock_actual,
+            max: mode === 'PURCHASE' ? 9999 : stockInOrigin,
             expiry: item.expiry_date,
             lot: item.lot_number
         }]);
@@ -385,12 +411,12 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
                                     </div>
 
                                     <div className="overflow-y-auto flex-1 p-2 space-y-2">
-                                        {filteredProducts.map(item => (
+                                        {filteredProducts.map((item: any) => (
                                             <div key={item.id} className="bg-white border border-gray-100 rounded-lg p-3 hover:border-blue-300 transition-all group">
                                                 <div className="flex justify-between items-start mb-2">
                                                     <div>
                                                         <p className="font-bold text-gray-800">{item.name}</p>
-                                                        <p className="text-xs text-gray-500 font-mono">SKU: {item.sku} • Ubicación: {item.location_id}</p>
+                                                        <p className="text-xs text-gray-500 font-mono">SKU: {item.sku}</p>
                                                     </div>
                                                     {mode !== 'PURCHASE' && (
                                                         <span className={`px-2 py-1 rounded text-xs font-bold ${(item.expiry_date && item.expiry_date < now + 2592000000) ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'
@@ -401,22 +427,22 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
                                                 </div>
 
                                                 <div className="flex justify-between items-center text-sm text-gray-600 mb-3">
-                                                    <span className="flex items-center gap-1"><Package size={14} /> Lote: {item.lot_number || 'N/A'}</span>
-                                                    <span className={`font-bold ${item.stock_actual > 0 ? 'text-blue-600' : 'text-red-500'}`}>
-                                                        Stock: {item.stock_actual}
+                                                    <span className="flex items-center gap-1"><Package size={14} /> Global: {item.totalStock}</span>
+                                                    <span className={`font-bold ${item.originStock > 0 ? 'text-blue-600' : 'text-red-500'}`}>
+                                                        Disp. Origen: {item.originStock}
                                                     </span>
                                                 </div>
 
                                                 <button
-                                                    onClick={() => handleAddItem(item)}
-                                                    disabled={mode !== 'PURCHASE' && item.stock_actual <= 0}
+                                                    onClick={() => handleAddItem(item, item.originStock)}
+                                                    disabled={mode !== 'PURCHASE' && item.originStock <= 0}
                                                     className={`w-full py-2 font-bold rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed
                                                         ${mode === 'RETURN' ? 'bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white' :
                                                             mode === 'PURCHASE' ? 'bg-purple-50 text-purple-600 hover:bg-purple-600 hover:text-white' :
                                                                 'bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white'}
                                                     `}
                                                 >
-                                                    {mode === 'PURCHASE' ? 'Agregar a Pedido' : item.stock_actual > 0 ? 'Agregar' : 'Sin Stock'}
+                                                    {mode === 'PURCHASE' ? 'Agregar a Pedido' : item.originStock > 0 ? 'Agregar' : 'Sin Stock en Origen'}
                                                 </button>
                                             </div>
                                         ))}

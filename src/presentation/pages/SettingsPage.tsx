@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
-import { Settings, User, Shield, Save, Receipt, Printer, ToggleLeft, ToggleRight, AlertTriangle, CreditCard } from 'lucide-react';
+import { Settings, User, Shield, Save, Receipt, Printer, ToggleLeft, ToggleRight, AlertTriangle, CreditCard, Star } from 'lucide-react';
 import SiiSettings from './settings/SiiSettings';
 import HardwarePage from './settings/HardwarePage';
 import InventorySettings from './settings/InventorySettings';
+import LoyaltySettings from './settings/LoyaltySettings';
 import InfrastructureBillingPanel from '../components/settings/InfrastructureBillingPanel';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { usePharmaStore } from '../store/useStore';
 
 const SettingsPage: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'users' | 'sii' | 'hardware' | 'inventory' | 'billing'>('users');
+    const [activeTab, setActiveTab] = useState<'users' | 'sii' | 'hardware' | 'inventory' | 'billing' | 'loyalty'>('users');
     const { enable_sii_integration, toggleSiiIntegration } = useSettingsStore();
     const { user } = usePharmaStore();
 
@@ -79,12 +80,26 @@ const SettingsPage: React.FC = () => {
                         Mantenimiento
                     </button>
 
+                    {/* Loyalty Tab (Manager Only) */}
+                    {(user?.role === 'MANAGER' || user?.role === 'ADMIN') && (
+                        <button
+                            onClick={() => setActiveTab('loyalty')}
+                            className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'loyalty'
+                                ? 'bg-amber-50 text-amber-700 border-b-2 border-amber-600'
+                                : 'text-slate-500 hover:bg-slate-50'
+                                }`}
+                        >
+                            <Star size={20} />
+                            Fidelización
+                        </button>
+                    )}
+
                     {/* Infrastructure Billing Tab (Manager Only) */}
                     {(user?.role === 'MANAGER' || user?.role === 'ADMIN') && (
                         <button
                             onClick={() => setActiveTab('billing')}
                             className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'billing'
-                                ? 'bg-amber-50 text-amber-700 border-b-2 border-amber-600'
+                                ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600'
                                 : 'text-slate-500 hover:bg-slate-50'
                                 }`}
                         >
@@ -172,6 +187,7 @@ const SettingsPage: React.FC = () => {
             )}
             {activeTab === 'hardware' && <HardwarePage />}
             {activeTab === 'inventory' && <InventorySettings />}
+            {activeTab === 'loyalty' && <LoyaltySettings />}
 
             {/* Billing Tab Content */}
             {activeTab === 'billing' && (

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useVirtualizer, VirtualItem } from '@tanstack/react-virtual';
 import { usePharmaStore } from '../store/useStore';
-import { Search, Plus, X, Tag, CreditCard, Banknote, Smartphone, AlertTriangle, ShoppingCart, PlusCircle, Coins, DollarSign, Lock as LockIcon, Edit, TrendingDown, TrendingUp, Wallet, User, Bot, AlertOctagon, Snowflake, ScanBarcode, Scissors, Trash2, FileText, Printer, Minus } from 'lucide-react';
+import { Search, Plus, X, Tag, CreditCard, Banknote, Smartphone, AlertTriangle, ShoppingCart, PlusCircle, Coins, DollarSign, Lock as LockIcon, Edit, TrendingDown, TrendingUp, Wallet, User, Bot, AlertOctagon, Snowflake, ScanBarcode, Scissors, Trash2, FileText, Printer, Minus, Star } from 'lucide-react';
 import ClinicalSidebar from './clinical/ClinicalSidebar';
 import { ClinicalAgent } from '../../domain/logic/clinicalAgent';
 import ClientPanel from './pos/ClientPanel';
@@ -33,7 +33,8 @@ const POSMainScreen: React.FC = () => {
     const {
         inventory, cart, addToCart, addManualItem, removeFromCart, clearCart,
         processSale, currentCustomer, currentShift, getShiftMetrics, updateOpeningAmount, employees, printerConfig,
-        setCustomer, promotions, redeemGiftCard, createQuote, retrieveQuote, updateCartItemQuantity
+        setCustomer, promotions, redeemGiftCard, createQuote, retrieveQuote, updateCartItemQuantity,
+        loyaltyConfig, calculateDiscountValue, redeemPoints
     } = usePharmaStore();
 
     const { enable_sii_integration } = useSettingsStore();
@@ -98,6 +99,9 @@ const POSMainScreen: React.FC = () => {
     // Gift Card Payment State
     const [giftCardCode, setGiftCardCode] = useState('');
     const [isGiftCardPayment, setIsGiftCardPayment] = useState(false);
+
+    // Loyalty Points Redemption State
+    const [pointsToRedeem, setPointsToRedeem] = useState(0);
     const [selectedProductForFraction, setSelectedProductForFraction] = useState<InventoryBatch | null>(null);
     const [pendingItemForPrescription, setPendingItemForPrescription] = useState<CartItem | null>(null);
     const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'DEBIT' | 'TRANSFER'>('CASH');
@@ -219,18 +223,33 @@ const POSMainScreen: React.FC = () => {
             dteFolio = dteResult.shouldGenerate ? Math.floor(Math.random() * 100000).toString() : undefined;
         }
 
+        // Redeem points if customer selected points
+        if (currentCustomer && pointsToRedeem > 0) {
+            const success = redeemPoints(currentCustomer.id, pointsToRedeem);
+            if (!success) {
+                // redeemPoints already shows error toast
+                return;
+            }
+        }
+
+        // Calculate final total with points discount
+        const pointsDiscount = pointsToRedeem > 0 ? calculateDiscountValue(pointsToRedeem) : 0;
+        const finalTotal = Math.max(0, cart.reduce((sum, item) => sum + item.price * item.quantity, 0) - pointsDiscount);
+
         // Capture sale data before processing (since cart clears)
         const saleToPrint: any = {
             id: `V-${Date.now()}`, // Mock ID, ideally returned by processSale
             timestamp: Date.now(),
             items: [...cart],
-            total: cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
+            total: finalTotal,
             payment_method: paymentMethod,
             customer: currentCustomer || undefined,
             transfer_id: paymentMethod === 'TRANSFER' ? (transferId || 'SIN_ID_PENDIENTE') : undefined,
             dte_status: dteResult.status,
             dte_folio: dteFolio,
-            is_internal_ticket: !enable_sii_integration // Flag for template
+            is_internal_ticket: !enable_sii_integration, // Flag for template
+            points_redeemed: pointsToRedeem,
+            points_discount: pointsDiscount
         };
 
         processSale(paymentMethod, currentCustomer || undefined);
@@ -241,6 +260,7 @@ const POSMainScreen: React.FC = () => {
         setIsPaymentModalOpen(false);
         setTransferId('');
         setPaymentMethod('CASH');
+        setPointsToRedeem(0);
 
         if (enable_sii_integration && dteResult.shouldGenerate) {
             toast.success(`¡Venta Exitosa! Boleta Nº ${dteFolio} generada.`, { duration: 3000 });
@@ -932,6 +952,96 @@ const POSMainScreen: React.FC = () => {
                                     </p>
                                 </div>
                             )}
+
+                            {/* Loyalty Points Redemption */}
+                            {currentCustomer && currentCustomer.totalPoints > 0 && (
+                                <div className="mb-6 p-4 bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-200 rounded-2xl animate-in fade-in slide-in-from-top-2">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <div className="flex items-center gap-2">
+                                            <div className="p-2 bg-amber-100 rounded-lg">
+                                                <Star size={20} className="text-amber-600" fill="currentColor" />
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-bold text-amber-900">Puntos Disponibles</p>
+                                                <p className="text-2xl font-extrabold text-amber-700">{currentCustomer.totalPoints.toLocaleString()} pts</p>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-xs text-amber-600 font-semibold">Valor</p>
+                                            <p className="text-xl font-bold text-amber-700">${calculateDiscountValue(currentCustomer.totalPoints).toLocaleString()}</p>
+                                        </div>
+                                    </div>
+
+                                    {currentCustomer.totalPoints >= loyaltyConfig.min_points_to_redeem && (
+                                        <>
+                                            <div className="border-t border-amber-200 my-3 pt-3">
+                                                <label className="block text-sm font-bold text-amber-900 mb-2">Puntos a Canjear</label>
+                                                <div className="flex gap-2">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        max={currentCustomer.totalPoints}
+                                                        step={loyaltyConfig.min_points_to_redeem}
+                                                        className="flex-1 p-3 border-2 border-amber-300 rounded-xl focus:border-amber-500 focus:outline-none font-bold text-lg bg-white"
+                                                        placeholder={`Mín: ${loyaltyConfig.min_points_to_redeem}`}
+                                                        value={pointsToRedeem || ''}
+                                                        onChange={(e) => {
+                                                            const value = parseInt(e.target.value) || 0;
+                                                            setPointsToRedeem(Math.min(value, currentCustomer.totalPoints));
+                                                        }}
+                                                    />
+                                                    <button
+                                                        onClick={() => setPointsToRedeem(currentCustomer.totalPoints)}
+                                                        className="px-4 py-2 bg-amber-200 text-amber-900 font-bold rounded-xl hover:bg-amber-300 transition whitespace-nowrap"
+                                                    >
+                                                        Usar Todos
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            {pointsToRedeem > 0 && (
+                                                <div className="mt-3 p-3 bg-amber-100 rounded-xl border border-amber-300">
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="text-sm font-bold text-amber-900">Descuento Aplicado:</span>
+                                                        <span className="text-2xl font-extrabold text-emerald-600">- ${calculateDiscountValue(pointsToRedeem).toLocaleString()}</span>
+                                                    </div>
+                                                    <p className="text-xs text-amber-600 mt-1">Puntos restantes: {(currentCustomer.totalPoints - pointsToRedeem).toLocaleString()}</p>
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
+
+                                    {currentCustomer.totalPoints < loyaltyConfig.min_points_to_redeem && (
+                                        <div className="mt-3 p-2 bg-amber-100 rounded-lg border border-amber-300 text-center">
+                                            <p className="text-xs text-amber-700 font-semibold">
+                                                Se requieren {loyaltyConfig.min_points_to_redeem} puntos mínimo para canjear
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Total with Points Discount */}
+                            <div className="mb-6 p-4 bg-slate-50 rounded-2xl border-2 border-slate-200">
+                                <div className="flex justify-between items-center mb-2">
+                                    <span className="text-slate-600 font-semibold">Subtotal:</span>
+                                    <span className="text-xl font-bold text-slate-800">${cartTotal.toLocaleString()}</span>
+                                </div>
+                                {pointsToRedeem > 0 && (
+                                    <div className="flex justify-between items-center mb-2 text-emerald-600">
+                                        <span className="font-semibold flex items-center gap-1">
+                                            <Star size={16} fill="currentColor" />
+                                            Descuento por Puntos:
+                                        </span>
+                                        <span className="text-xl font-bold">- ${calculateDiscountValue(pointsToRedeem).toLocaleString()}</span>
+                                    </div>
+                                )}
+                                <div className="border-t-2 border-slate-300 mt-2 pt-2 flex justify-between items-center">
+                                    <span className="text-slate-900 font-extrabold text-lg">TOTAL:</span>
+                                    <span className="text-3xl font-extrabold text-cyan-600">
+                                        ${Math.max(0, cartTotal - calculateDiscountValue(pointsToRedeem)).toLocaleString()}
+                                    </span>
+                                </div>
+                            </div>
 
                             <button
                                 onClick={handleCheckout}
