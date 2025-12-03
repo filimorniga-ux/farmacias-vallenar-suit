@@ -41,7 +41,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
             return;
         }
 
-        openShift(selectedTerminal, selectedCashier, parseInt(openingAmount), manager.id);
+        openShift(parseInt(openingAmount), selectedCashier, manager.id, selectedTerminal);
         toast.success('Turno abierto exitosamente');
         onClose();
         setStep('DETAILS');

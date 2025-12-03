@@ -99,7 +99,7 @@ interface PharmaState {
     terminals: Terminal[];
     cashMovements: CashMovement[];
 
-    openShift: (terminalId: string, cashierId: string, amount: number, authorizedBy: string) => void;
+    openShift: (amount: number, cashierId: string, authorizedBy: string, terminalId?: string) => void;
     closeShift: (finalAmount: number, authorizedBy: string) => void;
     updateOpeningAmount: (newAmount: number) => void;
     registerCashMovement: (movement: Omit<CashMovement, 'id' | 'timestamp' | 'shift_id' | 'user_id'>) => void;
@@ -711,7 +711,7 @@ export const usePharmaStore = create<PharmaState>()(
             ],
             cashMovements: [],
 
-            openShift: (terminalId, cashierId, amount, authorizedBy) => set((state) => {
+            openShift: (amount, cashierId, authorizedBy, terminalId = 'TERM-001') => set((state) => {
                 if (state.currentShift?.status === 'ACTIVE') return state;
 
                 const newShift: Shift = {

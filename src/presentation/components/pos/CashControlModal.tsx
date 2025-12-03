@@ -12,7 +12,7 @@ interface CashControlModalProps {
 }
 
 const CashControlModal: React.FC<CashControlModalProps> = ({ isOpen, onClose }) => {
-    const { currentShift, openShift, closeShift, registerCashMovement, salesHistory, cashMovements, inventory } = usePharmaStore();
+    const { currentShift, openShift, closeShift, registerCashMovement, salesHistory, cashMovements, inventory, user } = usePharmaStore();
     const metrics = useCashSession();
 
     const [activeTab, setActiveTab] = useState<'MOVEMENTS' | 'CLOSING'>('MOVEMENTS');
@@ -33,7 +33,7 @@ const CashControlModal: React.FC<CashControlModalProps> = ({ isOpen, onClose }) 
     if (!isOpen) return null;
 
     // 1. OPENING SHIFT VIEW
-    if (!currentShift || currentShift.status === 'CLOSED') {
+    if (!currentShift || currentShift.status !== 'ACTIVE') {
         return (
             <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                 <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 text-center">
@@ -64,7 +64,7 @@ const CashControlModal: React.FC<CashControlModalProps> = ({ isOpen, onClose }) 
                             onClick={() => {
                                 const val = parseInt(openingAmount);
                                 if (val >= 0) {
-                                    openShift(val, 'CURRENT_USER'); // TODO: Get user
+                                    openShift(val, user?.id || 'UNKNOWN', user?.id || 'CURRENT_USER');
                                     toast.success('Caja abierta exitosamente');
                                 }
                             }}
@@ -140,7 +140,7 @@ const CashControlModal: React.FC<CashControlModalProps> = ({ isOpen, onClose }) 
                         </div>
                         <div>
                             <h2 className="text-xl font-bold">Control de Caja</h2>
-                            <p className="text-slate-400 text-sm">Turno #{currentShift.shiftNumber} • Iniciado {new Date(currentShift.start_time).toLocaleTimeString()}</p>
+                            <p className="text-slate-400 text-sm">Turno #{currentShift.id.slice(-6)} • Iniciado {new Date(currentShift.start_time).toLocaleTimeString()}</p>
                         </div>
                     </div>
                     <button onClick={onClose} className="text-slate-400 hover:text-white p-2 hover:bg-white/10 rounded-full transition"><X /></button>
