@@ -16,7 +16,10 @@ import {
     StockTransfer,
     WarehouseIncident,
     AttendanceStatus,
-    AttendanceType
+    AttendanceType,
+    Shift,
+    Terminal,
+    Quote
 } from '../../domain/types';
 import { TigerDataService } from '../../domain/services/TigerDataService';
 import { fetchEmployees } from '../../actions/sync';
@@ -59,10 +62,16 @@ interface PharmaState {
     currentCustomer: Customer | null;
     setCustomer: (customer: Customer | null) => void;
     addToCart: (batch: InventoryBatch, quantity: number) => void;
+    updateCartItemQuantity: (sku: string, quantity: number) => void;
     addManualItem: (item: { description: string, price: number, quantity: number, sku?: string, is_fractional?: boolean, original_name?: string, active_ingredients?: string[] }) => void;
     removeFromCart: (sku: string) => void;
     clearCart: () => void;
     processSale: (paymentMethod: string, customer?: Customer) => Promise<boolean>;
+
+    // Quotes
+    quotes: Quote[];
+    createQuote: (customer?: Customer) => Quote;
+    retrieveQuote: (quoteId: string) => boolean; // Returns true if found and loaded
 
     // Inventory Actions
     updateProduct: (id: string, data: Partial<InventoryBatch>) => void;
@@ -84,11 +93,13 @@ interface PharmaState {
     expenses: Expense[];
     addExpense: (expense: Omit<Expense, 'id'>) => void;
 
-    // Cash Management
-    currentShift: CashShift | null;
-    dailyShifts: CashShift[]; // History of shifts for the day
+    // Cash Management & Shifts
+    currentShift: Shift | null;
+    dailyShifts: Shift[]; // History of shifts for the day
+    terminals: Terminal[];
     cashMovements: CashMovement[];
-    openShift: (amount: number, authorizedBy: string) => void;
+
+    openShift: (terminalId: string, cashierId: string, amount: number, authorizedBy: string) => void;
     closeShift: (finalAmount: number, authorizedBy: string) => void;
     updateOpeningAmount: (newAmount: number) => void;
     registerCashMovement: (movement: Omit<CashMovement, 'id' | 'timestamp' | 'shift_id' | 'user_id'>) => void;
@@ -438,6 +449,11 @@ export const usePharmaStore = create<PharmaState>()(
                 };
                 return { cart: [...state.cart, newItem] };
             }),
+            updateCartItemQuantity: (sku, quantity) => set((state) => ({
+                cart: state.cart.map(i =>
+                    i.sku === sku ? { ...i, quantity: Math.max(1, quantity) } : i
+                )
+            })),
             // --- Importación Masiva ---
             importInventory: (items: InventoryBatch[]) => {
                 set((state) => {
@@ -634,45 +650,112 @@ export const usePharmaStore = create<PharmaState>()(
             getGiftCard: (code) => get().giftCards.find(c => c.code === code),
 
 
-            // --- Cash Management ---
+            // --- Quotes ---
+            quotes: [],
+            createQuote: (customer) => {
+                const state = get();
+                const newQuote: Quote = {
+                    id: `COT-${Date.now().toString().slice(-6)}`,
+                    created_at: Date.now(),
+                    expires_at: Date.now() + (30 * 24 * 60 * 60 * 1000), // 30 days
+                    customer_id: customer?.id,
+                    total_amount: state.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0),
+                    status: 'ACTIVE',
+                    items: [...state.cart]
+                };
+
+                set((state) => ({
+                    quotes: [...state.quotes, newQuote],
+                    cart: [], // Clear cart after saving quote
+                    currentCustomer: null
+                }));
+
+                import('sonner').then(({ toast }) => {
+                    toast.success(`Cotización guardada: ${newQuote.id}`);
+                });
+
+                return newQuote;
+            },
+            retrieveQuote: (quoteId) => {
+                const state = get();
+                // Try to find by exact ID or by suffix (for barcode scanning)
+                const quote = state.quotes.find(q => q.id === quoteId || q.id.endsWith(quoteId.replace('COT-', '')));
+
+                if (!quote || quote.status !== 'ACTIVE') {
+                    import('sonner').then(({ toast }) => {
+                        toast.error('Cotización no encontrada o expirada');
+                    });
+                    return false;
+                }
+
+                // Load items to cart
+                set({
+                    cart: quote.items,
+                    currentCustomer: state.customers.find(c => c.id === quote.customer_id) || null
+                });
+
+                import('sonner').then(({ toast }) => {
+                    toast.success(`Cotización cargada: ${quote.id}`);
+                });
+
+                return true;
+            },
+
+
+            // --- Cash Management & Shifts ---
             currentShift: null,
             dailyShifts: [],
+            terminals: [
+                { id: 'TERM-001', name: 'Caja 1 - Principal', location_id: 'LOC-001', status: 'CLOSED' },
+                { id: 'TERM-002', name: 'Caja 2 - Secundaria', location_id: 'LOC-001', status: 'CLOSED' }
+            ],
             cashMovements: [],
-            openShift: (amount, authorizedBy) => set((state) => {
-                if (state.currentShift?.status === 'OPEN') return state;
 
-                // Calculate shift number (1-based)
-                const todayStart = new Date().setHours(0, 0, 0, 0);
-                const shiftsToday = state.dailyShifts.filter(s => s.start_time >= todayStart).length;
+            openShift: (terminalId, cashierId, amount, authorizedBy) => set((state) => {
+                if (state.currentShift?.status === 'ACTIVE') return state;
 
-                const newShift: CashShift = {
-                    id: `SHIFT - ${Date.now()} `,
-                    user_id: state.user?.id || 'UNKNOWN',
+                const newShift: Shift = {
+                    id: `SHIFT-${Date.now()}`,
+                    terminal_id: terminalId,
+                    user_id: cashierId,
+                    authorized_by: authorizedBy,
                     start_time: Date.now(),
                     opening_amount: amount,
-                    status: 'OPEN',
-                    openedBy: state.user?.id || 'UNKNOWN',
-                    authorizedBy: authorizedBy,
-                    shiftNumber: shiftsToday + 1
+                    status: 'ACTIVE'
                 };
-                return { currentShift: newShift };
+
+                // Update terminal status
+                const updatedTerminals = state.terminals.map(t =>
+                    t.id === terminalId ? { ...t, status: 'OPEN' as const } : t
+                );
+
+                return {
+                    currentShift: newShift,
+                    terminals: updatedTerminals
+                };
             }),
+
             closeShift: (finalAmount, authorizedBy) => set((state) => {
                 if (!state.currentShift) return state;
                 const metrics = state.getShiftMetrics();
 
-                const closedShift: CashShift = {
+                const closedShift: Shift = {
                     ...state.currentShift,
                     end_time: Date.now(),
                     status: 'CLOSED',
-                    closedBy: authorizedBy,
                     closing_amount: finalAmount,
                     difference: finalAmount - metrics.expectedCash
                 };
 
+                // Update terminal status
+                const updatedTerminals = state.terminals.map(t =>
+                    t.id === state.currentShift!.terminal_id ? { ...t, status: 'CLOSED' as const } : t
+                );
+
                 return {
                     currentShift: null, // Reset current shift
                     dailyShifts: [...state.dailyShifts, closedShift], // Archive it
+                    terminals: updatedTerminals,
                     cart: [], // Clear cart
                     currentCustomer: null // Clear customer
                 };

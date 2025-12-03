@@ -27,13 +27,16 @@ import NetworkPage from './presentation/pages/NetworkPage';
 import PriceCheckPage from './presentation/pages/PriceCheckPage';
 import InventorySettings from './presentation/pages/settings/InventorySettings';
 
+// DEV NOTE: To test Mobile Native Experience (Camera, Swipe Tabs, Layout),
+// use Chrome DevTools (F12) -> Toggle Device Toolbar (Cmd+Shift+M)
+// and select "iPhone 12" or "Pixel 5".
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     const { user } = usePharmaStore();
     if (!user) return <Navigate to="/" replace />;
     return <SidebarLayout>{children}</SidebarLayout>;
 };
 
-const App: React.FC = () => {
+function App() {
     const { syncData } = usePharmaStore();
 
     useEffect(() => {
