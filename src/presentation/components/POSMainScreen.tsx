@@ -1,8 +1,7 @@
-'use client';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useVirtualizer, VirtualItem } from '@tanstack/react-virtual';
 import { usePharmaStore } from '../store/useStore';
-import { Search, Plus, X, Tag, CreditCard, Banknote, Smartphone, AlertTriangle, ShoppingCart, PlusCircle, Coins, DollarSign, Lock as LockIcon, Edit, TrendingDown, TrendingUp, Wallet, User, Bot, AlertOctagon, Snowflake, ScanBarcode, Scissors, Trash2 } from 'lucide-react';
+import { Search, Plus, X, Tag, CreditCard, Banknote, Smartphone, AlertTriangle, ShoppingCart, PlusCircle, Coins, DollarSign, Lock as LockIcon, Edit, TrendingDown, TrendingUp, Wallet, User, Bot, AlertOctagon, Snowflake, ScanBarcode, Scissors, Trash2, FileText, Printer, Minus } from 'lucide-react';
 import ClinicalSidebar from './clinical/ClinicalSidebar';
 import { ClinicalAgent } from '../../domain/logic/clinicalAgent';
 import ClientPanel from './pos/ClientPanel';
@@ -11,6 +10,9 @@ import ManualItemModal from './pos/ManualItemModal';
 import CashControlModal from './pos/CashControlModal';
 import CashOutModal from './pos/CashOutModal';
 import QuickFractionModal from './pos/QuickFractionModal';
+import ShiftManagementModal from './pos/ShiftManagementModal';
+import TransactionHistoryModal from './pos/TransactionHistoryModal';
+import CameraScanner from './ui/CameraScanner';
 import { CartItem, InventoryBatch } from '../../domain/types';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -31,7 +33,7 @@ const POSMainScreen: React.FC = () => {
     const {
         inventory, cart, addToCart, addManualItem, removeFromCart, clearCart,
         processSale, currentCustomer, currentShift, getShiftMetrics, updateOpeningAmount, employees, printerConfig,
-        setCustomer, promotions, redeemGiftCard
+        setCustomer, promotions, redeemGiftCard, createQuote, retrieveQuote, updateCartItemQuantity
     } = usePharmaStore();
 
     const { enable_sii_integration } = useSettingsStore();
@@ -58,6 +60,34 @@ const POSMainScreen: React.FC = () => {
     const [isCashOutModalOpen, setIsCashOutModalOpen] = useState(false);
     const [isCustomerSelectModalOpen, setIsCustomerSelectModalOpen] = useState(false);
     const [isQuickFractionModalOpen, setIsQuickFractionModalOpen] = useState(false);
+    const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
+    const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
+
+    // Quote Mode
+    const [isQuoteMode, setIsQuoteMode] = useState(false);
+
+    const handleScan = (decodedText: string) => {
+        // Check for Quote
+        if (decodedText.startsWith('COT-')) {
+            const success = retrieveQuote(decodedText);
+            if (success) {
+                toast.success('Cotización cargada');
+                setIsScannerOpen(false);
+                return;
+            }
+        }
+
+        // Search Product
+        const product = inventory.find(p => p.sku === decodedText || p.barcode === decodedText);
+        if (product) {
+            addToCart(product, 1);
+            toast.success(`Producto agregado: ${product.name}`);
+            setIsScannerOpen(false);
+        } else {
+            toast.error('Producto no encontrado');
+        }
+    };
 
     // Gift Card Payment State
     const [giftCardCode, setGiftCardCode] = useState('');
@@ -72,8 +102,14 @@ const POSMainScreen: React.FC = () => {
 
     // Barcode Scanner Integration
     useBarcodeScanner({
-        onScan: (sku) => {
-            const product = inventory.find(p => p.sku === sku || p.id === sku);
+        onScan: (code) => {
+            // Check for Quote Barcode
+            if (code.startsWith('COT-')) {
+                retrieveQuote(code);
+                return;
+            }
+
+            const product = inventory.find(p => p.sku === code || p.id === code || p.barcode === code);
             if (product) {
                 addToCart(product, 1);
                 toast.success('Producto agregado', { duration: 1000, icon: <ScanBarcode /> });
@@ -85,6 +121,18 @@ const POSMainScreen: React.FC = () => {
             }
         }
     });
+
+    // Handle Search Submit (Enter key)
+    const handleSearchSubmit = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') {
+            if (searchTerm.startsWith('COT-')) {
+                retrieveQuote(searchTerm);
+                setSearchTerm('');
+                return;
+            }
+            // ... existing search logic if needed, currently it filters real-time
+        }
+    };
 
     // FEFO Sorting & Filtering - ONLY SHOW IF SEARCHING
     const filteredInventory = useMemo(() => {
@@ -126,6 +174,14 @@ const POSMainScreen: React.FC = () => {
 
     const handlePrePayment = () => {
         if (cart.length === 0) return;
+
+        if (isQuoteMode) {
+            const quote = createQuote(currentCustomer || undefined);
+            // Print Quote Ticket
+            // PrinterService.printQuote(quote, printerConfig); // TODO: Implement printQuote
+            return;
+        }
+
         // Simplified flow: Skip customer check if not strictly required, or keep it but make it faster.
         // Prompt 2 says "Elimina el paso intermedio de Asociar Cliente".
         // We will go straight to payment. If customer is needed for R/RR, the PrescriptionModal handles it or we can add it there.
@@ -254,6 +310,40 @@ const POSMainScreen: React.FC = () => {
         overscan: 5,
     });
 
+    // --- BLOCKED STATE RENDER ---
+    if (!currentShift || currentShift.status === 'CLOSED') {
+        return (
+            <div className="h-screen w-full bg-slate-900 flex flex-col items-center justify-center p-4 relative overflow-hidden">
+                <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+
+                <div className="z-10 bg-white/10 backdrop-blur-lg p-8 md:p-12 rounded-3xl border border-white/20 shadow-2xl max-w-lg w-full text-center">
+                    <div className="w-24 h-24 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse">
+                        <LockIcon size={48} className="text-red-400" />
+                    </div>
+
+                    <h1 className="text-3xl md:text-4xl font-extrabold text-white mb-2">Terminal Bloqueado</h1>
+                    <p className="text-slate-300 mb-8 text-lg">Se requiere apertura de caja para operar.</p>
+
+                    <button
+                        onClick={() => setIsShiftModalOpen(true)}
+                        className="w-full py-4 bg-cyan-500 hover:bg-cyan-400 text-white font-bold rounded-xl text-xl shadow-lg shadow-cyan-500/30 transition-all transform hover:scale-105"
+                    >
+                        Solicitar Apertura a Gerente
+                    </button>
+
+                    <div className="mt-8 pt-6 border-t border-white/10">
+                        <p className="text-xs text-slate-500 uppercase tracking-widest">Farmacias Vallenar Suit v2.1</p>
+                    </div>
+                </div>
+
+                <ShiftManagementModal
+                    isOpen={isShiftModalOpen}
+                    onClose={() => setIsShiftModalOpen(false)}
+                />
+            </div>
+        );
+    }
+
     return (
         <div className="flex h-[calc(100vh-80px)] bg-slate-100 overflow-hidden">
 
@@ -261,18 +351,42 @@ const POSMainScreen: React.FC = () => {
             <div className="w-full md:w-[25%] flex flex-col p-4 md:p-6 md:pr-3 gap-4 h-full">
                 <div className="bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col h-full overflow-hidden">
                     <div className="p-4 md:p-6 border-b border-slate-100">
-                        <div className="relative w-full">
-                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={24} />
-                            <input
-                                type="text"
-                                placeholder="Buscar..."
-                                className="w-full pl-12 pr-4 py-3 md:py-4 bg-slate-50 border-2 border-slate-200 rounded-2xl focus:border-cyan-500 focus:outline-none transition-colors font-bold text-base md:text-lg"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                autoFocus
-                            />
+                        <div className="relative flex items-center"> {/* Added flex items-center here */}
+                            <div className="relative flex-1">
+                                <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400" size={24} />
+                                <input
+                                    type="text"
+                                    placeholder="Buscar o Escanear (COT-...)"
+                                    className="w-full pl-12 pr-12 py-4 bg-white rounded-2xl border-2 border-slate-100 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 outline-none transition-all text-lg font-medium shadow-sm"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            if (searchTerm.startsWith('COT-')) {
+                                                retrieveQuote(searchTerm);
+                                                setSearchTerm('');
+                                            } else {
+                                                // Existing search logic handled by filteredInventory/manual selection
+                                                // For direct barcode entry:
+                                                const exactMatch = inventory.find(i => i.sku === searchTerm || i.barcode === searchTerm);
+                                                if (exactMatch) {
+                                                    addToCart(exactMatch, 1);
+                                                    setSearchTerm('');
+                                                    toast.success('Producto agregado');
+                                                }
+                                            }
+                                        }
+                                    }}
+                                />
+                                <button
+                                    onClick={() => setIsScannerOpen(true)}
+                                    className="absolute right-3 top-1/2 transform -translate-y-1/2 md:hidden p-2 text-slate-400 hover:text-cyan-600"
+                                >
+                                    <ScanBarcode size={24} />
+                                </button>
+                            </div>
                         </div>
-                        <p className="text-xs text-slate-400 mt-2 text-center hidden md:block">Escanee un producto para agregarlo rápido</p>
+                        <p className="text-xs text-slate-400 mt-2 text-center hidden md:block">Escanee producto o cotización</p>
                     </div>
 
                     <div
@@ -361,7 +475,7 @@ const POSMainScreen: React.FC = () => {
                 transition-transform duration-300 ease-in-out
                 ${activeTab === 'CART' ? 'translate-y-0' : 'translate-y-full md:translate-y-0'}
             `}>
-                <div className="flex-1 bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden flex flex-col h-full">
+                <div className={`flex-1 rounded-3xl shadow-xl border border-slate-200 overflow-hidden flex flex-col h-full transition-colors ${isQuoteMode ? 'bg-amber-50 border-amber-200' : 'bg-white'}`}>
                     {/* Header */}
                     <div className="p-4 md:p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                         <div className="flex items-center gap-4">
@@ -373,11 +487,14 @@ const POSMainScreen: React.FC = () => {
                                 <TrendingDown size={24} />
                             </button>
 
-                            <div className="bg-cyan-100 p-2 md:p-3 rounded-2xl text-cyan-700 hidden md:block">
-                                <ShoppingCart size={28} />
+                            <div className={`p-2 md:p-3 rounded-2xl hidden md:block ${isQuoteMode ? 'bg-amber-100 text-amber-700' : 'bg-cyan-100 text-cyan-700'}`}>
+                                {isQuoteMode ? <FileText size={28} /> : <ShoppingCart size={28} />}
                             </div>
                             <div>
-                                <h1 className="text-xl md:text-2xl font-extrabold text-slate-800">Carrito</h1>
+                                <h1 className="text-xl md:text-2xl font-extrabold text-slate-800 flex items-center gap-2">
+                                    {isQuoteMode ? 'Cotización' : 'Carrito'}
+                                    {isQuoteMode && <span className="text-xs bg-amber-200 text-amber-800 px-2 py-1 rounded-full">MODO COTIZACIÓN</span>}
+                                </h1>
                                 <div className="flex items-center gap-2 mt-1">
                                     {currentCustomer ? (
                                         <div className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg border border-emerald-100">
@@ -404,14 +521,28 @@ const POSMainScreen: React.FC = () => {
                                 </div>
                             </div>
                             {/* Shift Status Badge - Compact on Mobile */}
-                            <div className={`px-2 md:px-4 py-1 md:py-2 rounded-lg font-bold text-[10px] md:text-sm flex items-center gap-2 ${currentShift?.status === 'OPEN' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                <div className={`w-2 h-2 rounded-full ${currentShift?.status === 'OPEN' ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
-                                <span className="hidden md:inline">{currentShift?.status === 'OPEN' ? `TURNO #${currentShift.shiftNumber} - ABIERTO` : 'CAJA CERRADA'}</span>
-                                <span className="md:hidden">{currentShift?.status === 'OPEN' ? `#${currentShift.shiftNumber}` : 'CERRADO'}</span>
+                            <div className={`px-2 md:px-4 py-1 md:py-2 rounded-lg font-bold text-[10px] md:text-sm flex items-center gap-2 ${currentShift?.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                <div className={`w-2 h-2 rounded-full ${currentShift?.status === 'ACTIVE' ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+                                <span className="hidden md:inline">{currentShift?.status === 'ACTIVE' ? `TURNO #${currentShift.id.slice(-6)} - ABIERTO` : 'CAJA CERRADA'}</span>
+                                <span className="md:hidden">{currentShift?.status === 'ACTIVE' ? `#${currentShift.id.slice(-6)}` : 'CERRADO'}</span>
                             </div>
                         </div>
                         <div className="flex gap-2 md:gap-3 overflow-hidden w-full md:w-auto">
                             <MobileActionScroll className="w-full md:w-auto justify-end">
+                                <button
+                                    onClick={() => setIsHistoryModalOpen(true)}
+                                    className="flex items-center gap-2 bg-slate-100 text-slate-600 px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-slate-200 font-bold transition-colors whitespace-nowrap"
+                                >
+                                    <FileText size={20} />
+                                    <span className="hidden lg:inline">Historial</span>
+                                </button>
+                                <button
+                                    onClick={() => setIsQuoteMode(!isQuoteMode)}
+                                    className={`flex items-center gap-2 px-4 py-2 md:px-5 md:py-3 rounded-full font-bold transition-colors whitespace-nowrap ${isQuoteMode ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                >
+                                    <FileText size={20} />
+                                    <span className="hidden lg:inline">{isQuoteMode ? 'Salir Cotiz.' : 'Cotizar'}</span>
+                                </button>
                                 <button
                                     onClick={() => setIsCashModalOpen(true)}
                                     className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-blue-700 font-bold transition-colors shadow-lg shadow-blue-200 whitespace-nowrap"
@@ -460,8 +591,28 @@ const POSMainScreen: React.FC = () => {
                                                         </span>
                                                     )}
                                                 </div>
-                                                <div className="text-xs text-slate-500 flex items-center gap-2">
-                                                    <span className="bg-slate-100 px-2 py-1 rounded text-slate-600 font-mono">{item.quantity} un.</span>
+                                                <div className="text-xs text-slate-500 flex items-center gap-2 mt-1">
+                                                    <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200">
+                                                        <button
+                                                            onClick={() => updateCartItemQuantity(item.sku, item.quantity - 1)}
+                                                            className="p-1 hover:bg-slate-200 rounded-l-lg text-slate-600 disabled:opacity-50"
+                                                            disabled={item.quantity <= 1}
+                                                        >
+                                                            <Minus size={14} />
+                                                        </button>
+                                                        <input
+                                                            type="number"
+                                                            value={item.quantity}
+                                                            onChange={(e) => updateCartItemQuantity(item.sku, parseInt(e.target.value) || 1)}
+                                                            className="w-10 text-center bg-transparent font-mono font-bold text-slate-800 outline-none text-sm appearance-none m-0"
+                                                        />
+                                                        <button
+                                                            onClick={() => updateCartItemQuantity(item.sku, item.quantity + 1)}
+                                                            className="p-1 hover:bg-slate-200 rounded-r-lg text-slate-600"
+                                                        >
+                                                            <Plus size={14} />
+                                                        </button>
+                                                    </div>
                                                     <span>x</span>
                                                     <span>${(item.price || 0).toLocaleString()}</span>
                                                     {item.discount && (
@@ -513,10 +664,10 @@ const POSMainScreen: React.FC = () => {
                             </div>
                             <button
                                 onClick={handlePrePayment}
-                                disabled={cart.length === 0 || !currentShift || currentShift.status === 'CLOSED'}
-                                className="w-full md:w-auto bg-emerald-500 hover:bg-emerald-400 text-emerald-950 px-8 md:px-12 py-4 md:py-6 rounded-2xl font-extrabold text-xl md:text-2xl shadow-lg shadow-emerald-900/50 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                                disabled={cart.length === 0 || !currentShift || currentShift.status !== 'ACTIVE'}
+                                className={`w-full md:w-auto px-8 md:px-12 py-4 md:py-6 rounded-2xl font-extrabold text-xl md:text-2xl shadow-lg transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none ${isQuoteMode ? 'bg-amber-500 hover:bg-amber-400 text-amber-950 shadow-amber-900/50' : 'bg-emerald-500 hover:bg-emerald-400 text-emerald-950 shadow-emerald-900/50'}`}
                             >
-                                PAGAR (F9)
+                                {isQuoteMode ? 'GUARDAR (F9)' : 'PAGAR (F9)'}
                             </button>
                         </div>
                     </div>
@@ -668,6 +819,18 @@ const POSMainScreen: React.FC = () => {
                     </div>
                 </div>
             )}
+            {isScannerOpen && (
+                <CameraScanner
+                    onScan={handleScan}
+                    onClose={() => setIsScannerOpen(false)}
+                />
+            )}
+
+            <TransactionHistoryModal
+                isOpen={isHistoryModalOpen}
+                onClose={() => setIsHistoryModalOpen(false)}
+            />
+
             <CustomerSelectModal
                 isOpen={isCustomerSelectModalOpen}
                 onClose={() => setIsCustomerSelectModalOpen(false)}

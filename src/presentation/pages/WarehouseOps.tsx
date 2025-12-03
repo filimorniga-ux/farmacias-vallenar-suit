@@ -263,38 +263,38 @@ export const WarehouseOps = () => {
 
             {/* Tabs */}
             <div className="border-b border-gray-200">
-                <MobileActionScroll>
+                <MobileActionScroll className="snap-mandatory pb-1">
                     <button
                         onClick={() => setActiveTab('INBOUND')}
-                        className={`pb-3 px-4 font-bold text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${activeTab === 'INBOUND' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                        className={`flex-none min-w-[40%] snap-center pb-3 px-4 font-bold text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${activeTab === 'INBOUND' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
                     >
                         <ArrowRight className="w-4 h-4 rotate-90" />
                         Recepción
                     </button>
                     <button
                         onClick={() => setActiveTab('OUTBOUND')}
-                        className={`pb-3 px-4 font-bold text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${activeTab === 'OUTBOUND' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                        className={`flex-none min-w-[40%] snap-center pb-3 px-4 font-bold text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${activeTab === 'OUTBOUND' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
                     >
                         <ArrowRight className="w-4 h-4 -rotate-90" />
                         Despacho
                     </button>
                     <button
                         onClick={() => setActiveTab('TRANSIT')}
-                        className={`pb-3 px-4 font-bold text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${activeTab === 'TRANSIT' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                        className={`flex-none min-w-[40%] snap-center pb-3 px-4 font-bold text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${activeTab === 'TRANSIT' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
                     >
                         <Truck className="w-4 h-4" />
                         En Tránsito
                     </button>
                     <button
                         onClick={() => setActiveTab('SUPPLIER_ORDERS')}
-                        className={`pb-3 px-4 font-bold text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${activeTab === 'SUPPLIER_ORDERS' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                        className={`flex-none min-w-[40%] snap-center pb-3 px-4 font-bold text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${activeTab === 'SUPPLIER_ORDERS' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
                     >
                         <ShoppingCart className="w-4 h-4" />
                         Pedidos Proveedor
                     </button>
                     <button
                         onClick={() => setActiveTab('REVERSE')}
-                        className={`pb-3 px-4 font-bold text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${activeTab === 'REVERSE' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                        className={`flex-none min-w-[40%] snap-center pb-3 px-4 font-bold text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${activeTab === 'REVERSE' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
                     >
                         <RotateCcw className="w-4 h-4" />
                         Devoluciones

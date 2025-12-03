@@ -194,6 +194,38 @@ export interface SaleTransaction {
     dte_status?: 'CONFIRMED_DTE' | 'FISCALIZED_BY_VOUCHER';
     dte_folio?: string; // Folio Boleta o N/A
     branch_id?: string; // Added for location tracking
+    shift_id?: string; // Linked to a specific shift
+}
+
+// --- POS & Turnos ---
+export interface Terminal {
+    id: string;
+    name: string;
+    location_id: string;
+    status: 'OPEN' | 'CLOSED';
+}
+
+export interface Shift {
+    id: string;
+    terminal_id: string;
+    user_id: string; // The cashier
+    authorized_by: string; // The manager
+    start_time: number;
+    end_time?: number;
+    opening_amount: number;
+    closing_amount?: number;
+    difference?: number;
+    status: 'ACTIVE' | 'CLOSED';
+}
+
+export interface Quote {
+    id: string; // COT-123456
+    created_at: number;
+    expires_at: number;
+    customer_id?: string;
+    total_amount: number;
+    status: 'ACTIVE' | 'CONVERTED' | 'EXPIRED';
+    items: CartItem[];
 }
 
 // --- Cadena de Suministro ---

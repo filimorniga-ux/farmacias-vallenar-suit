@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, ScanBarcode, Save, Package, Calendar, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { X, ScanBarcode, Save, Package, Calendar, AlertTriangle, CheckCircle2, Camera } from 'lucide-react';
 import { InventoryBatch } from '../../../domain/types';
 import { usePharmaStore } from '../../store/useStore';
 import { toast } from 'sonner';
+import CameraScanner from '../ui/CameraScanner';
 
 interface StockEntryModalProps {
     isOpen: boolean;
@@ -32,6 +33,8 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
         unit_format_string: 'Unidad'
     });
 
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
+
     const scanInputRef = useRef<HTMLInputElement>(null);
     const lotInputRef = useRef<HTMLInputElement>(null);
     const expiryInputRef = useRef<HTMLInputElement>(null);
@@ -42,6 +45,22 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
             resetFlow();
         }
     }, [isOpen]);
+
+    const handleCameraScan = (decodedText: string) => {
+        setScannedSku(decodedText);
+        const product = inventory.find(p => p.sku === decodedText);
+        if (product) {
+            setSelectedProduct(product);
+            setStep('DETAILS');
+            setTimeout(() => lotInputRef.current?.focus(), 100);
+            toast.success('Producto Identificado');
+        } else {
+            setNewProductData(prev => ({ ...prev, sku: decodedText }));
+            setStep('NEW_PRODUCT');
+            toast.info('Producto Nuevo Detectado');
+        }
+        setIsScannerOpen(false);
+    };
 
     const resetFlow = () => {
         setStep('SCAN');
@@ -157,10 +176,10 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
             stock_max: Number(newProductData.stock_max) || 100,
             expiry_date: expiryTimestamp,
             lot_number: lot || 'S/L', // Initial Lot
-            
+
             location_id: 'BODEGA_CENTRAL', // Default
             aisle: newProductData.aisle || '',
-            
+
             condition: (newProductData.condition as any) || 'VD',
             category: newProductData.category || 'MEDICAMENTO',
             allows_commission: false,
@@ -235,7 +254,22 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
                                     <ScanBarcode size={20} />
                                 </button>
                             </form>
+
+                            <button
+                                onClick={() => setIsScannerOpen(true)}
+                                className="mt-6 md:hidden flex items-center gap-2 bg-slate-900 text-white px-6 py-3 rounded-full font-bold shadow-lg active:scale-95 transition-transform"
+                            >
+                                <Camera size={20} />
+                                Escanear con Cámara
+                            </button>
                         </div>
+                    )}
+
+                    {isScannerOpen && (
+                        <CameraScanner
+                            onScan={handleCameraScan}
+                            onClose={() => setIsScannerOpen(false)}
+                        />
                     )}
 
                     {step === 'DETAILS' && selectedProduct && (
@@ -300,7 +334,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
 
                     {step === 'NEW_PRODUCT' && (
                         <form onSubmit={handleNewProductSave} className="space-y-6">
-                            
+
                             {/* SECTION A: Identificación y Norma */}
                             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
                                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">

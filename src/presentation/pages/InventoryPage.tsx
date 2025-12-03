@@ -121,22 +121,22 @@ const InventoryPage: React.FC = () => {
                     </MobileActionScroll>
                 </header>
 
-                <div className="flex gap-0 border-b border-slate-200 mb-6">
+                <div className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide border-b border-slate-200 mb-6 pb-1">
                     <button
                         onClick={() => setActiveTab('MEDS')}
-                        className={`flex-1 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'MEDS' ? 'border-cyan-500 text-cyan-700 bg-cyan-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                        className={`flex-none min-w-[45%] md:min-w-0 md:flex-1 snap-center py-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-4 ${activeTab === 'MEDS' ? 'border-cyan-500 text-cyan-700 bg-cyan-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
                         💊 MEDICAMENTOS
                     </button>
                     <button
                         onClick={() => setActiveTab('RETAIL')}
-                        className={`flex-1 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'RETAIL' ? 'border-pink-500 text-pink-700 bg-pink-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                        className={`flex-none min-w-[45%] md:min-w-0 md:flex-1 snap-center py-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-4 ${activeTab === 'RETAIL' ? 'border-pink-500 text-pink-700 bg-pink-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
                         🛍️ RETAIL
                     </button>
                     <button
                         onClick={() => setActiveTab('CONTROLLED')}
-                        className={`flex-1 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'CONTROLLED' ? 'border-purple-500 text-purple-700 bg-purple-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                        className={`flex-none min-w-[45%] md:min-w-0 md:flex-1 snap-center py-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-4 ${activeTab === 'CONTROLLED' ? 'border-purple-500 text-purple-700 bg-purple-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
                         🔒 CONTROLADOS
                     </button>
