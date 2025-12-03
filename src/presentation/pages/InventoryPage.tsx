@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { usePharmaStore } from '../store/useStore';
 import { Search, Filter, Plus, ArrowRightLeft, Package, AlertTriangle, Snowflake, Lock, Pill, Trash2, Edit, FileSpreadsheet } from 'lucide-react';
@@ -30,13 +30,25 @@ const InventoryPage: React.FC = () => {
         critical: false
     });
 
+    // Mobile Detection
+    const [isMobile, setIsMobile] = useState(false);
+
+    useEffect(() => {
+        const checkMobile = () => setIsMobile(window.innerWidth < 768);
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
+
     const filteredInventory = useMemo(() => {
+        if (!inventory) return [];
         return inventory.filter(item => {
             // 1. Text Search
+            const term = searchTerm.toLowerCase();
             const matchesSearch =
-                (item.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (item.sku || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (item.dci || '').toLowerCase().includes(searchTerm.toLowerCase());
+                (item.name || '').toLowerCase().includes(term) ||
+                (item.sku || '').toLowerCase().includes(term) ||
+                (item.dci || '').toLowerCase().includes(term);
 
             if (!matchesSearch) return false;
 
@@ -69,19 +81,20 @@ const InventoryPage: React.FC = () => {
     // Virtualization
     const parentRef = React.useRef<HTMLDivElement>(null);
 
-    const tableVirtualizer = useVirtualizer({
+    const rowVirtualizer = useVirtualizer({
         count: filteredInventory.length,
         getScrollElement: () => parentRef.current,
-        estimateSize: () => 60, // Tuned for performance
+        estimateSize: () => isMobile ? 220 : 60, // Dynamic height based on view
         overscan: 5,
     });
 
-    const cardVirtualizer = useVirtualizer({
-        count: filteredInventory.length,
-        getScrollElement: () => parentRef.current,
-        estimateSize: () => 200, // Approximate card height
-        overscan: 5,
-    });
+    if (!inventory) {
+        return (
+            <div className="h-screen flex items-center justify-center bg-slate-50">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600"></div>
+            </div>
+        );
+    }
 
     return (
         <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
@@ -177,52 +190,115 @@ const InventoryPage: React.FC = () => {
             >
                 <div className="bg-transparent md:bg-white md:rounded-3xl md:shadow-sm md:border border-slate-200 overflow-hidden min-h-full relative">
 
-                    {/* Desktop Table */}
-                    <div className="overflow-x-auto hidden md:block">
-                        <table className="w-full text-left">
-                            <thead className="bg-slate-50 text-slate-500 font-bold text-xs uppercase tracking-wider sticky top-0 z-10 shadow-sm">
-                                <tr>
-                                    <th className="p-4 bg-slate-50">Producto</th>
-                                    <th className="p-4 bg-slate-50">Detalle</th>
-                                    <th className="p-4 bg-slate-50">Atributos</th>
-                                    <th className="p-4 bg-slate-50">Stock</th>
-                                    <th className="p-4 text-right bg-slate-50">Precio</th>
-                                    <th className="p-4 text-center bg-slate-50">Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 text-sm">
-                                {tableVirtualizer.getVirtualItems().length > 0 && (
-                                    <tr>
-                                        <td style={{ height: `${tableVirtualizer.getVirtualItems()[0].start}px` }} colSpan={6} />
-                                    </tr>
-                                )}
-                                {tableVirtualizer.getVirtualItems().map(virtualRow => {
-                                    const item = filteredInventory[virtualRow.index];
-                                    return (
-                                        <tr
-                                            key={item.id}
-                                            ref={tableVirtualizer.measureElement}
-                                            data-index={virtualRow.index}
-                                            className="hover:bg-slate-50 transition group"
-                                        >
-                                            <td className="p-4">
-                                                <div className="font-bold text-slate-800 text-lg">{item.name}</div>
-                                                <div className="text-sm text-slate-500 font-bold">{item.dci}</div>
-                                                <div className="text-xs text-slate-400 font-mono mt-1">{item.sku}</div>
-                                            </td>
-                                            <td className="p-4">
-                                                <div className="text-sm font-bold text-slate-700">{item.laboratory}</div>
+                    {/* Unified Virtualizer Container */}
+                    <div
+                        style={{
+                            height: `${rowVirtualizer.getTotalSize()}px`,
+                            width: '100%',
+                            position: 'relative',
+                        }}
+                    >
+                        {/* Header for Desktop Table */}
+                        {!isMobile && (
+                            <div className="sticky top-0 z-10 bg-slate-50 text-slate-500 font-bold text-xs uppercase tracking-wider shadow-sm flex border-b border-slate-200">
+                                <div className="p-4 w-[30%]">Producto</div>
+                                <div className="p-4 w-[20%]">Detalle</div>
+                                <div className="p-4 w-[15%]">Atributos</div>
+                                <div className="p-4 w-[15%]">Stock</div>
+                                <div className="p-4 w-[10%] text-right">Precio</div>
+                                <div className="p-4 w-[10%] text-center">Acciones</div>
+                            </div>
+                        )}
+
+                        {rowVirtualizer.getVirtualItems().map(virtualRow => {
+                            const item = filteredInventory[virtualRow.index];
+                            const isLastItem = virtualRow.index === filteredInventory.length - 1;
+
+                            return (
+                                <div
+                                    key={item.id}
+                                    data-index={virtualRow.index}
+                                    ref={rowVirtualizer.measureElement}
+                                    className={`absolute top-0 left-0 w-full ${!isMobile ? 'hover:bg-slate-50 transition group border-b border-slate-100' : 'px-1 pb-4'}`}
+                                    style={{
+                                        transform: `translateY(${virtualRow.start + (!isMobile ? 48 : 0)}px)`, // Offset for header in desktop
+                                    }}
+                                >
+                                    {isMobile ? (
+                                        // MOBILE CARD VIEW (Safe Rendering)
+                                        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col gap-3 h-full">
+                                            {/* Header */}
+                                            <div className="flex justify-between items-start">
+                                                <div>
+                                                    <h3 className="font-bold text-slate-800 text-lg">{item.name || 'Sin Nombre'}</h3>
+                                                    <p className="text-xs text-slate-500 font-mono">{item.sku || '---'}</p>
+                                                    <p className="text-xs text-slate-400">{item.laboratory || 'Laboratorio N/A'}</p>
+                                                </div>
+                                                <div className="flex gap-1 flex-wrap justify-end max-w-[100px]">
+                                                    {item.is_bioequivalent && <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-[10px] font-bold">BIO</span>}
+                                                    {item.storage_condition === 'REFRIGERADO' && <span className="px-2 py-1 bg-cyan-100 text-cyan-700 rounded-lg text-[10px] font-bold">FRIO</span>}
+                                                    {['R', 'RR', 'RCH'].includes(item.condition) && <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-lg text-[10px] font-bold">RET</span>}
+                                                </div>
+                                            </div>
+
+                                            {/* Body */}
+                                            <div className="grid grid-cols-2 gap-4 py-3 border-y border-slate-50">
+                                                <div>
+                                                    <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Stock</p>
+                                                    <p className={`text-2xl font-bold ${item.stock_actual <= (item.stock_min || 5) ? 'text-red-600' : 'text-slate-800'}`}>
+                                                        {item.stock_actual || 0}
+                                                    </p>
+                                                    <p className="text-[10px] text-slate-400">Min: {item.stock_min || 5}</p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Precio</p>
+                                                    <p className="text-2xl font-bold text-slate-800">
+                                                        ${(item.price_sell_box || item.price || 0).toLocaleString()}
+                                                    </p>
+                                                    <p className="text-[10px] text-slate-400">
+                                                        Unit: ${(item.price_sell_unit ? item.price_sell_unit : Math.round((item.price_sell_box || item.price || 0) / (item.units_per_box || item.unit_count || 1))).toLocaleString()}
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            {/* Footer Actions */}
+                                            <div className="flex gap-3 mt-1">
+                                                {canManageInventory && (
+                                                    <button
+                                                        onClick={() => { setEditingItem(item); setIsEditModalOpen(true); }}
+                                                        className="flex-1 h-12 bg-blue-50 text-blue-600 font-bold rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-transform"
+                                                    >
+                                                        <Edit size={20} /> Editar
+                                                    </button>
+                                                )}
+                                                {canDelete && (
+                                                    <button className="h-12 w-12 bg-slate-50 text-slate-400 rounded-xl flex items-center justify-center hover:text-red-600 hover:bg-red-50 active:scale-95 transition-all">
+                                                        <Trash2 size={20} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        // DESKTOP ROW VIEW
+                                        <div className="flex items-center w-full">
+                                            <div className="p-4 w-[30%]">
+                                                <div className="font-bold text-slate-800 text-lg">{item.name || 'Sin Nombre'}</div>
+                                                <div className="text-sm text-slate-500 font-bold">{item.dci || ''}</div>
+                                                <div className="text-xs text-slate-400 font-mono mt-1">{item.sku || '---'}</div>
+                                            </div>
+                                            <div className="p-4 w-[20%]">
+                                                <div className="text-sm font-bold text-slate-700">{item.laboratory || '---'}</div>
                                                 <div className="text-xs text-slate-500 font-mono">{item.isp_register || 'SIN REGISTRO'}</div>
-                                                <div className="text-xs text-slate-400 mt-1">{item.format} x{item.units_per_box || item.unit_count || 1}</div>
-                                            </td>
-                                            <td className="p-4">
+                                                <div className="text-xs text-slate-400 mt-1">{item.format || ''} x{item.units_per_box || item.unit_count || 1}</div>
+                                            </div>
+                                            <div className="p-4 w-[15%]">
                                                 <div className="flex gap-1 flex-wrap">
                                                     {item.is_bioequivalent && <span title="Bioequivalente" className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-xs font-bold border border-emerald-200">BIO</span>}
                                                     {item.storage_condition === 'REFRIGERADO' && <span title="Cadena de Frío" className="px-2 py-1 bg-cyan-100 text-cyan-700 rounded-lg text-xs font-bold border border-cyan-200">FRIO</span>}
                                                     {['R', 'RR', 'RCH'].includes(item.condition) && <span title="Receta Retenida" className="px-2 py-1 bg-purple-100 text-purple-700 rounded-lg text-xs font-bold border border-purple-200">RET</span>}
                                                 </div>
-                                            </td>
-                                            <td className="p-4">
+                                            </div>
+                                            <div className="p-4 w-[15%]">
                                                 <div className="flex flex-col items-start">
                                                     <span className={`text-lg font-bold ${item.stock_actual <= (item.stock_min || 5) ? 'text-red-600' : 'text-slate-800'}`}>
                                                         {item.stock_actual} un.
@@ -234,8 +310,8 @@ const InventoryPage: React.FC = () => {
                                                         Vence: {new Date(item.expiry_date).toLocaleDateString()}
                                                     </span>
                                                 </div>
-                                            </td>
-                                            <td className="p-4 text-right">
+                                            </div>
+                                            <div className="p-4 w-[10%] text-right">
                                                 <div className="flex flex-col items-end">
                                                     <span className="font-bold text-slate-800 text-lg">${(item.price_sell_box || item.price || 0).toLocaleString()}</span>
                                                     <span className="text-xs font-bold text-slate-400">
@@ -247,8 +323,8 @@ const InventoryPage: React.FC = () => {
                                                         </span>
                                                     )}
                                                 </div>
-                                            </td>
-                                            <td className="p-4">
+                                            </div>
+                                            <div className="p-4 w-[10%]">
                                                 <div className="flex items-center justify-center gap-2">
                                                     {canManageInventory && (
                                                         <button
@@ -264,90 +340,9 @@ const InventoryPage: React.FC = () => {
                                                         </button>
                                                     )}
                                                 </div>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                                {tableVirtualizer.getVirtualItems().length > 0 && (
-                                    <tr>
-                                        <td style={{ height: `${tableVirtualizer.getTotalSize() - tableVirtualizer.getVirtualItems()[tableVirtualizer.getVirtualItems().length - 1].end}px` }} colSpan={6} />
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-
-                    {/* Mobile Cards */}
-                    <div
-                        className="md:hidden relative"
-                        style={{
-                            height: `${cardVirtualizer.getTotalSize()}px`,
-                            width: '100%',
-                        }}
-                    >
-                        {cardVirtualizer.getVirtualItems().map(virtualRow => {
-                            const item = filteredInventory[virtualRow.index];
-                            return (
-                                <div
-                                    key={item.id}
-                                    className="absolute w-full px-1 pb-4"
-                                    style={{
-                                        height: `${virtualRow.size}px`,
-                                        transform: `translateY(${virtualRow.start}px)`,
-                                    }}
-                                >
-                                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col gap-3 h-full">
-                                        {/* Header */}
-                                        <div className="flex justify-between items-start">
-                                            <div>
-                                                <h3 className="font-bold text-slate-800 text-lg">{item.name}</h3>
-                                                <p className="text-xs text-slate-500 font-mono">{item.sku}</p>
-                                                <p className="text-xs text-slate-400">{item.laboratory}</p>
-                                            </div>
-                                            <div className="flex gap-1 flex-wrap justify-end max-w-[100px]">
-                                                {item.is_bioequivalent && <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-[10px] font-bold">BIO</span>}
-                                                {item.storage_condition === 'REFRIGERADO' && <span className="px-2 py-1 bg-cyan-100 text-cyan-700 rounded-lg text-[10px] font-bold">FRIO</span>}
-                                                {['R', 'RR', 'RCH'].includes(item.condition) && <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-lg text-[10px] font-bold">RET</span>}
                                             </div>
                                         </div>
-
-                                        {/* Body */}
-                                        <div className="grid grid-cols-2 gap-4 py-3 border-y border-slate-50">
-                                            <div>
-                                                <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Stock</p>
-                                                <p className={`text-2xl font-bold ${item.stock_actual <= (item.stock_min || 5) ? 'text-red-600' : 'text-slate-800'}`}>
-                                                    {item.stock_actual}
-                                                </p>
-                                                <p className="text-[10px] text-slate-400">Min: {item.stock_min || 5}</p>
-                                            </div>
-                                            <div className="text-right">
-                                                <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Precio</p>
-                                                <p className="text-2xl font-bold text-slate-800">
-                                                    ${(item.price_sell_box || item.price || 0).toLocaleString()}
-                                                </p>
-                                                <p className="text-[10px] text-slate-400">
-                                                    Unit: ${(item.price_sell_unit ? item.price_sell_unit : Math.round((item.price_sell_box || item.price || 0) / (item.units_per_box || item.unit_count || 1))).toLocaleString()}
-                                                </p>
-                                            </div>
-                                        </div>
-
-                                        {/* Footer Actions */}
-                                        <div className="flex gap-3 mt-1">
-                                            {canManageInventory && (
-                                                <button
-                                                    onClick={() => { setEditingItem(item); setIsEditModalOpen(true); }}
-                                                    className="flex-1 h-12 bg-blue-50 text-blue-600 font-bold rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-transform"
-                                                >
-                                                    <Edit size={20} /> Editar
-                                                </button>
-                                            )}
-                                            {canDelete && (
-                                                <button className="h-12 w-12 bg-slate-50 text-slate-400 rounded-xl flex items-center justify-center hover:text-red-600 hover:bg-red-50 active:scale-95 transition-all">
-                                                    <Trash2 size={20} />
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
+                                    )}
                                 </div>
                             );
                         })}
