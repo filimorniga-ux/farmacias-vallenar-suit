@@ -11,7 +11,7 @@ interface CashManagementModalProps {
 }
 
 const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClose }) => {
-    const { currentShift, openShift, closeShift, registerCashMovement, getShiftMetrics } = usePharmaStore();
+    const { currentShift, openShift, closeShift, registerCashMovement, getShiftMetrics, user } = usePharmaStore();
     const [activeTab, setActiveTab] = useState<'OPENING' | 'EXPENSE' | 'CLOSING'>('OPENING');
 
     // Security State
@@ -35,7 +35,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
 
     useEffect(() => {
         if (isOpen) {
-            if (!currentShift || currentShift.status === 'CLOSED') {
+            if (!currentShift || currentShift.status !== 'ACTIVE') {
                 setActiveTab('OPENING');
                 setIsAuditVisible(false);
             } else {
@@ -47,7 +47,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
     }, [isOpen, currentShift]);
 
     useEffect(() => {
-        if (currentShift?.status === 'OPEN') {
+        if (currentShift?.status === 'ACTIVE') {
             const interval = setInterval(() => {
                 setMetrics(getShiftMetrics());
             }, 1000); // Update metrics every second
@@ -78,7 +78,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
     const handleSupervisorAuthorize = (authorizedBy: string) => {
         if (supervisorAction === 'OPEN') {
             const amount = parseInt(openingAmount);
-            openShift(amount, authorizedBy);
+            openShift(amount, user?.id || 'UNKNOWN', authorizedBy);
             setActiveTab('EXPENSE');
         } else if (supervisorAction === 'CLOSE') {
             const amount = parseInt(closingAmount);
@@ -138,7 +138,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                     Gestión de Caja
                                 </h2>
                                 <p className="text-sm text-slate-500">
-                                    {currentShift?.status === 'OPEN' ? `Turno #${currentShift.shiftNumber} - Abierto` : 'Caja Cerrada'}
+                                    {currentShift?.status === 'ACTIVE' ? `Turno #${currentShift.id.slice(-6)} - Abierto` : 'Caja Cerrada'}
                                 </p>
                             </div>
                             <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
@@ -147,7 +147,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                         </div>
 
                         {/* Tabs (Only visible if shift is open) */}
-                        {currentShift?.status === 'OPEN' && (
+                        {currentShift?.status === 'ACTIVE' && (
                             <div className="flex border-b border-gray-100">
                                 <button
                                     onClick={() => setActiveTab('EXPENSE')}
