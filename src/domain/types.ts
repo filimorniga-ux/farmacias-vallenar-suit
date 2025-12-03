@@ -383,7 +383,7 @@ export interface Expense {
 
 // --- Gestión de Caja (Cash Flow) ---
 export type CashMovementType = 'IN' | 'OUT';
-export type CashMovementReason = 'SUPPLIES' | 'SERVICES' | 'WITHDRAWAL' | 'OTHER' | 'INITIAL_FUND' | 'OTHER_INCOME' | 'SALARY_ADVANCE';
+export type CashMovementReason = 'SUPPLIES' | 'SERVICES' | 'WITHDRAWAL' | 'OTHER' | 'INITIAL_FUND' | 'OTHER_INCOME' | 'SALARY_ADVANCE' | 'CHANGE' | 'OWNER_CONTRIBUTION';
 
 export interface CashMovement {
     id: string;

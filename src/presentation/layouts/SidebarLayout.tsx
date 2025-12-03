@@ -76,10 +76,9 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                 )}
             </AnimatePresence>
 
-            {/* Sidebar */}
-            <aside className={`fixed inset-y-0 left-0 z-50 bg-white border-r border-slate-100 transform transition-all duration-300 ease-in-out 
-                ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} 
-                md:relative md:translate-x-0 shadow-2xl md:shadow-none
+            {/* Sidebar - Hidden on Mobile/Tablet (< lg) */}
+            <aside className={`hidden lg:flex fixed inset-y-0 left-0 z-50 bg-white border-r border-slate-100 flex-col transition-all duration-300 ease-in-out 
+                lg:relative shadow-none
                 ${isCollapsed ? 'w-20' : 'w-72'}
             `}>
                 <div className={`p-6 flex items-center mb-2 ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
@@ -172,18 +171,15 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
             {/* Main Content */}
             <main className="flex-1 flex flex-col h-full overflow-hidden relative pb-20 md:pb-0 bg-slate-50/50">
                 {/* Mobile Header */}
-                <header className="md:hidden bg-white p-4 shadow-sm flex justify-between items-center z-40 border-b border-slate-100 sticky top-0">
+                <header className="lg:hidden bg-white p-4 shadow-sm flex justify-between items-center z-40 border-b border-slate-100 sticky top-0">
                     <div className="flex items-center gap-3">
-                        <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 -ml-2 text-slate-600 hover:bg-slate-50 rounded-full transition-colors">
-                            <Menu size={24} />
-                        </button>
                         <span className="font-bold text-slate-800">Farmacias Vallenar</span>
                     </div>
                     <LocationSelector />
                 </header>
 
                 {/* Desktop Header with Location Selector */}
-                <header className="hidden md:flex bg-white/80 backdrop-blur-md px-8 py-4 border-b border-slate-100 justify-end items-center z-40 gap-4">
+                <header className="hidden lg:flex bg-white/80 backdrop-blur-md px-8 py-4 border-b border-slate-100 justify-end items-center z-40 gap-4">
                     <NotificationCenter />
                     <LocationSelector />
                 </header>

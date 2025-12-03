@@ -112,6 +112,7 @@ interface PharmaState {
         totalOutflows: number;
         expectedCash: number;
     };
+    processReturn: (saleId: string, reason: string, authorizedBy: string) => void;
 
     // Attendance & HR
     attendanceLogs: AttendanceLog[];
@@ -823,6 +824,54 @@ export const usePharmaStore = create<PharmaState>()(
                     transferCount: transferSalesList.length
                 };
             },
+
+            processReturn: (saleId, reason, authorizedBy) => set((state) => {
+                const sale = state.salesHistory.find(s => s.id === saleId);
+                if (!sale) return state;
+
+                // 1. Create Refund Transaction (Negative)
+                const refundTransaction: SaleTransaction = {
+                    ...sale,
+                    id: `REF-${Date.now()}`,
+                    timestamp: Date.now(),
+                    total: -sale.total, // Negative amount
+                    items: sale.items.map(item => ({ ...item, quantity: -item.quantity })), // Negative quantities
+                    payment_method: 'CASH', // Usually refunds are cash, or match original
+                    // status: 'COMPLETED', // Removed as it's not in SaleTransaction
+                    dte_status: undefined // Set to undefined instead of 'NOT_SENT'
+                };
+
+                // 2. Register Cash Movement (Outflow)
+                const refundMovement: CashMovement = {
+                    id: `MOV-${Date.now()}`,
+                    shift_id: state.currentShift?.id || 'CLOSED',
+                    user_id: authorizedBy, // Manager authorizing
+                    type: 'OUT',
+                    amount: sale.total,
+                    reason: 'OTHER',
+                    description: `Devolución Venta #${sale.id}: ${reason}`,
+                    timestamp: Date.now(),
+                    is_cash: true
+                };
+
+                // 3. Restore Inventory
+                const updatedInventory = [...state.inventory];
+                sale.items.forEach(item => {
+                    const productIndex = updatedInventory.findIndex(p => p.id === item.batch_id);
+                    if (productIndex !== -1) {
+                        updatedInventory[productIndex] = {
+                            ...updatedInventory[productIndex],
+                            stock_actual: updatedInventory[productIndex].stock_actual + item.quantity
+                        };
+                    }
+                });
+
+                return {
+                    salesHistory: [refundTransaction, ...state.salesHistory],
+                    cashMovements: [refundMovement, ...state.cashMovements],
+                    inventory: updatedInventory
+                };
+            }),
 
             // --- Attendance ---
             attendanceLogs: [],
