@@ -30,3 +30,5 @@ release/
 *.exe
 *.dmg
 *.zip
+.vercel
+.env*.local
