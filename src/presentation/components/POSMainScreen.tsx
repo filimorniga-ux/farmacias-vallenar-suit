@@ -664,10 +664,10 @@ const POSMainScreen: React.FC = () => {
                                                             </div>
                                                         </td>
                                                         <td className="p-4">
-                                                            <div className="flex items-center justify-center bg-slate-100 rounded-lg border border-slate-200 w-fit mx-auto">
+                                                            <div className="flex items-center gap-1 w-fit mx-auto">
                                                                 <button
                                                                     onClick={() => updateCartItemQuantity(item.sku, item.quantity - 1)}
-                                                                    className="p-2 hover:bg-slate-200 rounded-l-lg text-slate-600 disabled:opacity-50"
+                                                                    className="w-8 h-8 flex items-center justify-center bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 disabled:opacity-50 border border-slate-200"
                                                                     disabled={item.quantity <= 1}
                                                                 >
                                                                     <Minus size={16} />
@@ -676,11 +676,11 @@ const POSMainScreen: React.FC = () => {
                                                                     type="number"
                                                                     value={item.quantity}
                                                                     onChange={(e) => updateCartItemQuantity(item.sku, parseInt(e.target.value) || 1)}
-                                                                    className="w-12 text-center bg-transparent font-mono font-bold text-slate-800 outline-none text-lg appearance-none m-0"
+                                                                    className="w-16 h-8 text-center bg-white font-bold text-lg border border-slate-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none p-0"
                                                                 />
                                                                 <button
                                                                     onClick={() => updateCartItemQuantity(item.sku, item.quantity + 1)}
-                                                                    className="p-2 hover:bg-slate-200 rounded-r-lg text-slate-600"
+                                                                    className="w-8 h-8 flex items-center justify-center bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 border border-slate-200"
                                                                 >
                                                                     <Plus size={16} />
                                                                 </button>
