@@ -44,9 +44,20 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
     const [now] = useState(() => Date.now()); // Stable reference for render
     const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
 
+
     // Initial State Setup (Handled by Remounting)
     useEffect(() => {
-        console.log("WMS Inventory Count:", inventory.length); // Debug log
+        console.log("═══════════════════════════════════════");
+        console.log("🔍 WMS DEBUG - Inventory Count:", inventory.length);
+        if (inventory.length > 0) {
+            console.log("📦 WMS DEBUG - First 3 products:", inventory.slice(0, 3).map(i => ({
+                sku: i.sku,
+                name: i.name,
+                location_id: i.location_id,
+                stock: i.stock_actual
+            })));
+        }
+        console.log("═══════════════════════════════════════");
         // Focus scanner on mount
         if (isOpen) {
             setTimeout(() => scannerInputRef.current?.focus(), 100);
@@ -88,38 +99,51 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
     };
 
     const handleScan = (code: string) => {
-        // Find product globally
-        const matchingBatches = originInventory.filter(i => i.sku === code || i.id === code);
+        console.log("🎯 handleScan called with code:", code);
+
+        // Search in GLOBAL inventory (not filtered by origin)
+        const matchingBatches = inventory.filter(i => i.sku === code || i.id === code);
+        console.log("📦 Matching batches found:", matchingBatches.length);
 
         if (matchingBatches.length > 0) {
-            // Prioritize batch in current location if exists, otherwise pick any to show product info
-            const bestBatch = matchingBatches.find(b => b.location_id === originId) || matchingBatches[0];
+            // Use first batch with stock (from ANY location)
+            const bestBatch = matchingBatches.find(b => b.stock_actual > 0) || matchingBatches[0];
+            console.log("✅ Best batch selected:", {
+                name: bestBatch.name,
+                sku: bestBatch.sku,
+                location: bestBatch.location_id,
+                stock: bestBatch.stock_actual
+            });
 
-            // Calculate stock specifically for the origin location
-            const stockInOrigin = matchingBatches
-                .filter(b => b.location_id === originId)
-                .reduce((sum, b) => sum + b.stock_actual, 0);
+            // Calculate TOTAL stock across ALL locations
+            const totalStock = matchingBatches.reduce((sum, b) => sum + b.stock_actual, 0);
+
+            console.log("📊 Total stock (all locations):", totalStock);
+            console.log("📍 This batch stock:", bestBatch.stock_actual);
 
             const existing = selectedItems.find(i => i.sku === bestBatch.sku);
 
             if (existing) {
-                if (mode === 'PURCHASE' || existing.quantity < stockInOrigin) {
+                console.log("🔄 Product already in cart, updating quantity");
+                if (existing.quantity < totalStock) {
                     handleUpdateQuantity(existing.batchId, existing.quantity + 1);
                     playBeep();
                     toast.success(`+1 ${bestBatch.name}`);
                 } else {
-                    toast.error(`Stock insuficiente en origen (Max: ${stockInOrigin})`);
+                    toast.error(`Stock insuficiente (Max: ${totalStock})`);
                 }
             } else {
-                if (mode === 'PURCHASE' || stockInOrigin > 0) {
-                    handleAddItem(bestBatch, stockInOrigin); // Pass calculated stock
+                console.log("➕ Adding new product to cart");
+                if (bestBatch.stock_actual > 0) {
+                    handleAddItem(bestBatch, bestBatch.stock_actual);
                     playBeep();
-                    toast.success(`Agregado: ${bestBatch.name}`);
+                    toast.success(`Agregado: ${bestBatch.name} desde ${bestBatch.location_id}`);
                 } else {
-                    toast.error(`Producto sin stock en ${originId}`);
+                    toast.error(`Producto sin stock disponible`);
                 }
             }
         } else {
+            console.error("❌ Product not found for code:", code);
             toast.error(`Producto no encontrado: ${code}`);
         }
     };
@@ -408,7 +432,19 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
                                         placeholder="Escanea aquí..."
                                         className="w-full px-6 py-4 rounded-xl border-2 border-white/30 bg-white/10 text-white placeholder-white/50 shadow-inner focus:ring-4 focus:ring-white/30 focus:border-white text-2xl font-mono text-center outline-none transition-all backdrop-blur-sm"
                                         autoFocus
-                                        onBlur={(e) => e.target.focus()}
+                                        onChange={(e) => {
+                                            console.log("📡 Scanner input changed:", e.target.value);
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                const code = e.currentTarget.value.trim();
+                                                console.log("🔴 Scanner ENTER pressed with code:", code);
+                                                if (code) {
+                                                    handleScan(code);
+                                                    e.currentTarget.value = ''; // Clear after scan
+                                                }
+                                            }
+                                        }}
                                     />
                                     <div className="absolute right-4 top-1/2 -translate-y-1/2 text-white/70 animate-pulse">
                                         <Package size={24} />
@@ -431,10 +467,27 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
                                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                                                 <input
                                                     type="text"
-                                                    placeholder="Buscar por nombre o SKU..."
-                                                    className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"
+                                                    placeholder="🔍 Escanear código o escribir nombre..."
+                                                    className="w-full pl-10 pr-4 py-3 rounded-lg border-2 border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-base"
                                                     value={searchTerm}
-                                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        console.log("🔍 Search input changed:", val);
+                                                        setSearchTerm(val);
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' && searchTerm) {
+                                                            console.log("⌨️ Enter pressed - searching for:", searchTerm);
+                                                            // Simulate scanner behavior: if exact SKU match, add it
+                                                            const exactMatch = inventory.find(i =>
+                                                                i.sku.toLowerCase() === searchTerm.toLowerCase()
+                                                            );
+                                                            if (exactMatch && exactMatch.stock_actual > 0) {
+                                                                handleScan(exactMatch.sku);
+                                                                setSearchTerm('');
+                                                            }
+                                                        }
+                                                    }}
                                                 />
                                             </div>
                                             {/* Camera Scanner Button (Mobile Only) */}
