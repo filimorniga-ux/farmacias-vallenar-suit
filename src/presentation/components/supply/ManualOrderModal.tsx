@@ -107,9 +107,11 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose }) 
 
         if (status === 'SENT') {
             pushNotification({
+                eventType: 'AUTO_ORDER_GENERATED',
+                category: 'STOCK',
+                severity: 'INFO',
                 title: 'Orden de Compra Enviada',
                 message: `Orden ${newOrder.id} enviada a ${selectedSupplier?.fantasy_name}`,
-                type: 'INFO',
                 roleTarget: 'MANAGER'
             });
             toast.success('Orden enviada exitosamente');

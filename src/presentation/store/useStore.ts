@@ -20,10 +20,13 @@ import {
     AttendanceType,
     Shift,
     Terminal,
-    Quote
+    Quote,
+    ReorderConfig,
+    AutoOrderSuggestion
 } from '../../domain/types';
 import { TigerDataService } from '../../domain/services/TigerDataService';
 import { fetchEmployees } from '../../actions/sync';
+import { IntelligentOrderingService } from '../services/intelligentOrderingService';
 import { MOCK_INVENTORY, MOCK_EMPLOYEES, MOCK_SUPPLIERS, MOCK_SHIPMENTS } from '../../domain/mocks';
 
 // --- MOCKS MOVED TO src/domain/mocks.ts ---
@@ -75,7 +78,10 @@ interface PharmaState {
     retrieveQuote: (quoteId: string) => boolean; // Returns true if found and loaded
 
     // Inventory Actions
+    createProduct: (product: Omit<InventoryBatch, 'id'>) => InventoryBatch;
     updateProduct: (id: string, data: Partial<InventoryBatch>) => void;
+    deleteProduct: (id: string) => void;
+    getProductBySKU: (sku: string) => InventoryBatch | undefined;
     updateBatchDetails: (productId: string, batchId: string, data: Partial<InventoryBatch>) => void;
     registerStockMovement: (batchId: string, quantity: number, type: 'SALE' | 'TRANSFER_OUT' | 'TRANSFER_IN' | 'ADJUSTMENT' | 'RECEIPT') => void;
     clearInventory: () => void;
@@ -170,6 +176,14 @@ interface PharmaState {
     createGiftCard: (amount: number) => GiftCard;
     redeemGiftCard: (code: string, amount: number) => boolean;
     getGiftCard: (code: string) => GiftCard | undefined;
+
+    // Intelligent Ordering (Phase 3)
+    reorderConfigs: ReorderConfig[];
+    setReorderConfig: (config: ReorderConfig) => void;
+    getReorderConfig: (sku: string, locationId: string) => ReorderConfig | undefined;
+    getSalesHistory: (sku: string, locationId: string, days: number) => { total: number; daily_avg: number };
+    analyzeReorderNeeds: (locationId: string, analysisDays?: number) => AutoOrderSuggestion[];
+    generateSuggestedPOs: (suggestions: AutoOrderSuggestion[]) => PurchaseOrder[];
 }
 
 
@@ -279,6 +293,7 @@ export const usePharmaStore = create<PharmaState>()(
             suppliers: MOCK_SUPPLIERS,
             supplierDocuments: [],
             purchaseOrders: [],
+            reorderConfigs: [], // Intelligent ordering configurations
             updateStock: (batchId, quantity) => set((state) => ({
                 inventory: state.inventory.map(item =>
                     item.id === batchId ? { ...item, stock_actual: item.stock_actual + quantity } : item
@@ -422,6 +437,30 @@ export const usePharmaStore = create<PharmaState>()(
                     item.id === id ? { ...item, ...data } : item
                 )
             })),
+
+            createProduct: (product) => {
+                const newProduct: InventoryBatch = {
+                    ...product,
+                    id: `PROD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                };
+                set((state) => ({
+                    inventory: [...state.inventory, newProduct]
+                }));
+                // TODO: Sync to Tiger Cloud via src/lib/db.ts
+                return newProduct;
+            },
+
+            deleteProduct: (id) => {
+                set((state) => ({
+                    inventory: state.inventory.filter(item => item.id !== id)
+                }));
+                // TODO: Delete from Tiger Cloud via src/lib/db.ts
+            },
+
+            getProductBySKU: (sku) => {
+                return get().inventory.find(item => item.sku === sku);
+            },
+
 
             updateBatchDetails: (productId, batchId, data) => {
                 set((state) => ({
@@ -1321,6 +1360,51 @@ export const usePharmaStore = create<PharmaState>()(
                 const caf = state.siiCafs.find(c => c.tipo_dte === tipoDte && c.active);
                 if (!caf) return 0;
                 return (caf.rango_hasta - caf.rango_desde) - caf.folios_usados;
+            },
+
+            // Intelligent Ordering Methods
+            setReorderConfig: (config) => {
+                set((state) => {
+                    const existing = state.reorderConfigs.findIndex(
+                        c => c.sku === config.sku && c.location_id === config.location_id
+                    );
+                    if (existing >= 0) {
+                        const updated = [...state.reorderConfigs];
+                        updated[existing] = config;
+                        return { reorderConfigs: updated };
+                    }
+                    return { reorderConfigs: [...state.reorderConfigs, config] };
+                });
+            },
+
+            getReorderConfig: (sku, locationId) => {
+                const state = get();
+                return state.reorderConfigs.find(
+                    c => c.sku === sku && c.location_id === locationId
+                );
+            },
+
+            getSalesHistory: (sku, locationId, days) => {
+                const state = get();
+                // Note: We don't have stockMovements in current state, using placeholder
+                // In real implementation, this would use IntelligentOrderingService
+                return { total: 0, daily_avg: 0 };
+            },
+
+            analyzeReorderNeeds: (locationId, analysisDays = 30) => {
+                const state = get();
+                // Note: Missing stockMovements array in current state
+                // Using placeholder - in future connect to IntelligentOrderingService
+                return [];
+            },
+
+            generateSuggestedPOs: (suggestions) => {
+                const state = get();
+                return IntelligentOrderingService.generateSuggestedPOs(
+                    suggestions,
+                    state.suppliers,
+                    state.inventory
+                );
             }
         }),
         {

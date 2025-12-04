@@ -1,105 +1,86 @@
 import React, { useState, useEffect } from 'react';
 import { usePharmaStore } from '../store/useStore';
-import { PurchasingAgent } from '../../domain/logic/purchasingAgent';
-import { Package, Truck, CheckCircle, AlertCircle, Plus, Calendar, TrendingUp, Save, RefreshCw, AlertTriangle } from 'lucide-react';
+import { AutoOrderSuggestion } from '../../domain/types';
+import { Package, Truck, CheckCircle, AlertCircle, Plus, Calendar, TrendingUp, RefreshCw, AlertTriangle, Zap, DollarSign } from 'lucide-react';
 import BlindReceptionModal from '../components/scm/BlindReceptionModal';
 import ManualOrderModal from '../components/supply/ManualOrderModal';
 import { useNotificationStore } from '../store/useNotificationStore';
 import { toast } from 'sonner';
 
-type AnalysisPeriod = 'LAST_7_DAYS' | 'LAST_30_DAYS' | 'LAST_TRIMESTER' | 'LAST_SEMESTER' | 'LAST_YEAR';
-
 const SupplyChainPage: React.FC = () => {
-    const { inventory, suppliers, purchaseOrders, addPurchaseOrder, receivePurchaseOrder } = usePharmaStore();
+    const { inventory, suppliers, purchaseOrders, addPurchaseOrder, receivePurchaseOrder, analyzeReorderNeeds, generateSuggestedPOs } = usePharmaStore();
     const { pushNotification } = useNotificationStore();
 
     const [isReceptionModalOpen, setIsReceptionModalOpen] = useState(false);
     const [isManualOrderModalOpen, setIsManualOrderModalOpen] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState<any>(null);
 
-    // Predictive State
-    const [analysisPeriod, setAnalysisPeriod] = useState<AnalysisPeriod>('LAST_30_DAYS');
-    const [suggestedItems, setSuggestedItems] = useState<any[]>([]);
+    // Intelligent Ordering State
+    const [suggestions, setSuggestions] = useState<AutoOrderSuggestion[]>([]);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
 
     // Initial Analysis & Alert
+    // Run analysis on mount
     useEffect(() => {
-        runAnalysis();
-    }, [analysisPeriod]);
+        runIntelligentAnalysis();
+    }, []);
 
-    const runAnalysis = () => {
+    const runIntelligentAnalysis = () => {
         setIsAnalyzing(true);
+
         setTimeout(() => {
-            const suggestions = PurchasingAgent.generateSuggestions(inventory, suppliers, analysisPeriod);
-
-            // Flatten suggestions for the editable table
-            const flatItems = suggestions.flatMap(po =>
-                po.items.map(item => ({
-                    ...item,
-                    supplier_id: po.supplier_id,
-                    supplier_name: suppliers.find(s => s.id === po.supplier_id)?.fantasy_name || 'Desconocido'
-                }))
-            );
-
-            setSuggestedItems(flatItems);
+            // Use new intelligent ordering method
+            const results = analyzeReorderNeeds('BODEGA_CENTRAL', 30);
+            setSuggestions(results);
             setIsAnalyzing(false);
 
-            // Check for critical stock to trigger notification
-            const criticalCount = flatItems.filter(i => (i as any).status === 'CRITICAL').length;
+            // Notify if critical items found
+            const criticalCount = results.filter(s => s.urgency === 'HIGH').length;
             if (criticalCount > 0) {
                 pushNotification({
+                    eventType: 'STOCK_CRITICAL',
+                    category: 'STOCK',
+                    severity: 'CRITICAL',
                     title: 'Stock Crítico Detectado',
-                    message: `La IA ha detectado ${criticalCount} productos en nivel crítico. Revise el abastecimiento.`,
-                    type: 'CRITICAL',
+                    message: `${criticalCount} producto(s) requieren atención urgente`,
                     roleTarget: 'MANAGER'
                 });
             }
-        }, 600); // Fake delay for "AI Processing" effect
+        }, 600); // Simulate processing
     };
 
-    const updateQuantity = (sku: string, newQty: number) => {
-        setSuggestedItems(items =>
-            items.map(item => item.sku === sku ? { ...item, quantity: newQty } : item)
+    const updateSuggestion = (sku: string, field: keyof AutoOrderSuggestion, value: any) => {
+        setSuggestions(items =>
+            items.map(item => item.sku === sku ? { ...item, [field]: value } : item)
         );
     };
 
-    const generateOrders = () => {
-        if (suggestedItems.length === 0) return;
+    const removeSuggestion = (sku: string) => {
+        setSuggestions(items => items.filter(i => i.sku !== sku));
+    };
 
-        // Group back by supplier
-        const ordersBySupplier: { [key: string]: any[] } = {};
-        suggestedItems.forEach(item => {
-            if (!ordersBySupplier[item.supplier_id]) {
-                ordersBySupplier[item.supplier_id] = [];
-            }
-            ordersBySupplier[item.supplier_id].push(item);
-        });
+    const handleGenerateOrders = () => {
+        if (suggestions.length === 0) {
+            toast.error('No hay sugerencias para generar');
+            return;
+        }
 
-        // Create Purchase Orders
-        Object.keys(ordersBySupplier).forEach(supplierId => {
-            const items = ordersBySupplier[supplierId];
-            addPurchaseOrder({
-                id: `PO-${Date.now()}-${supplierId.substring(0, 3)}`,
-                supplier_id: supplierId,
-                destination_location_id: 'BODEGA_CENTRAL', // Default destination
-                created_at: Date.now(),
-                status: 'DRAFT',
-                items: items.map(i => ({
-                    sku: i.sku,
-                    name: i.name,
-                    quantity_ordered: i.quantity,
-                    quantity_received: 0,
-                    cost_price: i.cost_price,
-                    quantity: i.quantity // Legacy compatibility
-                })),
-                total_estimated: items.reduce((acc, i) => acc + (i.cost_price * i.quantity), 0),
-                is_auto_generated: false, // Generated from AI suggestions but user-reviewed
-                generation_reason: 'LOW_STOCK'
-            });
-        });
+        // Use intelligent ordering service to generate POs
+        const pos = generateSuggestedPOs(suggestions);
 
-        toast.success(`${Object.keys(ordersBySupplier).length} Órdenes Generadas`);
-        setSuggestedItems([]); // Clear suggestions
+        // Add all generated POs to store
+        pos.forEach(po => addPurchaseOrder(po));
+
+        toast.success(`${pos.length} orden(es) generada(s) como borrador`);
+        setSuggestions([]); // Clear suggestions after generation
+    };
+
+    // Calculate summary stats
+    const stats = {
+        critical: suggestions.filter(s => s.urgency === 'HIGH').length,
+        low: suggestions.filter(s => s.urgency === 'MEDIUM').length,
+        totalCost: suggestions.reduce((sum, s) => sum + (s.estimated_cost || 0), 0),
+        suppliers: new Set(suggestions.map(s => s.supplier_id)).size
     };
 
     const KanbanColumn = ({ title, status, color, icon: Icon }: any) => {
@@ -171,18 +152,14 @@ const SupplyChainPage: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-xl border border-slate-200">
-                            <Calendar size={16} className="text-slate-400 ml-2" />
-                            <select
-                                className="bg-transparent text-sm font-bold text-slate-700 p-2 outline-none cursor-pointer"
-                                value={analysisPeriod}
-                                onChange={(e) => setAnalysisPeriod(e.target.value as AnalysisPeriod)}
-                            >
-                                <option value="LAST_7_DAYS">Tendencia Corta (7 días)</option>
-                                <option value="LAST_30_DAYS">Tendencia Media (30 días)</option>
-                                <option value="LAST_TRIMESTER">Tendencia Larga (Trimestre)</option>
-                            </select>
-                        </div>
+                        <button
+                            onClick={runIntelligentAnalysis}
+                            disabled={isAnalyzing}
+                            className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl font-bold hover:from-purple-700 hover:to-indigo-700 transition disabled:opacity-50 shadow-lg shadow-purple-200"
+                        >
+                            <Zap size={20} />
+                            ⚡ Analizar Stock (IA)
+                        </button>
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-0">
@@ -191,7 +168,7 @@ const SupplyChainPage: React.FC = () => {
                                 <RefreshCw className="animate-spin mb-4" size={48} />
                                 <p>Analizando patrones de consumo...</p>
                             </div>
-                        ) : suggestedItems.length === 0 ? (
+                        ) : suggestions.length === 0 ? (
                             <div className="h-full flex flex-col items-center justify-center text-slate-400">
                                 <CheckCircle className="mb-4 text-emerald-200" size={64} />
                                 <p>Todo en orden. No se requieren compras urgentes.</p>
@@ -209,47 +186,49 @@ const SupplyChainPage: React.FC = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 text-sm">
-                                    {suggestedItems.map((item, idx) => (
+                                    {suggestions.map((item, idx) => (
                                         <tr key={`${item.sku}-${idx}`} className="hover:bg-slate-50 transition">
                                             <td className="p-4">
-                                                <div className="font-bold text-slate-800">{item.name}</div>
+                                                <div className="font-bold text-slate-800">{item.product_name}</div>
                                                 <div className="text-xs text-slate-400 font-mono">{item.sku}</div>
                                             </td>
                                             <td className="p-4">
                                                 <div className="font-bold text-slate-800">{item.current_stock} un.</div>
                                             </td>
                                             <td className="p-4 text-slate-500">
-                                                {(parseFloat(item.velocity) * 30).toFixed(0)} un/mes
+                                                {Math.round(item.daily_avg_sales * 30)} un/mes
                                             </td>
                                             <td className="p-4">
                                                 <div className="flex items-center gap-2">
-                                                    <span className={`w-2 h-2 rounded-full ${item.status === 'CRITICAL' ? 'bg-red-500' :
-                                                        item.status === 'LOW' ? 'bg-amber-500' :
-                                                            item.status === 'EXCESS' ? 'bg-emerald-500' : 'bg-slate-300'
-                                                        }`} />
-                                                    <span className={`font-bold ${item.status === 'CRITICAL' ? 'text-red-600' :
-                                                        item.status === 'LOW' ? 'text-amber-600' :
-                                                            item.status === 'EXCESS' ? 'text-emerald-600' : 'text-slate-600'
-                                                        }`}>
-                                                        {item.coverage > 900 ? '∞' : item.coverage} días
-                                                    </span>
+                                                    {item.days_until_stockout <= 5 ? (
+                                                        <span className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg font-bold text-xs flex items-center gap-1.5">
+                                                            🔴 {item.days_until_stockout} días
+                                                        </span>
+                                                    ) : item.days_until_stockout <= 15 ? (
+                                                        <span className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg font-bold text-xs flex items-center gap-1.5">
+                                                            🟡 {item.days_until_stockout} días
+                                                        </span>
+                                                    ) : (
+                                                        <span className="px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-lg font-bold text-xs flex items-center gap-1.5">
+                                                            🟢 {item.days_until_stockout > 900 ? '∞' : item.days_until_stockout} días
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </td>
                                             <td className="p-4">
                                                 <div className="flex items-center gap-2">
                                                     <input
                                                         type="number"
-                                                        className={`w-20 p-2 border rounded-lg font-bold text-center focus:outline-none ${item.quantity > 0 ? 'border-purple-300 bg-purple-50 text-purple-700' : 'border-slate-200 text-slate-400'
-                                                            }`}
-                                                        value={item.quantity}
-                                                        onChange={(e) => updateQuantity(item.sku, parseInt(e.target.value))}
+                                                        className={`w-20 p-2 border rounded-lg font-bold text-center focus:outline-none border-purple-300 bg-purple-50 text-purple-700`}
+                                                        value={item.suggested_order_qty}
+                                                        onChange={(e) => updateSuggestion(item.sku, 'suggested_order_qty', parseInt(e.target.value))}
                                                     />
                                                     <span className="text-xs text-slate-400">cajas</span>
                                                 </div>
                                             </td>
                                             <td className="p-4 text-center">
                                                 <button
-                                                    onClick={() => setSuggestedItems(items => items.filter(i => i.sku !== item.sku))}
+                                                    onClick={() => removeSuggestion(item.sku)}
                                                     className="text-slate-400 hover:text-red-500 transition"
                                                 >
                                                     <AlertTriangle size={16} />
@@ -262,25 +241,31 @@ const SupplyChainPage: React.FC = () => {
                         )}
                     </div>
 
-                    {suggestedItems.length > 0 && (
-                        <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
-                            <p className="text-sm text-slate-500">
-                                Se generarán <strong>{new Set(suggestedItems.map(i => i.supplier_id)).size}</strong> órdenes de compra.
-                            </p>
-                            <div className="flex gap-3">
-                                <button
-                                    onClick={generateOrders}
-                                    disabled={suggestedItems.length === 0}
-                                    className="px-4 py-2 bg-cyan-600 text-white rounded-xl font-bold hover:bg-cyan-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg shadow-cyan-200"
-                                >
-                                    <RefreshCw size={18} /> Generar Órdenes (IA)
-                                </button>
-                                <button
-                                    onClick={() => setIsManualOrderModalOpen(true)}
-                                    className="px-4 py-2 bg-slate-800 text-white rounded-xl font-bold hover:bg-slate-700 transition flex items-center gap-2"
-                                >
-                                    <Plus size={18} /> Nueva Orden Manual
-                                </button>
+                    {suggestions.length > 0 && (
+                        <div className="sticky bottom-0 p-6 border-t-2 border-purple-200 bg-gradient-to-r from-purple-50 to-indigo-50 shadow-lg">
+                            <div className="flex justify-between items-center mb-3">
+                                <div className="space-y-1">
+                                    <p className="text-lg font-bold text-slate-800">
+                                        📦 Se generarán <span className="text-purple-600">{suggestions.length}</span> orden(es) para <span className="text-indigo-600">{stats.suppliers}</span> proveedor(es)
+                                    </p>
+                                    <p className="text-sm text-slate-600">
+                                        💰 Costo estimado: <span className="text-xl font-bold text-emerald-600">${stats.totalCost.toLocaleString()}</span>
+                                    </p>
+                                    {stats.critical > 0 && (
+                                        <p className="text-sm text-red-600 font-bold">
+                                            ⚠️ {stats.critical} producto(s) crítico(s) (&lt; 5 días)
+                                        </p>
+                                    )}
+                                </div>
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={handleGenerateOrders}
+                                        disabled={suggestions.length === 0}
+                                        className="px-8 py-4 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl font-bold hover:from-cyan-700 hover:to-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-xl shadow-cyan-300 text-lg"
+                                    >
+                                        🚀 Generar Borradores
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     )}

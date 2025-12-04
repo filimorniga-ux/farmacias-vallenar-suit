@@ -35,15 +35,15 @@ export async function POST(request: Request) {
         const queryText = `
             INSERT INTO products (
                 id, sku, name, dci, laboratory, 
-                price, price_sell_box, cost_net, 
+                price, price_sell_box, cost_net, location_id,
                 stock_total, stock_actual, 
                 format, is_bioequivalent, category
             )
             VALUES (
                 $1, $2, $3, $4, $5, 
-                $6, $6, $7, 
-                $8, $8, 
-                $9, $10, $11
+                $6, $6, $7, $8,
+                $9, $9, 
+                $10, $11, $12
             )
             ON CONFLICT (sku) DO UPDATE SET
                 name = EXCLUDED.name,
@@ -53,7 +53,8 @@ export async function POST(request: Request) {
                 stock_actual = products.stock_actual + EXCLUDED.stock_actual,
                 price = EXCLUDED.price,
                 price_sell_box = EXCLUDED.price_sell_box,
-                cost_net = EXCLUDED.cost_net
+                cost_net = EXCLUDED.cost_net,
+                location_id = EXCLUDED.location_id
             RETURNING id;
         `;
 
@@ -67,9 +68,12 @@ export async function POST(request: Request) {
             // Defensive Price Logic: Prioritize 'price' (from frontend) then 'price_sell_box'
             const priceToSave = product.price || product.price_sell_box || 0;
 
+            // Location ID (Tiger Cloud V8.0 required)
+            const locationId = product.location_id || 'BODEGA_CENTRAL';
+
             // Debug Log for Price Issues
             if (products.length <= 50) { // Only log if batch is small or sample
-                console.log(`💾 Saving Item: ${product.sku} | Price: ${priceToSave} (Raw: ${product.price}/${product.price_sell_box})`);
+                console.log(`💾 Saving Item: ${product.sku} | Price: ${priceToSave} | Location: ${locationId}`);
             }
 
             await client.query(queryText, [
@@ -80,10 +84,11 @@ export async function POST(request: Request) {
                 product.laboratory || 'GENERICO',
                 priceToSave, // $6 (Maps to price AND price_sell_box)
                 cost,  // $7
-                product.stock_actual || 0, // $8 (Maps to stock_total AND stock_actual)
-                product.format || 'UNIDAD', // $9
-                product.is_bioequivalent || false, // $10
-                product.category || 'MEDICAMENTO' // $11
+                locationId, // $8 (Tiger Cloud V8.0 - Multi-location)
+                product.stock_actual || 0, // $9 (Maps to stock_total AND stock_actual)
+                product.format || 'UNIDAD', // $10
+                product.is_bioequivalent || false, // $11
+                product.category || 'MEDICAMENTO' // $12
             ]);
         }
 
