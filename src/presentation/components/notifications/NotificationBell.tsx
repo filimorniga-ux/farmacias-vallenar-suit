@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Bell } from 'lucide-react';
 import { useNotificationStore } from '../../store/useNotificationStore';
-import NotificationCenter from './NotificationCenter';
+import NotificationCenter from '@/presentation/components/notifications/NotificationCenter';
 
 interface NotificationBellProps {
     userRole: string;
