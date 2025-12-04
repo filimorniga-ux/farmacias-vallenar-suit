@@ -1,6 +1,33 @@
-# Añadir a .gitignore
+# Node
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Next.js
+.next
+out
+
+# Electron (no necesario en Vercel)
+dist-desktop
+electron
+
+# Environment
 .env
 .env.local
 .env.local.backup
 .env.*.local
 .vercel
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Other
+*.log
+.turbo
