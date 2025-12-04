@@ -3,7 +3,7 @@ import { X, Search, Plus, Trash2, AlertTriangle, Save, Send, DollarSign, Calenda
 import { usePharmaStore } from '../../store/useStore';
 import { useNotificationStore } from '../../store/useNotificationStore';
 import { toast } from 'sonner';
-import { InventoryBatch } from '../../../domain/types';
+import { InventoryBatch, PurchaseOrder, PurchaseOrderItem } from '../../../domain/types';
 
 interface ManualOrderModalProps {
     isOpen: boolean;
@@ -83,7 +83,7 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose }) 
             return;
         }
 
-        const newOrder = {
+        const newOrder: PurchaseOrder = {
             id: `ORD-${Date.now()}`,
             supplier_id: selectedSupplierId,
             destination_location_id: 'BODEGA_CENTRAL', // Default destination for manual orders
