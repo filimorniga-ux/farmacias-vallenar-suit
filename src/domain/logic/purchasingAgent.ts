@@ -86,10 +86,13 @@ export const PurchasingAgent = {
             suggestions.push({
                 id: `PO-SUG-${Date.now()}-${supplierId.substring(0, 3)}`,
                 supplier_id: supplierId,
+                destination_location_id: 'BODEGA_CENTRAL', // Default location for suggested orders
                 created_at: Date.now(),
                 status: 'SUGGESTED',
                 items: itemsBySupplier[supplierId],
-                total_estimated: 0 // Se calcularía con costos reales
+                total_estimated: 0, // Se calcularía con costos reales
+                is_auto_generated: true, // Flag to identify AI-generated orders
+                generation_reason: 'LOW_STOCK' // Reason for auto-generation
             });
         });
 
