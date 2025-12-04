@@ -3,17 +3,6 @@ const nextConfig = {
     // Optimización para producción
     reactStrictMode: true,
 
-    // Soporte para imports de pg
-    webpack: (config, { isServer }) => {
-        if (isServer) {
-            config.externals = [...(config.externals || []), 'pg', 'pg-hstore'];
-        }
-        return config;
-    },
-
-    // Turbopack config (Next.js 16+)
-    turbopack: {},
-
     // Variables de entorno expuestas al cliente
     env: {
         NEXT_PUBLIC_APP_NAME: 'Farmacias Vallenar Suit',
