@@ -86,15 +86,20 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose }) 
         const newOrder = {
             id: `ORD-${Date.now()}`,
             supplier_id: selectedSupplierId,
+            destination_location_id: 'BODEGA_CENTRAL', // Default destination for manual orders
             created_at: Date.now(),
             status,
             items: orderItems.map(i => ({
                 sku: i.sku,
                 name: i.name,
-                quantity: i.quantity,
-                cost_price: i.cost_price
+                quantity_ordered: i.quantity,
+                quantity_received: 0,
+                cost_price: i.cost_price,
+                quantity: i.quantity // Legacy compatibility
             })),
-            total_estimated: totals.total
+            total_estimated: totals.total,
+            is_auto_generated: false, // Manual order created by user
+            generation_reason: 'MANUAL' as const // Explicitly manual
         };
 
         addPurchaseOrder(newOrder);
