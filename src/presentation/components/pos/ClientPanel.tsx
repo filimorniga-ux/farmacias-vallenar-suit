@@ -58,7 +58,11 @@ const ClientPanel: React.FC = () => {
             rut: rutInput,
             fullName: newClientName,
             phone: newClientPhone,
-            registrationSource: 'POS'
+            email: '',
+            registrationSource: 'POS',
+            status: 'ACTIVE',
+            tags: [],
+            total_spent: 0
         });
 
         setCustomer(newCustomer);

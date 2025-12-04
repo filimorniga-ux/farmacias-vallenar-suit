@@ -60,7 +60,10 @@ const CustomerSelectModal: React.FC<CustomerSelectModalProps> = ({ isOpen, onClo
             fullName: newName,
             phone: newPhone,
             email: '',
-            registrationSource: 'POS'
+            registrationSource: 'POS',
+            status: 'ACTIVE',
+            tags: [],
+            total_spent: 0
         });
 
         toast.success('Cliente registrado y asignado');

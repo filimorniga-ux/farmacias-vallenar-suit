@@ -83,7 +83,11 @@ const CustomerCaptureModal: React.FC<CustomerCaptureModalProps> = ({ isOpen, onC
                 rut,
                 fullName: name,
                 phone,
-                registrationSource: 'POS'
+                email: '',
+                registrationSource: 'POS',
+                status: 'ACTIVE',
+                tags: [],
+                total_spent: 0
             });
             onConfirm(newCust.rut);
         }
