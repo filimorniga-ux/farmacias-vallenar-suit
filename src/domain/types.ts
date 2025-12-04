@@ -51,6 +51,7 @@ export interface InventoryBatch {
     stock_actual: number;
     stock_min: number;
     stock_max: number;
+    safety_stock?: number; // NEW: Buffer de seguridad
     expiry_date: number;
     lot_number?: string;
 
@@ -59,14 +60,18 @@ export interface InventoryBatch {
     tax_percent: number; // IVA (19%)
     price_sell_box: number; // Precio Venta Caja
     price_sell_unit: number; // Precio Venta Unitario (Calculado)
+    margin_percentage?: number; // NEW: Margen calculado
 
     // Deprecated (Mapped for compatibility)
     price: number;
     cost_price: number;
 
     supplier_id?: string;
+    preferred_supplier_id?: string; // NEW: Proveedor preferido para auto-reorden
+    lead_time_days?: number; // NEW: Tiempo de entrega del proveedor
 
     category: DrugCategory;
+    subcategory?: string; // NEW: Subcategoría
     allows_commission: boolean;
     active_ingredients: string[];
 

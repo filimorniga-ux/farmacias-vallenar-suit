@@ -1,0 +1,6 @@
+# Añadir a .gitignore
+.env
+.env.local
+.env.local.backup
+.env.*.local
+.vercel
