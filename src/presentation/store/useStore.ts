@@ -80,6 +80,10 @@ interface PharmaState {
     registerStockMovement: (batchId: string, quantity: number, type: 'SALE' | 'TRANSFER_OUT' | 'TRANSFER_IN' | 'ADJUSTMENT' | 'RECEIPT') => void;
     clearInventory: () => void;
 
+    // WMS Helpers
+    getInventoryByLocation: (locationId: string) => InventoryBatch[];
+    getAvailableStockAtLocation: (sku: string, locationId: string) => number;
+
     // Printer & Hardware
     printerConfig: PrinterConfig;
     updatePrinterConfig: (config: Partial<PrinterConfig>) => void;
@@ -462,6 +466,18 @@ export const usePharmaStore = create<PharmaState>()(
                 });
             },
             clearInventory: () => set({ inventory: [] }),
+
+            // WMS Helpers
+            getInventoryByLocation: (locationId) => {
+                const state = get();
+                return state.inventory.filter(batch => batch.location_id === locationId);
+            },
+            getAvailableStockAtLocation: (sku, locationId) => {
+                const state = get();
+                return state.inventory
+                    .filter(batch => batch.sku === sku && batch.location_id === locationId)
+                    .reduce((sum, batch) => sum + batch.stock_actual, 0);
+            },
             addToCart: (item, quantity = 1) => set((state) => {
                 const existingItem = state.cart.find(i => i.id === item.id);
                 if (existingItem) {

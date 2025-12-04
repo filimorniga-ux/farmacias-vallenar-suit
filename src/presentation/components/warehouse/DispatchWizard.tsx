@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { X, Truck, MapPin, Package, CheckCircle, ArrowRight, Search, Barcode, ShoppingCart, RotateCcw } from 'lucide-react';
+import { X, Truck, MapPin, Package, CheckCircle, ArrowRight, Search, Barcode, ShoppingCart, RotateCcw, Camera, PlusCircle } from 'lucide-react';
 import { usePharmaStore } from '../../store/useStore';
 import { useLocationStore } from '../../store/useLocationStore';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
 import { toast } from 'sonner';
 import { Shipment, PurchaseOrder, InventoryBatch } from '../../../domain/types';
+import CameraScanner from '../ui/CameraScanner';
 
 interface DispatchWizardProps {
     isOpen: boolean;
@@ -41,6 +42,7 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
     const [step, setStep] = useState(1);
     const scannerInputRef = useRef<HTMLInputElement>(null);
     const [now] = useState(() => Date.now()); // Stable reference for render
+    const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
 
     // Initial State Setup (Handled by Remounting)
     useEffect(() => {
@@ -126,32 +128,58 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
 
     const filteredProducts = useMemo(() => {
         if (!searchTerm) return [];
-        // Search in global inventory
-        const matches = originInventory.filter(item =>
+
+        console.log("🔍 WMS Search - Term:", searchTerm, "| Inventory items:", inventory.length);
+
+        // Search in GLOBAL inventory (all locations)
+        const matches = inventory.filter(item =>
             (item.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
             (item.sku || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
             (item.dci || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
             (item.lot_number || '').toLowerCase().includes(searchTerm.toLowerCase())
         );
 
-        // Group by SKU to avoid duplicates in search results, but aggregate stock info
-        const uniqueMatches = new Map<string, InventoryBatch & { totalStock: number, originStock: number }>();
+        console.log("📦 WMS Search - Matches found:", matches.length);
+
+        // Group by SKU and show all locations with stock
+        const productMap = new Map<string, {
+            sku: string;
+            name: string;
+            dci?: string;
+            locations: Array<{
+                location_id: string;
+                stock: number;
+                batchId: string;
+                lot_number?: string;
+                expiry_date?: number;
+            }>;
+            totalStock: number;
+        }>();
 
         matches.forEach(item => {
-            if (!uniqueMatches.has(item.sku)) {
-                // Calculate stocks
-                const allBatches = originInventory.filter(i => i.sku === item.sku);
-                const totalStock = allBatches.reduce((sum, b) => sum + b.stock_actual, 0);
-                const originStock = allBatches
-                    .filter(b => b.location_id === originId)
-                    .reduce((sum, b) => sum + b.stock_actual, 0);
-
-                uniqueMatches.set(item.sku, { ...item, totalStock, originStock });
+            if (!productMap.has(item.sku)) {
+                productMap.set(item.sku, {
+                    sku: item.sku,
+                    name: item.name,
+                    dci: item.dci,
+                    locations: [],
+                    totalStock: 0
+                });
             }
+
+            const product = productMap.get(item.sku)!;
+            product.locations.push({
+                location_id: item.location_id,
+                stock: item.stock_actual,
+                batchId: item.id,
+                lot_number: item.lot_number,
+                expiry_date: item.expiry_date
+            });
+            product.totalStock += item.stock_actual;
         });
 
-        return Array.from(uniqueMatches.values()).slice(0, 10);
-    }, [originInventory, searchTerm, originId]);
+        return Array.from(productMap.values()).slice(0, 10);
+    }, [inventory, searchTerm]);
 
     const handleAddItem = (item: InventoryBatch, knownStock?: number) => {
         if (selectedItems.find(i => i.sku === item.sku)) return; // Check by SKU to avoid duplicates
@@ -398,51 +426,107 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
                                     </div>
 
                                     <div className="p-4 border-b border-gray-100">
-                                        <div className="relative">
-                                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                                            <input
-                                                type="text"
-                                                placeholder="Buscar por nombre o SKU..."
-                                                className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"
-                                                value={searchTerm}
-                                                onChange={(e) => setSearchTerm(e.target.value)}
-                                            />
+                                        <div className="flex gap-2">
+                                            <div className="relative flex-1">
+                                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                                                <input
+                                                    type="text"
+                                                    placeholder="Buscar por nombre o SKU..."
+                                                    className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"
+                                                    value={searchTerm}
+                                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                                />
+                                            </div>
+                                            {/* Camera Scanner Button (Mobile Only) */}
+                                            <button
+                                                onClick={() => setIsCameraScannerOpen(true)}
+                                                className="md:hidden flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition font-bold whitespace-nowrap"
+                                                title="Escanear con cámara"
+                                            >
+                                                <Camera size={20} />
+                                                <span className="text-sm">📷</span>
+                                            </button>
                                         </div>
                                     </div>
 
                                     <div className="overflow-y-auto flex-1 p-2 space-y-2">
-                                        {filteredProducts.map((item: any) => (
-                                            <div key={item.id} className="bg-white border border-gray-100 rounded-lg p-3 hover:border-blue-300 transition-all group">
-                                                <div className="flex justify-between items-start mb-2">
-                                                    <div>
-                                                        <p className="font-bold text-gray-800">{item.name}</p>
-                                                        <p className="text-xs text-gray-500 font-mono">SKU: {item.sku}</p>
-                                                    </div>
-                                                    {mode !== 'PURCHASE' && (
-                                                        <span className={`px-2 py-1 rounded text-xs font-bold ${(item.expiry_date && item.expiry_date < now + 2592000000) ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'
-                                                            }`}>
-                                                            {item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : 'S/F'}
-                                                        </span>
+                                        {filteredProducts.length === 0 && searchTerm && (
+                                            <div className="text-center py-8 text-gray-400">
+                                                <Package size={48} className="mx-auto mb-2 opacity-30" />
+                                                <p>No se encontraron productos</p>
+                                                <p className="text-xs mt-1">Intenta con otro término</p>
+                                            </div>
+                                        )}
+
+                                        {filteredProducts.map((product: any) => (
+                                            <div key={product.sku} className="bg-white border-2 border-gray-100 rounded-xl p-4 hover:border-blue-300 transition-all">
+                                                {/* Product Header */}
+                                                <div className="mb-3">
+                                                    <p className="font-bold text-gray-900 text-lg">{product.name}</p>
+                                                    <p className="text-xs text-gray-500 font-mono">SKU: {product.sku}</p>
+                                                    {product.dci && (
+                                                        <p className="text-xs text-gray-400 mt-1">DCI: {product.dci}</p>
                                                     )}
                                                 </div>
 
-                                                <div className="flex justify-between items-center text-sm text-gray-600 mb-3">
-                                                    <span className="flex items-center gap-1"><Package size={14} /> Global: {item.totalStock}</span>
-                                                    <span className={`font-bold ${item.originStock > 0 ? 'text-blue-600' : 'text-red-500'}`}>
-                                                        Disp. Origen: {item.originStock}
-                                                    </span>
+                                                {/* Stock Total */}
+                                                <div className="flex items-center gap-2 mb-3 pb-3 border-b border-gray-100">
+                                                    <Package size={16} className="text-blue-600" />
+                                                    <span className="font-bold text-blue-600">Stock Total: {product.totalStock}</span>
                                                 </div>
 
+                                                {/* Locations */}
+                                                <div className="space-y-2 mb-3">
+                                                    <p className="text-xs font-bold text-gray-400 uppercase">Ubicaciones:</p>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {product.locations.map((loc: any, idx: number) => (
+                                                            <div
+                                                                key={idx}
+                                                                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 ${loc.stock > 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-gray-50 border-gray-200'
+                                                                    }`}
+                                                            >
+                                                                <MapPin size={14} className={loc.stock > 0 ? 'text-emerald-600' : 'text-gray-400'} />
+                                                                <span className={`text-xs font-bold ${loc.stock > 0 ? 'text-emerald-900' : 'text-gray-500'}`}>
+                                                                    {loc.location_id}
+                                                                </span>
+                                                                <span className={`text-xs font-bold ${loc.stock > 0 ? 'text-emerald-600' : 'text-gray-400'}`}>
+                                                                    ({loc.stock})
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+
+                                                {/* Add Button */}
                                                 <button
-                                                    onClick={() => handleAddItem(item, item.originStock)}
-                                                    disabled={mode !== 'PURCHASE' && item.originStock <= 0}
-                                                    className={`w-full py-2 font-bold rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed
-                                                        ${mode === 'RETURN' ? 'bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white' :
-                                                            mode === 'PURCHASE' ? 'bg-purple-50 text-purple-600 hover:bg-purple-600 hover:text-white' :
-                                                                'bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white'}
+                                                    onClick={() => {
+                                                        // Find first location with stock
+                                                        const availableLoc = product.locations.find((l: any) => l.stock > 0);
+                                                        if (!availableLoc) {
+                                                            toast.error('Sin stock disponible');
+                                                            return;
+                                                        }
+                                                        // Create a fake batch object for handleAddItem
+                                                        const fakeItem: any = {
+                                                            id: availableLoc.batchId,
+                                                            sku: product.sku,
+                                                            name: product.name,
+                                                            stock_actual: availableLoc.stock,
+                                                            location_id: availableLoc.location_id,
+                                                            lot_number: availableLoc.lot_number,
+                                                            expiry_date: availableLoc.expiry_date
+                                                        };
+                                                        handleAddItem(fakeItem, availableLoc.stock);
+                                                    }}
+                                                    disabled={product.totalStock <= 0}
+                                                    className={`w-full py-2.5 font-bold rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed
+                                                        ${mode === 'RETURN' ? 'bg-amber-500 text-white hover:bg-amber-600' :
+                                                            mode === 'PURCHASE' ? 'bg-purple-500 text-white hover:bg-purple-600' :
+                                                                'bg-blue-500 text-white hover:bg-blue-600'}
                                                     `}
                                                 >
-                                                    {mode === 'PURCHASE' ? 'Agregar a Pedido' : item.originStock > 0 ? 'Agregar' : 'Sin Stock en Origen'}
+                                                    <PlusCircle size={18} />
+                                                    {product.totalStock > 0 ? 'Agregar a Despacho' : 'Sin Stock'}
                                                 </button>
                                             </div>
                                         ))}
@@ -631,6 +715,17 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
                     )}
                 </div>
             </div>
+
+            {/* Camera Scanner Modal */}
+            {isCameraScannerOpen && (
+                <CameraScanner
+                    onScan={(code) => {
+                        handleScan(code);
+                        setIsCameraScannerOpen(false);
+                    }}
+                    onClose={() => setIsCameraScannerOpen(false)}
+                />
+            )}
         </div>
     );
 };

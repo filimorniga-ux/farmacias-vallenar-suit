@@ -186,7 +186,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                     <LocationSelector />
                 </header>
 
-                <div className="flex-1 overflow-auto p-4 md:p-8">
+                <div className="flex-1 overflow-auto p-2">
                     <AnimatePresence mode="wait">
                         <motion.div
                             key={location.pathname}
@@ -194,7 +194,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -10 }}
                             transition={{ duration: 0.2 }}
-                            className="h-full max-w-7xl mx-auto"
+                            className="h-full w-full"
                         >
                             {children}
                         </motion.div>
