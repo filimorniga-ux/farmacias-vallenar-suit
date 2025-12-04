@@ -1399,11 +1399,10 @@ export const usePharmaStore = create<PharmaState>()(
             },
 
             generateSuggestedPOs: (suggestions) => {
-                const state = get();
                 return IntelligentOrderingService.generateSuggestedPOs(
                     suggestions,
-                    state.suppliers,
-                    state.inventory
+                    get().suppliers,
+                    get().inventory
                 );
             }
         }),
