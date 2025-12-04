@@ -81,15 +81,20 @@ const SupplyChainPage: React.FC = () => {
             addPurchaseOrder({
                 id: `PO-${Date.now()}-${supplierId.substring(0, 3)}`,
                 supplier_id: supplierId,
+                destination_location_id: 'BODEGA_CENTRAL', // Default destination
                 created_at: Date.now(),
                 status: 'DRAFT',
                 items: items.map(i => ({
                     sku: i.sku,
                     name: i.name,
-                    quantity: i.quantity,
-                    cost_price: i.cost_price
+                    quantity_ordered: i.quantity,
+                    quantity_received: 0,
+                    cost_price: i.cost_price,
+                    quantity: i.quantity // Legacy compatibility
                 })),
-                total_estimated: items.reduce((acc, i) => acc + (i.cost_price * i.quantity), 0)
+                total_estimated: items.reduce((acc, i) => acc + (i.cost_price * i.quantity), 0),
+                is_auto_generated: false, // Generated from AI suggestions but user-reviewed
+                generation_reason: 'LOW_STOCK'
             });
         });
 
