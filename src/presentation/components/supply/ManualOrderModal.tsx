@@ -86,6 +86,7 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose }) 
         const newOrder: PurchaseOrder = {
             id: `ORD-${Date.now()}`,
             supplier_id: selectedSupplierId,
+            supplier_name: selectedSupplier?.fantasy_name, // Denormalized supplier name
             destination_location_id: 'BODEGA_CENTRAL', // Default destination for manual orders
             created_at: Date.now(),
             status,
