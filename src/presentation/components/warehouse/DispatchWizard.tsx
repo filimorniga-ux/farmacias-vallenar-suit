@@ -260,15 +260,20 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
             const newPO: PurchaseOrder = {
                 id: `PO-${Date.now()}`,
                 supplier_id: originId,
+                destination_location_id: destinationId, // Destination warehouse
                 created_at: Date.now(),
                 status: 'SENT',
                 items: selectedItems.map(i => ({
                     sku: i.sku,
                     name: i.name,
-                    quantity: i.quantity,
-                    cost_price: 0 // TODO: Fetch real cost
+                    quantity_ordered: i.quantity,
+                    quantity_received: 0,
+                    cost_price: 0, // TODO: Fetch real cost
+                    quantity: i.quantity // Legacy compatibility
                 })),
-                total_estimated: 0
+                total_estimated: 0,
+                is_auto_generated: false,
+                generation_reason: 'MANUAL'
             };
             addPurchaseOrder(newPO);
             toast.success('Pedido a Proveedor creado exitosamente');
