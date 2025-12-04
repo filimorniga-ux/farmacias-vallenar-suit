@@ -69,7 +69,12 @@ const QueueKioskPage: React.FC = () => {
         addCustomer({
             rut,
             fullName: name,
-            registrationSource: 'KIOSK'
+            phone: '',
+            email: '',
+            registrationSource: 'KIOSK',
+            status: 'ACTIVE',
+            tags: [],
+            total_spent: 0
         });
 
         setCustomerName(name);

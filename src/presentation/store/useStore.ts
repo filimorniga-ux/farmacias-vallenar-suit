@@ -156,6 +156,16 @@ interface PharmaState {
     updateLoyaltyConfig: (config: Partial<LoyaltyConfig>) => void;
     calculatePointsEarned: (amount: number) => number;
     calculateDiscountValue: (points: number) => number;
+
+    // Marketing & Promotions
+    promotions: Promotion[];
+    giftCards: GiftCard[];
+    loyaltyRewards: LoyaltyReward[];
+    addPromotion: (promo: Promotion) => void;
+    togglePromotion: (id: string) => void;
+    createGiftCard: (amount: number) => GiftCard;
+    redeemGiftCard: (code: string, amount: number) => boolean;
+    getGiftCard: (code: string) => GiftCard | undefined;
 }
 
 
