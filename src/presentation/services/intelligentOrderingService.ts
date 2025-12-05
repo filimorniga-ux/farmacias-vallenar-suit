@@ -173,7 +173,7 @@ export class IntelligentOrderingService {
                 supplier_name: supplier?.fantasy_name,
                 destination_location_id: locationId,
                 created_at: Date.now(),
-                status: 'SUGGESTED',
+                status: 'DRAFT',
                 items: poItems,
                 total_estimated,
                 is_auto_generated: true,
