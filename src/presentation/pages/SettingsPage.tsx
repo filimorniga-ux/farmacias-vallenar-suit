@@ -9,7 +9,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { usePharmaStore } from '../store/useStore';
 import { UsersList } from '../components/settings/UsersList';
 import { UsersSettingsForm } from '../components/settings/UsersSettingsForm';
-import { EmployeeProfile } from '../domain/types';
+import { EmployeeProfile } from '../../domain/types';
 
 const SettingsPage: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'users' | 'sii' | 'hardware' | 'inventory' | 'billing' | 'loyalty'>('users');
