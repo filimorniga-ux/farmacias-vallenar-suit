@@ -2,6 +2,7 @@ import { getLogisticsData } from '@/lib/data/logistics';
 import DataTable from '@/components/logistica/DataTable';
 import AddPurchaseButton from '@/components/logistica/AddPurchaseButton';
 import RouteGuard from '@/components/auth/RouteGuard';
+import { InventoryExportForm } from '@/presentation/components/reports/InventoryExportForm';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,6 +24,12 @@ export default async function LogisticaPage() {
                         </div>
                         <div className="mt-4 flex md:ml-4 md:mt-0">
                             <AddPurchaseButton />
+                        </div>
+                    </div>
+
+                    <div className="bg-white shadow-sm ring-1 ring-gray-900/5 sm:rounded-xl md:col-span-2 mb-6">
+                        <div className="px-4 py-6 sm:px-6">
+                            <InventoryExportForm />
                         </div>
                     </div>
 
