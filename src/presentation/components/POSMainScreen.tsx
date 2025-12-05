@@ -377,7 +377,7 @@ const POSMainScreen: React.FC = () => {
             <div className={`w-full md:w-[350px] flex-col p-4 md:p-6 md:pr-3 gap-4 h-full ${mobileView === 'CART' ? 'hidden md:flex' : 'flex'}`}>
                 <div className="bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col h-full overflow-hidden">
                     <div className="p-4 md:p-6 border-b border-slate-100">
-                        <div className="relative flex items-center"> {/* Added flex items-center here */}
+                        <div className="relative flex items-center gap-2">
                             <div className="relative flex-1">
                                 <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400" size={24} />
                                 <input
