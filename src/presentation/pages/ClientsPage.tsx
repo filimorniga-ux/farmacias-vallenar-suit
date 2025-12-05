@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { usePharmaStore } from '../store/useStore';
-import { Search, User, MessageCircle, Star, Calendar, Plus, Edit, Trash2, History, X, Save, AlertTriangle } from 'lucide-react';
+import { AdvancedExportModal } from '../components/common/AdvancedExportModal';
+import { generateCustomerReport } from '../../actions/customer-export';
+import { Download, Search, User, MessageCircle, Star, Calendar, Plus, Edit, Trash2, History, X, Save, AlertTriangle } from 'lucide-react';
 import { Customer, SaleTransaction } from '../../domain/types';
 import { toast } from 'sonner';
 
@@ -11,6 +13,37 @@ const ClientsPage: React.FC = () => {
     const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
     const [viewingHistory, setViewingHistory] = useState<Customer | null>(null);
     const [deletingCustomer, setDeletingCustomer] = useState<Customer | null>(null);
+
+    // Export State
+    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
+
+    const exportItems = useMemo(() => customers.map(c => ({
+        id: c.id,
+        label: c.fullName,
+        detail: c.rut
+    })), [customers]);
+
+    const handleExport = async (startDate: Date, endDate: Date, selectedIds?: string[]) => {
+        setIsExporting(true);
+        try {
+            const result = await generateCustomerReport(startDate, endDate, selectedIds);
+            if (result.success && result.base64) {
+                const link = document.createElement('a');
+                link.href = `data: application / vnd.openxmlformats - officedocument.spreadsheetml.sheet; base64, ${result.base64} `;
+                link.download = `Reporte_Clientes_${startDate.toISOString().split('T')[0]}_${endDate.toISOString().split('T')[0]}.xlsx`;
+                link.click();
+                toast.success('Reporte descargado exitosamente');
+                setIsExportModalOpen(false);
+            } else {
+                toast.error(result.error || 'Error al generar reporte');
+            }
+        } catch (error) {
+            toast.error('Error de conexión');
+        } finally {
+            setIsExporting(false);
+        }
+    };
 
     // Form State
     const [formData, setFormData] = useState<Partial<Customer>>({
@@ -116,6 +149,13 @@ const ClientsPage: React.FC = () => {
                             </p>
                         </div>
                     </div>
+                    <button
+                        onClick={() => setIsExportModalOpen(true)}
+                        className="px-6 py-4 bg-white text-slate-700 font-bold rounded-2xl border border-slate-200 hover:bg-slate-50 transition shadow-sm flex items-center gap-2"
+                    >
+                        <Download size={20} />
+                        Exportar Excel
+                    </button>
                     <button
                         onClick={handleOpenAdd}
                         className="px-6 py-4 bg-cyan-600 text-white font-bold rounded-2xl hover:bg-cyan-700 transition shadow-lg flex items-center gap-2"
@@ -413,6 +453,17 @@ const ClientsPage: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            {/* Export Modal */}
+            <AdvancedExportModal
+                isOpen={isExportModalOpen}
+                onClose={() => setIsExportModalOpen(false)}
+                onExport={handleExport}
+                title="Exportar Reporte de Clientes"
+                items={exportItems}
+                itemLabel="Clientes"
+                isLoading={isExporting}
+            />
         </div>
     );
 };
