@@ -1,18 +1,39 @@
-import React, { useState } from 'react';
-import { Users, UserPlus, Search, Shield, Briefcase, Clock, FileText, Edit, Activity } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Users, UserPlus, Search, Shield, Briefcase, Clock, FileText, Edit, Activity, Loader2 } from 'lucide-react';
 import { usePharmaStore } from '../store/useStore';
 import { ROLES } from '../../domain/security/roles';
 import { EmployeeProfile } from '../../domain/types';
 import AttendanceManager from './hr/AttendanceManager';
 import { EmployeeModal } from '../components/hr/EmployeeModal';
 import { toast } from 'sonner';
+import { getUsers, createUser, updateUser } from '../../actions/users';
 
 const HRPage = () => {
-    const { user, employees } = usePharmaStore();
+    const { user } = usePharmaStore(); // Mantenemos user logueado del store por ahora
     const [activeTab, setActiveTab] = useState<'DIRECTORY' | 'MONITOR' | 'HISTORY'>('DIRECTORY');
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedEmployee, setSelectedEmployee] = useState<EmployeeProfile | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
+
+    // Estado local para empleados (desde DB)
+    const [dbEmployees, setDbEmployees] = useState<EmployeeProfile[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    // Cargar usuarios al montar
+    useEffect(() => {
+        loadUsers();
+    }, []);
+
+    const loadUsers = async () => {
+        setIsLoading(true);
+        const result = await getUsers();
+        if (result.success && result.data) {
+            setDbEmployees(result.data);
+        } else {
+            toast.error(result.error || 'Error al cargar empleados');
+        }
+        setIsLoading(false);
+    };
 
     // --- Access Control ---
     if (!user || user.role !== 'MANAGER') {
@@ -26,29 +47,40 @@ const HRPage = () => {
         );
     }
 
-    const filteredEmployees = employees.filter(emp =>
+    const filteredEmployees = dbEmployees.filter(emp =>
         emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         emp.rut.includes(searchTerm)
     );
 
-    const handleSaveEmployee = (updatedEmployee: EmployeeProfile) => {
-        // In a real app, dispatch an action to update the store
-        // For now, we'll just log it and show a toast
-        // Mock update in local state for demo purposes if needed,
+    const handleSaveEmployee = async (updatedEmployee: EmployeeProfile) => {
+        console.log('📤 Enviando empleado a guardar:', updatedEmployee);
+        const isNew = updatedEmployee.id.startsWith('EMP-') && !dbEmployees.find(e => e.id === updatedEmployee.id);
 
-        // Mock update in local state for demo purposes if needed, 
-        // but ideally usePharmaStore should have an updateEmployee action.
-        // Since we don't have it exposed in the store interface yet, we'll assume it's handled or add it later.
-        // For this task, we focus on the UI structure.
+        let result;
+        if (isNew) {
+            // Crear
+            // Remover ID temporal si es necesario o dejar que el backend lo ignore
+            const { id, ...dataToCreate } = updatedEmployee;
+            result = await createUser(dataToCreate);
+        } else {
+            // Actualizar
+            console.log('🔄 Actualizando usuario ID:', updatedEmployee.id);
+            result = await updateUser(updatedEmployee.id, updatedEmployee);
+        }
 
-        toast.success('Empleado guardado exitosamente');
-        setIsModalOpen(false);
-        setSelectedEmployee(null);
+        if (result.success && result.data) {
+            toast.success(`Empleado ${isNew ? 'creado' : 'actualizado'} exitosamente`);
+            setIsModalOpen(false);
+            setSelectedEmployee(null);
+            loadUsers(); // Recargar lista
+        } else {
+            toast.error(result.error || 'Error al guardar empleado');
+        }
     };
 
     const handleNewEmployee = () => {
         setSelectedEmployee({
-            id: `EMP-${Date.now()}`,
+            id: `EMP-${Date.now()}`, // ID temporal para el formulario
             rut: '',
             name: '',
             role: 'CASHIER',
@@ -137,53 +169,67 @@ const HRPage = () => {
                         {/* Employee Table */}
                         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex-1 flex flex-col">
                             <div className="overflow-y-auto flex-1">
-                                <table className="w-full text-left">
-                                    <thead className="bg-slate-50 border-b border-slate-100 sticky top-0 z-10">
-                                        <tr>
-                                            <th className="p-6 font-bold text-slate-500 text-sm uppercase tracking-wider">Empleado</th>
-                                            <th className="p-6 font-bold text-slate-500 text-sm uppercase tracking-wider">Cargo / Rol</th>
-                                            <th className="p-6 font-bold text-slate-500 text-sm uppercase tracking-wider">Estado</th>
-                                            <th className="p-6 font-bold text-slate-500 text-sm uppercase tracking-wider text-right">Acciones</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        {filteredEmployees.map(emp => (
-                                            <tr key={emp.id} className="hover:bg-slate-50 transition-colors group">
-                                                <td className="p-6">
-                                                    <div className="flex items-center gap-4">
-                                                        <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold text-white ${emp.status === 'ACTIVE' ? 'bg-blue-500' : 'bg-slate-400'}`}>
-                                                            {emp.name.charAt(0)}
-                                                        </div>
-                                                        <div>
-                                                            <div className="font-bold text-slate-800 text-lg">{emp.name}</div>
-                                                            <div className="text-sm text-slate-400 font-mono">{emp.rut}</div>
-                                                        </div>
-                                                    </div>
-                                                </td>
-                                                <td className="p-6">
-                                                    <div className="font-medium text-slate-700">{emp.job_title?.replace(/_/g, ' ')}</div>
-                                                    <div className="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded-full inline-block mt-1">
-                                                        {ROLES[emp.role]}
-                                                    </div>
-                                                </td>
-                                                <td className="p-6">
-                                                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${emp.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                                                        {emp.status === 'ACTIVE' ? 'ACTIVO' : 'INACTIVO'}
-                                                    </span>
-                                                </td>
-                                                <td className="p-6 text-right">
-                                                    <button
-                                                        onClick={() => handleEditEmployee(emp)}
-                                                        className="px-4 py-2 bg-white border border-slate-200 text-slate-600 font-bold rounded-lg hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-all shadow-sm flex items-center gap-2 ml-auto"
-                                                    >
-                                                        <Edit size={16} />
-                                                        Editar
-                                                    </button>
-                                                </td>
+                                {isLoading ? (
+                                    <div className="flex items-center justify-center h-full">
+                                        <Loader2 className="animate-spin text-blue-600" size={48} />
+                                    </div>
+                                ) : (
+                                    <table className="w-full text-left">
+                                        <thead className="bg-slate-50 border-b border-slate-100 sticky top-0 z-10">
+                                            <tr>
+                                                <th className="p-6 font-bold text-slate-500 text-sm uppercase tracking-wider">Empleado</th>
+                                                <th className="p-6 font-bold text-slate-500 text-sm uppercase tracking-wider">Cargo / Rol</th>
+                                                <th className="p-6 font-bold text-slate-500 text-sm uppercase tracking-wider">Estado</th>
+                                                <th className="p-6 font-bold text-slate-500 text-sm uppercase tracking-wider text-right">Acciones</th>
                                             </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {filteredEmployees.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan={4} className="p-12 text-center text-slate-400">
+                                                        No se encontraron empleados.
+                                                    </td>
+                                                </tr>
+                                            ) : (
+                                                filteredEmployees.map(emp => (
+                                                    <tr key={emp.id} className="hover:bg-slate-50 transition-colors group">
+                                                        <td className="p-6">
+                                                            <div className="flex items-center gap-4">
+                                                                <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold text-white ${emp.status === 'ACTIVE' ? 'bg-blue-500' : 'bg-slate-400'}`}>
+                                                                    {emp.name.charAt(0)}
+                                                                </div>
+                                                                <div>
+                                                                    <div className="font-bold text-slate-800 text-lg">{emp.name}</div>
+                                                                    <div className="text-sm text-slate-400 font-mono">{emp.rut}</div>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="p-6">
+                                                            <div className="font-medium text-slate-700">{emp.job_title?.replace(/_/g, ' ')}</div>
+                                                            <div className="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded-full inline-block mt-1">
+                                                                {ROLES[emp.role]}
+                                                            </div>
+                                                        </td>
+                                                        <td className="p-6">
+                                                            <span className={`px-3 py-1 rounded-full text-xs font-bold ${emp.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                                                                {emp.status === 'ACTIVE' ? 'ACTIVO' : 'INACTIVO'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="p-6 text-right">
+                                                            <button
+                                                                onClick={() => handleEditEmployee(emp)}
+                                                                className="px-4 py-2 bg-white border border-slate-200 text-slate-600 font-bold rounded-lg hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-all shadow-sm flex items-center gap-2 ml-auto"
+                                                            >
+                                                                <Edit size={16} />
+                                                                Editar
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))
+                                            )}
+                                        </tbody>
+                                    </table>
+                                )}
                             </div>
                         </div>
                     </div>

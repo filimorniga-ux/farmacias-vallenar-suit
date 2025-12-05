@@ -17,12 +17,17 @@ const LandingPage: React.FC = () => {
     const [step, setStep] = useState<'select' | 'pin'>('select');
 
     // Role mapping based on which card was clicked
+    // Role mapping based on which card was clicked
     const ROUTE_TO_ROLES: Record<string, string[]> = {
         '/dashboard': ['MANAGER'],                    // Gerencia -> Only Manager
-        '/inventory': ['MANAGER', 'QF', 'WAREHOUSE'], // Inventario -> Manager, QF, Warehouse
-        '/pos': ['CASHIER', 'QF', 'MANAGER'],        // POS -> Cashiers, QF, Manager
-        '/warehouse': ['WAREHOUSE', 'MANAGER'],       // Warehouse -> Warehouse staff, Manager
+        '/inventory': ['MANAGER', 'QF', 'WAREHOUSE', 'ADMIN'], // Inventario -> Manager, QF, Warehouse, Admin
+        '/pos': ['CASHIER', 'QF', 'MANAGER', 'ADMIN'],        // POS -> Cashiers, QF, Manager, Admin
+        '/warehouse': ['WAREHOUSE', 'MANAGER', 'ADMIN'],       // Warehouse -> Warehouse staff, Manager, Admin
         '/network': ['MANAGER'],                      // Network -> Only Manager
+        '/clients': ['MANAGER', 'ADMIN', 'CASHIER', 'QF'], // CRM -> Todos menos Bodega
+        '/supply-chain': ['MANAGER', 'ADMIN', 'WAREHOUSE'], // Abastecimiento -> Manager, Admin, Bodega
+        '/suppliers': ['MANAGER', 'ADMIN', 'WAREHOUSE'], // Proveedores -> Manager, Admin, Bodega
+        '/settings': ['MANAGER'], // Configuración -> Solo Gerente
     };
 
     // Filter employees based on target route
