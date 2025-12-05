@@ -130,6 +130,41 @@ CREATE TABLE sale_items (
     unit_price INTEGER NOT NULL,
     total_price INTEGER NOT NULL
 );
+
+-- 6. GESTION DE CAJAS & TERMINALES
+CREATE TABLE terminals (
+    id VARCHAR(50) PRIMARY KEY, -- Ej: TERM-123
+    name VARCHAR(100) NOT NULL,
+    location_id UUID REFERENCES locations(id),
+    status VARCHAR(20) DEFAULT 'CLOSED', -- OPEN, CLOSED
+    allowed_users JSONB DEFAULT '[]', -- Array de User IDs permitidos
+    current_cashier_id UUID, -- Usuario actual si está abierta
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 7. PROVEEDORES & DOCUMENTOS
+CREATE TABLE suppliers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    rut VARCHAR(20) UNIQUE NOT NULL,
+    business_name VARCHAR(150) NOT NULL,
+    fantasy_name VARCHAR(150),
+    contact_email VARCHAR(100),
+    payment_terms VARCHAR(50), -- CONTADO, 30_DIAS, etc.
+    is_active BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE supplier_documents (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    supplier_id UUID REFERENCES suppliers(id),
+    type VARCHAR(50) NOT NULL, -- FACTURA, NOTA_CREDITO, GUIA_DESPACHO
+    number VARCHAR(50) NOT NULL, -- Folio
+    amount INTEGER NOT NULL,
+    issue_date DATE,
+    due_date DATE,
+    status VARCHAR(20) DEFAULT 'PENDING',
+    related_po_id UUID, -- Purchase Order ID
+    created_at TIMESTAMP DEFAULT NOW()
+);
 ```
 
 ---
@@ -242,12 +277,13 @@ El sistema implementa restricciones vía código que no pueden ser saltadas por 
 
 | Módulo | Estado | Características Clave |
 | :--- | :--- | :--- |
-| **POS (Caja)** | ✅ Prod-Ready | Venta rápida, DTE (Simulado), Control Temperaturas, Convenios Empresa. |
+| **POS (Caja)** | ✅ Prod-Ready | Venta rápida, Gestión de Terminales (Apertura/Cierre), Control Temperaturas. |
 | **Clinical Copilot** | ✅ Beta | Sidebar IA con búsqueda semántica ("dolor de cabeza") y alertas de seguridad geriátrica. |
-| **Inventario** | ✅ Prod-Ready | Trazabilidad por Lote, Kardex de Movimientos, Gestión de Cuarentena. |
+| **Inventario** | ✅ Prod-Ready | Trazabilidad por Lote, Kardex de Movimientos, Seed Data Global. |
+| **Proveedores** | ✅ Prod-Ready | Directorio, Gestión de Documentos (Facturas/NC), Exportación Excel. |
 | **Supply Chain** | ✅ Beta | Tablero Kanban, Agente de Compras que sugiere reposición automática. |
-| **RR.HH. & Kiosco Híbrido** | ✅ Prod-Ready | Kiosco biométrico/verificador de precios, Muro de Asistencia, Nómina Chile auditada. |
-| **Analytics (BI)** | ✅ Prod-Ready | Gráficos Recharts, Exportación Excel, KPIs financieros en tiempo real. |
+| **RR.HH. & Kiosco** | ✅ Prod-Ready | Kiosco biométrico/verificador de precios, Muro de Asistencia, Nómina Chile. |
+| **Reportes & Export** | ✅ Prod-Ready | Selección Avanzada (Fecha/ID), Exportación Excel (Clientes, Ventas, Stock). |
 | **Seguridad** | ✅ Prod-Ready | Bóveda de Usuarios, Reset de PIN, Roles jerárquicos. |
 
 ---
