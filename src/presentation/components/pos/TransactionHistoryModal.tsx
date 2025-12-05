@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { usePharmaStore } from '../../../presentation/store/useStore';
 import { X, Search, Calendar, Printer, Eye, Lock, FileText, Download, User, RotateCcw } from 'lucide-react';
+import { generateCashReport } from '../../../actions/cash-export';
 import { toast } from 'sonner';
 import { PrinterService } from '../../../domain/services/PrinterService';
 import { SaleTransaction } from '../../../domain/types';
@@ -12,9 +13,10 @@ interface TransactionHistoryModalProps {
 }
 
 const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpen, onClose }) => {
-    const { salesHistory, employees, printerConfig } = usePharmaStore();
+    const { salesHistory, employees, printerConfig, cashMovements, expenses, user } = usePharmaStore();
     const [adminPin, setAdminPin] = useState('');
     const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
 
     // Filters
     const [searchTerm, setSearchTerm] = useState('');
@@ -54,6 +56,52 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
     const handleReprint = (sale: SaleTransaction) => {
         PrinterService.printTicket(sale, printerConfig);
         toast.success('Reimprimiendo ticket...');
+    };
+
+    const handleExport = async () => {
+        setIsExporting(true);
+        try {
+            const start = new Date(startDate).setHours(0, 0, 0, 0);
+            const end = new Date(endDate).setHours(23, 59, 59, 999);
+
+            // Filter Data (Mirroring filteredSales logic)
+            const relevantSales = salesHistory.filter(s => s.timestamp >= start && s.timestamp <= end);
+            const relevantMovements = cashMovements.filter(m => m.timestamp >= start && m.timestamp <= end);
+            const relevantExpenses = expenses.filter(e => e.date >= start && e.date <= end);
+
+            if (relevantSales.length === 0 && relevantMovements.length === 0 && relevantExpenses.length === 0) {
+                toast.error('No hay datos para exportar en el rango seleccionado');
+                return;
+            }
+
+            const result = await generateCashReport({
+                sales: relevantSales,
+                movements: relevantMovements,
+                expenses: relevantExpenses,
+                startDate,
+                endDate,
+                generatedBy: user?.name || 'Usuario'
+            });
+
+            if (result.success && result.fileData) {
+                // Trigger Download
+                const link = document.createElement('a');
+                link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${result.fileData}`;
+                link.download = result.fileName || 'reporte.xlsx';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                toast.success('Informe exportado correctamente');
+            } else {
+                toast.error('Error al generar el informe: ' + (result.error || 'Desconocido'));
+            }
+
+        } catch (error) {
+            toast.error('Error en exportación');
+            console.error(error);
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     if (!isOpen) return null;
@@ -133,6 +181,14 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
                     <div className="bg-cyan-100 text-cyan-800 px-4 py-2 rounded-xl font-bold text-sm">
                         Total: {filteredSales.length} ventas
                     </div>
+
+                    <button
+                        onClick={handleExport}
+                        disabled={isExporting}
+                        className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-emerald-700 disabled:opacity-50 transition-colors shadow-sm ml-auto"
+                    >
+                        {isExporting ? 'Generando...' : <><Download size={18} /> Exportar Reporte</>}
+                    </button>
                 </div>
 
                 {/* Content */}

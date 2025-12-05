@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings, User, Shield, Save, Receipt, Printer, ToggleLeft, ToggleRight, AlertTriangle, CreditCard, Star } from 'lucide-react';
+import { Settings, User, Shield, Save, Receipt, Printer, ToggleLeft, ToggleRight, AlertTriangle, CreditCard, Star, Monitor } from 'lucide-react';
 import SiiSettings from './settings/SiiSettings';
 import HardwarePage from './settings/HardwarePage';
 import InventorySettings from './settings/InventorySettings';
@@ -9,10 +9,11 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { usePharmaStore } from '../store/useStore';
 import { UsersList } from '../components/settings/UsersList';
 import { UsersSettingsForm } from '../components/settings/UsersSettingsForm';
+import { TerminalSettings } from '../components/settings/TerminalSettings';
 import { EmployeeProfile } from '../../domain/types';
 
 const SettingsPage: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'users' | 'sii' | 'hardware' | 'inventory' | 'billing' | 'loyalty'>('users');
+    const [activeTab, setActiveTab] = useState<'users' | 'sii' | 'hardware' | 'inventory' | 'billing' | 'loyalty' | 'terminals'>('users');
     const { enable_sii_integration, toggleSiiIntegration } = useSettingsStore();
     const { user } = usePharmaStore();
 
@@ -71,6 +72,18 @@ const SettingsPage: React.FC = () => {
                         <User size={20} />
                         Gestión de Usuarios
                     </button>
+
+                    <button
+                        onClick={() => setActiveTab('terminals')}
+                        className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'terminals'
+                            ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600'
+                            : 'text-slate-500 hover:bg-slate-50'
+                            }`}
+                    >
+                        <Monitor size={20} />
+                        Cajas / Terminales
+                    </button>
+
                     <button
                         onClick={() => setActiveTab('sii')}
                         className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'sii'
@@ -149,6 +162,8 @@ const SettingsPage: React.FC = () => {
                     )}
                 </div>
             )}
+
+            {activeTab === 'terminals' && <TerminalSettings />}
 
             {activeTab === 'sii' && (
                 enable_sii_integration ? (

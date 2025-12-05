@@ -6,6 +6,7 @@ import StockEntryModal from '../components/inventory/StockEntryModal';
 import StockTransferModal from '../components/inventory/StockTransferModal';
 import InventoryEditModal from '../components/inventory/InventoryEditModal';
 import BulkImportModal from '../components/inventory/BulkImportModal';
+import InventoryExportModal from '../components/inventory/InventoryExportModal';
 import { hasPermission } from '../../domain/security/roles';
 import MobileActionScroll from '../components/ui/MobileActionScroll';
 
@@ -17,6 +18,7 @@ const InventoryPage: React.FC = () => {
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
     const [editingItem, setEditingItem] = useState<any>(null);
 
     // Permissions
@@ -117,6 +119,12 @@ const InventoryPage: React.FC = () => {
                         </button>
                         {canManageInventory && (
                             <>
+                                <button
+                                    onClick={() => setIsExportModalOpen(true)}
+                                    className="px-6 py-3 bg-white text-indigo-700 font-bold rounded-full border border-indigo-200 hover:bg-indigo-50 transition flex items-center gap-2 whitespace-nowrap"
+                                >
+                                    <FileSpreadsheet size={18} /> Exportar Kardex
+                                </button>
                                 <button
                                     onClick={() => setIsImportModalOpen(true)}
                                     className="px-6 py-3 bg-white text-green-700 font-bold rounded-full border border-green-200 hover:bg-green-50 transition flex items-center gap-2 whitespace-nowrap"
@@ -362,6 +370,7 @@ const InventoryPage: React.FC = () => {
             <StockTransferModal isOpen={isTransferModalOpen} onClose={() => setIsTransferModalOpen(false)} />
             <InventoryEditModal isOpen={isEditModalOpen} onClose={() => { setIsEditModalOpen(false); setEditingItem(null); }} product={editingItem} />
             <BulkImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} />
+            <InventoryExportModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} />
         </div>
     );
 };

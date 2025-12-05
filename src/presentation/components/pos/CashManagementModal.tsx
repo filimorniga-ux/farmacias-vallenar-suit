@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { usePharmaStore } from '../../store/useStore';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, DollarSign, Camera, AlertTriangle, CheckCircle, TrendingDown, TrendingUp, Lock, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, DollarSign, Camera, AlertTriangle, CheckCircle, TrendingDown, TrendingUp, Lock, ChevronDown, ChevronUp, Download } from 'lucide-react';
 import { CashMovementReason } from '../../../domain/types';
 import { SupervisorOverrideModal } from '../security/SupervisorOverrideModal';
 import { toast } from 'sonner';
+import { generateCashReport } from '../../../actions/cash-export';
 
 interface CashManagementModalProps {
     isOpen: boolean;
@@ -13,11 +14,12 @@ interface CashManagementModalProps {
 }
 
 const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClose, mode }) => {
-    const { currentShift, closeShift, registerCashMovement, getShiftMetrics } = usePharmaStore();
+    const { currentShift, closeShift, registerCashMovement, getShiftMetrics, salesHistory, cashMovements, expenses, user, employees, terminals } = usePharmaStore();
 
     // Security State
     const [isSupervisorModalOpen, setIsSupervisorModalOpen] = useState(false);
     const [isAuditVisible, setIsAuditVisible] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
 
     // Expense/Income State
     const [movementType, setMovementType] = useState<'IN' | 'OUT'>('OUT');
@@ -31,10 +33,10 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
     const [metrics, setMetrics] = useState<any>(null);
     const [expandedSection, setExpandedSection] = useState<'TRANSFER' | 'CARD' | null>(null);
 
+    // Effect 1: Initialization & State Reset
     useEffect(() => {
-        if (isOpen && currentShift?.status === 'ACTIVE') {
-            setMetrics(getShiftMetrics());
-            // Reset states
+        if (isOpen) {
+            // Reset states only when modal opens or mode changes
             setIsAuditVisible(false);
             setClosingAmount('');
             setAmount('');
@@ -43,23 +45,98 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
             setDescription('');
 
             // Auto-trigger supervisor modal for sensitive actions
-            if (mode === 'AUDIT' || mode === 'CLOSE') {
+            if ((mode === 'AUDIT' || mode === 'CLOSE') && currentShift?.status === 'ACTIVE') {
                 setIsSupervisorModalOpen(true);
             }
         }
-    }, [isOpen, currentShift, mode]);
+    }, [isOpen, mode]); // Removed currentShift from resetting dependencies
+
+    // Effect 2: Data Refresh
+    useEffect(() => {
+        if (isOpen && currentShift?.status === 'ACTIVE') {
+            const m = getShiftMetrics();
+            console.log('📊 [CashManagement] Metrics loaded:', m);
+            setMetrics(m);
+        } else {
+            // Optional: Handle inactive shift case if needed
+        }
+    }, [isOpen, currentShift, getShiftMetrics]); // Keep this responsive to data changes without resetting UI
 
     // ... (keep existing useEffect for interval)
 
     const handleSupervisorAuthorize = (authorizedBy: string) => {
+        console.log('✅ [CashManagement] Supervisor Authorized:', authorizedBy, 'Mode:', mode);
         if (mode === 'CLOSE') {
             const finalAmount = parseInt(closingAmount);
             closeShift(finalAmount, authorizedBy);
             onClose();
         } else if (mode === 'AUDIT') {
+            console.log('🔓 [CashManagement] Unlocking Audit View');
             setIsAuditVisible(true);
         }
         setIsSupervisorModalOpen(false);
+    };
+
+    const handleExport = async () => {
+        if (!currentShift) return;
+        setIsExporting(true);
+        try {
+            // Filter Data for Current Shift (Roughly)
+            // Ideally we filter by shift_id if stored, but timestamp is good proxy for "Current Session" or just export ALL for now?
+            // The prompt says "Turno/Periodo". We can filter by "Today" or just export what is in store if it's "Current Shift".
+            // Implementation: Export ALL data currently in store as it represents the "Local Session".
+            // Better: Filter by Start of Shift.
+            const start = currentShift.start_time;
+            const end = Date.now();
+
+            // Resolve Names
+            const currentTerminalName = terminals.find(t => t.id === currentShift.terminal_id)?.name || 'Caja Desconocida';
+
+            const relevantSales = salesHistory
+                .filter(s => s.timestamp >= start && s.timestamp <= end)
+                .map(s => ({
+                    ...s,
+                    // If seller_id matches current user, use user.name, else lookup employee
+                    seller_name: employees.find(e => e.id === s.seller_id)?.name || s.seller_id,
+                    terminal_name: currentTerminalName // Sales in this session belong to this terminal
+                }));
+
+            const relevantMovements = cashMovements
+                .filter(m => m.timestamp >= start && m.timestamp <= end)
+                .map(m => ({
+                    ...m,
+                    user_name: employees.find(e => e.id === m.user_id)?.name || m.user_id,
+                    terminal_name: currentTerminalName
+                }));
+
+            const relevantExpenses = expenses.filter(e => e.date >= start && e.date <= end);
+
+            const result = await generateCashReport({
+                sales: relevantSales,
+                movements: relevantMovements,
+                expenses: relevantExpenses,
+                startDate: new Date(start).toISOString().split('T')[0],
+                endDate: new Date(end).toISOString().split('T')[0],
+                generatedBy: user?.name || 'Cajero'
+            });
+
+            if (result.success && result.fileData) {
+                const link = document.createElement('a');
+                link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${result.fileData}`;
+                link.download = result.fileName || `cierre_caja_${currentShift.id}.xlsx`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                toast.success('Reporte de Caja descargado');
+            } else {
+                toast.error('Error generando reporte');
+            }
+        } catch (e) {
+            console.error(e);
+            toast.error('Error exportando');
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     const handleRegisterMovement = () => {
@@ -119,9 +196,11 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                     {currentShift?.status === 'ACTIVE' ? `Turno #${currentShift.id.slice(-6)}` : 'Caja Cerrada'}
                                 </p>
                             </div>
-                            <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
-                                <X size={24} />
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+                                    <X size={24} />
+                                </button>
+                            </div>
                         </div>
 
                         {/* Content */}
@@ -209,7 +288,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                             )}
 
                             {/* AUDIT & CLOSE MODES */}
-                            {(mode === 'AUDIT' || mode === 'CLOSE') && metrics && (
+                            {(mode === 'AUDIT' || mode === 'CLOSE') && (
                                 <div className="space-y-6">
                                     {/* Waterfall */}
                                     <div className="space-y-3 bg-slate-50 p-6 rounded-2xl border border-slate-100 relative overflow-hidden">
@@ -222,38 +301,46 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                             </div>
                                         )}
 
-                                        <div className="flex justify-between items-center text-slate-600">
-                                            <span>(+) Ventas Totales</span>
-                                            <span className="font-medium">${metrics.totalSales.toLocaleString()}</span>
-                                        </div>
+                                        {!metrics ? (
+                                            <div className="flex flex-col items-center justify-center py-10 text-slate-400">
+                                                <p>Cargando métricas del turno...</p>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <div className="flex justify-between items-center text-slate-600">
+                                                    <span>(+) Ventas Totales</span>
+                                                    <span className="font-medium">${metrics.totalSales.toLocaleString()}</span>
+                                                </div>
 
-                                        {/* Simplified Metrics Display */}
-                                        <div className="flex justify-between items-center text-slate-500 text-sm">
-                                            <span>(-) Tarjetas ({metrics.cardCount})</span>
-                                            <span>-${metrics.cardSales.toLocaleString()}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center text-slate-500 text-sm">
-                                            <span>(-) Transferencias ({metrics.transferCount})</span>
-                                            <span>-${metrics.transferSales.toLocaleString()}</span>
-                                        </div>
+                                                {/* Simplified Metrics Display */}
+                                                <div className="flex justify-between items-center text-slate-500 text-sm">
+                                                    <span>(-) Tarjetas ({metrics.cardCount})</span>
+                                                    <span>-${metrics.cardSales.toLocaleString()}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center text-slate-500 text-sm">
+                                                    <span>(-) Transferencias ({metrics.transferCount})</span>
+                                                    <span>-${metrics.transferSales.toLocaleString()}</span>
+                                                </div>
 
-                                        <div className="h-px bg-slate-200 my-2"></div>
+                                                <div className="h-px bg-slate-200 my-2"></div>
 
-                                        <div className="flex justify-between items-center text-green-600 text-sm">
-                                            <span>(+) Fondo Inicial</span>
-                                            <span>+${metrics.initialFund.toLocaleString()}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center text-red-500 text-sm">
-                                            <span>(-) Gastos / Salidas</span>
-                                            <span>-${metrics.totalOutflows.toLocaleString()}</span>
-                                        </div>
+                                                <div className="flex justify-between items-center text-green-600 text-sm">
+                                                    <span>(+) Fondo Inicial</span>
+                                                    <span>+${metrics.initialFund.toLocaleString()}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center text-red-500 text-sm">
+                                                    <span>(-) Gastos / Salidas</span>
+                                                    <span>-${metrics.totalOutflows.toLocaleString()}</span>
+                                                </div>
 
-                                        <div className="h-px bg-slate-200 my-2"></div>
+                                                <div className="h-px bg-slate-200 my-2"></div>
 
-                                        <div className="flex justify-between items-center text-xl font-bold text-slate-800">
-                                            <span>(=) DEBE HABER EN CAJA</span>
-                                            <span>${metrics.expectedCash.toLocaleString()}</span>
-                                        </div>
+                                                <div className="flex justify-between items-center text-xl font-bold text-slate-800">
+                                                    <span>(=) DEBE HABER EN CAJA</span>
+                                                    <span>${metrics.expectedCash.toLocaleString()}</span>
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
 
                                     {mode === 'CLOSE' && isAuditVisible && (
@@ -287,12 +374,24 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                             </button>
                                         </div>
                                     )}
+
+                                    {/* Export Report Button - Visible when Audit is unlocked */}
+                                    {isAuditVisible && (
+                                        <button
+                                            onClick={handleExport}
+                                            disabled={isExporting}
+                                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2"
+                                        >
+                                            <Download size={20} />
+                                            {isExporting ? 'Generando Reporte...' : 'Exportar Excel de Caja'}
+                                        </button>
+                                    )}
                                 </div>
                             )}
                         </div>
                     </motion.div>
                 </motion.div>
-            </AnimatePresence>
+            </AnimatePresence >
 
             <SupervisorOverrideModal
                 isOpen={isSupervisorModalOpen}
