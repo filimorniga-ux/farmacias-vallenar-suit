@@ -1,15 +1,48 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { usePharmaStore } from '../store/useStore';
-import { Search, Plus, Filter, Building2, Phone, Mail, CreditCard, Star, ChevronRight } from 'lucide-react';
+import { Search, Plus, Filter, Building2, Phone, Mail, CreditCard, Star, ChevronRight, Download } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import AddSupplierModal from '../components/suppliers/AddSupplierModal';
 import { toast } from 'sonner';
+import { AdvancedExportModal } from '../components/common/AdvancedExportModal';
+import { generateSupplierReport } from '../../actions/supplier-export';
 
 export const SuppliersPage = () => {
     const { suppliers, addSupplier } = usePharmaStore();
     const [searchTerm, setSearchTerm] = useState('');
     const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+
+    // Export State
+    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
+
+    const exportItems = useMemo(() => suppliers.map(s => ({
+        id: s.id,
+        label: s.business_name, // Or fantasy_name? User usually searches fantasy name.
+        detail: s.rut
+    })), [suppliers]);
+
+    const handleExport = async (startDate: Date, endDate: Date, selectedIds?: string[]) => {
+        setIsExporting(true);
+        try {
+            const result = await generateSupplierReport(startDate, endDate, selectedIds);
+            if (result.success && result.base64) {
+                const link = document.createElement('a');
+                link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${result.base64}`;
+                link.download = `Reporte_Proveedores_${startDate.toISOString().split('T')[0]}_${endDate.toISOString().split('T')[0]}.xlsx`;
+                link.click();
+                toast.success('Reporte descargado exitosamente');
+                setIsExportModalOpen(false);
+            } else {
+                toast.error(result.error || 'Error al generar reporte');
+            }
+        } catch (error) {
+            toast.error('Error de conexión');
+        } finally {
+            setIsExporting(false);
+        }
+    };
 
     const filteredSuppliers = suppliers.filter(supplier => {
         const matchesSearch =
@@ -35,13 +68,22 @@ export const SuppliersPage = () => {
                     <h1 className="text-2xl font-bold text-slate-800">Directorio de Proveedores</h1>
                     <p className="text-slate-500">Gestión 360° de laboratorios y distribuidores</p>
                 </div>
-                <button
-                    onClick={() => setIsAddModalOpen(true)}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm"
-                >
-                    <Plus size={20} />
-                    Nuevo Proveedor
-                </button>
+                <div className="flex gap-3">
+                    <button
+                        onClick={() => setIsExportModalOpen(true)}
+                        className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm font-bold"
+                    >
+                        <Download size={20} />
+                        Exportar Excel
+                    </button>
+                    <button
+                        onClick={() => setIsAddModalOpen(true)}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm"
+                    >
+                        <Plus size={20} />
+                        Nuevo Proveedor
+                    </button>
+                </div>
             </div>
 
             {/* Add Supplier Modal */}
@@ -139,6 +181,16 @@ export const SuppliersPage = () => {
                     </Link>
                 ))}
             </div>
+            {/* Export Modal */}
+            <AdvancedExportModal
+                isOpen={isExportModalOpen}
+                onClose={() => setIsExportModalOpen(false)}
+                onExport={handleExport}
+                title="Exportar Reporte de Proveedores"
+                items={exportItems}
+                itemLabel="Proveedores"
+                isLoading={isExporting}
+            />
         </div>
     );
 };
