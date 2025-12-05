@@ -256,8 +256,10 @@ export const usePharmaStore = create<PharmaState>()(
                     if (employees.length > 0) {
                         set({ employees });
                     } else {
-                        console.warn('⚠️ No employees found in DB, using MOCK_EMPLOYEES');
-                        set({ employees: MOCK_EMPLOYEES });
+                        // Si la DB devuelve vacío (ej: primera carga), no usar Mocks para evitar confusión.
+                        // Solo usar mocks si explícitamente estamos en modo demo/offline sin conexión.
+                        console.log('ℹ️ No employees found in DB.');
+                        set({ employees: [] });
                     }
 
                     const state = get();

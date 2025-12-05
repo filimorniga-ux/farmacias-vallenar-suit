@@ -7,11 +7,33 @@ import LoyaltySettings from './settings/LoyaltySettings';
 import InfrastructureBillingPanel from '../components/settings/InfrastructureBillingPanel';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { usePharmaStore } from '../store/useStore';
+import { UsersList } from '../components/settings/UsersList';
+import { UsersSettingsForm } from '../components/settings/UsersSettingsForm';
+import { EmployeeProfile } from '../domain/types';
 
 const SettingsPage: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'users' | 'sii' | 'hardware' | 'inventory' | 'billing' | 'loyalty'>('users');
     const { enable_sii_integration, toggleSiiIntegration } = useSettingsStore();
     const { user } = usePharmaStore();
+
+    // Estado para gestión de usuarios
+    const [usersView, setUsersView] = useState<'list' | 'form'>('list');
+    const [selectedUser, setSelectedUser] = useState<EmployeeProfile | null>(null);
+
+    const handleEditUser = (user: EmployeeProfile) => {
+        setSelectedUser(user);
+        setUsersView('form');
+    };
+
+    const handleCreateUser = () => {
+        setSelectedUser(null);
+        setUsersView('form');
+    };
+
+    const handleUserFormSuccess = () => {
+        setUsersView('list');
+        setSelectedUser(null);
+    };
 
     return (
         <div className="p-6 bg-slate-50 min-h-screen">
@@ -113,53 +135,18 @@ const SettingsPage: React.FC = () => {
             {/* Tab Content */}
             {activeTab === 'users' && (
                 <div className="bg-white rounded-b-3xl shadow-sm border border-t-0 border-slate-200 overflow-hidden max-w-7xl p-8">
-                    <form onSubmit={(e) => e.preventDefault()}>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-2">Nombre Completo</label>
-                                <input
-                                    type="text"
-                                    autoComplete="name"
-                                    className="w-full p-3 border-2 border-slate-300 rounded-xl focus:border-cyan-600 focus:outline-none font-medium"
-                                    placeholder="Ej: Juan Pérez"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-2">RUT</label>
-                                <input
-                                    type="text"
-                                    autoComplete="off"
-                                    className="w-full p-3 border-2 border-slate-300 rounded-xl focus:border-cyan-600 focus:outline-none font-medium"
-                                    placeholder="11.111.111-1"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-2">Rol</label>
-                                <select autoComplete="off" className="w-full p-3 border-2 border-slate-300 rounded-xl focus:border-cyan-600 focus:outline-none font-medium bg-white">
-                                    <option>Cajero/a</option>
-                                    <option>Químico Farmacéutico (QF)</option>
-                                    <option>Administrador</option>
-                                    <option>Bodega</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-2">PIN de Acceso (4 dígitos)</label>
-                                <input
-                                    type="password"
-                                    maxLength={4}
-                                    autoComplete="new-password"
-                                    className="w-full p-3 border-2 border-slate-300 rounded-xl focus:border-cyan-600 focus:outline-none font-medium tracking-widest"
-                                    placeholder="••••"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="flex justify-end">
-                            <button type="submit" className="px-8 py-3 bg-cyan-600 text-white font-bold rounded-xl hover:bg-cyan-700 transition shadow-lg flex items-center gap-2">
-                                <Save size={20} /> Guardar Usuario
-                            </button>
-                        </div>
-                    </form>
+                    {usersView === 'list' ? (
+                        <UsersList
+                            onEdit={handleEditUser}
+                            onCreate={handleCreateUser}
+                        />
+                    ) : (
+                        <UsersSettingsForm
+                            initialData={selectedUser}
+                            onCancel={() => setUsersView('list')}
+                            onSuccess={handleUserFormSuccess}
+                        />
+                    )}
                 </div>
             )}
 

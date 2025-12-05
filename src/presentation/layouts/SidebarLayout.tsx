@@ -44,18 +44,18 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
     }
 
     const menuItems = [
-        { icon: LayoutDashboard, label: 'Resumen General', path: '/dashboard', roles: ['MANAGER'], color: 'indigo' as AppThemeColor },
-        { icon: ShoppingCart, label: 'Punto de Venta', path: '/pos', roles: ['CASHIER', 'QF', 'MANAGER'], color: 'emerald' as AppThemeColor },
-        { icon: Package, label: 'Inventario', path: '/inventory', roles: ['WAREHOUSE', 'MANAGER', 'QF'], color: 'cyan' as AppThemeColor },
+        { icon: LayoutDashboard, label: 'Resumen General', path: '/dashboard', roles: ['MANAGER', 'ADMIN'], color: 'indigo' as AppThemeColor },
+        { icon: ShoppingCart, label: 'Punto de Venta', path: '/pos', roles: ['CASHIER', 'QF', 'MANAGER', 'ADMIN'], color: 'emerald' as AppThemeColor },
+        { icon: Package, label: 'Inventario', path: '/inventory', roles: ['WAREHOUSE', 'MANAGER', 'QF', 'ADMIN'], color: 'cyan' as AppThemeColor },
 
-        { icon: Truck, label: 'Operaciones WMS', path: '/warehouse', roles: ['WAREHOUSE', 'MANAGER', 'QF'], color: 'amber' as AppThemeColor },
-        { icon: Building2, label: 'Proveedores', path: '/suppliers', roles: ['MANAGER', 'QF', 'WAREHOUSE'], color: 'blue' as AppThemeColor },
-        { icon: BarChart3, label: 'Reportes & BI', path: '/reports', roles: ['MANAGER', 'QF'], color: 'purple' as AppThemeColor },
-        { icon: Truck, label: 'Abastecimiento', path: '/supply-chain', roles: ['WAREHOUSE', 'MANAGER'], color: 'orange' as AppThemeColor },
-        { icon: UserCircle, label: 'Clientes (CRM)', path: '/clients', roles: ['MANAGER', 'QF', 'CASHIER'], color: 'teal' as AppThemeColor },
-        { icon: Users, label: 'Recursos Humanos', path: '/hr', roles: ['MANAGER'], color: 'rose' as AppThemeColor },
-        { icon: MapPin, label: 'Gestión de Red', path: '/network', roles: ['MANAGER'], color: 'slate' as AppThemeColor },
-        { icon: Clock, label: 'Control Asistencia', path: '/access', roles: ['MANAGER'], color: 'sky' as AppThemeColor },
+        { icon: Truck, label: 'Operaciones WMS', path: '/warehouse', roles: ['WAREHOUSE', 'MANAGER', 'QF', 'ADMIN'], color: 'amber' as AppThemeColor },
+        { icon: Building2, label: 'Proveedores', path: '/suppliers', roles: ['MANAGER', 'QF', 'WAREHOUSE', 'ADMIN'], color: 'blue' as AppThemeColor },
+        { icon: BarChart3, label: 'Reportes & BI', path: '/reports', roles: ['MANAGER', 'QF', 'ADMIN'], color: 'purple' as AppThemeColor },
+        { icon: Truck, label: 'Abastecimiento', path: '/supply-chain', roles: ['WAREHOUSE', 'MANAGER', 'ADMIN'], color: 'orange' as AppThemeColor },
+        { icon: UserCircle, label: 'Clientes (CRM)', path: '/clients', roles: ['MANAGER', 'QF', 'CASHIER', 'ADMIN'], color: 'teal' as AppThemeColor },
+        { icon: Users, label: 'Recursos Humanos', path: '/hr', roles: ['MANAGER', 'ADMIN'], color: 'rose' as AppThemeColor },
+        { icon: MapPin, label: 'Gestión de Red', path: '/network', roles: ['MANAGER', 'ADMIN'], color: 'slate' as AppThemeColor },
+        { icon: Clock, label: 'Control Asistencia', path: '/access', roles: ['MANAGER', 'ADMIN'], color: 'sky' as AppThemeColor },
         { icon: Settings, label: 'Configuración', path: '/settings', roles: ['MANAGER'], color: 'gray' as AppThemeColor },
     ];
 

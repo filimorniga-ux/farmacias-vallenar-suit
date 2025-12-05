@@ -5,6 +5,7 @@ import { ROLES, Role } from '../../../domain/security/roles';
 import { APP_MODULES, ROLE_PRESETS } from '../../../domain/config/roles_presets';
 import { WebAuthnService } from '../../../infrastructure/biometrics/WebAuthnService';
 import { toast } from 'sonner';
+import { formatRut } from '../../../lib/utils';
 
 interface EmployeeModalProps {
     isOpen: boolean;
@@ -65,6 +66,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                     <input
                                         type="password"
                                         maxLength={4}
+                                        autoComplete="new-password"
                                         value={formData.access_pin}
                                         onChange={e => setFormData({ ...formData, access_pin: e.target.value })}
                                         className="w-full p-4 bg-white border-2 border-red-200 rounded-xl focus:ring-4 focus:ring-red-200 focus:border-red-500 outline-none font-mono text-center text-2xl tracking-[0.5em] text-red-900 placeholder-red-200"
@@ -135,7 +137,8 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                             <input
                                                 type="text"
                                                 value={formData.rut}
-                                                onChange={e => setFormData({ ...formData, rut: e.target.value })}
+                                                onChange={e => setFormData({ ...formData, rut: formatRut(e.target.value) })}
+                                                maxLength={12}
                                                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
                                             />
                                         </div>
@@ -302,8 +305,8 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                         Guardar Cambios
                     </button>
                 </div>
-            </div>
-        </div>
+            </div >
+        </div >
     );
 };
 

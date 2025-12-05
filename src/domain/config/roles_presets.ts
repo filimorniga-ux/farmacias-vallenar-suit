@@ -1,5 +1,6 @@
 export const APP_MODULES = [
     { id: 'POS', label: 'Punto de Venta (Caja)', category: 'OPERATIVO' },
+    { id: 'CRM', label: 'Gestión de Clientes', category: 'OPERATIVO' },
     { id: 'INVENTORY', label: 'Inventario & Productos', category: 'OPERATIVO' },
     { id: 'WMS', label: 'Bodega & Logística', category: 'LOGISTICA' },
     { id: 'SUPPLY', label: 'Abastecimiento (Compras)', category: 'LOGISTICA' },
@@ -12,9 +13,9 @@ export const APP_MODULES = [
 
 export const ROLE_PRESETS: Record<string, string[]> = {
     'MANAGER': APP_MODULES.map(m => m.id), // Acceso Total
-    'ADMIN': ['POS', 'INVENTORY', 'WMS', 'SUPPLY', 'REPORTS'],
-    'QF': ['POS', 'INVENTORY', 'WMS', 'REPORTS'], // Químico Farmacéutico
-    'CASHIER': ['POS'],
-    'WAREHOUSE': ['INVENTORY', 'WMS'],
+    'ADMIN': ['POS', 'CRM', 'INVENTORY', 'WMS', 'SUPPLY', 'FINANCE', 'HR', 'REPORTS'], // Todo menos SETTINGS y SECURITY
+    'QF': ['POS', 'CRM', 'INVENTORY', 'WMS', 'REPORTS'], // Químico Farmacéutico
+    'CASHIER': ['POS', 'CRM'],
+    'WAREHOUSE': ['INVENTORY', 'WMS', 'SUPPLY'],
     'DRIVER': ['WMS'] // Solo ve despachos
 };
