@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { X, Search, Plus, Trash2, AlertTriangle, Save, Send, DollarSign, Calendar, Truck, Package } from 'lucide-react';
 import { usePharmaStore } from '../../store/useStore';
 import { useNotificationStore } from '../../store/useNotificationStore';
@@ -8,6 +8,7 @@ import { InventoryBatch, PurchaseOrder, PurchaseOrderItem } from '../../../domai
 interface ManualOrderModalProps {
     isOpen: boolean;
     onClose: () => void;
+    initialOrder?: PurchaseOrder | null;
 }
 
 interface OrderItem {
@@ -19,14 +20,43 @@ interface OrderItem {
     stock_max: number;
 }
 
-const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose }) => {
-    const { inventory, suppliers, addPurchaseOrder } = usePharmaStore();
+const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, initialOrder }) => {
+    const { inventory, suppliers, addPurchaseOrder, updatePurchaseOrder } = usePharmaStore();
     const { pushNotification } = useNotificationStore();
 
     const [selectedSupplierId, setSelectedSupplierId] = useState('');
     const [expectedDate, setExpectedDate] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
+
+    // Initialize state when initialOrder changes or modal opens
+    useEffect(() => {
+        if (isOpen) {
+            if (initialOrder) {
+                // Edit Mode
+                setSelectedSupplierId(initialOrder.supplier_id);
+                // Map existing items to OrderItem format
+                const mappedItems: OrderItem[] = initialOrder.items.map(item => {
+                    // Try to find current stock info from inventory
+                    const inventoryItem = inventory.find(i => i.sku === item.sku);
+                    return {
+                        sku: item.sku,
+                        name: item.name,
+                        quantity: item.quantity_ordered,
+                        cost_price: item.cost_price,
+                        stock_actual: inventoryItem?.stock_actual || 0,
+                        stock_max: inventoryItem?.stock_max || 100
+                    };
+                });
+                setOrderItems(mappedItems);
+            } else {
+                // Create Mode (Reset)
+                setSelectedSupplierId('');
+                setOrderItems([]);
+                setExpectedDate('');
+            }
+        }
+    }, [isOpen, initialOrder, inventory]);
 
     const selectedSupplier = useMemo(() =>
         suppliers.find(s => s.id === selectedSupplierId),
@@ -83,12 +113,10 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose }) 
             return;
         }
 
-        const newOrder: PurchaseOrder = {
-            id: `ORD-${Date.now()}`,
+        const orderData = {
             supplier_id: selectedSupplierId,
-            supplier_name: selectedSupplier?.fantasy_name, // Denormalized supplier name
-            destination_location_id: 'BODEGA_CENTRAL', // Default destination for manual orders
-            created_at: Date.now(),
+            supplier_name: selectedSupplier?.fantasy_name,
+            destination_location_id: 'BODEGA_CENTRAL',
             status,
             items: orderItems.map(i => ({
                 sku: i.sku,
@@ -99,31 +127,38 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose }) 
                 quantity: i.quantity // Legacy compatibility
             })),
             total_estimated: totals.total,
-            is_auto_generated: false, // Manual order created by user
-            generation_reason: 'MANUAL' as const // Explicitly manual
+            updated_at: Date.now() // Track updates
         };
 
-        addPurchaseOrder(newOrder);
+        if (initialOrder) {
+            // UPDATE EXISTING
+            updatePurchaseOrder(initialOrder.id, orderData);
+            toast.success(status === 'SENT' ? 'Orden actualizada y enviada' : 'Borrador actualizado');
+        } else {
+            // CREATE NEW
+            const newOrder: PurchaseOrder = {
+                id: `ORD-${Date.now()}`,
+                created_at: Date.now(),
+                is_auto_generated: false,
+                generation_reason: 'MANUAL',
+                ...orderData
+            };
+            addPurchaseOrder(newOrder);
+            toast.success(status === 'SENT' ? 'Orden creada y enviada' : 'Borrador guardado');
+        }
 
         if (status === 'SENT') {
             pushNotification({
                 eventType: 'AUTO_ORDER_GENERATED',
                 category: 'STOCK',
                 severity: 'INFO',
-                title: 'Orden de Compra Enviada',
-                message: `Orden ${newOrder.id} enviada a ${selectedSupplier?.fantasy_name}`,
+                title: initialOrder ? 'Orden Actualizada y Enviada' : 'Orden de Compra Enviada',
+                message: `Orden ${initialOrder?.id || 'Nueva'} enviada a ${selectedSupplier?.fantasy_name}`,
                 roleTarget: 'MANAGER'
             });
-            toast.success('Orden enviada exitosamente');
-        } else {
-            toast.success('Borrador guardado');
         }
 
         onClose();
-        // Reset state
-        setOrderItems([]);
-        setSelectedSupplierId('');
-        setExpectedDate('');
     };
 
     if (!isOpen) return null;
@@ -136,9 +171,11 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose }) 
                     <div>
                         <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                             <Plus className="text-cyan-600" />
-                            Nueva Orden Manual
+                            {initialOrder ? `Editar Orden ${initialOrder.id}` : 'Nueva Orden Manual'}
                         </h2>
-                        <p className="text-sm text-gray-500">Creación de pedido discrecional</p>
+                        <p className="text-sm text-gray-500">
+                            {initialOrder ? 'Modificación de borrador existente' : 'Creación de pedido discrecional'}
+                        </p>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
                         <X size={24} className="text-gray-500" />
@@ -156,6 +193,7 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose }) 
                                 value={selectedSupplierId}
                                 onChange={(e) => setSelectedSupplierId(e.target.value)}
                                 className="w-full p-3 border border-gray-200 rounded-xl focus:border-cyan-500 focus:outline-none bg-gray-50"
+                                disabled={!!initialOrder} // Disable supplier change on edit to avoid complexity
                             >
                                 <option value="">Seleccione un proveedor...</option>
                                 {suppliers.map(s => (
@@ -324,7 +362,7 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose }) 
                                     className="px-6 py-3 text-gray-600 font-bold hover:bg-gray-100 rounded-xl transition flex items-center gap-2"
                                 >
                                     <Save size={20} />
-                                    Guardar Borrador
+                                    {initialOrder ? 'Actualizar Borrador' : 'Guardar Borrador'}
                                 </button>
                                 <button
                                     onClick={() => handleSave('SENT')}

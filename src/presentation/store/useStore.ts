@@ -22,7 +22,8 @@ import {
     Terminal,
     Quote,
     ReorderConfig,
-    AutoOrderSuggestion
+    AutoOrderSuggestion,
+    StockMovement
 } from '../../domain/types';
 import { TigerDataService } from '../../domain/services/TigerDataService';
 import { fetchEmployees } from '../../actions/sync';
@@ -55,6 +56,7 @@ interface PharmaState {
     addPurchaseOrder: (po: PurchaseOrder) => void;
     receivePurchaseOrder: (poId: string, receivedItems: { sku: string, receivedQty: number }[], destinationLocationId: string) => void;
     cancelPurchaseOrder: (poId: string) => void;
+    updatePurchaseOrder: (id: string, data: Partial<PurchaseOrder>) => void;
 
     // SRM Actions
     addSupplier: (supplier: Omit<Supplier, 'id'>) => void;
@@ -384,6 +386,11 @@ export const usePharmaStore = create<PharmaState>()(
             cancelPurchaseOrder: (poId) => set((state) => ({
                 purchaseOrders: state.purchaseOrders.map(po =>
                     po.id === poId ? { ...po, status: 'CANCELLED' as any } : po // Casting as any because CANCELLED might not be in POStatus yet, need to check types.ts
+                )
+            })),
+            updatePurchaseOrder: (id, data) => set((state) => ({
+                purchaseOrders: state.purchaseOrders.map(po =>
+                    po.id === id ? { ...po, ...data } : po
                 )
             })),
 
@@ -1388,16 +1395,81 @@ export const usePharmaStore = create<PharmaState>()(
 
             getSalesHistory: (sku, locationId, days) => {
                 const state = get();
-                // Note: We don't have stockMovements in current state, using placeholder
-                // In real implementation, this would use IntelligentOrderingService
-                return { total: 0, daily_avg: 0 };
+                const cutoffDate = Date.now() - (days * 24 * 60 * 60 * 1000);
+
+                // Filter sales history for this SKU in the given timeframe
+                const relevantSales = state.salesHistory.filter(sale =>
+                    sale.timestamp >= cutoffDate &&
+                    // Optional: Filter by location if branch_id is available and matches
+                    // (!sale.branch_id || sale.branch_id === locationId) 
+                    true
+                );
+
+                let totalSold = 0;
+                relevantSales.forEach(sale => {
+                    const item = sale.items.find(i => i.sku === sku);
+                    if (item) {
+                        totalSold += item.quantity;
+                    }
+                });
+
+                const daily_avg = days > 0 ? totalSold / days : 0;
+                return { total: totalSold, daily_avg };
             },
 
             analyzeReorderNeeds: (locationId, analysisDays = 30) => {
                 const state = get();
-                // Note: Missing stockMovements array in current state
-                // Using placeholder - in future connect to IntelligentOrderingService
-                return [];
+
+                // 1. Construct Virtual Stock Movements from Sales History
+                // This is needed because IntelligentOrderingService expects StockMovement[]
+                const virtualStockMovements: StockMovement[] = state.salesHistory.flatMap(sale =>
+                    sale.items.map(item => ({
+                        id: `VIRTUAL-MOV-${sale.id}-${item.sku}`,
+                        sku: item.sku,
+                        product_name: item.name,
+                        location_id: sale.branch_id || locationId, // Use sale branch or default to target location
+                        movement_type: 'SALE',
+                        quantity: -item.quantity, // Sales reduce stock
+                        stock_before: 0, // Not needed for this analysis
+                        stock_after: 0, // Not needed for this analysis
+                        timestamp: sale.timestamp,
+                        user_id: sale.seller_id,
+                        batch_id: item.batch_id
+                    }))
+                );
+
+                // 2. Derive Reorder Configurations from Inventory
+                // If a specific config exists in state.reorderConfigs, use it. 
+                // Otherwise, derive from inventory item properties.
+                const derivedConfigs: ReorderConfig[] = state.inventory
+                    .filter(item => item.location_id === locationId)
+                    .map(item => {
+                        // Check if explicit config exists
+                        const explicitConfig = state.reorderConfigs.find(c => c.sku === item.sku && c.location_id === locationId);
+                        if (explicitConfig) return explicitConfig;
+
+                        // Derive from item properties
+                        return {
+                            sku: item.sku,
+                            location_id: item.location_id,
+                            min_stock: item.stock_min || 5, // Default fallback
+                            max_stock: item.stock_max || 20, // Default fallback
+                            safety_stock: item.safety_stock || 0,
+                            auto_reorder_enabled: true, // Enable by default if parameters exist
+                            preferred_supplier_id: item.preferred_supplier_id,
+                            lead_time_days: item.lead_time_days || 3, // Default 3 days
+                            review_period_days: 7
+                        };
+                    });
+
+                // 3. Run Analysis Service
+                return IntelligentOrderingService.analyzeReorderNeeds(
+                    state.inventory,
+                    derivedConfigs,
+                    virtualStockMovements,
+                    locationId,
+                    analysisDays
+                );
             },
 
             generateSuggestedPOs: (suggestions) => {

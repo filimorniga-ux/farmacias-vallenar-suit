@@ -96,7 +96,16 @@ const SupplyChainPage: React.FC = () => {
 
                 <div className="flex-1 overflow-y-auto space-y-3">
                     {orders.map(po => (
-                        <div key={po.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-all cursor-pointer">
+                        <div
+                            key={po.id}
+                            onClick={() => {
+                                if (status === 'DRAFT') {
+                                    setSelectedOrder(po);
+                                    setIsManualOrderModalOpen(true);
+                                }
+                            }}
+                            className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-all cursor-pointer"
+                        >
                             <div className="flex justify-between items-start mb-2">
                                 <span className="text-xs font-mono text-slate-400">{po.id}</span>
                                 <span className="text-xs font-bold text-slate-600">{new Date(po.created_at).toLocaleDateString()}</span>
@@ -120,7 +129,7 @@ const SupplyChainPage: React.FC = () => {
     };
 
     return (
-        <div className="h-screen p-6 bg-slate-50 flex flex-col overflow-hidden">
+        <div className="h-full p-6 bg-slate-50 flex flex-col overflow-hidden">
             <header className="mb-8 flex justify-between items-center flex-shrink-0">
                 <div>
                     <h1 className="text-3xl font-extrabold text-slate-900 flex items-center gap-3">
@@ -130,7 +139,10 @@ const SupplyChainPage: React.FC = () => {
                 </div>
                 <div className="flex gap-3">
                     <button
-                        onClick={() => setIsManualOrderModalOpen(true)}
+                        onClick={() => {
+                            setSelectedOrder(null);
+                            setIsManualOrderModalOpen(true);
+                        }}
                         className="flex items-center gap-2 px-6 py-3 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold hover:bg-slate-50 transition"
                     >
                         <Plus size={20} /> Nueva Orden Manual
@@ -296,7 +308,11 @@ const SupplyChainPage: React.FC = () => {
 
             <ManualOrderModal
                 isOpen={isManualOrderModalOpen}
-                onClose={() => setIsManualOrderModalOpen(false)}
+                onClose={() => {
+                    setIsManualOrderModalOpen(false);
+                    setSelectedOrder(null);
+                }}
+                initialOrder={selectedOrder}
             />
         </div>
     );
