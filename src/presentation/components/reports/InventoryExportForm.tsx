@@ -10,6 +10,7 @@ export function InventoryExportForm() {
     const [selectedBodega, setSelectedBodega] = useState<string>('');
     const [startDate, setStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
     const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
+    const [reportType, setReportType] = useState<'kardex' | 'seed'>('kardex');
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
@@ -17,18 +18,12 @@ export function InventoryExportForm() {
     }, []);
 
     useEffect(() => {
-        if (selectedSucursal) {
-            getBodegas(Number(selectedSucursal)).then(setBodegas);
-        } else {
-            setBodegas([]);
-        }
+        getBodegas(selectedSucursal ? Number(selectedSucursal) : undefined).then(setBodegas);
     }, [selectedSucursal]);
 
     const handleExport = async () => {
-        if (!selectedSucursal || !selectedBodega) {
-            alert('Por favor seleccione sucursal y bodega');
-            return;
-        }
+        // Validamos solo si hay inconsistencias o si se requiere lógica específica, pero ahora permitimos "Todas"
+        // if (!selectedSucursal) { ... } -> Removed
 
         setLoading(true);
         try {
@@ -36,7 +31,8 @@ export function InventoryExportForm() {
                 startDate,
                 endDate,
                 sucursalId: Number(selectedSucursal),
-                bodegaId: Number(selectedBodega)
+                bodegaId: selectedBodega ? Number(selectedBodega) : null,
+                type: reportType
             });
 
             if (result.success && result.data) {
@@ -70,7 +66,32 @@ export function InventoryExportForm() {
 
     return (
         <div className="p-4 bg-white rounded-lg shadow space-y-4">
-            <h3 className="text-lg font-semibold">Exportar Kardex</h3>
+            <h3 className="text-lg font-semibold">Exportar Inventario</h3>
+
+            <div className="flex space-x-4 mb-4">
+                <label className="inline-flex items-center cursor-pointer">
+                    <input
+                        type="radio"
+                        className="form-radio text-indigo-600"
+                        name="reportType"
+                        value="kardex"
+                        checked={reportType === 'kardex'}
+                        onChange={() => setReportType('kardex')}
+                    />
+                    <span className="ml-2">Kardex (Histórico)</span>
+                </label>
+                <label className="inline-flex items-center cursor-pointer">
+                    <input
+                        type="radio"
+                        className="form-radio text-indigo-600"
+                        name="reportType"
+                        value="seed"
+                        checked={reportType === 'seed'}
+                        onChange={() => setReportType('seed')}
+                    />
+                    <span className="ml-2">Inventario Semilla (Actual)</span>
+                </label>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -80,7 +101,7 @@ export function InventoryExportForm() {
                         value={selectedSucursal}
                         onChange={(e) => setSelectedSucursal(e.target.value)}
                     >
-                        <option value="">Seleccione Sucursal</option>
+                        <option value="">Todas las Sucursales</option>
                         {sucursales.map(s => (
                             <option key={s.id} value={s.id}>{s.nombre}</option>
                         ))}
@@ -93,34 +114,37 @@ export function InventoryExportForm() {
                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
                         value={selectedBodega}
                         onChange={(e) => setSelectedBodega(e.target.value)}
-                        disabled={!selectedSucursal}
                     >
-                        <option value="">Seleccione Bodega</option>
+                        <option value="">Todas las Bodegas</option>
                         {bodegas.map(b => (
                             <option key={b.id} value={b.id}>{b.nombre}</option>
                         ))}
                     </select>
                 </div>
 
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">Desde</label>
-                    <input
-                        type="date"
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
-                        value={startDate}
-                        onChange={(e) => setStartDate(e.target.value)}
-                    />
-                </div>
+                {reportType === 'kardex' && (
+                    <>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700">Desde</label>
+                            <input
+                                type="date"
+                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+                                value={startDate}
+                                onChange={(e) => setStartDate(e.target.value)}
+                            />
+                        </div>
 
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">Hasta</label>
-                    <input
-                        type="date"
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
-                    />
-                </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700">Hasta</label>
+                            <input
+                                type="date"
+                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+                                value={endDate}
+                                onChange={(e) => setEndDate(e.target.value)}
+                            />
+                        </div>
+                    </>
+                )}
             </div>
 
             <button

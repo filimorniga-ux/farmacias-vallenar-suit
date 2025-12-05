@@ -247,6 +247,7 @@ export interface Terminal {
     name: string;
     location_id: string;
     status: 'OPEN' | 'CLOSED';
+    allowed_users?: string[]; // IDs of employees allowed to use this terminal. Empty = All.
 }
 
 export interface Shift {

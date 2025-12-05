@@ -26,6 +26,7 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
         setError(null);
 
         const supervisor = employees.find(emp => emp.access_pin === pin);
+        console.log('🔐 [SupervisorOverride] Verifying PIN:', { pinEntered: pin, foundSupervisor: supervisor?.name, role: supervisor?.role });
 
         if (!supervisor) {
             setError('PIN inválido. Intente nuevamente.');
@@ -40,9 +41,10 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
         }
 
         // Success
+        console.log('✅ [SupervisorOverride] Authorized by:', supervisor.name);
         onAuthorize(supervisor.id);
         setPin('');
-        onClose();
+        // onClose(); // Removed to prevent race condition with parent state update
     };
 
     if (!isOpen) return null;
@@ -84,6 +86,7 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
                                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                                     <input
                                         type="password"
+                                        autoComplete="new-password"
                                         value={pin}
                                         onChange={(e) => setPin(e.target.value)}
                                         className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none text-lg tracking-widest text-center font-mono"

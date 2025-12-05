@@ -8,7 +8,9 @@ const connectionConfig = {
     connectionString: process.env.DATABASE_URL,
     ssl: isProduction ? { rejectUnauthorized: true } : { rejectUnauthorized: false },
     max: 10,
-    connectionTimeoutMillis: 5000,
+    connectionTimeoutMillis: 20000, // Increased to 20s
+    idleTimeoutMillis: 30000,
+    keepAlive: true,
 };
 
 // Singleton Pattern corregido para TypeScript

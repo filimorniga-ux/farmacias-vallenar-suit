@@ -15,13 +15,20 @@ export const UsersList: React.FC<UsersListProps> = ({ onEdit, onCreate }) => {
 
     const loadUsers = async () => {
         setIsLoading(true);
-        const result = await getUsers();
-        if (result.success && result.data) {
-            setUsers(result.data);
-        } else {
-            toast.error('Error al cargar usuarios');
+        try {
+            const result = await getUsers();
+            if (result.success && result.data) {
+                setUsers(result.data);
+            } else {
+                console.error('Error loading users:', result.error);
+                toast.error(`Error: ${result.error || 'No se pudieron cargar los usuarios'}`);
+            }
+        } catch (err) {
+            console.error('Exception loading users:', err);
+            toast.error('Error de conexión al cargar usuarios');
+        } finally {
+            setIsLoading(false);
         }
-        setIsLoading(false);
     };
 
     useEffect(() => {
@@ -74,8 +81,8 @@ export const UsersList: React.FC<UsersListProps> = ({ onEdit, onCreate }) => {
                                 <td className="py-3 px-4 text-slate-600 text-sm">{user.job_title?.replace(/_/g, ' ')}</td>
                                 <td className="py-3 px-4">
                                     <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold ${user.role === 'MANAGER' ? 'bg-purple-100 text-purple-700' :
-                                            user.role === 'QF' ? 'bg-blue-100 text-blue-700' :
-                                                'bg-slate-100 text-slate-600'
+                                        user.role === 'QF' ? 'bg-blue-100 text-blue-700' :
+                                            'bg-slate-100 text-slate-600'
                                         }`}>
                                         {user.role === 'MANAGER' && <Shield size={12} />}
                                         {user.role}

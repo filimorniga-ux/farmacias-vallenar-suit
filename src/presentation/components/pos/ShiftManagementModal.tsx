@@ -20,7 +20,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     if (!isOpen) return null;
 
     const availableTerminals = terminals.filter(t => t.status === 'CLOSED');
-    const cashiers = employees.filter(e => e.role === 'CASHIER' || e.role === 'QF');
+    const cashiers = employees.filter(e => ['CASHIER', 'QF', 'MANAGER', 'ADMIN'].includes(e.role));
 
     const handleNext = () => {
         if (!selectedTerminal || !selectedCashier || !openingAmount) {

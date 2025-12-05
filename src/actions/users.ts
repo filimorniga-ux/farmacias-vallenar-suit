@@ -19,7 +19,9 @@ function mapUserFromDB(row: any): EmployeeProfile {
         // Campos opcionales
         contact_phone: row.phone,
         // Biometría
-        biometric_credentials: row.biometric_credentials || [],
+        biometric_credentials: typeof row.biometric_credentials === 'string'
+            ? JSON.parse(row.biometric_credentials)
+            : (row.biometric_credentials || []),
         // Valores por defecto para campos requeridos por la interfaz pero no siempre en DB
         current_status: 'OUT', // Estado de asistencia por defecto
     };
@@ -31,7 +33,7 @@ export async function getUsers(): Promise<{ success: boolean; data?: EmployeePro
         const users = result.rows.map(mapUserFromDB);
         return { success: true, data: users };
     } catch (error: any) {
-        console.error('❌ Error creating user:', error);
+        console.error('❌ Error fetching users:', error);
         // Devolver el mensaje de error real para depuración
         return { success: false, error: error.message || 'Error desconocido al crear usuario' };
     }

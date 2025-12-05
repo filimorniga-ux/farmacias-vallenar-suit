@@ -112,6 +112,8 @@ interface PharmaState {
     currentShift: Shift | null;
     dailyShifts: Shift[]; // History of shifts for the day
     terminals: Terminal[];
+    addTerminal: (terminal: Omit<Terminal, 'id'>) => void;
+    updateTerminal: (id: string, updates: Partial<Terminal>) => void;
     cashMovements: CashMovement[];
 
     openShift: (amount: number, cashierId: string, authorizedBy: string, terminalId?: string) => void;
@@ -861,6 +863,12 @@ export const usePharmaStore = create<PharmaState>()(
                 { id: 'TERM-001', name: 'Caja 1 - Principal', location_id: 'LOC-001', status: 'CLOSED' },
                 { id: 'TERM-002', name: 'Caja 2 - Secundaria', location_id: 'LOC-001', status: 'CLOSED' }
             ],
+            addTerminal: (terminal) => set((state) => ({
+                terminals: [...state.terminals, { ...terminal, id: `TERM-${Date.now()}` }]
+            })),
+            updateTerminal: (id, updates) => set((state) => ({
+                terminals: state.terminals.map(t => t.id === id ? { ...t, ...updates } : t)
+            })),
             cashMovements: [],
 
             openShift: (amount, cashierId, authorizedBy, terminalId = 'TERM-001') => set((state) => {
