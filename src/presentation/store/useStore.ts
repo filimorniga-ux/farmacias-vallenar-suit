@@ -58,9 +58,10 @@ interface PharmaState {
     updateStock: (batchId: string, quantity: number) => void;
     addStock: (batchId: string, quantity: number, expiry?: number) => void;
     addNewProduct: (product: InventoryBatch) => void;
-    transferStock: (batchId: string, targetLocation: 'BODEGA_CENTRAL' | 'SUCURSAL_CENTRO' | 'SUCURSAL_NORTE' | 'KIOSCO', quantity: number) => void;
+    fetchInventory: (locationId?: string, warehouseId?: string) => Promise<void>;
+    transferStock: (batchId: string, targetLocation: string, quantity: number) => Promise<void>;
     addPurchaseOrder: (po: PurchaseOrder) => void;
-    receivePurchaseOrder: (poId: string, receivedItems: { sku: string, receivedQty: number }[], destinationLocationId: string) => void;
+    receivePurchaseOrder: (poId: string, receivedItems: { sku: string, receivedQty: number; lotNumber?: string; expiryDate?: number }[], destinationLocationId: string) => Promise<void>;
     cancelPurchaseOrder: (poId: string) => void;
     updatePurchaseOrder: (id: string, data: Partial<PurchaseOrder>) => void;
 
@@ -139,7 +140,7 @@ interface PharmaState {
 
     // Attendance & HR
     attendanceLogs: AttendanceLog[];
-    registerAttendance: (employeeId: string, type: AttendanceType, observation?: string, evidence_photo_url?: string) => void;
+    registerAttendance: (employeeId: string, type: AttendanceType, observation?: string, evidence_photo_url?: string, overtimeMinutes?: number) => Promise<void>;
     updateEmployeeBiometrics: (employeeId: string, credentialId: string) => void;
 
     // WMS & Logistics
@@ -160,8 +161,10 @@ interface PharmaState {
 
     // Queue
     tickets: QueueTicket[];
-    generateTicket: (rut?: string, branch_id?: string) => QueueTicket;
-    callNextTicket: () => QueueTicket | null;
+    currentTicket: QueueTicket | null;
+    generateTicket: (rut?: string, branch_id?: string) => Promise<QueueTicket>;
+    callNextTicket: (counterId: string) => void;
+    addTicketToQueue: (ticket: QueueTicket) => void; // Sync helper
 
     // SII (Facturación Electrónica)
     siiConfiguration: SiiConfiguration | null;
@@ -343,6 +346,22 @@ export const usePharmaStore = create<PharmaState>()(
                 }
             },
 
+            fetchInventory: async (locationId, warehouseId) => {
+                set({ isLoading: true });
+                try {
+                    const state = get();
+                    const wh = warehouseId || state.currentWarehouseId;
+                    // Use TigerDataService to fetch inventory consistent with syncData
+                    // Ensure TigerDataService is imported or available. It is imported at top.
+                    const { TigerDataService } = await import('../../domain/services/TigerDataService');
+                    const inventory = await TigerDataService.fetchInventory(wh);
+                    set({ inventory, isLoading: false });
+                } catch (error) {
+                    console.error(error);
+                    set({ isLoading: false });
+                }
+            },
+
             // --- Inventory ---
             inventory: [], // ⚠️ DEBUG: Start empty to prove DB connection
             suppliers: MOCK_SUPPLIERS,
@@ -366,73 +385,63 @@ export const usePharmaStore = create<PharmaState>()(
             addNewProduct: (product) => set((state) => ({
                 inventory: [...state.inventory, { ...product, id: `BATCH - ${Date.now()} ` }]
             })),
-            transferStock: (batchId, targetLocation, quantity) => set((state) => {
+            transferStock: async (batchId, targetLocation, quantity) => {
+                const state = get();
                 const sourceItem = state.inventory.find(i => i.id === batchId);
-                if (!sourceItem || sourceItem.stock_actual < quantity) return state;
-
-                // 1. Deduct from source
-                const updatedInventory = state.inventory.map(i =>
-                    i.id === batchId ? { ...i, stock_actual: i.stock_actual - quantity } : i
-                );
-
-                // 2. Add to target (Find existing batch in target location or create new)
-                // For simplicity in this demo, we'll clone the item with new location
-                // In a real DB, we'd check if SKU exists in target location
-                const existingInTarget = updatedInventory.find(i => i.sku === sourceItem.sku && i.location_id === targetLocation);
-
-                if (existingInTarget) {
-                    existingInTarget.stock_actual += quantity;
-                } else {
-                    updatedInventory.push({
-                        ...sourceItem,
-                        id: `TRF - ${Date.now()} `,
-                        location_id: targetLocation,
-                        stock_actual: quantity
-                    });
+                if (!sourceItem) {
+                    import('sonner').then(({ toast }) => toast.error('Lote no encontrado'));
+                    return;
                 }
 
-                return { inventory: updatedInventory };
-            }),
+                const { executeTransfer } = await import('../../actions/wms');
+
+                const result = await executeTransfer({
+                    originWarehouseId: sourceItem.location_id, // Assuming location_id is warehouse_id
+                    targetWarehouseId: targetLocation,
+                    items: [{
+                        productId: sourceItem.sku, // WMS looks up by Lot ID primarily, SKU/Product ID is secondary verification/lookup
+                        quantity,
+                        lotId: batchId
+                    }],
+                    userId: state.user?.id || 'SYSTEM'
+                });
+
+                if (result.success) {
+                    import('sonner').then(({ toast }) => toast.success('Traspaso exitoso'));
+                    await get().fetchInventory(state.currentLocationId, state.currentWarehouseId);
+                } else {
+                    import('sonner').then(({ toast }) => toast.error('Error en traspaso: ' + result.error));
+                }
+            },
             addPurchaseOrder: (po) => set((state) => ({ purchaseOrders: [...state.purchaseOrders, po] })),
-            receivePurchaseOrder: (poId, receivedItems, destinationLocationId) => set((state) => {
-                // NOTE: We update inventory directly here instead of using registerStockMovement
-                // because we are potentially creating NEW batches or updating complex attributes.
-                // In a real backend scenario, this would be an API call to 'receive-po'.
-                const updatedInventory = [...state.inventory];
-                const updatedPOs = state.purchaseOrders.map(po =>
-                    po.id === poId ? { ...po, status: 'COMPLETED' as const } : po
-                );
+            receivePurchaseOrder: async (poId, receivedItems, destinationLocationId) => {
+                const state = get();
+                const { receivePurchaseOrder: receivePOAction } = await import('../../actions/supply');
 
-                receivedItems.forEach(recItem => {
-                    if (recItem.receivedQty > 0) {
-                        const existingBatchIndex = updatedInventory.findIndex(i => i.sku === recItem.sku && i.location_id === destinationLocationId);
-
-                        if (existingBatchIndex >= 0) {
-                            updatedInventory[existingBatchIndex] = {
-                                ...updatedInventory[existingBatchIndex],
-                                stock_actual: updatedInventory[existingBatchIndex].stock_actual + recItem.receivedQty
-                            };
-                        } else {
-                            // Try to find product definition from another batch
-                            const productDef = updatedInventory.find(i => i.sku === recItem.sku);
-                            if (productDef) {
-                                updatedInventory.push({
-                                    ...productDef,
-                                    id: `BATCH-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-                                    location_id: destinationLocationId,
-                                    stock_actual: recItem.receivedQty
-                                });
-                            }
-                        }
-                    }
+                const result = await receivePOAction({
+                    purchaseOrderId: poId,
+                    userId: state.user?.id || 'SYSTEM',
+                    receivedItems: receivedItems.map(i => ({
+                        sku: i.sku,
+                        quantity: i.receivedQty,
+                        lotNumber: i.lotNumber,
+                        expiryDate: i.expiryDate
+                    }))
                 });
 
-                import('sonner').then(({ toast }) => {
-                    toast.success(`Orden ${poId} recepcionada correctamente`);
-                });
+                if (result.success) {
+                    import('sonner').then(({ toast }) => toast.success('Recepción de Orden exitosa'));
+                    await get().fetchInventory(state.currentLocationId, state.currentWarehouseId);
 
-                return { purchaseOrders: updatedPOs, inventory: updatedInventory };
-            }),
+                    // Update local PO list status optimistically or refetch
+                    set((s) => ({
+                        purchaseOrders: s.purchaseOrders.map(p => p.id === poId ? { ...p, status: 'RECEIVED' } : p)
+                    }));
+
+                } else {
+                    import('sonner').then(({ toast }) => toast.error('Error al recibir orden: ' + result.error));
+                }
+            },
 
             cancelPurchaseOrder: (poId) => set((state) => ({
                 purchaseOrders: state.purchaseOrders.map(po =>
@@ -534,7 +543,7 @@ export const usePharmaStore = create<PharmaState>()(
             updateBatchDetails: (productId, batchId, data) => {
                 set((state) => ({
                     inventory: state.inventory.map((item) => {
-                        // In this simplified model, items ARE batches. 
+                        // In this simplified model, items ARE batches.
                         // So we just find the item by ID (which acts as batch ID here) and update it.
                         // In a more complex model with Product -> Batches relation, we would drill down.
                         if (item.id === batchId) {
@@ -1093,7 +1102,8 @@ export const usePharmaStore = create<PharmaState>()(
 
             // --- Attendance ---
             attendanceLogs: [],
-            registerAttendance: (employeeId: string, type: AttendanceType, observation?: string, evidence_photo_url?: string) => set((state) => {
+            registerAttendance: async (employeeId: string, type: AttendanceType, observation?: string, evidence_photo_url?: string, overtimeMinutes: number = 0) => {
+                const state = get();
                 const now = Date.now();
                 let newStatus: AttendanceStatus = 'OUT';
 
@@ -1102,46 +1112,40 @@ export const usePharmaStore = create<PharmaState>()(
                 if (type === 'PERMISSION_START') newStatus = 'ON_PERMISSION';
                 if (['CHECK_OUT', 'MEDICAL_LEAVE', 'EMERGENCY', 'WORK_ACCIDENT'].includes(type)) newStatus = 'OUT';
 
-                // Calculate overtime if CHECK_OUT
-                let overtime = 0;
-                if (type === 'CHECK_OUT') {
-                    // Simple logic: find last CHECK_IN today
-                    const todayStart = new Date().setHours(0, 0, 0, 0);
-                    const lastCheckIn = state.attendanceLogs.find(l => l.employee_id === employeeId && l.type === 'CHECK_IN' && l.timestamp >= todayStart);
-
-                    if (lastCheckIn) {
-                        const workedMinutes = (now - lastCheckIn.timestamp) / 1000 / 60;
-                        const contractMinutes = 9 * 60; // 9 hours default
-                        if (workedMinutes > contractMinutes) {
-                            overtime = Math.round(workedMinutes - contractMinutes);
-                        }
-                    }
-                }
-
-                // WORK ACCIDENT ALERT
-                if (type === 'WORK_ACCIDENT') {
-                    // In a real app, this would trigger an email/SMS
-                    console.error('🚨 ALERTA DE ACCIDENTE LABORAL:', employeeId, observation);
-                    // We could also add a notification to a notifications store if we had one
-                }
-
-                const newLog: AttendanceLog = {
-                    id: `LOG - ${now} `,
-                    employee_id: employeeId,
-                    timestamp: now,
-                    type,
-                    overtime_minutes: overtime,
+                // Call Backend Action
+                const { registerAttendance: registerAction } = await import('../../actions/attendance');
+                const result = await registerAction(
+                    employeeId,
+                    type as any, // Cast to match limited backend types if needed, or update backend types
+                    state.currentLocationId,
+                    'PIN', // Default method
                     observation,
-                    evidence_photo_url
-                };
+                    evidence_photo_url,
+                    overtimeMinutes
+                );
 
-                return {
-                    attendanceLogs: [...state.attendanceLogs, newLog],
-                    employees: state.employees.map(emp =>
-                        emp.id === employeeId ? { ...emp, current_status: newStatus } : emp
-                    )
-                };
-            }),
+                if (result.success) {
+                    const newLog: AttendanceLog = {
+                        id: result.data.id,
+                        employee_id: employeeId,
+                        timestamp: now,
+                        type,
+                        overtime_minutes: overtimeMinutes,
+                        observation,
+                        evidence_photo_url
+                    };
+
+                    set((state) => ({
+                        attendanceLogs: [...state.attendanceLogs, newLog],
+                        employees: state.employees.map(emp =>
+                            emp.id === employeeId ? { ...emp, current_status: newStatus } : emp
+                        )
+                    }));
+                    import('sonner').then(({ toast }) => toast.success('Asistencia registrada correctamente'));
+                } else {
+                    import('sonner').then(({ toast }) => toast.error('Error registrando asistencia: ' + result.error));
+                }
+            },
             updateEmployeeBiometrics: (employeeId, credentialId) => set((state) => ({
                 employees: state.employees.map(emp =>
                     emp.id === employeeId
@@ -1395,20 +1399,41 @@ export const usePharmaStore = create<PharmaState>()(
 
             // --- Queue ---
             tickets: [],
+            currentTicket: null,
             addTicketToQueue: (ticket: QueueTicket) => set((state) => ({
                 tickets: [...state.tickets, ticket]
             })),
-            generateTicket: (rut = 'ANON', branch_id = 'SUC-CENTRO') => {
-                const ticket: QueueTicket = {
-                    id: `T - ${Date.now()} `,
-                    number: `A - ${Math.floor(Math.random() * 100)} `,
-                    status: 'WAITING',
-                    rut,
-                    timestamp: Date.now(),
-                    branch_id // Default, should be dynamic in real app
-                };
-                set((state) => ({ tickets: [...state.tickets, ticket] }));
-                return ticket;
+            generateTicket: async (rut = 'ANON', branch_id = 'SUC-CENTRO') => {
+                const state = get();
+                const { generateTicket: generateTicketAction } = await import('../../actions/queue');
+
+                const result = await generateTicketAction({
+                    rut: rut === 'ANON' ? undefined : rut,
+                    serviceType: 'FARMACIA', // Default service type
+                    locationId: branch_id
+                });
+
+                if (result.success && result.ticket) {
+                    const dbTicket = result.ticket;
+                    // Map DB Ticket to Store Ticket
+                    let storeStatus: 'WAITING' | 'CALLED' | 'SKIPPED' | 'COMPLETED' = 'WAITING';
+                    if (dbTicket.status === 'SERVED') storeStatus = 'COMPLETED';
+                    if (dbTicket.status === 'CANCELLED') storeStatus = 'SKIPPED';
+
+                    const ticket: QueueTicket = {
+                        id: dbTicket.id,
+                        number: dbTicket.ticket_number,
+                        status: storeStatus,
+                        rut: dbTicket.customer_rut || 'ANON',
+                        timestamp: new Date(dbTicket.created_at).getTime(),
+                        branch_id: dbTicket.location_id
+                    };
+                    set((state) => ({ tickets: [...state.tickets, ticket] }));
+                    return ticket;
+                } else {
+                    import('sonner').then(({ toast }) => toast.error('Error generando ticket: ' + result.error));
+                    throw new Error(result.error);
+                }
             },
             callNextTicket: () => {
                 const state = get();
