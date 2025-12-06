@@ -712,7 +712,10 @@ export const usePharmaStore = create<PharmaState>()(
                     );
 
                     if (!result.success) {
-                        console.error('❌ Failed to save sale to Tiger Data');
+                        console.error('❌ Failed to save sale to Tiger Data:', result.error);
+                        import('sonner').then(({ toast }) => {
+                            toast.error(result.error || 'Error al guardar venta. Verifique la conexión.');
+                        });
                         return false;
                     }
 
