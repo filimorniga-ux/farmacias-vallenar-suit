@@ -32,50 +32,10 @@ const CashControlModal: React.FC<CashControlModalProps> = ({ isOpen, onClose }) 
 
     if (!isOpen) return null;
 
-    // 1. OPENING SHIFT VIEW
+    // 1. OPENING SHIFT VIEW - DEPRECATED
+    // Use ShiftManagementModal for opening shifts with correct context
     if (!currentShift || currentShift.status !== 'ACTIVE') {
-        return (
-            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 text-center">
-                    <div className="w-20 h-20 bg-cyan-100 rounded-full flex items-center justify-center mx-auto mb-6 text-cyan-600">
-                        <Lock size={40} />
-                    </div>
-                    <h2 className="text-2xl font-bold text-slate-800 mb-2">Apertura de Caja</h2>
-                    <p className="text-slate-500 mb-8">Ingrese el monto base para iniciar el turno.</p>
-
-                    <div className="mb-6">
-                        <label className="block text-left text-xs font-bold text-slate-500 uppercase mb-2">Monto Base</label>
-                        <div className="relative">
-                            <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                            <input
-                                type="number"
-                                className="w-full pl-10 p-4 bg-slate-50 border border-slate-200 rounded-xl text-2xl font-bold text-slate-800 focus:border-cyan-500 outline-none"
-                                placeholder="0"
-                                value={openingAmount}
-                                onChange={e => setOpeningAmount(e.target.value)}
-                                autoFocus
-                            />
-                        </div>
-                    </div>
-
-                    <div className="flex gap-3">
-                        <button onClick={onClose} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl">Cancelar</button>
-                        <button
-                            onClick={() => {
-                                const val = parseInt(openingAmount);
-                                if (val >= 0) {
-                                    openShift(val, user?.id || 'UNKNOWN', user?.id || 'CURRENT_USER');
-                                    toast.success('Caja abierta exitosamente');
-                                }
-                            }}
-                            className="flex-1 py-3 bg-cyan-600 text-white font-bold rounded-xl hover:bg-cyan-700 shadow-lg shadow-cyan-200"
-                        >
-                            Abrir Caja
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
+        return null;
     }
 
     if (!metrics) return null;
