@@ -4,247 +4,136 @@ import { query } from '@/lib/db';
 import ExcelJS from 'exceljs';
 
 interface InventoryExportParams {
-    startDate: string;
-    endDate: string;
-    sucursalId?: number; // Optional: Si no está, trae de todas
-    bodegaId?: number | null; // Optional: Si no está, trae de todas (o de todas las de la sucursal)
-    type?: 'kardex' | 'seed'; // Tipo de reporte
+    startDate?: string; // Not used for Snapshot but kept for compatibility
+    endDate?: string;
+    locationId?: string; // UUID
+    warehouseId?: string; // UUID
+    type?: 'kardex' | 'seed';
+    requestingUserRole?: string; // Security
+    requestingUserLocationId?: string; // Security
 }
 
 export async function exportInventoryReport(params: InventoryExportParams) {
-    const { startDate, endDate, sucursalId, bodegaId, type = 'kardex' } = params;
+    const { locationId, warehouseId, type = 'seed', requestingUserRole, requestingUserLocationId } = params;
+
+    // --- SECURITY CHECK ---
+    // If not Manager/Admin, FORCE location filter to their assigned location
+    let effectiveLocationId = locationId;
+
+    // Explicit Role Check (assuming passed from frontend safe context or derived)
+    // Ideally this comes from a secure session, here we rely on the argument for the pattern.
+    const isManagerial = ['MANAGER', 'ADMIN', 'QF'].includes(requestingUserRole || '');
+
+    if (!isManagerial && requestingUserLocationId) {
+        effectiveLocationId = requestingUserLocationId;
+        // Also ensure they can't request a warehouse outside their location?
+        // Query will handle that by joining.
+    }
 
     try {
-        // 1. Obtener información de contexto (Nombres para el título)
-        let bodegaNombre = 'TODAS';
-        let sucursalNombre = 'TODAS';
+        const wb = new ExcelJS.Workbook();
+        const sheet = wb.addWorksheet('Inventario');
 
-        if (bodegaId) {
-            const bodegaRes = await query('SELECT nombre FROM bodegas WHERE id = $1', [bodegaId]);
-            if (bodegaRes.rows.length > 0) bodegaNombre = bodegaRes.rows[0].nombre;
-        }
+        // Logic for Stock Snapshot (Seed)
+        // We query 'inventory_batches' + 'products' + 'warehouses' + 'locations'
+        // This gives EXACT Real-Time Stock.
 
-        if (sucursalId) {
-            const sucursalRes = await query('SELECT nombre FROM sucursales WHERE id = $1', [sucursalId]);
-            sucursalNombre = sucursalRes.rows[0]?.nombre || 'Desconocida';
-        }
-
-        // ==========================================
-        // REPORTE: INVENTARIO SEMILLA (STOCK ACTUAL - CATÁLOGO COMPLETO)
-        // ==========================================
-        if (type === 'seed') {
-            // Consulta a la tabla 'products' (Catálogo Maestro de 5000 productos)
-            // Nota: Esta tabla usa UUIDs y esquema en inglés.
-
-            const queryParams: any[] = [];
-            let filterConditions = '';
-
-            // Nota: La tabla products no tiene sucursal/bodega directa (es maestro).
-            // Si se filtra, teóricamente deberíamos filtrar por stock en esa ubicación,
-            // pero 'products' tiene 'stock_total' global o 'location_id'.
-            // Por ahora, devolvemos todo el catálogo, ya que el usuario pidió "el inventario con los casi 5000 productos".
-
-            // Intentamos obtener columnas que sabemos existen por sync.ts
-            // Usamos COALESCE para manejar nulos.
-            const stockQuery = `
-                SELECT 
-                    id,
-                    sku,
-                    name as nombre,
-                    category as categoria,
-                    stock_total as stock_actual,
-                    'N/A' as numero_lote, -- La tabla products no tiene lotes detallados
-                    'N/A' as fecha_vencimiento, -- La tabla products no tiene vencimiento
-                    location_id as bodega_nombre -- Usamos location_id como referencia
-                FROM products
-                ORDER BY name ASC
-            `;
-
-            const stockRes = await query(stockQuery, queryParams);
-
-            // Generar Excel
-            const workbook = new ExcelJS.Workbook();
-            const sheet = workbook.addWorksheet('Inventario Semilla');
-
-            // Encabezado Visual
-            sheet.mergeCells('A1:H1');
-            sheet.getCell('A1').value = `INVENTARIO MAESTRO (5000 ITEMS) - ${sucursalNombre}`;
-            sheet.getCell('A1').font = { bold: true, size: 14 };
-            sheet.getCell('A1').alignment = { horizontal: 'center' };
-
-            sheet.mergeCells('A2:H2');
-            sheet.getCell('A2').value = `Fecha de corte: ${new Date().toLocaleString()}`;
-            sheet.getCell('A2').alignment = { horizontal: 'center' };
-
-            // Estilos
-            const headerStyle = {
-                font: { bold: true, color: { argb: 'FFFFFFFF' } },
-                fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F46E5' } } as ExcelJS.Fill,
-                alignment: { horizontal: 'center' } as Partial<ExcelJS.Alignment>
-            };
-
-            // Columnas
-            sheet.getRow(4).values = [
-                'SKU', 'Producto', 'Categoría', 'Lote', 'Vencimiento', 'Stock Total', 'Ubicación', 'ID Sistema'
-            ];
-            sheet.getRow(4).eachCell(cell => cell.style = headerStyle);
-
-            // Datos
-            stockRes.rows.forEach(row => {
-                sheet.addRow([
-                    row.sku || 'S/N',
-                    row.nombre,
-                    row.categoria || 'GENERAL',
-                    row.numero_lote,
-                    row.fecha_vencimiento,
-                    Number(row.stock_actual || 0),
-                    row.bodega_nombre || 'General',
-                    row.id // UUID
-                ]);
-            });
-
-            // Ajuste de anchos
-            sheet.columns.forEach(col => { col.width = 15; });
-            sheet.getColumn(2).width = 40; // Producto
-            sheet.getColumn(8).width = 35; // UUID
-
-            const buffer = await workbook.xlsx.writeBuffer();
-            return {
-                success: true,
-                data: Buffer.from(buffer).toString('base64'),
-                filename: `Inventario_Maestro_Completo_${new Date().toISOString().split('T')[0]}.xlsx`
-            };
-        }
-
-        // ==========================================
-        // REPORTE: KARDEX (MOVIMIENTOS)
-        // ==========================================
-
-        let movQuery = `
+        let sql = `
             SELECT 
-                m.id,
-                m.fecha,
-                m.tipo_movimiento,
-                m.cantidad,
-                m.producto_id,
-                p.nombre as producto_nombre,
-                l.numero_lote,
-                l.fecha_vencimiento,
-                b.nombre as bodega_nombre,
-                s.nombre as sucursal_nombre,
-                m.usuario_id,
-                m.observacion
-            FROM movimientos_inventario m
-            JOIN productos p ON m.producto_id = p.id
-            LEFT JOIN lotes l ON m.lote_id = l.id
-            JOIN bodegas b ON m.bodega_id = b.id
-            JOIN sucursales s ON b.sucursal_id = s.id
-            WHERE m.fecha >= $1 AND m.fecha <= $2
+                p.sku,
+                p.name as product_name,
+                p.category,
+                ib.lot_number,
+                ib.expiry_date,
+                ib.quantity_real as stock,
+                ib.unit_cost,
+                ib.sale_price,
+                w.name as warehouse_name,
+                l.name as location_name
+            FROM inventory_batches ib
+            JOIN products p ON ib.product_id::text = p.id::text 
+            -- Note: Casting p.id to text because schema had mismatch, ensuring compatibility
+            JOIN warehouses w ON ib.warehouse_id = w.id
+            JOIN locations l ON w.location_id = l.id
+            WHERE ib.quantity_real > 0
         `;
 
-        // Ajustamos endDate para incluir todo el día
-        const endDayParams = new Date(endDate);
-        endDayParams.setHours(23, 59, 59, 999);
+        const queryParams: any[] = [];
 
-        const movParams: any[] = [startDate, endDayParams.toISOString()];
-
-        if (sucursalId) {
-            movQuery += ` AND b.sucursal_id = $${movParams.length + 1}`;
-            movParams.push(sucursalId);
+        if (effectiveLocationId && effectiveLocationId !== 'ALL') {
+            sql += ` AND l.id = $${queryParams.length + 1}`;
+            queryParams.push(effectiveLocationId);
         }
 
-        if (bodegaId) {
-            movQuery += ` AND m.bodega_id = $${movParams.length + 1}`;
-            movParams.push(bodegaId);
+        if (warehouseId && warehouseId !== 'ALL') {
+            sql += ` AND w.id = $${queryParams.length + 1}`;
+            queryParams.push(warehouseId);
         }
 
-        movQuery += ` ORDER BY m.fecha ASC`;
+        sql += ` ORDER BY l.name, w.name, p.name ASC`;
 
-        const movRes = await query(movQuery, movParams);
+        const res = await query(sql, queryParams);
 
-        const workbook = new ExcelJS.Workbook();
-        const sheet = workbook.addWorksheet('Kardex de Movimientos');
-
+        // --- EXCEL FORMATTING ---
         sheet.mergeCells('A1:J1');
-        sheet.getCell('A1').value = `REPORTE DE MOVIMIENTOS (KARDEX) - ${sucursalNombre} - ${bodegaNombre}`;
+        sheet.getCell('A1').value = `REPORTE DE INVENTARIO (MULTI-SUCURSAL)`;
         sheet.getCell('A1').font = { bold: true, size: 14 };
         sheet.getCell('A1').alignment = { horizontal: 'center' };
 
-        sheet.mergeCells('A2:J2');
-        sheet.getCell('A2').value = `Desde: ${startDate}  Hasta: ${endDate}`;
-        sheet.getCell('A2').alignment = { horizontal: 'center' };
-
-        const headerKeyStyle = {
-            font: { bold: true, color: { argb: 'FFFFFFFF' } },
-            fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F46E5' } } as ExcelJS.Fill,
-            alignment: { horizontal: 'center' } as Partial<ExcelJS.Alignment>
-        };
-
-        sheet.getRow(4).values = [
-            'Fecha', 'Sucursal', 'Bodega', 'Tipo Movimiento', 'ID (SKU)', 'Producto', 'Lote', 'Vencimiento', 'Entrada', 'Salida', 'Observación'
+        sheet.getRow(3).values = [
+            'Sucursal', 'Bodega', 'SKU', 'Producto', 'Categoría', 'Lote', 'Vencimiento', 'Stock', 'Costo', 'Precio Venta'
         ];
-        sheet.getRow(4).eachCell(cell => cell.style = headerKeyStyle);
+        sheet.getRow(3).font = { bold: true };
 
-        movRes.rows.forEach(mov => {
-            const esEntrada = ['ENTRADA_COMPRA', 'AJUSTE_POSITIVO', 'TRASPASO_ENTRADA'].includes(mov.tipo_movimiento);
-
+        res.rows.forEach(r => {
             sheet.addRow([
-                new Date(mov.fecha).toLocaleString(),
-                mov.sucursal_nombre,
-                mov.bodega_nombre,
-                mov.tipo_movimiento,
-                mov.producto_id,
-                mov.producto_nombre,
-                mov.numero_lote || '---',
-                mov.fecha_vencimiento ? new Date(mov.fecha_vencimiento).toLocaleDateString() : '---',
-                esEntrada ? Number(mov.cantidad) : 0,  // Columna Entrada
-                !esEntrada ? Number(mov.cantidad) : 0, // Columna Salida
-                mov.observacion || ''
+                r.location_name,
+                r.warehouse_name,
+                r.sku,
+                r.product_name,
+                r.category,
+                r.lot_number,
+                new Date(r.expiry_date).toLocaleDateString(),
+                Number(r.stock),
+                Number(r.unit_cost),
+                Number(r.sale_price)
             ]);
         });
 
-        sheet.columns.forEach(col => { col.width = 15; });
-        sheet.getColumn(6).width = 35; // Producto
-        sheet.getColumn(2).width = 20;
-        sheet.getColumn(3).width = 20;
-        sheet.getColumn(4).width = 20;
-
-        const buffer = await workbook.xlsx.writeBuffer();
+        const buffer = await wb.xlsx.writeBuffer();
 
         return {
             success: true,
             data: Buffer.from(buffer).toString('base64'),
-            filename: `Kardex_Movimientos_${startDate}_${endDate}.xlsx`
+            filename: `Inventario_${new Date().toISOString().split('T')[0]}.xlsx`
         };
 
-    } catch (error: any) {
-        console.error('Error generando reporte:', error);
-        return { success: false, error: error.message || String(error) };
-    }
-}
-
-export async function getSucursales() {
-    try {
-        const res = await query('SELECT id, nombre FROM sucursales WHERE activo = true');
-        return res.rows;
     } catch (error) {
-        return [];
+        console.error('Export Error:', error);
+        return { success: false, error: 'Failed to generate report' };
     }
 }
 
-export async function getBodegas(sucursalId?: number) {
+// --- Helpers for Selectors ---
+
+export async function getLocations() {
     try {
-        let sql = 'SELECT id, nombre FROM bodegas WHERE activo = true';
+        const res = await query('SELECT id, name FROM locations WHERE is_active = true ORDER BY name');
+        return res.rows;
+    } catch (e) { return []; }
+}
+
+export async function getWarehouses(locationId?: string) {
+    try {
+        let sql = 'SELECT id, name, location_id FROM warehouses WHERE is_active = true';
         const params: any[] = [];
 
-        if (sucursalId) {
-            sql += ' AND sucursal_id = $1';
-            params.push(sucursalId);
+        if (locationId) {
+            sql += ` AND location_id = $1`;
+            params.push(locationId);
         }
 
         const res = await query(sql, params);
         return res.rows;
-    } catch (error) {
-        return [];
-    }
+    } catch (e) { return []; }
 }

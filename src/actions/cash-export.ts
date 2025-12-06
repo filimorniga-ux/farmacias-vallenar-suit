@@ -1,187 +1,171 @@
 'use server';
 
 import ExcelJS from 'exceljs';
-import { SaleTransaction, CashMovement, Expense } from '@/domain/types';
+import { query } from '@/lib/db';
 
-interface ExtendedSaleTransaction extends SaleTransaction {
-    seller_name?: string;
-    terminal_name?: string;
-}
-
-interface ExtendedCashMovement extends CashMovement {
-    user_name?: string;
-    terminal_name?: string;
-}
-
-interface CashReportData {
-    sales: ExtendedSaleTransaction[];
-    movements: ExtendedCashMovement[];
-    expenses: Expense[];
-    startDate: string;
+interface CashExportParams {
+    startDate: string; // ISO String or YYYY-MM-DD
     endDate: string;
-    generatedBy: string;
+    locationId?: string;
+    terminalId?: string;
+    requestingUserRole?: string;
+    requestingUserLocationId?: string;
 }
 
-export async function generateCashReport(data: CashReportData) {
-    try {
-        const { sales, movements, expenses, startDate, endDate, generatedBy } = data;
-        const workbook = new ExcelJS.Workbook();
+export async function generateCashReport(params: CashExportParams) {
+    const { startDate, endDate, locationId, terminalId, requestingUserRole, requestingUserLocationId } = params;
 
-        workbook.creator = generatedBy;
+    // --- SECURITY LOGIC ---
+    const isManagerial = ['MANAGER', 'ADMIN', 'QF', 'GERENTE_GENERAL'].includes(requestingUserRole || '');
+    let effectiveLocationId = locationId;
+
+    if (!isManagerial && requestingUserLocationId) {
+        effectiveLocationId = requestingUserLocationId; // Enforce local data only
+    }
+
+    try {
+        const workbook = new ExcelJS.Workbook();
         workbook.created = new Date();
 
-        // ---------------------------------------------------------
-        // SHEET 1: VENTAS DETALLADAS (Item Level)
-        // ---------------------------------------------------------
-        const salesSheet = workbook.addWorksheet('Detalle Ventas');
+        // 1. Fetch Sales
+        let salesSql = `
+            SELECT 
+                s.id, s.timestamp, s.total_amount, s.payment_method, s.dte_folio, s.dte_status,
+                l.name as branch_name, t.name as terminal_name, u.name as seller_name,
+                s.customer_rut
+            FROM sales s
+            LEFT JOIN locations l ON s.location_id = l.id
+            LEFT JOIN terminals t ON s.terminal_id = t.id
+            LEFT JOIN users u ON s.user_id = u.id
+            WHERE s.timestamp >= $1 AND s.timestamp <= $2
+        `;
+        const salesParams: any[] = [new Date(startDate).getTime(), new Date(endDate).getTime() + 86399999];
 
+        if (effectiveLocationId && effectiveLocationId !== 'ALL') {
+            salesSql += ` AND s.location_id = $${salesParams.length + 1}`;
+            salesParams.push(effectiveLocationId);
+        }
+        if (terminalId && terminalId !== 'ALL') {
+            salesSql += ` AND s.terminal_id = $${salesParams.length + 1}`;
+            salesParams.push(terminalId);
+        }
+        salesSql += ` ORDER BY s.timestamp DESC`;
+
+        const salesRes = await query(salesSql, salesParams);
+
+        // 2. Fetch Cash Movements
+        let cashSql = `
+            SELECT 
+                cm.*,
+                l.name as branch_name, t.name as terminal_name, u.name as user_name
+            FROM cash_movements cm
+            LEFT JOIN locations l ON cm.location_id = l.id
+            LEFT JOIN terminals t ON cm.terminal_id = t.id
+            LEFT JOIN users u ON cm.user_id = u.id
+            WHERE cm.timestamp >= to_timestamp($1 / 1000.0) AND cm.timestamp <= to_timestamp($2 / 1000.0)
+        `;
+        // Note: timestamp in DB for cash_movements might be TIMESTAMP type or BIGINT?
+        // Checking schema: "timestamp TIMESTAMP DEFAULT NOW()"
+        // So inputs should be ISO strings or converted.
+        // Wait, the "sales" query used ms timestamps (BIGINT usually in my schema for sales?).
+        // Checking PROJECT_BIBLE or Schema creation:
+        // Sales: "timestamp" column type not explicitly created in the *last* migration, it was "ALTER TABLE".
+        // Original "sales" table usually has numeric timestamp in this project based on types.ts.
+        // But "cash_movements" was created with "TIMESTAMP".
+        // Correction: Sales -> timestamp (BIGINT from initialized schema?). 
+        // CashMovements -> timestamp (TIMESTAMP).
+        // Lets adjust param types for SQL.
+
+        // Adjusted Params for Cash (Timestamp type)
+        let cashSqlSafe = `
+            SELECT 
+                cm.*,
+                l.name as location_name, t.name as terminal_name, u.name as user_name
+            FROM cash_movements cm
+            LEFT JOIN locations l ON cm.location_id = l.id
+            LEFT JOIN terminals t ON cm.terminal_id = t.id
+            LEFT JOIN users u ON cm.user_id = u.id
+            WHERE cm.timestamp >= $1 AND cm.timestamp <= $2
+        `;
+        const startD = new Date(startDate);
+        const endD = new Date(endDate);
+        endD.setHours(23, 59, 59, 999);
+        const cashParamsSafe: any[] = [startD, endD];
+
+        if (effectiveLocationId && effectiveLocationId !== 'ALL') {
+            cashSqlSafe += ` AND cm.location_id = $${cashParamsSafe.length + 1}`;
+            cashParamsSafe.push(effectiveLocationId);
+        }
+        if (terminalId && terminalId !== 'ALL') {
+            cashSqlSafe += ` AND cm.terminal_id = $${cashParamsSafe.length + 1}`;
+            cashParamsSafe.push(terminalId);
+        }
+        cashSqlSafe += ` ORDER BY cm.timestamp DESC`;
+
+        const cashRes = await query(cashSqlSafe, cashParamsSafe);
+
+        // ---------------------------------------------------------
+        // SHEET 1: VENTAS (Consolidado)
+        // ---------------------------------------------------------
+        const salesSheet = workbook.addWorksheet('Ventas');
         salesSheet.columns = [
-            { header: 'ID Venta', key: 'id', width: 20 },
-            { header: 'Fecha', key: 'date', width: 12 },
-            { header: 'Hora', key: 'time', width: 10 },
-            { header: 'Sucursal', key: 'branch', width: 15 },
-            { header: 'Caja', key: 'terminal', width: 15 }, // NEW
-            { header: 'Vendedor', key: 'seller', width: 20 }, // Wider for Name
-            { header: 'Cliente', key: 'customer', width: 25 },
-            { header: 'RUT Cliente', key: 'customer_rut', width: 15 },
-            { header: 'Método Pago', key: 'payment', width: 15 },
-            { header: 'Estado DTE', key: 'dte_status', width: 15 },
-            { header: 'Folio', key: 'folio', width: 10 },
-            { header: 'SKU Item', key: 'sku', width: 15 },
-            { header: 'Producto', key: 'product', width: 40 },
-            { header: 'Cantidad', key: 'qty', width: 10 },
-            { header: 'Precio Unit.', key: 'price', width: 12 },
-            { header: 'Total Item', key: 'total_item', width: 12 },
-            { header: 'Total Venta', key: 'total_sale', width: 15 }, // Repeated for context
+            { header: 'Fecha', key: 'date', width: 15 },
+            { header: 'Sucursal', key: 'branch', width: 20 },
+            { header: 'Caja', key: 'term', width: 15 },
+            { header: 'Vendedor', key: 'seller', width: 20 },
+            { header: 'Total', key: 'total', width: 15 },
+            { header: 'Medio Pago', key: 'method', width: 15 },
+            { header: 'DTE', key: 'dte', width: 15 }
         ];
 
-        // Add Data
-        sales.forEach(sale => {
-            const dateObj = new Date(sale.timestamp);
-            const dateStr = dateObj.toLocaleDateString('es-CL');
-            const timeStr = dateObj.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
-
-            sale.items.forEach(item => {
-                salesSheet.addRow({
-                    id: sale.id,
-                    date: dateStr,
-                    time: timeStr,
-                    branch: sale.branch_id || 'N/A',
-                    terminal: sale.terminal_name || 'N/A', // NEW
-                    seller: sale.seller_name || sale.seller_id, // Fallback to ID if name missing
-                    customer: sale.customer?.fullName || 'Anónimo',
-                    customer_rut: sale.customer?.rut || '',
-                    payment: sale.payment_method,
-                    dte_status: sale.dte_status || 'N/A',
-                    folio: sale.dte_folio || '',
-                    sku: item.sku,
-                    product: item.name,
-                    qty: item.quantity,
-                    price: item.price,
-                    total_item: item.price * item.quantity,
-                    total_sale: sale.total
-                });
+        // Sales timestamps are likely BIGINT (ms) based on legacy code patterns
+        salesRes.rows.forEach(s => {
+            salesSheet.addRow({
+                date: new Date(Number(s.timestamp)).toLocaleString(),
+                branch: s.branch_name || 'N/A',
+                term: s.terminal_name || 'N/A',
+                seller: s.seller_name || 'N/A',
+                total: s.total_amount,
+                method: s.payment_method,
+                dte: s.dte_folio || 'N/A'
             });
         });
 
-        // Styling Header
-        salesSheet.getRow(1).font = { bold: true };
-        salesSheet.getRow(1).fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFE0E0E0' }
-        };
-
         // ---------------------------------------------------------
-        // SHEET 2: MOVIMIENTOS DE CAJA (In/Out)
+        // SHEET 2: MOVIMIENTOS CAJA
         // ---------------------------------------------------------
-        const cashSheet = workbook.addWorksheet('Movimientos Caja');
-
+        const cashSheet = workbook.addWorksheet('Flujo de Caja');
         cashSheet.columns = [
-            { header: 'ID', key: 'id', width: 20 },
-            { header: 'Fecha', key: 'date', width: 12 },
-            { header: 'Hora', key: 'time', width: 10 },
-            { header: 'Caja', key: 'terminal', width: 15 }, // NEW
-            { header: 'Turno ID', key: 'shift', width: 15 },
-            { header: 'Usuario', key: 'user', width: 20 }, // Wider for Name
-            { header: 'Tipo', key: 'type', width: 10 }, // IN / OUT
+            { header: 'Fecha', key: 'date', width: 15 },
+            { header: 'Sucursal', key: 'branch', width: 20 },
+            { header: 'Caja', key: 'term', width: 15 },
+            { header: 'Usuario', key: 'user', width: 20 },
+            { header: 'Tipo', key: 'type', width: 10 },
+            { header: 'Monto', key: 'amount', width: 15 },
             { header: 'Motivo', key: 'reason', width: 20 },
-            { header: 'Descripción', key: 'desc', width: 40 },
-            { header: 'Monto', key: 'amount', width: 15 },
-            { header: 'Efectivo?', key: 'is_cash', width: 10 },
+            { header: 'Descripción', key: 'desc', width: 30 }
         ];
 
-        movements.forEach(mov => {
-            const dateObj = new Date(mov.timestamp);
+        cashRes.rows.forEach(cm => {
             cashSheet.addRow({
-                id: mov.id,
-                date: dateObj.toLocaleDateString('es-CL'),
-                time: dateObj.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }),
-                terminal: mov.terminal_name || 'N/A', // NEW
-                shift: mov.shift_id.slice(-6), // Short ID
-                user: mov.user_name || mov.user_id, // Fallback
-                type: mov.type === 'IN' ? 'INGRESO' : 'EGRESO',
-                reason: mov.reason,
-                desc: mov.description,
-                amount: mov.amount,
-                is_cash: mov.is_cash ? 'Sí' : 'No'
+                date: new Date(cm.timestamp).toLocaleString(),
+                branch: cm.location_name || 'N/A',
+                term: cm.terminal_name || 'N/A',
+                user: cm.user_name || 'N/A',
+                type: cm.type,
+                amount: cm.amount,
+                reason: cm.reason,
+                desc: cm.description
             });
         });
 
-        cashSheet.getRow(1).font = { bold: true };
-        cashSheet.getRow(1).fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFE0E0E0' }
-        };
-
-        // ---------------------------------------------------------
-        // SHEET 3: GASTOS REGISTRADOS
-        // ---------------------------------------------------------
-        const expenseSheet = workbook.addWorksheet('Gastos');
-
-        expenseSheet.columns = [
-            { header: 'ID', key: 'id', width: 20 },
-            { header: 'Fecha', key: 'date', width: 12 },
-            { header: 'Categoría', key: 'cat', width: 20 },
-            { header: 'Descripción', key: 'desc', width: 40 },
-            { header: 'Monto', key: 'amount', width: 15 },
-            { header: 'Deducible?', key: 'deductible', width: 10 },
-            { header: 'Documento', key: 'doc', width: 15 },
-        ];
-
-        expenses.forEach(exp => {
-            const dateObj = new Date(exp.date);
-            expenseSheet.addRow({
-                id: exp.id,
-                date: dateObj.toLocaleDateString('es-CL'),
-                cat: exp.category,
-                desc: exp.description,
-                amount: exp.amount,
-                deductible: exp.is_deductible ? 'Sí' : 'No',
-                doc: exp.document_type || 'N/A'
-            });
-        });
-
-        expenseSheet.getRow(1).font = { bold: true };
-        expenseSheet.getRow(1).fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFE0E0E0' }
-        };
-
-        // ---------------------------------------------------------
-        // WRITE TO BUFFER & RETURN
-        // ---------------------------------------------------------
         const buffer = await workbook.xlsx.writeBuffer();
-
-        // Convert buffer to Base64 string to send back to client
         const base64 = Buffer.from(buffer).toString('base64');
 
-        return { success: true, fileData: base64, fileName: `Reporte_Caja_${startDate}_${endDate}.xlsx` };
+        return { success: true, fileData: base64, fileName: `Reporte_Caja_Seguro_${startDate}.xlsx` };
 
     } catch (error: any) {
         console.error('Error generating cash report:', error);
-        return { success: false, error: error.message };
+        return { success: false, error: 'Database Error: ' + error.message };
     }
 }

@@ -61,33 +61,27 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
     const handleExport = async () => {
         setIsExporting(true);
         try {
-            const start = new Date(startDate).setHours(0, 0, 0, 0);
-            const end = new Date(endDate).setHours(23, 59, 59, 999);
-
-            // Filter Data (Mirroring filteredSales logic)
-            const relevantSales = salesHistory.filter(s => s.timestamp >= start && s.timestamp <= end);
-            const relevantMovements = cashMovements.filter(m => m.timestamp >= start && m.timestamp <= end);
-            const relevantExpenses = expenses.filter(e => e.date >= start && e.date <= end);
-
-            if (relevantSales.length === 0 && relevantMovements.length === 0 && relevantExpenses.length === 0) {
-                toast.error('No hay datos para exportar en el rango seleccionado');
-                return;
-            }
+            // Use inputs for date range
+            const startDateISO = new Date(startDate).toISOString();
+            const endDateISO = new Date(endDate).toISOString();
 
             const result = await generateCashReport({
-                sales: relevantSales,
-                movements: relevantMovements,
-                expenses: relevantExpenses,
-                startDate,
-                endDate,
-                generatedBy: user?.name || 'Usuario'
+                startDate: startDateISO,
+                endDate: endDateISO,
+                // For Transaction History (Admin View), we likely want ALL terminals/locations 
+                // but limited by the User's Role capabilities enforced by Backend.
+                // passing undefined means "ALL" (Backend will restrict if needed).
+                locationId: user?.role === 'MANAGER' || user?.role === 'ADMIN' ? undefined : user?.assigned_location_id,
+                terminalId: undefined, // All terminals
+                requestingUserRole: user?.role || 'CASHIER',
+                requestingUserLocationId: user?.assigned_location_id
             });
 
             if (result.success && result.fileData) {
                 // Trigger Download
                 const link = document.createElement('a');
                 link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${result.fileData}`;
-                link.download = result.fileName || 'reporte.xlsx';
+                link.download = result.fileName || 'reporte_historico.xlsx';
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);

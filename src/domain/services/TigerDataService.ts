@@ -119,12 +119,12 @@ export const TigerDataService = {
      * 1. Fetch Inventory (Robust with Fallback)
      * @returns Promise<InventoryBatch[]>
      */
-    fetchInventory: async (): Promise<InventoryBatch[]> => {
+    fetchInventory: async (warehouseId?: string): Promise<InventoryBatch[]> => {
         console.log('🐯 [Tiger Data] Fetching inventory...');
         try {
             // 1. Try to fetch from Server Action (DB)
             const { fetchInventory } = await import('../../actions/sync');
-            const dbInventory = await fetchInventory();
+            const dbInventory = await fetchInventory(warehouseId);
 
             // Allow empty DB (valid state after truncate)
             if (dbInventory) {
@@ -147,139 +147,121 @@ export const TigerDataService = {
      * @param saleData - Complete sale transaction
      * @param locationId - Branch where sale occurred
      * @returns Promise<{ success: boolean; transactionId: string }>
-     * 
-     * Future: POST /api/sales
      */
     saveSaleTransaction: async (
         saleData: SaleTransaction,
-        locationId: string
+        locationId: string,
+        terminalId?: string
     ): Promise<{ success: boolean; transactionId: string }> => {
-        return simulateNetworkCall(() => {
-            // Validate sale data
-            if (!saleData.items || saleData.items.length === 0) {
-                throw new Error('Sale must have at least one item');
+        // Enriched Data logic moved to Action or kept here?
+        // Let's keep augmentation here but delegate save.
+        const enrichedSale: SaleTransaction = {
+            ...saleData,
+            branch_id: locationId,
+            terminal_id: terminalId, // Added terminal_id
+            timestamp: Date.now()
+        };
+
+        try {
+            const { createSale } = await import('../../actions/sales');
+            const result = await createSale(enrichedSale);
+
+            if (result.success && result.transactionId) {
+                console.log(`✅ [Tiger Data] Sale saved to DB: ${result.transactionId}`);
+                // Update local memory for immediate UI feedback (Optimistic or just sync)
+                inMemoryStorage.sales.push(enrichedSale);
+                return { success: true, transactionId: result.transactionId };
+            } else {
+                throw new Error(result.error || 'Unknown DB Error');
             }
-
-            if (saleData.total <= 0) {
-                throw new Error('Sale total must be greater than 0');
-            }
-
-            // Add location metadata
-            const enrichedSale: SaleTransaction = {
-                ...saleData,
-                branch_id: locationId,
-                timestamp: Date.now()
-            };
-
-            // Save to in-memory storage (simulates DB write)
-            inMemoryStorage.sales.push(enrichedSale);
-
-            console.log(`💰 [Tiger Data] Sale saved: $${saleData.total.toLocaleString('es-CL')} | Items: ${saleData.items.length} | Payment: ${saleData.payment_method}`);
-
-            return {
-                success: true,
-                transactionId: enrichedSale.id
-            };
-        }, 'saveSaleTransaction');
+        } catch (error) {
+            console.error('❌ [Tiger Data] DB Save failed:', error);
+            // Fallback? No, strict mode.
+            return { success: false, transactionId: '' };
+        }
     },
 
     /**
-     * 3. Save Cash Movement (Expenses, Withdrawals, Advances)
-     * @param movement - Cash movement data
-     * @returns Promise<{ success: boolean; movementId: string }>
-     * 
-     * Future: POST /api/cash-movements
+     * 3. Save Cash Movement
      */
     saveCashMovement: async (
         movement: CashMovement
     ): Promise<{ success: boolean; movementId: string }> => {
-        return simulateNetworkCall(() => {
-            // Validate movement
-            if (movement.amount <= 0) {
-                throw new Error('Movement amount must be greater than 0');
+        try {
+            const { createCashMovement } = await import('../../actions/cash');
+            const result = await createCashMovement(movement);
+            if (result.success && result.id) {
+                console.log(`💵 [Tiger Data] Cash movement saved to DB: ${result.id}`);
+                inMemoryStorage.cashMovements.push({ ...movement, id: result.id });
+                return { success: true, movementId: result.id };
             }
-
-            // Save to in-memory storage
-            inMemoryStorage.cashMovements.push(movement);
-
-            console.log(`💵 [Tiger Data] Cash movement saved: ${movement.type} | $${movement.amount.toLocaleString('es-CL')}`);
-
-            return {
-                success: true,
-                movementId: movement.id
-            };
-        }, 'saveCashMovement');
+            throw new Error(result.error);
+        } catch (error) {
+            console.error('❌ [Tiger Data] Cash Save failed:', error);
+            return { success: false, movementId: '' };
+        }
     },
 
     /**
      * 4. Save Expense
-     * @param expense - Expense data
-     * @returns Promise<{ success: boolean; expenseId: string }>
-     * 
-     * Future: POST /api/expenses
      */
     saveExpense: async (
         expense: Expense
     ): Promise<{ success: boolean; expenseId: string }> => {
-        return simulateNetworkCall(() => {
-            // Save to in-memory storage
-            inMemoryStorage.expenses.push(expense);
-
-            console.log(`📝 [Tiger Data] Expense saved: ${expense.category} | $${expense.amount.toLocaleString('es-CL')}`);
-
-            return {
-                success: true,
-                expenseId: expense.id
-            };
-        }, 'saveExpense');
+        try {
+            const { createExpense } = await import('../../actions/cash');
+            const result = await createExpense(expense);
+            if (result.success && result.id) {
+                console.log(`📝 [Tiger Data] Expense saved to DB: ${result.id}`);
+                inMemoryStorage.expenses.push({ ...expense, id: result.id });
+                return { success: true, expenseId: result.id };
+            }
+            throw new Error(result.error);
+        } catch (error) {
+            console.error('❌ [Tiger Data] Expense Save failed:', error);
+            return { success: false, expenseId: '' };
+        }
     },
 
     /**
-     * 5. Fetch Employees (for Login & HR)
-     * @returns Promise<EmployeeProfile[]>
-     * 
-     * Future: GET /api/employees
+     * 4b. Fetch Cash Movements (NEW)
      */
-    fetchEmployees: async (): Promise<EmployeeProfile[]> => {
-        return simulateNetworkCall(() => {
-            console.log(`👥 [Tiger Data] Fetched ${inMemoryStorage.employees.length} employees`);
-            return inMemoryStorage.employees;
-        }, 'fetchEmployees');
+    fetchCashMovements: async (limit = 50) => {
+        try {
+            const { getCashMovements } = await import('../../actions/cash');
+            const movements = await getCashMovements(undefined, limit);
+            console.log(`✅ [Tiger Data] Loaded ${movements.length} cash movements`);
+            inMemoryStorage.cashMovements = movements as any; // Type alignment might be needed
+            return movements;
+        } catch (error) {
+            console.error('❌ [Tiger Data] Fetch Cash failed:', error);
+            return [];
+        }
     },
+
+    // ... cash movement ...
 
     /**
      * 6. Fetch Sales History
-     * @param locationId - Optional location filter
-     * @param startDate - Optional start date filter
-     * @param endDate - Optional end date filter
-     * @returns Promise<SaleTransaction[]>
-     * 
-     * Future: GET /api/sales?location={locationId}&start={startDate}&end={endDate}
      */
     fetchSalesHistory: async (
         locationId?: string,
         startDate?: number,
         endDate?: number
     ): Promise<SaleTransaction[]> => {
-        return simulateNetworkCall(() => {
-            let sales = inMemoryStorage.sales;
+        console.log('🐯 [Tiger Data] Fetching sales history from DB...');
+        try {
+            const { getSales } = await import('../../actions/sales');
+            const sales = await getSales(100); // Limit 100 for now
+            console.log(`✅ [Tiger Data] Loaded ${sales.length} sales from DB`);
 
-            // Apply filters
-            if (locationId) {
-                sales = sales.filter(s => s.branch_id === locationId);
-            }
-
-            if (startDate) {
-                sales = sales.filter(s => s.timestamp >= startDate);
-            }
-
-            if (endDate) {
-                sales = sales.filter(s => s.timestamp <= endDate);
-            }
-
-            console.log(`📊 [Tiger Data] Fetched ${sales.length} sales transactions`);
+            // Sync to in-memory for consistency
+            inMemoryStorage.sales = sales;
             return sales;
-        }, 'fetchSalesHistory');
+        } catch (error) {
+            console.error('❌ [Tiger Data] Fetch Sales failed:', error);
+            return [];
+        }
     },
 
     /**

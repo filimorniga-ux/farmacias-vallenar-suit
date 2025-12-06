@@ -239,6 +239,7 @@ export interface SaleTransaction {
     dte_folio?: string; // Folio Boleta o N/A
     branch_id?: string; // Added for location tracking
     shift_id?: string; // Linked to a specific shift
+    terminal_id?: string; // Specific POS Terminal
 }
 
 // --- POS & Turnos ---
@@ -248,6 +249,14 @@ export interface Terminal {
     location_id: string;
     status: 'OPEN' | 'CLOSED';
     allowed_users?: string[]; // IDs of employees allowed to use this terminal. Empty = All.
+    current_cashier_id?: string; // If OPEN, who is using it
+}
+
+export interface Warehouse {
+    id: string;
+    location_id: string;
+    name: string;
+    is_active: boolean;
 }
 
 export interface Shift {

@@ -31,11 +31,18 @@ CREATE TYPE location_type AS ENUM ('HQ', 'STORE', 'WAREHOUSE');
 
 CREATE TABLE locations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(100) NOT NULL,
+    name VARCHAR(100) NOT NULL, -- e.g. "Farmacia Vallenar Centro"
     type location_type NOT NULL,
-    rut VARCHAR(20) NOT NULL, -- RUT Empresa/Sucursal
+    rut VARCHAR(20) NOT NULL, 
     address VARCHAR(255),
-    config JSONB DEFAULT '{}', -- Configuración de Impresoras, IPs, etc.
+    config JSONB DEFAULT '{}', 
+    is_active BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE warehouses (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    location_id UUID REFERENCES locations(id), -- Pertenece a una sucursal física
+    name VARCHAR(100) NOT NULL, -- e.g. "Sala de Ventas", "Bodega Trasera"
     is_active BOOLEAN DEFAULT TRUE
 );
 
@@ -90,7 +97,7 @@ CREATE TYPE batch_status AS ENUM ('AVAILABLE', 'RESERVED', 'QUARANTINE', 'EXPIRE
 CREATE TABLE inventory_batches (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     product_id UUID REFERENCES products(id),
-    location_id UUID REFERENCES locations(id),
+    warehouse_id UUID REFERENCES warehouses(id), -- STOCK RESIDE EN BODEGA, NO EN SUCURSAL
     
     lot_number VARCHAR(50) NOT NULL,
     expiry_date DATE NOT NULL,
@@ -108,7 +115,8 @@ CREATE TABLE inventory_batches (
 -- 5. TRANSACCIONES DE VENTA (POS)
 CREATE TABLE sales (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    location_id UUID REFERENCES locations(id),
+    location_id UUID REFERENCES locations(id), -- Sucursal Contable
+    terminal_id VARCHAR(50) REFERENCES terminals(id), -- Punto de Venta específico
     user_id UUID REFERENCES users(id), -- Cajero
     customer_rut VARCHAR(20), -- Cliente (CRM)
     
@@ -133,7 +141,6 @@ CREATE TABLE sale_items (
 
 -- 6. GESTION DE CAJAS & TERMINALES
 CREATE TABLE terminals (
-    id VARCHAR(50) PRIMARY KEY, -- Ej: TERM-123
     name VARCHAR(100) NOT NULL,
     location_id UUID REFERENCES locations(id),
     status VARCHAR(20) DEFAULT 'CLOSED', -- OPEN, CLOSED
@@ -151,6 +158,16 @@ CREATE TABLE suppliers (
     contact_email VARCHAR(100),
     payment_terms VARCHAR(50), -- CONTADO, 30_DIAS, etc.
     is_active BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE cash_movements (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    location_id UUID REFERENCES locations(id), -- Reference to terminals/locations
+    user_id UUID REFERENCES users(id),     -- Who made the movement
+    type TEXT CHECK (type IN ('EXPENSE', 'WITHDRAWAL', 'EXTRA_INCOME', 'OPENING', 'CLOSING')),
+    amount NUMERIC NOT NULL,
+    reason TEXT,
+    timestamp TIMESTAMP DEFAULT NOW()
 );
 
 CREATE TABLE supplier_documents (
