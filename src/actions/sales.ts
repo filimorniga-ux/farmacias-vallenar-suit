@@ -89,13 +89,13 @@ async function executeSaleTransaction(saleData: SaleTransaction) {
     const { query } = await import('@/lib/db');
     const { v4: uuidv4 } = await import('uuid');
 
-    // 1. Validation: Fail if context is missing
-    if (!saleData.branch_id) throw new Error('❌ Missing Location Context (branch_id)');
-    if (!saleData.terminal_id) throw new Error('❌ Missing Terminal Context (terminal_id)');
-
     const saleId = uuidv4();
 
     try {
+        // 1. Validation: Fail if context is missing
+        if (!saleData.branch_id) throw new Error('❌ Missing Location Context (branch_id)');
+        if (!saleData.terminal_id) throw new Error('❌ Missing Terminal Context (terminal_id)');
+
         // Values for Insert
         const userId = isValidUUID(saleData.seller_id) ? saleData.seller_id : null;
 
