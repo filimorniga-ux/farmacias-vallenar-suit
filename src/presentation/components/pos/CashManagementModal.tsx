@@ -81,43 +81,16 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
         if (!currentShift) return;
         setIsExporting(true);
         try {
-            // Filter Data for Current Shift (Roughly)
-            // Ideally we filter by shift_id if stored, but timestamp is good proxy for "Current Session" or just export ALL for now?
-            // The prompt says "Turno/Periodo". We can filter by "Today" or just export what is in store if it's "Current Shift".
-            // Implementation: Export ALL data currently in store as it represents the "Local Session".
-            // Better: Filter by Start of Shift.
             const start = currentShift.start_time;
             const end = Date.now();
 
-            // Resolve Names
-            const currentTerminalName = terminals.find(t => t.id === currentShift.terminal_id)?.name || 'Caja Desconocida';
-
-            const relevantSales = salesHistory
-                .filter(s => s.timestamp >= start && s.timestamp <= end)
-                .map(s => ({
-                    ...s,
-                    // If seller_id matches current user, use user.name, else lookup employee
-                    seller_name: employees.find(e => e.id === s.seller_id)?.name || s.seller_id,
-                    terminal_name: currentTerminalName // Sales in this session belong to this terminal
-                }));
-
-            const relevantMovements = cashMovements
-                .filter(m => m.timestamp >= start && m.timestamp <= end)
-                .map(m => ({
-                    ...m,
-                    user_name: employees.find(e => e.id === m.user_id)?.name || m.user_id,
-                    terminal_name: currentTerminalName
-                }));
-
-            const relevantExpenses = expenses.filter(e => e.date >= start && e.date <= end);
-
             const result = await generateCashReport({
-                sales: relevantSales,
-                movements: relevantMovements,
-                expenses: relevantExpenses,
-                startDate: new Date(start).toISOString().split('T')[0],
-                endDate: new Date(end).toISOString().split('T')[0],
-                generatedBy: user?.name || 'Cajero'
+                startDate: new Date(start).toISOString(),
+                endDate: new Date(end).toISOString(),
+                locationId: user?.assigned_location_id, // Use explicit location
+                terminalId: currentShift.terminal_id,
+                requestingUserRole: user?.role || 'CASHIER',
+                requestingUserLocationId: user?.assigned_location_id
             });
 
             if (result.success && result.fileData) {
@@ -129,7 +102,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                 document.body.removeChild(link);
                 toast.success('Reporte de Caja descargado');
             } else {
-                toast.error('Error generando reporte');
+                toast.error('Error generando reporte: ' + result.error);
             }
         } catch (e) {
             console.error(e);

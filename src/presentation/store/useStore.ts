@@ -33,6 +33,12 @@ import { MOCK_INVENTORY, MOCK_EMPLOYEES, MOCK_SUPPLIERS, MOCK_SHIPMENTS } from '
 // --- MOCKS MOVED TO src/domain/mocks.ts ---
 
 interface PharmaState {
+    // --- Multi-Branch State ---
+    currentLocationId: string;
+    currentWarehouseId: string;
+    currentTerminalId: string;
+    setCurrentLocation: (locationId: string, warehouseId: string, terminalId: string) => void;
+
     // Auth
     user: EmployeeProfile | null;
     employees: EmployeeProfile[]; // Store loaded employees
@@ -194,6 +200,12 @@ interface PharmaState {
 export const usePharmaStore = create<PharmaState>()(
     persist(
         (set, get) => ({
+            // --- Multi-Branch State ---
+            currentLocationId: 'LOC-VALLENAR-CENTRO', // Default
+            currentWarehouseId: 'WH-SALA-VENTAS', // Default
+            currentTerminalId: 'TERM-DEFAULT', // Default
+            setCurrentLocation: (loc, wh, term) => set({ currentLocationId: loc, currentWarehouseId: wh, currentTerminalId: term }),
+
             // --- Auth ---
             user: null, // ALWAYS start logged out - force login
             employees: [], // ⚠️ DEBUG: Start empty to prove DB connection
@@ -248,9 +260,13 @@ export const usePharmaStore = create<PharmaState>()(
                 set({ isLoading: true });
                 try {
                     // const { TigerDataService } = await import('../../domain/services/TigerDataService'); // REMOVED
-                    const [inventory, employees] = await Promise.all([
-                        TigerDataService.fetchInventory(),
-                        fetchEmployees()
+                    const currentStoreState = get();
+                    const [inventory, employees, sales, suppliers, cashMovements] = await Promise.all([
+                        TigerDataService.fetchInventory(currentStoreState.currentWarehouseId), // Filter by Store's Warehouse
+                        fetchEmployees(),
+                        TigerDataService.fetchSalesHistory(), // Fetch real sales
+                        import('../../actions/sync').then(m => m.fetchSuppliers()), // Fetch real suppliers
+                        TigerDataService.fetchCashMovements() // Fetch real cash movements
                     ]);
 
                     // Si falla la DB (Safe Mode devuelve []), mantenemos lo que haya o usamos un fallback mínimo si está vacío
@@ -264,6 +280,39 @@ export const usePharmaStore = create<PharmaState>()(
                         // Solo usar mocks si explícitamente estamos en modo demo/offline sin conexión.
                         console.log('ℹ️ No employees found in DB.');
                         set({ employees: [] });
+                    }
+
+                    // Sync Sales
+                    if (sales.length > 0) {
+                        set({ salesHistory: sales });
+                    }
+
+                    // Sync Suppliers
+                    if (suppliers && suppliers.length > 0) {
+                        set({ suppliers });
+                    }
+
+                    // Sync Cash & Expenses
+                    if (cashMovements.length > 0) {
+                        set({
+                            cashMovements: cashMovements,
+                            // Derive expenses from cash movements (OUT and not valid withdrawals)
+                            expenses: cashMovements.filter(m =>
+                                m.type === 'OUT' && (
+                                    m.reason === 'SUPPLIES' ||
+                                    m.reason === 'SERVICES' ||
+                                    m.reason === 'SALARY_ADVANCE' ||
+                                    m.reason === 'OTHER'
+                                )
+                            ).map(m => ({
+                                id: m.id,
+                                description: m.description, // Description holds the user text
+                                amount: m.amount,
+                                category: (m.reason === 'SUPPLIES' ? 'INSUMOS' : m.reason === 'SERVICES' ? 'SERVICIOS' : 'OTROS') as any,
+                                date: m.timestamp,
+                                is_deductible: false
+                            }))
+                        });
                     }
 
                     const state = get();
@@ -397,9 +446,18 @@ export const usePharmaStore = create<PharmaState>()(
             })),
 
             // --- SRM Actions ---
-            addSupplier: (supplierData) => set((state) => ({
-                suppliers: [...state.suppliers, { ...supplierData, id: `SUP - ${Date.now()} ` }]
-            })),
+            addSupplier: async (supplierData) => {
+                const { createSupplier } = await import('../../actions/suppliers');
+                const result = await createSupplier(supplierData as any);
+                if (result.success && result.id) {
+                    set((state) => ({
+                        suppliers: [...state.suppliers, { ...supplierData, id: result.id }]
+                    }));
+                    import('sonner').then(({ toast }) => toast.success('Proveedor guardado correctamente'));
+                } else {
+                    import('sonner').then(({ toast }) => toast.error('Error al guardar proveedor'));
+                }
+            },
             updateSupplier: (id, data) => set((state) => ({
                 suppliers: state.suppliers.map(s => s.id === id ? { ...s, ...data } : s)
             })),
@@ -632,7 +690,8 @@ export const usePharmaStore = create<PharmaState>()(
                     // const { TigerDataService } = await import('../../domain/services/TigerDataService'); // REMOVED
                     const result = await TigerDataService.saveSaleTransaction(
                         saleTransaction,
-                        'SUCURSAL_CENTRO' // TODO: Get from location context
+                        state.currentLocationId,
+                        state.currentTerminalId
                     );
 
                     if (!result.success) {

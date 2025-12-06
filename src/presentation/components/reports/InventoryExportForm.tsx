@@ -1,38 +1,53 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { exportInventoryReport, getSucursales, getBodegas } from '@/actions/inventory-export';
+import { exportInventoryReport, getLocations, getWarehouses } from '@/actions/inventory-export';
+import { usePharmaStore } from '@/presentation/store/useStore';
 
 export function InventoryExportForm() {
-    const [sucursales, setSucursales] = useState<{ id: number, nombre: string }[]>([]);
-    const [bodegas, setBodegas] = useState<{ id: number, nombre: string }[]>([]);
-    const [selectedSucursal, setSelectedSucursal] = useState<string>('');
-    const [selectedBodega, setSelectedBodega] = useState<string>('');
+    const { user, currentLocationId } = usePharmaStore();
+    const isManagerial = ['MANAGER', 'ADMIN', 'QF'].includes(user?.role || '');
+
+    const [locations, setLocations] = useState<{ id: string, name: string }[]>([]);
+    const [warehouses, setWarehouses] = useState<{ id: string, name: string }[]>([]);
+    const [selectedLocation, setSelectedLocation] = useState<string>('');
+    const [selectedWarehouse, setSelectedWarehouse] = useState<string>('');
     const [startDate, setStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
     const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
-    const [reportType, setReportType] = useState<'kardex' | 'seed'>('kardex');
+    const [reportType, setReportType] = useState<'kardex' | 'seed'>('seed'); // Default to seed (actual)
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
-        getSucursales().then(setSucursales);
-    }, []);
+        if (isManagerial) {
+            getLocations().then(setLocations);
+        } else {
+            // If not manager, just set current location as the only option (for logic consistency)
+            // Or easier: Just don't fetch list, logic handles effective ID.
+            setSelectedLocation(currentLocationId);
+        }
+    }, [isManagerial, currentLocationId]);
 
     useEffect(() => {
-        getBodegas(selectedSucursal ? Number(selectedSucursal) : undefined).then(setBodegas);
-    }, [selectedSucursal]);
+        // Fetch warehouses for the selected location (or current location if constrained)
+        const locId = isManagerial ? selectedLocation : currentLocationId;
+        if (locId) {
+            getWarehouses(locId).then(setWarehouses);
+        } else {
+            setWarehouses([]);
+        }
+    }, [selectedLocation, currentLocationId, isManagerial]);
 
     const handleExport = async () => {
-        // Validamos solo si hay inconsistencias o si se requiere lógica específica, pero ahora permitimos "Todas"
-        // if (!selectedSucursal) { ... } -> Removed
-
         setLoading(true);
         try {
             const result = await exportInventoryReport({
                 startDate,
                 endDate,
-                sucursalId: Number(selectedSucursal),
-                bodegaId: selectedBodega ? Number(selectedBodega) : null,
-                type: reportType
+                locationId: isManagerial ? selectedLocation : currentLocationId, // User choice OR forced
+                warehouseId: selectedWarehouse || undefined,
+                type: reportType,
+                requestingUserRole: user?.role || 'CASHIER',
+                requestingUserLocationId: currentLocationId
             });
 
             if (result.success && result.data) {
@@ -74,77 +89,52 @@ export function InventoryExportForm() {
                         type="radio"
                         className="form-radio text-indigo-600"
                         name="reportType"
-                        value="kardex"
-                        checked={reportType === 'kardex'}
-                        onChange={() => setReportType('kardex')}
-                    />
-                    <span className="ml-2">Kardex (Histórico)</span>
-                </label>
-                <label className="inline-flex items-center cursor-pointer">
-                    <input
-                        type="radio"
-                        className="form-radio text-indigo-600"
-                        name="reportType"
                         value="seed"
                         checked={reportType === 'seed'}
                         onChange={() => setReportType('seed')}
                     />
-                    <span className="ml-2">Inventario Semilla (Actual)</span>
+                    <span className="ml-2">Inventario Actual (Semilla)</span>
                 </label>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* LOCATION SELECTOR - Only for Managers */}
                 <div>
                     <label className="block text-sm font-medium text-gray-700">Sucursal</label>
-                    <select
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
-                        value={selectedSucursal}
-                        onChange={(e) => setSelectedSucursal(e.target.value)}
-                    >
-                        <option value="">Todas las Sucursales</option>
-                        {sucursales.map(s => (
-                            <option key={s.id} value={s.id}>{s.nombre}</option>
-                        ))}
-                    </select>
+                    {isManagerial ? (
+                        <select
+                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+                            value={selectedLocation}
+                            onChange={(e) => setSelectedLocation(e.target.value)}
+                        >
+                            <option value="">Todas las Sucursales</option>
+                            {locations.map(s => (
+                                <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                        </select>
+                    ) : (
+                        <input
+                            type="text"
+                            disabled
+                            value={currentLocationId || 'Mi Sucursal'}
+                            className="mt-1 block w-full rounded-md border-gray-200 bg-gray-100 text-gray-500 sm:text-sm p-2 border"
+                        />
+                    )}
                 </div>
 
                 <div>
                     <label className="block text-sm font-medium text-gray-700">Bodega</label>
                     <select
                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
-                        value={selectedBodega}
-                        onChange={(e) => setSelectedBodega(e.target.value)}
+                        value={selectedWarehouse}
+                        onChange={(e) => setSelectedWarehouse(e.target.value)}
                     >
                         <option value="">Todas las Bodegas</option>
-                        {bodegas.map(b => (
-                            <option key={b.id} value={b.id}>{b.nombre}</option>
+                        {warehouses.map(b => (
+                            <option key={b.id} value={b.id}>{b.name}</option>
                         ))}
                     </select>
                 </div>
-
-                {reportType === 'kardex' && (
-                    <>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Desde</label>
-                            <input
-                                type="date"
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
-                                value={startDate}
-                                onChange={(e) => setStartDate(e.target.value)}
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Hasta</label>
-                            <input
-                                type="date"
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
-                                value={endDate}
-                                onChange={(e) => setEndDate(e.target.value)}
-                            />
-                        </div>
-                    </>
-                )}
             </div>
 
             <button
