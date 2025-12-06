@@ -152,7 +152,7 @@ export const TigerDataService = {
         saleData: SaleTransaction,
         locationId: string,
         terminalId?: string
-    ): Promise<{ success: boolean; transactionId: string }> => {
+    ): Promise<{ success: boolean; transactionId: string; error?: string }> => {
         // Enriched Data logic moved to Action or kept here?
         // Let's keep augmentation here but delegate save.
         const enrichedSale: SaleTransaction = {
@@ -172,12 +172,16 @@ export const TigerDataService = {
                 inMemoryStorage.sales.push(enrichedSale);
                 return { success: true, transactionId: result.transactionId };
             } else {
-                throw new Error(result.error || 'Unknown DB Error');
+                // If server action returned failure but didn't throw (handled error)
+                return { success: false, transactionId: '', error: result.error || 'Server action failed' };
             }
         } catch (error) {
             console.error('❌ [Tiger Data] DB Save failed:', error);
-            // Fallback? No, strict mode.
-            return { success: false, transactionId: '' };
+            return {
+                success: false,
+                transactionId: '',
+                error: error instanceof Error ? error.message : String(error)
+            };
         }
     },
 
