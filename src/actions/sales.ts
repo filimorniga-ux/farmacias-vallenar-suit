@@ -145,7 +145,7 @@ async function executeSaleTransaction(saleData: SaleTransaction) {
 
     } catch (error) {
         console.error('❌ Error creating sale:', error);
-        return { success: false, error: 'Database transaction failed' };
+        return { success: false, error: `Database transaction failed: ${error instanceof Error ? error.message : String(error)}` };
     }
 }
 
