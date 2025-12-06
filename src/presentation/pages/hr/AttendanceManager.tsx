@@ -4,6 +4,7 @@ import { EmployeeProfile, AttendanceLog, AttendanceStatus } from '../../../domai
 import { Clock, Calendar, Search, FileText, Download, AlertCircle, CheckCircle, Coffee, ArrowRight, Edit, Eye } from 'lucide-react';
 import { toast } from 'sonner';
 import { PrinterService } from '../../../infrastructure/services/PrinterService';
+import { exportAttendanceReport } from '@/actions/attendance-export';
 
 interface AttendanceManagerProps {
     viewMode?: 'LIVE' | 'HISTORY';
@@ -78,6 +79,52 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ viewMode = 'LIVE'
         toast.success('Generando reporte PDF...');
     };
 
+    const handleExportExcel = async () => {
+        const now = new Date();
+        let startDate: Date;
+
+        if (dateRange === 'TODAY') {
+            startDate = new Date(now.setHours(0, 0, 0, 0));
+        } else if (dateRange === 'WEEK') {
+            const firstDay = now.getDate() - now.getDay() + 1;
+            startDate = new Date(now.setDate(firstDay));
+            startDate.setHours(0, 0, 0, 0);
+        } else {
+            startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        }
+
+        const toastId = toast.loading('Generando Excel...');
+        const result = await exportAttendanceReport({
+            startDate: startDate.toISOString(),
+            endDate: new Date().toISOString(),
+            userRole: 'MANAGER' // Assuming manager view
+        });
+
+        if (result.success && result.data) {
+            const byteCharacters = atob(result.data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = result.filename || 'reporte.xlsx';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            toast.dismiss(toastId);
+            toast.success('Reporte descargado');
+        } else {
+            toast.dismiss(toastId);
+            toast.error('Error al exportar: ' + result.error);
+        }
+    };
+
     return (
         <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
             {/* Header Tabs */}
@@ -95,13 +142,20 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ viewMode = 'LIVE'
             */}
 
             {activeTab === 'HISTORY' && (
-                <div className="flex justify-end p-6 pb-0 bg-white">
+                <div className="flex justify-end p-6 pb-0 bg-white gap-3">
                     <button
                         onClick={handleExportPDF}
                         className="mb-4 px-4 py-2 bg-slate-800 text-white rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-slate-900 transition"
                     >
+                        <FileText size={16} />
+                        PDF
+                    </button>
+                    <button
+                        onClick={handleExportExcel}
+                        className="mb-4 px-4 py-2 bg-emerald-600 text-white rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-emerald-700 transition"
+                    >
                         <Download size={16} />
-                        Exportar PDF
+                        Excel
                     </button>
                 </div>
             )}

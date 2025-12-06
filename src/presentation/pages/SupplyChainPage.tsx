@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { usePharmaStore } from '../store/useStore';
 import { AutoOrderSuggestion } from '../../domain/types';
 import { Package, Truck, CheckCircle, AlertCircle, Plus, Calendar, TrendingUp, RefreshCw, AlertTriangle, Zap, DollarSign } from 'lucide-react';
-import BlindReceptionModal from '../components/scm/BlindReceptionModal';
+import { PurchaseOrderReceivingModal } from '../components/scm/PurchaseOrderReceivingModal';
 import ManualOrderModal from '../components/supply/ManualOrderModal';
 import { useNotificationStore } from '../store/useNotificationStore';
 import { toast } from 'sonner';
@@ -291,17 +291,16 @@ const SupplyChainPage: React.FC = () => {
             </div>
 
             {isReceptionModalOpen && (
-                <BlindReceptionModal
+                <PurchaseOrderReceivingModal
                     isOpen={isReceptionModalOpen}
                     onClose={() => setIsReceptionModalOpen(false)}
                     order={selectedOrder}
-                    onReceive={(order, items) => {
-                        receivePurchaseOrder(
-                            order.id,
-                            items.map(i => ({ sku: i.sku, receivedQty: i.receivedQty })),
-                            'BODEGA_CENTRAL' // Default location for SCM reception
+                    onReceive={(orderId, items) => {
+                        return receivePurchaseOrder(
+                            orderId,
+                            items,
+                            selectedOrder.destination_location_id || 'BODEGA_CENTRAL'
                         );
-                        setIsReceptionModalOpen(false);
                     }}
                 />
             )}

@@ -3,6 +3,8 @@ import { usePharmaStore } from '../store/useStore';
 import { Ticket, User, ArrowRight, UserPlus, Settings, Printer } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PrinterService } from '../../domain/services/PrinterService';
+import { toast } from 'sonner';
+import { exportQueueReport } from '../../actions/queue-export';
 
 const QueueKioskPage: React.FC = () => {
     const { generateTicket, customers, addCustomer, printerConfig } = usePharmaStore();
@@ -28,6 +30,42 @@ const QueueKioskPage: React.FC = () => {
         localStorage.setItem('kiosk_branch_id', selectedBranch);
         setBranchId(selectedBranch);
         setStep('RUT');
+    };
+
+    const handleExportLog = async () => {
+        const toastId = toast.loading('Generando reporte...');
+        const now = new Date();
+        const start = new Date(now.getFullYear(), now.getMonth(), 1);
+
+        const result = await exportQueueReport({
+            startDate: start.toISOString(),
+            endDate: now.toISOString(),
+            // locationId: branchId // Optional: if we want to filter by currently configured branch, but we are in SETUP
+        });
+
+        if (result.success && result.data) {
+            const byteCharacters = atob(result.data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = result.filename || 'reporte_filas.xlsx';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            toast.dismiss(toastId);
+            toast.success('Reporte descargado');
+        } else {
+            toast.dismiss(toastId);
+            toast.error('Error: ' + result.error);
+        }
     };
 
     const handleNumberClick = (num: string) => {
@@ -85,13 +123,17 @@ const QueueKioskPage: React.FC = () => {
         generateAndPrintTicket('ANON');
     };
 
-    const generateAndPrintTicket = (userRut: string) => {
-        const newTicket = generateTicket(userRut, branchId);
-        setTicket(newTicket);
-        setStep('TICKET');
+    const generateAndPrintTicket = async (userRut: string) => {
+        try {
+            const newTicket = await generateTicket(userRut, branchId);
+            setTicket(newTicket);
+            setStep('TICKET');
 
-        // Trigger Auto-Print
-        PrinterService.printQueueTicket(newTicket, printerConfig);
+            // Trigger Auto-Print
+            PrinterService.printQueueTicket(newTicket, printerConfig);
+        } catch (error) {
+            toast.error('Error generando ticket');
+        }
     };
 
     const reset = () => {
@@ -145,6 +187,13 @@ const QueueKioskPage: React.FC = () => {
                                     className="p-6 bg-slate-800 hover:bg-purple-600 rounded-2xl text-white font-bold text-xl transition-colors border border-slate-700 hover:border-purple-400"
                                 >
                                     📍 Sucursal Norte
+                                </button>
+
+                                <button
+                                    onClick={handleExportLog}
+                                    className="p-4 bg-transparent border border-slate-700 text-slate-500 rounded-2xl hover:text-white hover:border-slate-500 transition-colors text-sm mt-4"
+                                >
+                                    📊 Descargar Historial (Excel)
                                 </button>
                             </div>
                         </motion.div>
