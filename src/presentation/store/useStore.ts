@@ -680,6 +680,13 @@ export const usePharmaStore = create<PharmaState>()(
             processSale: async (paymentMethod, customer) => {
                 const state = get();
 
+                if (!state.currentLocationId || !state.currentTerminalId) {
+                    import('sonner').then(({ toast }) => {
+                        toast.error('⚠️ Caja Cerrada: Debe abrir caja y seleccionar sucursal antes de vender.');
+                    });
+                    return false;
+                }
+
                 try {
                     // 1. Create sale transaction object
                     const saleTransaction: SaleTransaction = {
