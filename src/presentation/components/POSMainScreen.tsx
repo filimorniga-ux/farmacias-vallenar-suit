@@ -203,7 +203,7 @@ const POSMainScreen: React.FC = () => {
         setIsPaymentModalOpen(true); // Proceed to payment
     };
 
-    const handleCheckout = () => {
+    const handleCheckout = async () => {
         if (cart.length === 0) return;
         if (!currentShift || currentShift.status === 'CLOSED') {
             toast.error('Debe abrir caja antes de vender.');
@@ -252,22 +252,32 @@ const POSMainScreen: React.FC = () => {
             points_discount: pointsDiscount
         };
 
-        processSale(paymentMethod, currentCustomer || undefined);
+        try {
+            const success = await processSale(paymentMethod, currentCustomer || undefined);
 
-        // Auto-Print Trigger
-        PrinterService.printTicket(saleToPrint, printerConfig);
+            if (!success) {
+                toast.error('Error al procesar la venta. Intente nuevamente.');
+                return;
+            }
 
-        setIsPaymentModalOpen(false);
-        setTransferId('');
-        setPaymentMethod('CASH');
-        setPointsToRedeem(0);
+            // Auto-Print Trigger
+            PrinterService.printTicket(saleToPrint, printerConfig);
 
-        if (enable_sii_integration && dteResult.shouldGenerate) {
-            toast.success(`¡Venta Exitosa! Boleta Nº ${dteFolio} generada.`, { duration: 3000 });
-        } else if (!enable_sii_integration) {
-            toast.success('¡Venta Exitosa! Comprobante Interno Generado.', { duration: 3000 });
-        } else {
-            toast.success('¡Venta Exitosa! Fiscalizada por Voucher.', { duration: 3000 });
+            setIsPaymentModalOpen(false);
+            setTransferId('');
+            setPaymentMethod('CASH');
+            setPointsToRedeem(0);
+
+            if (enable_sii_integration && dteResult.shouldGenerate) {
+                toast.success(`¡Venta Exitosa! Boleta Nº ${dteFolio} generada.`, { duration: 3000 });
+            } else if (!enable_sii_integration) {
+                toast.success('¡Venta Exitosa! Comprobante Interno Generado.', { duration: 3000 });
+            } else {
+                toast.success('¡Venta Exitosa! Fiscalizada por Voucher.', { duration: 3000 });
+            }
+        } catch (err) {
+            console.error(err);
+            toast.error('Error inesperado al finalizar venta');
         }
     };
 
