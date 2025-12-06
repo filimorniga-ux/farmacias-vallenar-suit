@@ -23,7 +23,8 @@ import {
     Quote,
     ReorderConfig,
     AutoOrderSuggestion,
-    StockMovement
+    StockMovement,
+    Location
 } from '../../domain/types';
 import { TigerDataService } from '../../domain/services/TigerDataService';
 import { fetchEmployees } from '../../actions/sync';
@@ -115,6 +116,11 @@ interface PharmaState {
     expenses: Expense[];
     addExpense: (expense: Omit<Expense, 'id'>) => void;
 
+    // Locations & Context
+    locations: Location[];
+    fetchLocations: () => Promise<void>;
+    fetchTerminals: (locationId: string) => Promise<void>;
+
     // Cash Management & Shifts
     currentShift: Shift | null;
     dailyShifts: Shift[]; // History of shifts for the day
@@ -123,7 +129,7 @@ interface PharmaState {
     updateTerminal: (id: string, updates: Partial<Terminal>) => void;
     cashMovements: CashMovement[];
 
-    openShift: (amount: number, cashierId: string, authorizedBy: string, terminalId?: string) => void;
+    openShift: (amount: number, cashierId: string, authorizedBy: string, terminalId: string, locationId: string) => void;
     closeShift: (finalAmount: number, authorizedBy: string) => void;
     updateOpeningAmount: (newAmount: number) => void;
     registerCashMovement: (movement: Omit<CashMovement, 'id' | 'timestamp' | 'shift_id' | 'user_id'>) => void;
@@ -692,7 +698,9 @@ export const usePharmaStore = create<PharmaState>()(
                         total: state.cart.reduce((a, b) => a + b.price * b.quantity, 0),
                         payment_method: paymentMethod as any,
                         seller_id: state.user?.id || 'UNKNOWN',
-                        customer: customer || undefined
+                        customer: customer || undefined,
+                        branch_id: state.currentLocationId,
+                        terminal_id: state.currentTerminalId
                     };
 
                     // 2. CRITICAL: Save to Tiger Data BEFORE clearing cart
@@ -927,10 +935,35 @@ export const usePharmaStore = create<PharmaState>()(
             // --- Cash Management & Shifts ---
             currentShift: null,
             dailyShifts: [],
-            terminals: [
-                { id: 'TERM-001', name: 'Caja 1 - Principal', location_id: 'LOC-001', status: 'CLOSED' },
-                { id: 'TERM-002', name: 'Caja 2 - Secundaria', location_id: 'LOC-001', status: 'CLOSED' }
-            ],
+            locations: [],
+            fetchLocations: async () => {
+                try {
+                    const { getLocations } = await import('../../actions/locations');
+                    const result = await getLocations();
+                    if (result.success && result.data) {
+                        set({ locations: result.data });
+                    }
+                } catch (error) {
+                    console.error('Failed to fetch locations', error);
+                }
+            },
+
+            terminals: [],
+            fetchTerminals: async (locationId: string) => {
+                try {
+                    const { getTerminalsByLocation } = await import('../../actions/terminals');
+                    const result = await getTerminalsByLocation(locationId);
+                    if (result.success && result.data) {
+                        set({ terminals: result.data });
+                    } else {
+                        set({ terminals: [] });
+                    }
+                } catch (error) {
+                    console.error('Failed to fetch terminals', error);
+                    set({ terminals: [] });
+                }
+            },
+
             addTerminal: (terminal) => set((state) => ({
                 terminals: [...state.terminals, { ...terminal, id: `TERM-${Date.now()}` }]
             })),
@@ -939,7 +972,7 @@ export const usePharmaStore = create<PharmaState>()(
             })),
             cashMovements: [],
 
-            openShift: (amount, cashierId, authorizedBy, terminalId = 'TERM-001') => set((state) => {
+            openShift: (amount, cashierId, authorizedBy, terminalId, locationId) => set((state) => {
                 if (state.currentShift?.status === 'ACTIVE') return state;
 
                 const newShift: Shift = {
@@ -959,7 +992,9 @@ export const usePharmaStore = create<PharmaState>()(
 
                 return {
                     currentShift: newShift,
-                    terminals: updatedTerminals
+                    terminals: updatedTerminals,
+                    currentLocationId: locationId,
+                    currentTerminalId: terminalId
                 };
             }),
 

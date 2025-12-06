@@ -86,28 +86,26 @@ export async function createSale(saleData: SaleTransaction) {
 
 // Helper to execute the full transaction
 async function executeSaleTransaction(saleData: SaleTransaction) {
-    const { query } = await import('@/lib/db'); // Dynamic import to avoid circular dep issues if any
-
-    // Helper to generate UUID
+    const { query } = await import('@/lib/db');
     const { v4: uuidv4 } = await import('uuid');
+
+    // 1. Validation: Fail if context is missing
+    if (!saleData.branch_id) throw new Error('❌ Missing Location Context (branch_id)');
+    if (!saleData.terminal_id) throw new Error('❌ Missing Terminal Context (terminal_id)');
+
     const saleId = uuidv4();
 
     try {
-        // 1. Insert Sale header
-        // Note: For User ID, if it's not a UUID, we insert NULL to avoid FK violation.
+        // Values for Insert
         const userId = isValidUUID(saleData.seller_id) ? saleData.seller_id : null;
-        // Location: same check
-        // Location: same check
-        const locationId = isValidUUID(saleData.branch_id) ? saleData.branch_id : null;
-        const terminalId = saleData.terminal_id || null;
 
         await query(
             `INSERT INTO sales (id, location_id, terminal_id, user_id, customer_rut, total_amount, payment_method, dte_folio, timestamp)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, to_timestamp($9 / 1000.0))`,
             [
                 saleId,
-                locationId,
-                terminalId,
+                saleData.branch_id,
+                saleData.terminal_id,
                 userId,
                 saleData.customer?.rut || null,
                 saleData.total,
@@ -119,7 +117,6 @@ async function executeSaleTransaction(saleData: SaleTransaction) {
 
         // 2. Insert Items & Update Stock
         for (const item of saleData.items) {
-            // Insert Item
             await query(
                 `INSERT INTO sale_items (sale_id, batch_id, quantity, unit_price, total_price)
                  VALUES ($1, $2, $3, $4, $5)`,
@@ -133,7 +130,6 @@ async function executeSaleTransaction(saleData: SaleTransaction) {
             );
 
             // Update Inventory (Decrement)
-            // Only if batch_id is valid
             if (isValidUUID(item.batch_id)) {
                 await query(
                     `UPDATE inventory_batches 
@@ -161,11 +157,29 @@ function isValidUUID(id?: string | null) {
 
 // --- Fetching ---
 
-export async function getSales(limit = 50) {
+export async function getSales(limit = 50, locationId?: string, terminalId?: string) {
     const { query } = await import('@/lib/db');
 
     try {
-        console.log(`📊 [Server Action] Fetching last ${limit} sales...`);
+        console.log(`📊 [Server Action] Fetching last ${limit} sales for LOC: ${locationId || 'ALL'}, TERM: ${terminalId || 'ALL'}`);
+
+        // Build Dynamic Query
+        let whereClause = '';
+        const params: any[] = [limit];
+        let paramIndex = 2;
+
+        if (locationId) {
+            whereClause += ` AND s.location_id = $${paramIndex}`;
+            params.push(locationId);
+            paramIndex++;
+        }
+
+        if (terminalId) {
+            whereClause += ` AND s.terminal_id = $${paramIndex}`;
+            params.push(terminalId);
+            paramIndex++;
+        }
+
         const sql = `
             SELECT 
                 s.id, 
@@ -175,55 +189,8 @@ export async function getSales(limit = 50) {
                 s.dte_folio,
                 s.customer_rut,
                 s.user_id as seller_id,
-                
-                -- Aggregated Items
-                COALESCE(
-                    json_agg(
-                        json_build_object(
-                            'name', p.name,
-                            'quantity', si.quantity,
-                            'price', si.unit_price,
-                            'total', si.total_price,
-                            'sku', p.sku
-                        ) 
-                    ) FILTER (WHERE si.id IS NOT NULL), 
-                    '[]'
-                ) as items,
-                
-                -- Customer Info
-                json_build_object(
-                    'rut', c.rut,
-                    'fullName', c.business_name -- mapping business_name to fullName for generic customer
-                ) as customer_info
-                
-            FROM sales s
-            LEFT JOIN sale_items si ON s.id = si.sale_id
-            LEFT JOIN inventory_batches b ON si.batch_id = b.id
-            LEFT JOIN products p ON b.product_id = p.id
-            LEFT JOIN suppliers c ON s.customer_rut = c.rut -- Wait, customers table is 'customers'? Or 'suppliers'?
-            -- Project Bible says 'customers' is missing in SQL block I read? 
-            -- I added 'suppliers' and 'terminals'. 'customers' table exists in 'ClientsPage' logic (Customer Export).
-            -- I should check if 'customers' table exists. 
-            -- Assuming 'customers' table based on 'customer-export.ts'.
-            
-            GROUP BY s.id
-            ORDER BY s.timestamp DESC
-            LIMIT $1
-        `;
-
-        // Correction: I need to join with proper customers table.
-        // Let's verify customers table name from customer-export.ts logic: "SELECT * FROM customers"
-
-        // Re-write query with correct Join
-        const realSql = `
-            SELECT 
-                s.id, 
-                s.total_amount as total, 
-                s.payment_method, 
-                s.timestamp,
-                s.dte_folio,
-                s.customer_rut,
-                s.user_id as seller_id,
+                s.location_id as branch_id,
+                s.terminal_id,
                 
                 COALESCE(
                     json_agg(
@@ -240,12 +207,13 @@ export async function getSales(limit = 50) {
             LEFT JOIN sale_items si ON s.id = si.sale_id
             LEFT JOIN inventory_batches b ON si.batch_id = b.id
             LEFT JOIN products p ON b.product_id = p.id
+            WHERE 1=1 ${whereClause}
             GROUP BY s.id
             ORDER BY s.timestamp DESC
             LIMIT $1
         `;
 
-        const res = await query(realSql, [limit]);
+        const res = await query(sql, params);
 
         // Map to Domain Type
         const sales: SaleTransaction[] = res.rows.map((row: any) => ({
@@ -256,7 +224,9 @@ export async function getSales(limit = 50) {
             items: row.items,
             seller_id: row.seller_id || 'Unknown',
             customer: row.customer_rut ? { rut: row.customer_rut, fullName: 'Cliente' } as any : undefined,
-            dte_folio: row.dte_folio
+            dte_folio: row.dte_folio,
+            branch_id: row.branch_id,
+            terminal_id: row.terminal_id
         }));
 
         return sales;

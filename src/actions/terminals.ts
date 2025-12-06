@@ -132,3 +132,24 @@ export async function getTerminalStatus(terminalId: string) {
         return null;
     }
 }
+
+export async function getTerminalsByLocation(locationId: string): Promise<{ success: boolean; data?: Terminal[]; error?: string }> {
+    try {
+        const result = await query(
+            "SELECT * FROM terminals WHERE location_id = $1 ORDER BY name ASC",
+            [locationId]
+        );
+
+        const terminals: Terminal[] = result.rows.map((row: any) => ({
+            id: row.id,
+            name: row.name,
+            location_id: row.location_id,
+            status: row.status === 'OPEN' ? 'OPEN' : 'CLOSED'
+        }));
+
+        return { success: true, data: terminals };
+    } catch (error) {
+        console.error('Error fetching terminals:', error);
+        return { success: false, error: 'Failed to fetch terminals' };
+    }
+}

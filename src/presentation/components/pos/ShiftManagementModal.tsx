@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { usePharmaStore } from '../../store/useStore';
-import { X, User, DollarSign, Monitor, Lock } from 'lucide-react';
+import { X, User, DollarSign, Monitor, Lock, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
+import { openTerminal } from '../../../actions/terminals';
 
 interface ShiftManagementModalProps {
     isOpen: boolean;
@@ -9,13 +10,27 @@ interface ShiftManagementModalProps {
 }
 
 const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onClose }) => {
-    const { terminals, employees, openShift, login } = usePharmaStore();
+    const { terminals, employees, openShift, fetchLocations, locations, fetchTerminals } = usePharmaStore();
 
+    const [selectedLocation, setSelectedLocation] = useState('');
     const [selectedTerminal, setSelectedTerminal] = useState('');
     const [selectedCashier, setSelectedCashier] = useState('');
     const [openingAmount, setOpeningAmount] = useState('');
     const [managerPin, setManagerPin] = useState('');
     const [step, setStep] = useState<'DETAILS' | 'AUTH'>('DETAILS');
+
+    useEffect(() => {
+        if (isOpen) {
+            fetchLocations();
+        }
+    }, [isOpen, fetchLocations]);
+
+    useEffect(() => {
+        if (selectedLocation) {
+            fetchTerminals(selectedLocation);
+            setSelectedTerminal(''); // Reset terminal when location changes
+        }
+    }, [selectedLocation, fetchTerminals]);
 
     if (!isOpen) return null;
 
@@ -23,7 +38,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     const cashiers = employees.filter(e => ['CASHIER', 'QF', 'MANAGER', 'ADMIN'].includes(e.role));
 
     const handleNext = () => {
-        if (!selectedTerminal || !selectedCashier || !openingAmount) {
+        if (!selectedLocation || !selectedTerminal || !selectedCashier || !openingAmount) {
             toast.error('Complete todos los campos');
             return;
         }
@@ -32,23 +47,40 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
 
     const handleOpenShift = async () => {
         // Verify Manager PIN
-        // In a real app, we would validate against the logged-in manager or a specific manager auth endpoint
-        // For now, we'll simulate it by checking if any manager has this PIN
-        const manager = employees.find(e => e.role === 'MANAGER' && e.access_pin === managerPin);
+        const manager = employees.find(e => (e.role === 'MANAGER' || e.role === 'ADMIN') && e.access_pin === managerPin);
 
         if (!manager) {
-            toast.error('PIN de Gerente inválido');
+            toast.error('PIN de Autorización inválido');
             return;
         }
 
-        openShift(parseInt(openingAmount), selectedCashier, manager.id, selectedTerminal);
-        toast.success('Turno abierto exitosamente');
-        onClose();
-        setStep('DETAILS');
-        setManagerPin('');
-        setOpeningAmount('');
-        setSelectedTerminal('');
-        setSelectedCashier('');
+        try {
+            // 1. Persist to Backend
+            const result = await openTerminal(selectedTerminal, selectedCashier, parseInt(openingAmount));
+
+            if (!result.success) {
+                toast.error('Error al abrir terminal: ' + result.error);
+                return;
+            }
+
+            // 2. Update Local Store & Context
+            openShift(parseInt(openingAmount), selectedCashier, manager.id, selectedTerminal, selectedLocation);
+
+            toast.success('Turno abierto exitosamente');
+            onClose();
+
+            // Reset Form
+            setStep('DETAILS');
+            setManagerPin('');
+            setOpeningAmount('');
+            setSelectedTerminal('');
+            setSelectedCashier('');
+            setSelectedLocation('');
+
+        } catch (error) {
+            console.error(error);
+            toast.error('Error de comunicación');
+        }
     };
 
     return (
@@ -68,13 +100,33 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                         <>
                             <div className="space-y-4">
                                 <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Sucursal</label>
+                                    <div className="relative">
+                                        <MapPin className="absolute left-3 top-3 text-slate-400" size={18} />
+                                        <select
+                                            value={selectedLocation}
+                                            onChange={(e) => setSelectedLocation(e.target.value)}
+                                            className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-cyan-500 outline-none appearance-none"
+                                        >
+                                            <option value="">Seleccione Sucursal...</option>
+                                            {locations.map(loc => (
+                                                <option key={loc.id} value={loc.id}>{loc.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1">Terminal</label>
                                     <select
                                         value={selectedTerminal}
                                         onChange={(e) => setSelectedTerminal(e.target.value)}
-                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-cyan-500 outline-none"
+                                        disabled={!selectedLocation}
+                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-cyan-500 outline-none disabled:opacity-50"
                                     >
-                                        <option value="">Seleccione Terminal...</option>
+                                        <option value="">
+                                            {!selectedLocation ? 'Primero seleccione sucursal' : 'Seleccione Terminal...'}
+                                        </option>
                                         {availableTerminals.map(t => (
                                             <option key={t.id} value={t.id}>{t.name}</option>
                                         ))}
