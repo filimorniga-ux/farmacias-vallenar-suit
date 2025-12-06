@@ -210,9 +210,9 @@ export const usePharmaStore = create<PharmaState>()(
     persist(
         (set, get) => ({
             // --- Multi-Branch State ---
-            currentLocationId: 'LOC-VALLENAR-CENTRO', // Default
-            currentWarehouseId: 'WH-SALA-VENTAS', // Default
-            currentTerminalId: 'TERM-DEFAULT', // Default
+            currentLocationId: '', // Default empty to force selection
+            currentWarehouseId: '', // Default empty
+            currentTerminalId: '', // Default empty
             setCurrentLocation: (loc, wh, term) => set({ currentLocationId: loc, currentWarehouseId: wh, currentTerminalId: term }),
 
             // --- Auth ---
