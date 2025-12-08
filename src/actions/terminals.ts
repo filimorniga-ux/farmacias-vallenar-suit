@@ -140,6 +140,26 @@ export async function getTerminalsByLocation(locationId: string): Promise<{ succ
             [locationId]
         );
 
+        if (result.rows.length === 0) {
+            // Auto-seed if list is empty for this location (Self-Healing Data)
+            const { v4: uuidv4 } = await import('uuid');
+            const defaultTermId = uuidv4();
+            await query(`
+                INSERT INTO terminals (id, location_id, name, status, created_at)
+                VALUES ($1, $2, 'Caja 1', 'CLOSED', NOW())
+            `, [defaultTermId, locationId]);
+
+            return {
+                success: true,
+                data: [{
+                    id: defaultTermId,
+                    name: 'Caja 1',
+                    location_id: locationId,
+                    status: 'CLOSED'
+                }]
+            };
+        }
+
         const terminals: Terminal[] = result.rows.map((row: any) => ({
             id: row.id,
             name: row.name,
