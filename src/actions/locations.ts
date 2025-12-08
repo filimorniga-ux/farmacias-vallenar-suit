@@ -36,7 +36,9 @@ export async function getLocations(): Promise<{ success: boolean; data?: Locatio
             type: row.type,
             name: row.name,
             address: row.address,
-            associated_kiosks: row.associated_kiosks || []
+            associated_kiosks: row.associated_kiosks || [],
+            parent_id: row.parent_id,
+            default_warehouse_id: row.default_warehouse_id
         }));
 
         return { success: true, data: locations };

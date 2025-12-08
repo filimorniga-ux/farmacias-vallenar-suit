@@ -232,14 +232,13 @@ export const usePharmaStore = create<PharmaState>()(
                     console.warn('⚠️ Online login failed/unreachable, trying offline fallback...', error);
                 }
 
-                // 2. Offline Fallback (if online failed or returned no user)
+                // 2. Offline Fallback
                 if (!authenticatedUser) {
                     const { employees } = get();
                     const offlineUser = employees.find(e => e.id === userId && e.access_pin === pin);
 
                     if (offlineUser) {
                         authenticatedUser = offlineUser;
-                        // Notify user about offline mode
                         import('sonner').then(({ toast }) => {
                             toast.warning('⚠️ Modo Offline Activado', {
                                 description: 'Iniciando sesión con credenciales locales.',
@@ -250,7 +249,38 @@ export const usePharmaStore = create<PharmaState>()(
                 }
 
                 if (authenticatedUser) {
+                    // Set User
                     set({ user: authenticatedUser });
+
+                    // Auto-Set Location Context based on User Assignment
+                    if (authenticatedUser.assigned_location_id) {
+                        try {
+                            const { getLocations } = await import('../../actions/locations');
+                            const locRes = await getLocations();
+                            if (locRes.success && locRes.data) {
+                                const assignedLoc = locRes.data.find(l => l.id === authenticatedUser!.assigned_location_id);
+                                if (assignedLoc) {
+                                    const warehouseId = assignedLoc.default_warehouse_id || '';
+                                    console.log(`📍 Auto-Setting Context: Location=${assignedLoc.name}, Warehouse=${warehouseId}`);
+
+                                    set({
+                                        currentLocationId: assignedLoc.id,
+                                        currentWarehouseId: warehouseId,
+                                        // Try to find a terminal? Or leave empty for manual selection.
+                                        currentTerminalId: ''
+                                    });
+
+                                    // ⚡️ Refresh Inventory for the new context
+                                    if (warehouseId) {
+                                        get().fetchInventory(assignedLoc.id, warehouseId).catch(console.error);
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            console.error('Failed to auto-set location context:', e);
+                        }
+                    }
+
                     return true;
                 }
 

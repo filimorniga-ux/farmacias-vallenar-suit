@@ -1,69 +1,211 @@
 'use server';
 
 import { query } from '@/lib/db';
+import { revalidatePath } from 'next/cache';
 
-export interface DashboardMetrics {
-    salesToday: number;
-    ticketCount: number;
-    criticalStock: number;
-    expiringBatches: number;
-    coldChainStatus: 'Estable' | 'Alerta';
+export interface FinancialMetrics {
+    summary: {
+        total_sales: number;
+        total_income_other: number;
+        total_expenses: number;
+        base_cash: number;
+        net_cash_flow: number;
+        sales_count: number;
+    };
+    by_payment_method: {
+        cash: number;
+        debit: number;
+        credit: number;
+        transfer: number;
+        others: number;
+    };
+    breakdown: {
+        id: string;
+        name: string;
+        total: number;
+    }[];
 }
 
-export async function getDashboardMetrics(): Promise<DashboardMetrics> {
+export async function getFinancialMetrics(
+    dateRange: { from: Date; to: Date },
+    locationId?: string,
+    terminalId?: string
+): Promise<FinancialMetrics> {
     try {
-        // 1. Sales Today & Ticket Count
+        const fromStr = dateRange.from.toISOString();
+        const toStr = dateRange.to.toISOString();
+
+        // 1. Base Filters
+        // We use parameters array for safety (though dynamic building is needed).
+        // To simplify, we'll build clauses.
+
+        let salesWhere = "WHERE timestamp >= $1 AND timestamp <= $2";
+        let cashWhere = "WHERE timestamp >= $1 AND timestamp <= $2";
+        const params: any[] = [fromStr, toStr];
+        let paramIndex = 3;
+
+        if (locationId) {
+            salesWhere += ` AND location_id = $${paramIndex}`;
+            cashWhere += ` AND (shift_id IN (SELECT id FROM terminals WHERE location_id = $${paramIndex}))`; // Cash movements usually linked to shift_id which is terminal or session. In previous work shift_id=terminalId was used loosely.
+            // Better: cash_movements should have location_id directly? Or link via terminal.
+            // Let's assume cash_movements has terminal_id or shift_id=terminalId.
+            // In terminals.ts: createCashMovement({ shift_id: terminalId ... })
+            // So shift_id IS terminal_id in this simplified model.
+            params.push(locationId);
+            paramIndex++;
+        }
+
+        if (terminalId) {
+            salesWhere += ` AND terminal_id = $${paramIndex}`;
+            cashWhere += ` AND shift_id = $${paramIndex}`; // shift_id is terminal_id
+            params.push(terminalId); // Push terminalId
+            // Note: If both locationId and terminalId provided, we just push terminalId if index requires.
+            // If strictly sequential, we need to manage params array carefully.
+            // Let's rebuild params dynamically properly.
+            paramIndex++;
+        }
+
+        // Correct Params Rebuild
+        const queryParams = [fromStr, toStr];
+        if (locationId) queryParams.push(locationId);
+        if (terminalId) queryParams.push(terminalId);
+
+        // Rebuild Where with correct indexes
+        // $1=from, $2=to.
+        // Location is $3. Terminal is $3 or $4.
+
+        let salesConditions = "timestamp >= $1 AND timestamp <= $2";
+        let cashConditions = "to_timestamp(timestamp / 1000.0) >= $1 AND to_timestamp(timestamp / 1000.0) <= $2";
+        // Note: cash_movements timestamp is BIGINT (epoch ms) usually in my previous code? 
+        // In terminals.ts: timestamp: Date.now(). It's a number.
+        // Postgres `to_timestamp(ts / 1000.0)` converts ms epoch to timestamp.
+
+        if (locationId) {
+            salesConditions += ` AND location_id = $3`;
+            // For cash, we need to join terminals to filter by location if filtering by location only
+            cashConditions += ` AND shift_id IN (SELECT id FROM terminals WHERE location_id = $3)`;
+        }
+        if (terminalId) {
+            const idx = locationId ? '$4' : '$3';
+            salesConditions += ` AND terminal_id = ${idx}`;
+            cashConditions += ` AND shift_id = ${idx}`;
+        }
+
+        // --- Execute Queries ---
+
+        // 1. Sales Summary
         const salesSql = `
             SELECT 
-                COALESCE(SUM(total), 0) as total_sales, 
-                COUNT(*) as ticket_count 
-            FROM ventas 
-            WHERE DATE(fecha) = CURRENT_DATE
+                COALESCE(SUM(total_amount), 0) as total,
+                COUNT(*) as count,
+                COALESCE(SUM(CASE WHEN payment_method = 'CASH' THEN total_amount ELSE 0 END), 0) as cash,
+                COALESCE(SUM(CASE WHEN payment_method = 'DEBIT' THEN total_amount ELSE 0 END), 0) as debit,
+                COALESCE(SUM(CASE WHEN payment_method = 'CREDIT' THEN total_amount ELSE 0 END), 0) as credit,
+                COALESCE(SUM(CASE WHEN payment_method = 'TRANSFER' THEN total_amount ELSE 0 END), 0) as transfer
+            FROM sales 
+            WHERE ${salesConditions}
         `;
-        const salesResult = await query(salesSql);
-        const salesToday = salesResult.rows.length > 0 ? parseInt(salesResult.rows[0].total_sales || '0') : 0;
-        const ticketCount = salesResult.rows.length > 0 ? parseInt(salesResult.rows[0].ticket_count || '0') : 0;
+        const salesRes = await query(salesSql, queryParams);
+        const sRow = salesRes.rows[0];
 
-        // 2. Critical Stock (Products with < 10 units)
-        // We sum up lots for each product
-        const stockSql = `
-            SELECT COUNT(*) as critical_count 
-            FROM (
-                SELECT p.id, COALESCE(SUM(l.cantidad_disponible), 0) as total_stock 
-                FROM productos p 
-                LEFT JOIN lotes l ON p.id = l.producto_id 
-                GROUP BY p.id
-            ) as stocks 
-            WHERE total_stock < 10
+        // 2. Cash Movements Summary
+        const cashSql = `
+            SELECT 
+                type,
+                COALESCE(SUM(amount), 0) as total
+            FROM cash_movements
+            WHERE ${cashConditions}
+            GROUP BY type
         `;
-        const stockResult = await query(stockSql);
-        const criticalStock = stockResult.rows.length > 0 ? parseInt(stockResult.rows[0].critical_count || '0') : 0;
+        const cashRes = await query(cashSql, queryParams);
 
-        // 3. Expiring Batches (Next 30 days)
-        const expiringSql = `
-            SELECT COUNT(*) as expiring_count
-            FROM lotes
-            WHERE fecha_vencimiento <= CURRENT_DATE + INTERVAL '30 days'
-            AND cantidad_disponible > 0
-        `;
-        const expiringResult = await query(expiringSql);
-        const expiringBatches = expiringResult.rows.length > 0 ? parseInt(expiringResult.rows[0].expiring_count || '0') : 0;
+        const cashMap = new Map<string, number>();
+        cashRes.rows.forEach((r: any) => cashMap.set(r.type, parseFloat(r.total)));
+
+        const income = (cashMap.get('INGRESO') || 0) + (cashMap.get('APERTURA') || 0); // Apertura counts as income for Flow? usually yes, it's starting cash.
+        const expenses = (cashMap.get('GASTO') || 0) + (cashMap.get('RETIRO') || 0) + (cashMap.get('CIERRE') || 0); // Cierre isn't expense, it's declaration.
+        // Net Cash Flow = (Apertura + Ventas Efectivo + Ingresos) - (Gastos + Retiros).
+        // Cierre is just a marker.
+        // We exclude CIERRE from expenses calculation.
+        const realExpenses = (cashMap.get('GASTO') || 0) + (cashMap.get('RETIRO') || 0);
+        const baseCash = cashMap.get('APERTURA') || 0;
+        const extraIncome = cashMap.get('INGRESO') || 0;
+
+        const salesCash = parseFloat(sRow.cash);
+        const netCashFlow = (baseCash + salesCash + extraIncome) - realExpenses;
+
+        // 3. Breakdown (By Branch or Terminal)
+        // If Global View (no loc, no term) -> Group by Location
+        // If Location View (loc, no term) -> Group by Terminal
+        // If Terminal View -> No breakdown or hourly? Let's say hourly or user view? 
+        // Request says: "Si veo Global -> Lista de Sucursales... Si veo Sucursal -> Lista de Terminales"
+
+        let breakdownSql = "";
+        let breakdownParams = [...queryParams];
+
+        if (!locationId && !terminalId) {
+            // Global -> By Location
+            breakdownSql = `
+                SELECT l.id, l.name, COALESCE(SUM(s.total_amount), 0) as total
+                FROM locations l
+                LEFT JOIN sales s ON s.location_id = l.id AND s.timestamp >= $1 AND s.timestamp <= $2
+                WHERE l.type = 'STORE'
+                GROUP BY l.id, l.name
+                ORDER BY total DESC
+             `;
+            // Only 2 params needed
+            breakdownParams = [fromStr, toStr];
+        } else if (locationId && !terminalId) {
+            // Location -> By Terminal
+            breakdownSql = `
+                SELECT t.id, t.name, COALESCE(SUM(s.total_amount), 0) as total
+                FROM terminals t
+                LEFT JOIN sales s ON s.terminal_id = t.id AND s.timestamp >= $1 AND s.timestamp <= $2
+                WHERE t.location_id = $3
+                GROUP BY t.id, t.name
+                ORDER BY total DESC
+             `;
+        } else {
+            // Terminal View -> Maybe breakdown by User? Or just empty.
+            breakdownSql = `SELECT 'Sales' as name, 0 as total`; // Placeholder for now
+        }
+
+        let breakdown: any[] = [];
+        if (breakdownSql.includes('FROM')) {
+            const bdRes = await query(breakdownSql, breakdownParams);
+            breakdown = bdRes.rows.map((r: any) => ({
+                id: r.id,
+                name: r.name,
+                total: parseFloat(r.total)
+            }));
+        }
 
         return {
-            salesToday,
-            ticketCount,
-            criticalStock,
-            expiringBatches,
-            coldChainStatus: 'Estable' // Mocked for now
+            summary: {
+                total_sales: parseFloat(sRow.total),
+                sales_count: parseInt(sRow.count),
+                total_income_other: extraIncome,
+                total_expenses: realExpenses,
+                base_cash: baseCash,
+                net_cash_flow: netCashFlow
+            },
+            by_payment_method: {
+                cash: parseFloat(sRow.cash),
+                debit: parseFloat(sRow.debit),
+                credit: parseFloat(sRow.credit),
+                transfer: parseFloat(sRow.transfer),
+                others: 0
+            },
+            breakdown
         };
+
     } catch (error) {
-        console.error('Error fetching dashboard metrics:', error);
+        console.error('Error fetching financial metrics:', error);
+        // Return empty safe object
         return {
-            salesToday: 0,
-            ticketCount: 0,
-            criticalStock: 0,
-            expiringBatches: 0,
-            coldChainStatus: 'Estable'
+            summary: { total_sales: 0, sales_count: 0, total_income_other: 0, total_expenses: 0, base_cash: 0, net_cash_flow: 0 },
+            by_payment_method: { cash: 0, debit: 0, credit: 0, transfer: 0, others: 0 },
+            breakdown: []
         };
     }
 }
