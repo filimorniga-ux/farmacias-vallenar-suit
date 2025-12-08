@@ -127,7 +127,28 @@ export async function getCashMovements(terminalId?: string, limit = 50) {
                 is_cash: true
             };
         });
-    } catch (error) {
+    } catch (error: any) {
+        if (error.code === '42P01') {
+            console.warn('⚠️ Cash Movements table missing. Auto-creating...');
+            try {
+                await query(`
+                    CREATE TABLE IF NOT EXISTS cash_movements (
+                        id UUID PRIMARY KEY,
+                        location_id UUID, 
+                        user_id UUID,
+                        type VARCHAR(50),
+                        amount NUMERIC(15, 2),
+                        reason TEXT,
+                        timestamp TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    );
+                `);
+                return [];
+            } catch (createError) {
+                console.error('❌ Failed to create cash_movements table:', createError);
+                return [];
+            }
+        }
         console.error('Error fetching cash movements:', error);
         return [];
     }
