@@ -9,6 +9,27 @@ export async function getLocations(): Promise<{ success: boolean; data?: Locatio
             "SELECT * FROM locations ORDER BY name ASC"
         );
 
+        if (result.rows.length === 0) {
+            // Auto-seed if empty
+            const { v4: uuidv4 } = await import('uuid');
+            const defaultId = uuidv4();
+            await query(`
+                INSERT INTO locations (id, name, address, type, created_at)
+                VALUES ($1, 'Farmacia Central', 'Calle Principal 123', 'STORE', NOW())
+            `, [defaultId]);
+
+            return {
+                success: true,
+                data: [{
+                    id: defaultId,
+                    name: 'Farmacia Central',
+                    address: 'Calle Principal 123',
+                    type: 'STORE',
+                    associated_kiosks: []
+                }]
+            };
+        }
+
         // Map DB result to domain type (handle snake_case if necessary, assuming mostly compatible)
         const locations: Location[] = result.rows.map((row: any) => ({
             id: row.id,
