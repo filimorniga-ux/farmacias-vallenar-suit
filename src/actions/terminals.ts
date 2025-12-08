@@ -148,7 +148,51 @@ export async function getTerminalsByLocation(locationId: string): Promise<{ succ
         }));
 
         return { success: true, data: terminals };
-    } catch (error) {
+    } catch (error: any) {
+        // Self-Healing: Create table if it doesn't exist
+        if (error.code === '42P01') {
+            console.warn('⚠️ Terminals table missing. Auto-creating...');
+            try {
+                await query(`
+                    CREATE TABLE IF NOT EXISTS terminals (
+                        id UUID PRIMARY KEY,
+                        location_id UUID, 
+                        name TEXT NOT NULL,
+                        status TEXT DEFAULT 'CLOSED',
+                        current_cashier_id TEXT,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    );
+                `);
+
+                // Seed it (Assume we have a location from previous step, or just random UUID for location logic if user selected something)
+                // But we need to link it to the locationId passed in logic? 
+                // Wait, if table is empty, we should seed for THIS locationId or a generic default?
+                // Ideally, if locationId is provided, we create a terminal for IT.
+                // But usually we just create a default linked to the default Location created in locations.ts.
+
+                // Let's create a default terminal for the requested locationId so the UI isn't empty.
+                const { v4: uuidv4 } = await import('uuid');
+                const defaultTermId = uuidv4();
+
+                await query(`
+                    INSERT INTO terminals (id, location_id, name, status, created_at)
+                    VALUES ($1, $2, 'Caja 1', 'CLOSED', NOW())
+                `, [defaultTermId, locationId]);
+
+                return {
+                    success: true,
+                    data: [{
+                        id: defaultTermId,
+                        name: 'Caja 1',
+                        location_id: locationId,
+                        status: 'CLOSED'
+                    }]
+                };
+            } catch (createError) {
+                console.error('❌ Failed to create terminals table:', createError);
+                return { success: false, error: 'Database Schema Error' };
+            }
+        }
         console.error('Error fetching terminals:', error);
         return { success: false, error: 'Failed to fetch terminals' };
     }
