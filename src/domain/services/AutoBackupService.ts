@@ -30,28 +30,34 @@ class AutoBackupService {
         try {
             console.log('💾 [AutoBackup] Starting automatic backup...');
             const state = usePharmaStore.getState();
+            // Filter by Current Location to avoid backup bloat
+            const currentLocationId = state.currentLocationId;
 
-            // Reuse the logic from backupService but adapted for auto-save
-            // We want to save to localStorage or trigger a download if possible
-            // For "Auto" without user interaction, localStorage/IndexedDB is best.
-            // But the requirement says "Usa la File System Access API... o localStorage... Nota: Si usa descarga de archivo, que sea silenciosa o solo notifique."
-
-            // Let's try to save to localStorage first as a robust fallback
             const backupData = {
                 timestamp: Date.now(),
                 date: new Date().toISOString(),
-                sales: state.salesHistory,
-                cashMovements: state.cashMovements,
-                inventory: state.inventory,
-                version: '1.0'
+                location_id: currentLocationId || 'GLOBAL',
+                // Filter Sales by current location (keep unsynced + history of this branch)
+                sales: state.salesHistory.filter(s =>
+                    s.branch_id === currentLocationId || !s.is_synced
+                ),
+                cashMovements: state.cashMovements.filter(c => {
+                    // Assuming cash movements are local based on session/shift logic in memory
+                    //Ideally cashMovements should have branch_id, but usually they are tied to local session
+                    return true;
+                }),
+                inventory: state.inventory, // Keep local inventory (already filtered by fetch)
+                version: '1.2'
             };
 
             const jsonString = JSON.stringify(backupData);
 
             // 1. Save to LocalStorage (Limit size risk, but good for text data)
             try {
-                localStorage.setItem('farmacias-vallenar-autobackup-latest', jsonString);
-                console.log('✅ [AutoBackup] Saved to localStorage');
+                // Keyed by location for safety
+                const key = `farmacias-vallenar-backup-${currentLocationId || 'global'}`;
+                localStorage.setItem(key, jsonString);
+                console.log(`✅ [AutoBackup] Saved to localStorage (${key})`);
             } catch (e) {
                 console.warn('⚠️ [AutoBackup] LocalStorage full or error:', e);
             }
@@ -60,20 +66,121 @@ class AutoBackupService {
             // but we don't have a persistent handle from a previous interaction in this context easily.
             // So we will stick to localStorage for the "silent" part.
 
-            // 3. Notify user
-            // We can import toast dynamically to avoid SSR issues if this runs on server (it shouldn't, but safety first)
-            if (typeof window !== 'undefined') {
-                const { toast } = await import('sonner');
-                toast.success('Respaldo Automático Exitoso', {
-                    description: 'Sus datos han sido guardados localmente.',
-                    duration: 3000,
-                    icon: '💾'
-                });
-            }
-
+            // 3. Notify user (Optional - defined by setting usually)
+            // We skip notifications for silent auto-backup to not annoy user every 30 mins
         } catch (error) {
             console.error('❌ [AutoBackup] Failed:', error);
         }
+    }
+
+    /**
+     * Manual Export for "Physicial Backup" (Panic Button)
+     */
+    async downloadPhysicalBackup() {
+        try {
+            const state = usePharmaStore.getState();
+            const currentLocationId = state.currentLocationId;
+            const branchName = state.locations.find(l => l.id === currentLocationId)?.name || 'GLOBAL';
+
+            const backupData = {
+                timestamp: Date.now(),
+                date: new Date().toISOString(),
+                location: branchName,
+                sales: state.salesHistory,
+                inventory: state.inventory,
+                cash: state.cashMovements,
+                type: 'MANUAL_EXPORT'
+            };
+
+            const jsonString = JSON.stringify(backupData, null, 2);
+            const blob = new Blob([jsonString], { type: 'application/json' });
+
+            // Trigger Download
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `RESPALDO_${branchName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            return true;
+        } catch (e) {
+            console.error('Export failed:', e);
+            return false;
+        }
+    }
+
+    /**
+     * Restore System State from Backup File
+     */
+    async restoreFromBackupFile(file: File): Promise<{ success: boolean; message: string }> {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+
+            reader.onload = async (e) => {
+                try {
+                    const text = e.target?.result as string;
+                    if (!text) throw new Error('Archivo vacío');
+
+                    const data = JSON.parse(text);
+
+                    // 1. Validate Structure
+                    if (!data.sales || !data.cash || !data.location) {
+                        throw new Error('Formato de respaldo inválido. Faltan cabeceras críticas.');
+                    }
+
+                    /*
+                    // Optional: Version Validation
+                    if (data.version && data.version !== '1.2') {
+                        console.warn('⚠️ Version mismatch. Attempting partial restore...');
+                    }
+                    */
+
+                    console.log(`📦 [AutoBackup] Restoring backup from: ${data.timestamp} (${data.date})`);
+
+                    // 2. Inject into Store
+                    const state = usePharmaStore.getState();
+
+                    // Restore Sales
+                    // NOTE: This replaces local history. In a synced app, we might want to merge,
+                    // but "Restore" usually means "Reset to this state".
+                    usePharmaStore.setState({
+                        salesHistory: data.sales || [],
+                        cashMovements: data.cash || [],
+                        // Restore inventory if present, otherwise keep current
+                        inventory: data.inventory || state.inventory
+                    });
+
+                    // 3. Persist to LocalStorage (to survive clean reload)
+                    // We overwrite the auto-backup slot or a specific slot
+                    const currentState = usePharmaStore.getState();
+
+                    // Force save the newly restored state to persistence layer
+                    // Assuming zustand persist middleware handles 'farmacias-vallenar-storage'
+                    // We can also update our custom backup key
+                    try {
+                        const key = `farmacias-vallenar-backup-${data.location || 'global'}`;
+                        localStorage.setItem(key, JSON.stringify(data));
+                    } catch (err) {
+                        console.warn('LocalStorage save failed during restore', err);
+                    }
+
+                    resolve({ success: true, message: 'Restauración completada con éxito.' });
+
+                } catch (error: any) {
+                    console.error('❌ Restore failed:', error);
+                    resolve({ success: false, message: error.message || 'Error al leer el archivo de respaldo.' });
+                }
+            };
+
+            reader.onerror = () => {
+                resolve({ success: false, message: 'Error de lectura de archivo.' });
+            };
+
+            reader.readAsText(file);
+        });
     }
 }
 

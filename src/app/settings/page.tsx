@@ -4,9 +4,11 @@ import { useState } from 'react';
 import RouteGuard from '@/components/auth/RouteGuard';
 import { Save, Upload, Plus, Trash2, Edit, CheckCircle, AlertCircle, Building, Users, FileText, Shield } from 'lucide-react';
 import { useAuthStore, Role } from '@/lib/store/useAuthStore';
+import { autoBackupService } from '@/domain/services/AutoBackupService';
+import { toast } from 'sonner';
 
 export default function SettingsPage() {
-    const [activeTab, setActiveTab] = useState<'sii' | 'users' | 'general'>('sii');
+    const [activeTab, setActiveTab] = useState<'sii' | 'users' | 'general' | 'backup'>('sii');
 
     // Mock Data for Users
     const [users, setUsers] = useState([
@@ -66,6 +68,14 @@ export default function SettingsPage() {
                             >
                                 <Building size={18} />
                                 General
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('backup')}
+                                className={`flex-1 py-4 text-sm font-medium text-center flex items-center justify-center gap-2 transition-colors ${activeTab === 'backup' ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'
+                                    }`}
+                            >
+                                <Save size={18} />
+                                Respaldos
                             </button>
                         </div>
 
@@ -214,6 +224,101 @@ export default function SettingsPage() {
                                             <Save size={18} />
                                             Guardar Cambios
                                         </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Backup Tab */}
+                            {activeTab === 'backup' && (
+                                <div className="space-y-8">
+                                    {/* Manual Backup */}
+                                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
+                                        <div className="flex items-start gap-4">
+                                            <div className="p-3 bg-blue-100 rounded-lg text-blue-600">
+                                                <Save size={24} />
+                                            </div>
+                                            <div className="flex-1">
+                                                <h3 className="text-lg font-bold text-blue-900">Respaldo Manual</h3>
+                                                <p className="text-blue-700 mt-1 mb-4">
+                                                    Descarga una copia completa de las ventas, inventario y movimientos de caja en formato JSON.
+                                                    Guarda este archivo en un lugar seguro (USB o Disco Externo).
+                                                </p>
+                                                <button
+                                                    onClick={() => {
+                                                        autoBackupService.downloadPhysicalBackup();
+                                                        toast.success('Respaldo descargado correctamente');
+                                                    }}
+                                                    className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition shadow-sm flex items-center gap-2"
+                                                >
+                                                    <Save size={18} />
+                                                    Descargar Copia de Seguridad
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Restore */}
+                                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-6">
+                                        <div className="flex items-start gap-4">
+                                            <div className="p-3 bg-amber-100 rounded-lg text-amber-600">
+                                                <Upload size={24} />
+                                            </div>
+                                            <div className="flex-1">
+                                                <h3 className="text-lg font-bold text-amber-900">Restaurar Datos</h3>
+                                                <p className="text-amber-800 mt-1 mb-4">
+                                                    Recupera el sistema desde un archivo de respaldo previo.
+                                                </p>
+
+                                                <div className="bg-white border-l-4 border-amber-400 p-4 mb-6 shadow-sm">
+                                                    <div className="flex items-start gap-3">
+                                                        <AlertCircle className="text-amber-500 shrink-0 mt-0.5" />
+                                                        <div>
+                                                            <p className="font-bold text-amber-900 text-sm">⚠️ ADVERTENCIA DE SEGURIDAD</p>
+                                                            <p className="text-amber-700 text-sm mt-1">
+                                                                Al restaurar, <strong>se reemplazarán todos los datos locales actuales</strong> (ventas, stock, caja) con los del archivo.
+                                                                Esta acción no se puede deshacer. Asegúrate de estar cargando el archivo correcto.
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <label className="block w-full">
+                                                    <span className="sr-only">Elegir archivo de respaldo</span>
+                                                    <input
+                                                        type="file"
+                                                        accept=".json"
+                                                        onChange={async (e) => {
+                                                            const file = e.target.files?.[0];
+                                                            if (!file) return;
+
+                                                            if (confirm('¿Estás seguro de que deseas restaurar los datos? Se perderá cualquier cambio no guardado actual.')) {
+                                                                const loadingIdx = toast.loading('Restaurando sistema...');
+
+                                                                const result = await autoBackupService.restoreFromBackupFile(file);
+
+                                                                if (result.success) {
+                                                                    toast.success(result.message, { id: loadingIdx });
+                                                                    // Force reload to apply changes
+                                                                    setTimeout(() => {
+                                                                        window.location.reload();
+                                                                    }, 1500);
+                                                                } else {
+                                                                    toast.error(result.message, { id: loadingIdx });
+                                                                }
+                                                            } else {
+                                                                e.target.value = ''; // Reset input
+                                                            }
+                                                        }}
+                                                        className="block w-full text-sm text-slate-500
+                                                        file:mr-4 file:py-2 file:px-4
+                                                        file:rounded-full file:border-0
+                                                        file:text-sm file:font-semibold
+                                                        file:bg-amber-100 file:text-amber-700
+                                                        hover:file:bg-amber-200 cursor-pointer"
+                                                    />
+                                                </label>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             )}
