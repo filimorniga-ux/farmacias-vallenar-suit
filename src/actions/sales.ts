@@ -143,7 +143,115 @@ async function executeSaleTransaction(saleData: SaleTransaction) {
         revalidatePath('/caja');
         return { success: true, transactionId: saleId };
 
-    } catch (error) {
+    } catch (error: any) {
+        // Self-Healing Strategy
+        if (error.code === '42P01' || error.code === '42703') { // Table missing OR Column missing
+            console.warn(`⚠️ Sales Schema Issue (${error.code}). Auto-repairing...`);
+            try {
+                // 1. Ensure Table Exists
+                await query(`
+                    CREATE TABLE IF NOT EXISTS sales (
+                        id UUID PRIMARY KEY,
+                        location_id UUID,
+                        terminal_id UUID,
+                        user_id UUID,
+                        customer_rut VARCHAR(20),
+                        total_amount NUMERIC(15, 2),
+                        payment_method VARCHAR(50),
+                        dte_folio INTEGER,
+                        timestamp TIMESTAMP DEFAULT NOW()
+                    );
+                `);
+
+                // 2. Ensure sale_items Exists
+                await query(`
+                    CREATE TABLE IF NOT EXISTS sale_items (
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        sale_id UUID NOT NULL,
+                        batch_id UUID,
+                        quantity INTEGER,
+                        unit_price NUMERIC(15, 2),
+                        total_price NUMERIC(15, 2)
+                    );
+                `);
+
+                // 3. Ensure Columns Exist (Idempotent ALTER is tricky in Postgres plain SQL, catching error is easier or DO block)
+                // We'll trust 42703 triggered this or just try to add them blindly in a try-catch per column?
+                // Better: Run ALTER ADD IF NOT EXISTS (Postgres 9.6+ supports IF NOT EXISTS for columns? No, standard PG doesn't easily).
+                // DO block is best for "Add if not exists".
+
+                await query(`
+                    DO $$ 
+                    BEGIN 
+                        BEGIN
+                            ALTER TABLE sales ADD COLUMN location_id UUID;
+                        EXCEPTION
+                            WHEN duplicate_column THEN RAISE NOTICE 'column location_id already exists in sales.';
+                        END;
+                        BEGIN
+                            ALTER TABLE sales ADD COLUMN terminal_id UUID;
+                        EXCEPTION
+                            WHEN duplicate_column THEN RAISE NOTICE 'column terminal_id already exists in sales.';
+                        END;
+                    END $$;
+                `);
+
+                // RETRY OPERATION (Recursive once?)
+                // To avoid infinite loop, we won't recurse blindly. We'll duplicate the insert logic here once.
+
+                console.log('🔄 Retrying Sale Insert after Repair...');
+
+                // Recalculate userId for retry scope
+                const retryUserId = isValidUUID(saleData.seller_id) ? saleData.seller_id : null;
+
+                await query(
+                    `INSERT INTO sales (id, location_id, terminal_id, user_id, customer_rut, total_amount, payment_method, dte_folio, timestamp)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, to_timestamp($9 / 1000.0))`,
+                    [
+                        saleId,
+                        saleData.branch_id,
+                        saleData.terminal_id,
+                        retryUserId,
+                        saleData.customer?.rut || null,
+                        saleData.total,
+                        saleData.payment_method,
+                        saleData.dte_folio || null,
+                        saleData.timestamp
+                    ]
+                );
+
+                for (const item of saleData.items) {
+                    await query(
+                        `INSERT INTO sale_items (sale_id, batch_id, quantity, unit_price, total_price)
+                         VALUES ($1, $2, $3, $4, $5)`,
+                        [
+                            saleId,
+                            isValidUUID(item.batch_id) ? item.batch_id : null,
+                            item.quantity,
+                            item.price,
+                            item.price * item.quantity
+                        ]
+                    );
+
+                    if (isValidUUID(item.batch_id)) {
+                        await query(
+                            `UPDATE inventory_batches 
+                             SET quantity_real = quantity_real - $1 
+                             WHERE id = $2`,
+                            [item.quantity, item.batch_id]
+                        );
+                    }
+                }
+
+                revalidatePath('/caja');
+                return { success: true, transactionId: saleId };
+
+            } catch (repairError) {
+                console.error('❌ Failed to repair DB schema:', repairError);
+                return { success: false, error: 'Critical Schema Error: Could not repair sales table.' };
+            }
+        }
+
         console.error('❌ Error creating sale:', error);
         return { success: false, error: `Database transaction failed: ${error instanceof Error ? error.message : String(error)}` };
     }
