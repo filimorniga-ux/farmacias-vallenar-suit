@@ -3,6 +3,7 @@ import { X, Save, Thermometer, AlertTriangle, Tag, Package, DollarSign, Activity
 import { InventoryBatch } from '../../../domain/types';
 import { usePharmaStore } from '../../store/useStore';
 import { toast } from 'sonner';
+import { createBatch } from '../../../actions/inventory';
 
 interface InventoryEditModalProps {
     isOpen: boolean;
@@ -11,10 +12,11 @@ interface InventoryEditModalProps {
 }
 
 const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose, product }) => {
-    const { updateProduct, inventory, updateBatchDetails, addNewProduct } = usePharmaStore();
+    const { updateProduct, inventory, updateBatchDetails, addNewProduct, user, fetchInventory } = usePharmaStore();
     const [formData, setFormData] = useState<Partial<InventoryBatch>>({});
     const [activeBatches, setActiveBatches] = useState<InventoryBatch[]>([]);
     const [newTag, setNewTag] = useState('');
+    const [isCreatingBatch, setIsCreatingBatch] = useState(false);
 
     // Unique Options for Creatable Selects
     const uniqueLabs = React.useMemo(() => Array.from(new Set(inventory.map(i => i.laboratory))).filter(Boolean).sort(), [inventory]);
@@ -45,13 +47,8 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
                 }
             }
 
-            // Update the main product (and potentially all batches if we want to sync shared data)
-            // For now, we update the specific batch passed as "product"
+            // Update the main product
             updateProduct(product.id, formData);
-
-            // In a real "Master Product" scenario, we might want to update ALL batches with shared data
-            // inventory.filter(i => i.sku === product.sku).forEach(b => updateProduct(b.id, formData));
-
             toast.success('Producto actualizado correctamente');
             onClose();
         }
@@ -62,23 +59,47 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
         toast.success('Lote actualizado');
     };
 
-    const handleAddBatch = () => {
-        const newBatch: InventoryBatch = {
-            ...product,
-            id: `NEW-${Date.now()}`, // Temporary ID
-            stock_actual: 0,
-            expiry_date: Date.now() + 31536000000, // +1 year
-            location_id: 'BODEGA_CENTRAL',
-            aisle: '',
-            cost_net: 0,
-            tax_percent: 19,
-            price_sell_box: 0,
-            price_sell_unit: 0,
-            price: 0,
-            cost_price: 0
-        };
-        addNewProduct(newBatch); // Using addNewProduct as "addBatch" effectively
-        toast.success('Nuevo lote creado');
+    const handleAddBatch = async () => {
+        setIsCreatingBatch(true);
+        try {
+            const newBatchData: any = {
+                ...product,
+                id: product.id, // Pass parent ID for reference
+                stock_actual: 0,
+                expiry_date: Date.now() + 31536000000,
+                location_id: product.location_id || 'BODEGA_CENTRAL',
+                aisle: '',
+                cost_net: formData.cost_net || 0,
+                price_sell_box: formData.price_sell_box || 0,
+                price: formData.price || 0,
+                stock_min: formData.stock_min || 0,
+                stock_max: formData.stock_max || 1000
+            };
+
+            const result = await createBatch({ ...newBatchData, userId: user?.id || 'SYSTEM' });
+
+            if (result.success && result.batchId) {
+                // Update Local Store
+                const newLocalBatch: InventoryBatch = {
+                    ...newBatchData,
+                    id: result.batchId,
+                    stock_actual: 0,
+                };
+
+                addNewProduct(newLocalBatch);
+                toast.success('Nuevo lote creado y registrado en sistema');
+
+                // Refresh Inventory in background
+                fetchInventory();
+            } else {
+                toast.error('Error creando lote: ' + result.error);
+            }
+        } catch (e) {
+            console.error(e);
+            toast.error('Error inesperado al crear lote');
+        } finally {
+            setIsCreatingBatch(false);
+        }
     };
 
     const handleMermarBatch = (batchId: string) => {
@@ -314,6 +335,17 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
                                             onChange={e => setFormData({ ...formData, cost_price: Number(e.target.value) })}
                                         />
                                     </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1 text-red-500 flex items-center gap-1">
+                                            <AlertTriangle size={12} /> Stock Mínimo (Alerta)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            className="w-full p-3 border border-red-100 rounded-xl font-mono bg-red-50 text-red-800 font-bold"
+                                            value={formData.stock_min || 0}
+                                            onChange={e => setFormData({ ...formData, stock_min: Number(e.target.value) })}
+                                        />
+                                    </div>
                                 </div>
                             </section>
                         </div>
@@ -329,9 +361,11 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
                                     </h3>
                                     <button
                                         onClick={handleAddBatch}
-                                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition flex items-center gap-1 shadow-sm"
+                                        disabled={isCreatingBatch}
+                                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition flex items-center gap-1 shadow-sm disabled:opacity-50"
                                     >
-                                        <Plus size={14} /> Nuevo Lote
+                                        {isCreatingBatch ? <Activity className="animate-spin" size={14} /> : <Plus size={14} />}
+                                        Nuevo Lote
                                     </button>
                                 </div>
 

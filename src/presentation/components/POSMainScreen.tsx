@@ -74,6 +74,22 @@ const POSMainScreen: React.FC = () => {
     // Quote Mode
     const [isQuoteMode, setIsQuoteMode] = useState(false);
 
+    // Helper for FEFO Selection
+    const findBestBatch = (code: string) => {
+        // Find all matches
+        const matches = inventory.filter(p => p.sku === code || p.id === code || p.barcode === code);
+        if (matches.length === 0) return undefined;
+
+        // Sort by Expiry Date (Ascending) -> First Expiring First
+        // Filter out 0 stock if possible, but if all are 0, return one.
+        // Usually we want to sell available stock.
+        const availableMatches = matches.filter(m => m.stock_actual > 0);
+
+        const candidatePool = availableMatches.length > 0 ? availableMatches : matches;
+
+        return candidatePool.sort((a, b) => a.expiry_date - b.expiry_date)[0];
+    };
+
     const handleScan = (decodedText: string) => {
         // Check for Quote
         if (decodedText.startsWith('COT-')) {
@@ -85,8 +101,8 @@ const POSMainScreen: React.FC = () => {
             }
         }
 
-        // Search Product
-        const product = inventory.find(p => p.sku === decodedText || p.barcode === decodedText);
+        // Search Product with FEFO
+        const product = findBestBatch(decodedText);
         if (product) {
             addToCart(product, 1);
             toast.success(`Producto agregado: ${product.name}`);
@@ -119,7 +135,7 @@ const POSMainScreen: React.FC = () => {
                 return;
             }
 
-            const product = inventory.find(p => p.sku === code || p.id === code || p.barcode === code);
+            const product = findBestBatch(code);
             if (product) {
                 addToCart(product, 1);
                 toast.success('Producto agregado', { duration: 1000, icon: <ScanBarcode /> });
@@ -404,7 +420,7 @@ const POSMainScreen: React.FC = () => {
                                             } else {
                                                 // Existing search logic handled by filteredInventory/manual selection
                                                 // For direct barcode entry:
-                                                const exactMatch = inventory.find(i => i.sku === searchTerm || i.barcode === searchTerm);
+                                                const exactMatch = findBestBatch(searchTerm);
                                                 if (exactMatch) {
                                                     addToCart(exactMatch, 1);
                                                     setSearchTerm('');

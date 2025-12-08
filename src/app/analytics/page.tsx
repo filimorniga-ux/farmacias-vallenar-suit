@@ -1,0 +1,22 @@
+
+import React from 'react';
+import { getLocations } from '@/actions/locations';
+import AnalyticsDashboard from '@/presentation/components/analytics/AnalyticsDashboard';
+
+export default async function AnalyticsPage() {
+    const locationsRes = await getLocations();
+    const locations = locationsRes.success && locationsRes.data ? locationsRes.data.filter((l: any) => l.type === 'STORE' || l.type === 'HQ') : [];
+
+    return (
+        <div className="min-h-screen bg-slate-50 p-6 md:p-10">
+            <div className="max-w-7xl mx-auto space-y-8">
+                <div>
+                    <h1 className="text-3xl font-bold text-slate-900">Dashboard Financiero</h1>
+                    <p className="text-slate-500">Visualización de ventas, caja y rendimiento.</p>
+                </div>
+
+                <AnalyticsDashboard initialLocations={locations} />
+            </div>
+        </div>
+    );
+}

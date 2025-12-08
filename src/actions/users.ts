@@ -24,6 +24,7 @@ function mapUserFromDB(row: any): EmployeeProfile {
             : (row.biometric_credentials || []),
         // Valores por defecto para campos requeridos por la interfaz pero no siempre en DB
         current_status: 'OUT', // Estado de asistencia por defecto
+        assigned_location_id: row.assigned_location_id,
     };
 }
 

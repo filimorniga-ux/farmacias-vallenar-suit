@@ -11,6 +11,8 @@ export interface Location {
     name: string;
     address: string;
     associated_kiosks: string[]; // Kiosk IDs
+    parent_id?: string;
+    default_warehouse_id?: string; // NEW: Explicit WMS link
 }
 
 export interface KioskConfig {
@@ -47,6 +49,7 @@ export interface InventoryBatch {
 
     // Logistics
     location_id: string;
+    warehouse_id?: string; // Specific Warehouse ID (if different from location_id)
     aisle?: string;
     stock_actual: number;
     stock_min: number;
