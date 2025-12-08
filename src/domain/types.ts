@@ -243,6 +243,7 @@ export interface SaleTransaction {
     branch_id?: string; // Added for location tracking
     shift_id?: string; // Linked to a specific shift
     terminal_id?: string; // Specific POS Terminal
+    is_synced?: boolean; // Offline Sync Flag
 }
 
 // --- POS & Turnos ---

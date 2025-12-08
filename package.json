@@ -16,7 +16,8 @@
     "lint": "next lint",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
     "build:desktop": "electron-builder",
-    "checkpoint": "git add . && git commit -m \"Auto Checkpoint $(date)\" && git push"
+    "checkpoint": "git add . && git commit -m \"Auto Checkpoint $(date)\" && git push",
+    "seed:demo": "tsx src/scripts/seed-demo-vallenar.ts"
   },
   "build": {
     "appId": "com.farmaciasvallenar.erp",
@@ -91,6 +92,7 @@
     "globals": "^16.5.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.17",
+    "tsx": "^4.21.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
     "wait-on": "^9.0.3"

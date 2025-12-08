@@ -13,7 +13,7 @@ import { TerminalSettings } from '../components/settings/TerminalSettings';
 import { EmployeeProfile } from '../../domain/types';
 
 const SettingsPage: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'users' | 'sii' | 'hardware' | 'inventory' | 'billing' | 'loyalty' | 'terminals'>('users');
+    const [activeTab, setActiveTab] = useState<'users' | 'sii' | 'hardware' | 'inventory' | 'billing' | 'loyalty' | 'terminals' | 'backup'>('users');
     const { enable_sii_integration, toggleSiiIntegration } = useSettingsStore();
     const { user } = usePharmaStore();
 
@@ -142,6 +142,17 @@ const SettingsPage: React.FC = () => {
                             Suscripción & Pagos
                         </button>
                     )}
+                    {/* Backup Tab */}
+                    <button
+                        onClick={() => setActiveTab('backup')}
+                        className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'backup'
+                            ? 'bg-slate-100 text-slate-800 border-b-2 border-slate-600'
+                            : 'text-slate-500 hover:bg-slate-50'
+                            }`}
+                    >
+                        <Save size={20} />
+                        Respaldo
+                    </button>
                 </div>
             </div>
 
@@ -195,6 +206,56 @@ const SettingsPage: React.FC = () => {
             {activeTab === 'billing' && (
                 <div className="bg-white rounded-b-3xl shadow-sm border border-t-0 border-slate-200 overflow-hidden max-w-7xl p-8">
                     <InfrastructureBillingPanel />
+                </div>
+            )}
+
+            {/* Backup Tab Content */}
+            {activeTab === 'backup' && (
+                <div className="bg-white rounded-b-3xl shadow-sm border border-t-0 border-slate-200 p-8">
+                    <div className="flex flex-col items-center max-w-2xl mx-auto text-center space-y-6">
+                        <div className="bg-slate-100 p-6 rounded-full">
+                            <Save size={48} className="text-slate-500" />
+                        </div>
+
+                        <div>
+                            <h2 className="text-2xl font-bold text-slate-800">Respaldo Local y Descarga</h2>
+                            <p className="text-slate-500 mt-2">
+                                El sistema realiza copias automáticas cada 30 minutos.
+                                En caso de emergencia, puede descargar una copia física (JSON) de todos los datos locales.
+                            </p>
+                        </div>
+
+                        <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl text-left w-full">
+                            <h3 className="font-bold text-amber-800 flex items-center gap-2">
+                                <AlertTriangle size={18} />
+                                Importante
+                            </h3>
+                            <p className="text-sm text-amber-900 mt-1">
+                                Este archivo contiene información sensible (Ventas, Inventario, Caja).
+                                Guárdelo en un lugar seguro. Al descargar, se incluirán las ventas no sincronizadas.
+                            </p>
+                        </div>
+
+                        <button
+                            onClick={async () => {
+                                const { autoBackupService } = await import('../../domain/services/AutoBackupService');
+                                const success = await autoBackupService.downloadPhysicalBackup();
+                                if (success) {
+                                    import('sonner').then(({ toast }) => toast.success('Archivo descargado correctamente'));
+                                } else {
+                                    import('sonner').then(({ toast }) => toast.error('Error al generar respaldo'));
+                                }
+                            }}
+                            className="flex items-center gap-3 px-8 py-4 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition shadow-lg mt-4"
+                        >
+                            <Save size={20} />
+                            Descargar Copia Local (.JSON)
+                        </button>
+
+                        <p className="text-xs text-slate-400">
+                            Formato: JSON Estandarizado • Incluye: Ventas, Caja, Inventario
+                        </p>
+                    </div>
                 </div>
             )}
         </div>

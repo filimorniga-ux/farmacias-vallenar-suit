@@ -300,6 +300,36 @@ export const usePharmaStore = create<PharmaState>()(
                 try {
                     // const { TigerDataService } = await import('../../domain/services/TigerDataService'); // REMOVED
                     const currentStoreState = get();
+
+                    // 0. PUSH SYNC: Send pending sales to server first
+                    const pendingSales = currentStoreState.salesHistory.filter(s => s.is_synced === false);
+                    if (pendingSales.length > 0) {
+                        console.log(`📡 Syncing ${pendingSales.length} pending sales to cloud...`);
+                        const { TigerDataService } = await import('../../domain/services/TigerDataService');
+
+                        // Process sequentially to ensure order (or Promise.all for speed)
+                        for (const sale of pendingSales) {
+                            try {
+                                const result = await TigerDataService.saveSaleTransaction(
+                                    { ...sale, is_synced: undefined }, // Clean flag for server
+                                    sale.branch_id || currentStoreState.currentLocationId,
+                                    sale.terminal_id
+                                );
+
+                                if (result.success) {
+                                    // Mark as synced efficiently
+                                    set(state => ({
+                                        salesHistory: state.salesHistory.map(s =>
+                                            s.id === sale.id ? { ...s, is_synced: true } : s
+                                        )
+                                    }));
+                                }
+                            } catch (e) {
+                                console.error(`Failed to sync sale ${sale.id}:`, e);
+                            }
+                        }
+                    }
+
                     const [inventory, employees, sales, suppliers, cashMovements] = await Promise.all([
                         TigerDataService.fetchInventory(currentStoreState.currentWarehouseId), // Filter by Store's Warehouse
                         fetchEmployees(),
@@ -749,14 +779,22 @@ export const usePharmaStore = create<PharmaState>()(
                     );
 
                     if (!result.success) {
-                        console.error('❌ Failed to save sale to Tiger Data:', result.error);
+                        console.warn('⚠️ Failed to save sale to Tiger Data (Offline Mode):', result.error);
+
+                        // OFFLINE MODE: Mark as unsynced but keep in local history
+                        saleTransaction.is_synced = false;
+
                         import('sonner').then(({ toast }) => {
-                            toast.error(result.error || 'Error al guardar venta. Verifique la conexión.');
+                            toast.warning('Venta guardada localmente (Sin conexión)', {
+                                description: 'Se sincronizará cuando recupere internet.'
+                            });
                         });
-                        return false;
+                        // Allow to proceed to local update
+                    } else {
+                        saleTransaction.is_synced = true;
                     }
 
-                    // ✅ Sale saved to Tiger Data
+                    // ✅ Sale saved (either Cloud or Local)
 
                     // 3. Update local inventory (deduct stock)
                     const newInventory = state.inventory.map(item => {
