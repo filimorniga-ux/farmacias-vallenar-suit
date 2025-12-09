@@ -1,5 +1,5 @@
 
-export type Role = 'MANAGER' | 'QF' | 'CASHIER' | 'WAREHOUSE' | 'ADMIN';
+export type Role = 'MANAGER' | 'QF' | 'CASHIER' | 'WAREHOUSE' | 'ADMIN' | 'GERENTE_GENERAL';
 export type DrugCategory = string; // 'MEDICAMENTO' | 'INSUMO_MEDICO' | 'RETAIL_BELLEZA' | 'SUPLEMENTO' (Dynamic)
 export type SaleCondition = 'VD' | 'R' | 'RR' | 'RCH';
 export type StorageCondition = 'AMBIENTE' | 'REFRIGERADO' | 'CONTROLADO';

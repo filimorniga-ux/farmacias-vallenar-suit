@@ -2,21 +2,24 @@ import { User, Briefcase, DollarSign, AlertCircle, CheckCircle } from 'lucide-re
 import { PayrollData } from '@/lib/data/payroll';
 
 export interface Employee {
-    id: number;
+    id: string; // or number, based on DB
     name: string;
     role: string;
     baseSalary: number;
     isActive: boolean;
     photoUrl?: string;
+    pension_fund?: string;
+    health_system?: string;
 }
 
 interface EmployeeCardProps {
     employee: Employee;
     payrollData: PayrollData;
     onSimulateSalary: (employee: Employee) => void;
+    onEdit?: (employee: Employee) => void;
 }
 
-export default function EmployeeCard({ employee, payrollData, onSimulateSalary }: EmployeeCardProps) {
+export default function EmployeeCard({ employee, payrollData, onSimulateSalary, onEdit }: EmployeeCardProps) {
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(amount);
     };
@@ -76,10 +79,17 @@ export default function EmployeeCard({ employee, payrollData, onSimulateSalary }
                 <button
                     type="button"
                     onClick={() => onSimulateSalary(employee)}
-                    className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                    className="flex-1 inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
                 >
                     <DollarSign className="-ml-1 mr-2 h-5 w-5" />
-                    Simular Liquidación
+                    Simular
+                </button>
+                <button
+                    type="button"
+                    onClick={() => onEdit && onEdit(employee)}
+                    className="ml-3 inline-flex justify-center items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                >
+                    Ver Ficha
                 </button>
             </div>
         </div>
