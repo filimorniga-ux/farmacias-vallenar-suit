@@ -1,50 +1,60 @@
 import { query } from '../db';
 
 export interface LogisticsItem {
-  producto_id: number;
+  producto_id: string; // UUID
+  sku: string;
   nombre: string;
   dci: string | null;
   categoria: string;
   condicion_venta: string;
   requiere_frio: boolean;
-  lote_id: number;
+  lote_id: string; // UUID
   numero_lote: string;
-  fecha_vencimiento: string; // ISO string from DB
+  fecha_vencimiento: string; // ISO string
   cantidad_disponible: number;
   ubicacion_fisica: string | null;
+  warehouse_id: string; // NEW
   estado: string;
 }
 
 export async function getLogisticsData(): Promise<LogisticsItem[]> {
+  // Joined query to get product details + batch info
   const sql = `
     SELECT 
-      p.id as producto_id,
-      p.nombre,
-      p.dci,
-      p.categoria,
-      p.condicion_venta,
-      p.requiere_frio,
-      l.id as lote_id,
-      l.numero_lote,
-      l.fecha_vencimiento,
-      l.cantidad_disponible,
-      l.ubicacion_fisica,
-      l.estado
-    FROM productos p
-    JOIN lotes l ON p.id = l.producto_id
-    ORDER BY l.fecha_vencimiento ASC
+      ib.product_id,
+      ib.sku,
+      ib.name as nombre,
+      p.active_ingredients as dci, -- Mapped from active_ingredients
+      p.category as categoria,
+      p.sales_condition as condicion_venta, -- e.g. 'RECETA_SIMPLE'
+      p.requires_cold_chain as requiere_frio,
+      ib.id as lote_id,
+      ib.lot_number as numero_lote,
+      ib.expiry_date as fecha_vencimiento,
+      ib.quantity_real as cantidad_disponible,
+      w.name as ubicacion_fisica, -- Use Warehouse Name as physical location proxy
+      ib.warehouse_id
+    FROM inventory_batches ib
+    JOIN products p ON ib.product_id = p.id
+    LEFT JOIN warehouses w ON ib.warehouse_id = w.id
+    ORDER BY ib.expiry_date ASC
   `;
 
   try {
     const result = await query(sql);
-    // Convert date objects to ISO strings if necessary, though pg usually returns Date objects.
-    // We'll map to ensure consistent types for the frontend.
+
     return result.rows.map((row: any) => ({
       ...row,
-      fecha_vencimiento: new Date(row.fecha_vencimiento).toISOString(),
+      producto_id: row.product_id, // Map for frontend compatibility
+      lote_id: row.lote_id,
+      sku: row.sku || '',
+      dci: Array.isArray(row.dci) ? row.dci.join(', ') : (row.dci || ''), // Handle array DCI
+      fecha_vencimiento: row.fecha_vencimiento ? new Date(row.fecha_vencimiento).toISOString() : new Date().toISOString(),
+      estado: row.cantidad_disponible > 0 ? 'DISPONIBLE' : 'AGOTADO' // Compute simple status
     }));
   } catch (error) {
     console.error('Error fetching logistics data:', error);
-    throw new Error('Failed to fetch logistics data');
+    // Return empty array instead of crashing on query error during migration/dev
+    return [];
   }
 }

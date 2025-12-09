@@ -8,6 +8,7 @@ const LocationSelector: React.FC = () => {
     const { currentLocation, locations, switchLocation, canSwitchLocation } = useLocationStore();
     const { user } = usePharmaStore();
     const [isOpen, setIsOpen] = useState(false);
+    const [isSwitching, setIsSwitching] = useState(false);
 
     const canSwitch = user ? canSwitchLocation(user.role) : false;
 
@@ -27,7 +28,7 @@ const LocationSelector: React.FC = () => {
             case 'WAREHOUSE':
                 return 'from-amber-500 to-orange-600';
             case 'STORE':
-                return 'from-blue-500 to-cyan-600';
+                return 'from-blue-600 to-indigo-600'; // Darker blue for better contrast
             default:
                 return 'from-gray-500 to-gray-600';
         }
@@ -46,12 +47,15 @@ const LocationSelector: React.FC = () => {
 
     const handleLocationSwitch = (locationId: string) => {
         if (!canSwitch) return;
+        setIsSwitching(true);
+        setIsOpen(false);
 
-        switchLocation(locationId, () => {
-            setIsOpen(false);
-            // Optionally trigger data refresh here
-            // usePharmaStore.getState().syncData();
-        });
+        // Simulate transition delay for effect
+        setTimeout(() => {
+            switchLocation(locationId, () => {
+                setTimeout(() => setIsSwitching(false), 500); // Keep showing slightly after switch
+            });
+        }, 800);
     };
 
     if (!currentLocation) return null;
@@ -60,28 +64,80 @@ const LocationSelector: React.FC = () => {
 
     return (
         <div className="relative">
-            {/* Current Location Button */}
+            {/* Transition Overlay */}
+            {/* Transition Overlay */}
+            <AnimatePresence>
+                {isSwitching && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[9999] bg-black/20 backdrop-blur-sm flex items-center justify-center p-4"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9, opacity: 0, y: 10 }}
+                            animate={{ scale: 1, opacity: 1, y: 0 }}
+                            exit={{ scale: 0.9, opacity: 0, y: 10 }}
+                            className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full text-center border border-white/40 ring-1 ring-black/5"
+                        >
+                            <motion.div
+                                animate={{
+                                    rotate: [0, 360],
+                                    scale: [1, 1.1, 1]
+                                }}
+                                transition={{
+                                    rotate: { duration: 2, repeat: Infinity, ease: "linear" },
+                                    scale: { duration: 1, repeat: Infinity }
+                                }}
+                                className="w-16 h-16 bg-gradient-to-br from-cyan-400 to-blue-600 rounded-2xl mx-auto mb-6 flex items-center justify-center shadow-lg shadow-cyan-200"
+                            >
+                                <Building2 size={32} className="text-white" />
+                            </motion.div>
+
+                            <h2 className="text-2xl font-black text-slate-800 mb-2 tracking-tight">Cambiando Sucursal</h2>
+                            <p className="text-slate-500 font-medium">Sincronizando datos...</p>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Current Location Button - Enhanced Visibility */}
+            <div className="flex flex-col items-end mr-2 lg:hidden">
+                <span className="text-[10px] uppercase font-bold text-slate-400">Ubicación Actual</span>
+            </div>
+
             <button
-                onClick={() => canSwitch && setIsOpen(!isOpen)}
-                disabled={!canSwitch}
-                className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border-2 transition-all ${canSwitch
-                    ? 'hover:shadow-lg cursor-pointer'
+                onClick={() => canSwitch && !isSwitching && setIsOpen(!isOpen)}
+                disabled={!canSwitch || isSwitching}
+                className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border-2 transition-all group relative overflow-hidden ${canSwitch
+                    ? 'hover:shadow-lg cursor-pointer hover:scale-[1.02]'
                     : 'opacity-75 cursor-not-allowed'
-                    } bg-gradient-to-r ${getLocationColor(currentLocation.type)} text-white border-white/20`}
+                    } bg-gradient-to-r ${getLocationColor(currentLocation.type)} text-white border-white/20 shadow-md`}
             >
-                <Icon className="w-5 h-5" />
+                {/* Shine Effect */}
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-200%] group-hover:animate-shine" />
+
+                <div className="p-1.5 bg-white/20 rounded-lg backdrop-blur-sm">
+                    <Icon className="w-5 h-5" />
+                </div>
+
                 <div className="text-left">
-                    <div className="text-xs font-medium opacity-90">
-                        {currentLocation.type === 'WAREHOUSE' ? '🏭 BODEGA' : '🏥 SUCURSAL'}
+                    <div className="text-[10px] font-bold opacity-80 uppercase tracking-wider">
+                        {currentLocation.type === 'WAREHOUSE' ? 'Estás en Bodega' : 'Estás en Sucursal'}
                     </div>
-                    <div className="text-sm font-bold">
+                    <div className="text-sm font-extrabold leading-tight">
                         {currentLocation.name.replace('Farmacia Vallenar ', '').replace('Bodega Central ', '')}
                     </div>
                 </div>
+
                 {canSwitch ? (
-                    <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                    <div className="pl-2 border-l border-white/20 ml-1">
+                        <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''} text-white/80`} />
+                    </div>
                 ) : (
-                    <Lock className="w-4 h-4" />
+                    <div className="pl-2 border-l border-white/20 ml-1">
+                        <Lock className="w-4 h-4 text-white/50" />
+                    </div>
                 )}
             </button>
 
@@ -89,25 +145,22 @@ const LocationSelector: React.FC = () => {
             <AnimatePresence>
                 {isOpen && canSwitch && (
                     <motion.div
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
+                        initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -10, scale: 0.95 }}
                         transition={{ duration: 0.2 }}
-                        className="absolute top-full right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden z-50"
+                        className="absolute top-full right-0 mt-3 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden z-50 ring-4 ring-black/5"
                     >
                         {/* Header */}
-                        <div className="bg-gradient-to-r from-gray-50 to-gray-100 px-4 py-3 border-b border-gray-200">
-                            <div className="flex items-center gap-2">
-                                <MapPin className="w-4 h-4 text-gray-600" />
-                                <span className="text-sm font-bold text-gray-900">Cambiar Ubicación</span>
-                            </div>
-                            <p className="text-xs text-gray-600 mt-1">
-                                Selecciona la sucursal o bodega que deseas gestionar
-                            </p>
+                        <div className="bg-slate-50 px-4 py-4 border-b border-gray-100">
+                            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                <MapPin className="w-4 h-4 text-slate-500" />
+                                Seleccionar Ubicación
+                            </h3>
                         </div>
 
                         {/* Locations List */}
-                        <div className="max-h-96 overflow-y-auto">
+                        <div className="max-h-[400px] overflow-y-auto p-2 space-y-1">
                             {locations.map((location) => {
                                 const LocationIcon = getLocationIcon(location.type);
                                 const isActive = location.id === currentLocation?.id;
@@ -116,33 +169,27 @@ const LocationSelector: React.FC = () => {
                                     <button
                                         key={location.id}
                                         onClick={() => handleLocationSwitch(location.id)}
-                                        className={`w-full px-4 py-3 flex items-center gap-3 transition-all ${isActive
-                                            ? 'bg-blue-50 border-l-4 border-blue-600'
-                                            : 'hover:bg-gray-50 border-l-4 border-transparent'
+                                        className={`w-full px-4 py-3 flex items-center gap-3 transition-all rounded-lg group ${isActive
+                                            ? 'bg-blue-50 border border-blue-200 shadow-sm'
+                                            : 'hover:bg-gray-50 border border-transparent hover:border-gray-200'
                                             }`}
                                     >
-                                        <div className={`p-2 rounded-lg bg-gradient-to-br ${getLocationColor(location.type)}`}>
+                                        <div className={`p-2 rounded-lg bg-gradient-to-br ${getLocationColor(location.type)} shadow-sm group-hover:scale-110 transition-transform`}>
                                             <LocationIcon className="w-5 h-5 text-white" />
                                         </div>
                                         <div className="flex-1 text-left">
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex items-center justify-between">
                                                 <span className={`text-sm font-bold ${isActive ? 'text-blue-900' : 'text-gray-900'
                                                     }`}>
                                                     {location.name}
                                                 </span>
                                                 {isActive && (
-                                                    <span className="px-2 py-0.5 bg-blue-600 text-white text-xs font-bold rounded-full">
-                                                        Actual
-                                                    </span>
+                                                    <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
                                                 )}
                                             </div>
                                             <div className="flex items-center gap-2 mt-1">
-                                                <span className={`px-2 py-0.5 text-xs font-medium rounded-full border ${getLocationBadgeColor(location.type)
-                                                    }`}>
+                                                <span className="text-xs text-slate-500 font-medium">
                                                     {location.type === 'WAREHOUSE' ? 'Bodega' : 'Sucursal'}
-                                                </span>
-                                                <span className="text-xs text-gray-500">
-                                                    {location.address}
                                                 </span>
                                             </div>
                                         </div>
@@ -150,30 +197,19 @@ const LocationSelector: React.FC = () => {
                                 );
                             })}
                         </div>
-
-                        {/* Footer Info */}
-                        <div className="bg-gray-50 px-4 py-3 border-t border-gray-200">
-                            <div className="flex items-center gap-2 text-xs text-gray-600">
-                                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                                <span>Rol: <span className="font-bold text-gray-900">{user?.role}</span></span>
-                                <span className="mx-1">•</span>
-                                <span>Acceso: <span className="font-bold text-green-600">Total</span></span>
-                            </div>
-                        </div>
                     </motion.div>
                 )}
             </AnimatePresence>
 
             {/* Locked Message for Non-Managers */}
             {!canSwitch && (
-                <div className="absolute top-full right-0 mt-2 w-64 bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs text-yellow-800 shadow-lg z-50 hidden group-hover:block">
-                    <div className="flex items-start gap-2">
-                        <Lock className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                <div className="absolute top-full right-0 mt-2 w-64 bg-slate-800 text-white rounded-xl p-4 text-xs shadow-xl z-50 hidden group-hover:block transition-all">
+                    <div className="flex items-start gap-3">
+                        <Lock className="w-5 h-5 text-white/50 shrink-0" />
                         <div>
-                            <p className="font-bold">Ubicación Bloqueada</p>
-                            <p className="mt-1">
-                                Tu rol ({user?.role}) solo tiene acceso a esta ubicación.
-                                Contacta al gerente para cambiar de sucursal.
+                            <p className="font-bold text-white mb-1">Acceso Restringido</p>
+                            <p className="text-slate-300 leading-relaxed">
+                                Tu perfil de <strong>{user?.role}</strong> está vinculado a esta sucursal específica.
                             </p>
                         </div>
                     </div>

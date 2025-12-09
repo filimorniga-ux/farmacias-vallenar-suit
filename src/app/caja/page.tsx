@@ -9,6 +9,7 @@ import { useCartStore, Product } from '@/lib/store/cart';
 import { useOfflineSales } from '@/lib/store/offlineSales';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { cn } from '@/lib/utils';
+import { SyncStatusBadge } from '@/presentation/components/ui/SyncStatusBadge';
 
 const MOCK_PRODUCTS: Product[] = [
     { id: 1, name: 'Paracetamol 500mg', price: 2990, stock: 100, requiresPrescription: false },
@@ -151,14 +152,7 @@ export default function CajaPage() {
                                 <span className="hidden sm:inline">Llamar Siguiente</span>
                             </button>
 
-                            {/* Network Status */}
-                            <div className={cn(
-                                "flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium",
-                                isOnline ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"
-                            )}>
-                                {isOnline ? <Wifi size={16} /> : <WifiOff size={16} />}
-                                {isOnline ? "Online" : "Modo Offline"}
-                            </div>
+                            <SyncStatusBadge />
 
                             {/* Pending Sales Sync */}
                             {pendingSales.length > 0 && (

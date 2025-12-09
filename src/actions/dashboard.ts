@@ -74,15 +74,11 @@ export async function getFinancialMetrics(
         // $1=from, $2=to.
         // Location is $3. Terminal is $3 or $4.
 
-        let salesConditions = "timestamp >= $1 AND timestamp <= $2";
-        let cashConditions = "to_timestamp(timestamp / 1000.0) >= $1 AND to_timestamp(timestamp / 1000.0) <= $2";
-        // Note: cash_movements timestamp is BIGINT (epoch ms) usually in my previous code? 
-        // In terminals.ts: timestamp: Date.now(). It's a number.
-        // Postgres `to_timestamp(ts / 1000.0)` converts ms epoch to timestamp.
+        let salesConditions = "timestamp >= $1::timestamp AND timestamp <= $2::timestamp";
+        let cashConditions = "timestamp >= $1::timestamp AND timestamp <= $2::timestamp";
 
         if (locationId) {
             salesConditions += ` AND location_id = $3`;
-            // For cash, we need to join terminals to filter by location if filtering by location only
             cashConditions += ` AND shift_id IN (SELECT id FROM terminals WHERE location_id = $3)`;
         }
         if (terminalId) {
@@ -148,7 +144,7 @@ export async function getFinancialMetrics(
             breakdownSql = `
                 SELECT l.id, l.name, COALESCE(SUM(s.total_amount), 0) as total
                 FROM locations l
-                LEFT JOIN sales s ON s.location_id = l.id AND s.timestamp >= $1 AND s.timestamp <= $2
+                LEFT JOIN sales s ON s.location_id = l.id AND s.timestamp >= $1::timestamp AND s.timestamp <= $2::timestamp
                 WHERE l.type = 'STORE'
                 GROUP BY l.id, l.name
                 ORDER BY total DESC
@@ -160,7 +156,7 @@ export async function getFinancialMetrics(
             breakdownSql = `
                 SELECT t.id, t.name, COALESCE(SUM(s.total_amount), 0) as total
                 FROM terminals t
-                LEFT JOIN sales s ON s.terminal_id = t.id AND s.timestamp >= $1 AND s.timestamp <= $2
+                LEFT JOIN sales s ON s.terminal_id = t.id AND s.timestamp >= $1::timestamp AND s.timestamp <= $2::timestamp
                 WHERE t.location_id = $3
                 GROUP BY t.id, t.name
                 ORDER BY total DESC

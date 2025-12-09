@@ -49,7 +49,7 @@ interface PharmaState {
     // Data Sync
     isLoading: boolean;
     isInitialized: boolean;
-    syncData: () => Promise<void>;
+    syncData: (options?: { force?: boolean }) => Promise<void>;
 
     // Inventory
     inventory: InventoryBatch[];
@@ -206,6 +206,8 @@ interface PharmaState {
 }
 
 
+import { indexedDBStorage } from './indexedDBStorage';
+
 export const usePharmaStore = create<PharmaState>()(
     persist(
         (set, get) => ({
@@ -291,12 +293,15 @@ export const usePharmaStore = create<PharmaState>()(
             // --- Data Sync ---
             isLoading: false,
             isInitialized: false,
-            syncData: async () => {
-                if (get().isInitialized) {
+            syncData: async (options = {}) => {
+                const { force = false } = options;
+                if (get().isInitialized && !force) {
                     console.log('🔄 Data already synced, skipping...');
                     return;
                 }
                 set({ isLoading: true });
+                // If forced, reset initialized state temporarily to allow re-sync effects if any
+                if (force) set({ isInitialized: false });
                 try {
                     // const { TigerDataService } = await import('../../domain/services/TigerDataService'); // REMOVED
                     const currentStoreState = get();
@@ -1688,7 +1693,7 @@ export const usePharmaStore = create<PharmaState>()(
         {
             name: 'farmacias-vallenar-DEBUG-v1', // ⚠️ DEBUG MODE: Force clean slate
             version: 1,
-            storage: createJSONStorage(() => localStorage),
+            storage: createJSONStorage(() => indexedDBStorage),
             partialize: (state) => ({
                 user: state.user,
                 cart: state.cart,
