@@ -3,6 +3,8 @@ import RestockingTable from '@/components/supply/RestockingTable';
 import ReceptionForm from '@/components/supply/ReceptionForm';
 import RouteGuard from '@/components/auth/RouteGuard';
 
+import { SyncStatusBadge } from '@/presentation/components/ui/SyncStatusBadge';
+
 export const dynamic = 'force-dynamic';
 
 export default async function ProveedoresPage() {
@@ -23,19 +25,22 @@ export default async function ProveedoresPage() {
                                 Gestión de proveedores y reposición inteligente.
                             </p>
                         </div>
-                        <div className="mt-4 flex md:ml-4 md:mt-0">
-                            <form action={async () => {
-                                'use server';
-                                const { logActionServer } = await import('@/actions/logger-action');
-                                await logActionServer('admin', 'AJUSTE_STOCK', 'Ajuste manual de stock simulado: Paracetamol -10');
-                            }}>
-                                <button
-                                    type="submit"
-                                    className="ml-3 inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
-                                >
-                                    Simular Ajuste Stock
-                                </button>
-                            </form>
+                        <div className="mt-4 flex items-center gap-4 md:ml-4 md:mt-0">
+                            <SyncStatusBadge />
+                            <div className="flex">
+                                <form action={async () => {
+                                    'use server';
+                                    const { logActionServer } = await import('@/actions/logger-action');
+                                    await logActionServer('admin', 'AJUSTE_STOCK', 'Ajuste manual de stock simulado: Paracetamol -10');
+                                }}>
+                                    <button
+                                        type="submit"
+                                        className="ml-3 inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+                                    >
+                                        Simular Ajuste Stock
+                                    </button>
+                                </form>
+                            </div>
                         </div>
                     </div>
 

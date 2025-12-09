@@ -211,6 +211,21 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                             </select>
                                         </div>
                                     </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1">Sueldo Base</label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-3 text-slate-400">$</span>
+                                            <input
+                                                type="number"
+                                                value={formData.base_salary || ''}
+                                                onChange={e => setFormData({
+                                                    ...formData,
+                                                    base_salary: parseInt(e.target.value) || 0
+                                                })}
+                                                className="w-full pl-8 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                                            />
+                                        </div>
+                                    </div>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
                                             <label className="block text-sm font-bold text-slate-700 mb-1">AFP</label>

@@ -314,7 +314,8 @@ export async function getSales(limit = 50, locationId?: string, terminalId?: str
             FROM sales s
             LEFT JOIN sale_items si ON s.id = si.sale_id
             LEFT JOIN inventory_batches b ON si.batch_id = b.id
-            LEFT JOIN products p ON b.product_id = p.id
+            -- FIX: Cast product_id to ensure match if one is text and other is uuid
+            LEFT JOIN products p ON b.product_id::text = p.id::text
             WHERE 1=1 ${whereClause}
             GROUP BY s.id
             ORDER BY s.timestamp DESC

@@ -144,6 +144,18 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
         ? Math.round(formData.price / formData.units_per_package)
         : 0;
 
+    // Helper safe date
+    const safeDateToISO = (dateVal: any) => {
+        try {
+            if (!dateVal) return new Date().toISOString().split('T')[0];
+            const d = new Date(dateVal);
+            if (isNaN(d.getTime())) return new Date().toISOString().split('T')[0];
+            return d.toISOString().split('T')[0];
+        } catch (e) {
+            return new Date().toISOString().split('T')[0];
+        }
+    };
+
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col animate-in fade-in zoom-in duration-200">
@@ -398,7 +410,7 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
                                                     </label>
                                                     <input
                                                         type="date"
-                                                        value={new Date(batch.expiry_date).toISOString().split('T')[0]}
+                                                        value={safeDateToISO(batch.expiry_date)}
                                                         onChange={e => handleBatchUpdate(batch.id, 'expiry_date', new Date(e.target.value).getTime())}
                                                         className="w-full p-2 bg-slate-50 border border-slate-100 rounded-lg text-xs font-bold text-slate-600"
                                                     />

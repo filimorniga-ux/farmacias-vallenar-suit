@@ -4,6 +4,8 @@ import AddPurchaseButton from '@/components/logistica/AddPurchaseButton';
 import RouteGuard from '@/components/auth/RouteGuard';
 import { InventoryExportForm } from '@/presentation/components/reports/InventoryExportForm';
 
+import { SyncStatusBadge } from '@/presentation/components/ui/SyncStatusBadge';
+
 export const dynamic = 'force-dynamic';
 
 export default async function LogisticaPage() {
@@ -22,7 +24,8 @@ export default async function LogisticaPage() {
                                 Gestión de inventario, lotes y trazabilidad.
                             </p>
                         </div>
-                        <div className="mt-4 flex md:ml-4 md:mt-0">
+                        <div className="mt-4 flex items-center gap-4 md:ml-4 md:mt-0">
+                            <SyncStatusBadge />
                             <AddPurchaseButton />
                         </div>
                     </div>

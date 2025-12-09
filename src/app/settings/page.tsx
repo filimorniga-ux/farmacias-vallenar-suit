@@ -2,13 +2,48 @@
 
 import { useState } from 'react';
 import RouteGuard from '@/components/auth/RouteGuard';
-import { Save, Upload, Plus, Trash2, Edit, CheckCircle, AlertCircle, Building, Users, FileText, Shield } from 'lucide-react';
+import { Save, Upload, Plus, Trash2, Edit, CheckCircle, AlertCircle, Building, Users, FileText, Shield, Activity, AlertTriangle, Building2 } from 'lucide-react';
 import { useAuthStore, Role } from '@/lib/store/useAuthStore';
 import { autoBackupService } from '@/domain/services/AutoBackupService';
 import { toast } from 'sonner';
+import { SyncStatusBadge } from '@/presentation/components/ui/SyncStatusBadge';
+import InventoryDuplicates from '@/presentation/components/settings/InventoryDuplicates';
 
 export default function SettingsPage() {
-    const [activeTab, setActiveTab] = useState<'sii' | 'users' | 'general' | 'backup'>('sii');
+    const [activeTab, setActiveTab] = useState<'sii' | 'users' | 'general' | 'backup' | 'diagnostic'>('sii');
+
+    const handleHardReset = async () => {
+        if (!confirm('⚠️ ¿Estás seguro? Esto borrará todos los datos locales y reiniciará la aplicación.')) return;
+
+        try {
+            const loadingId = toast.loading('Restableciendo sistema...');
+
+            // 1. Clear Storage
+            localStorage.clear();
+            sessionStorage.clear();
+
+            // 2. Clear IndexedDB (Tiger Data)
+            try {
+                const dbs = await window.indexedDB.databases();
+                for (const db of dbs) {
+                    if (db.name) await window.indexedDB.deleteDatabase(db.name);
+                }
+            } catch (e) {
+                console.warn('Failed to clear IndexedDB:', e);
+            }
+
+            toast.success('Sistema restablecido', { id: loadingId });
+
+            // 3. Force Reload
+            setTimeout(() => {
+                window.location.href = '/';
+            }, 1000);
+        } catch (e) {
+            console.error('Reset failed', e);
+            toast.error('Error al restablecer');
+            window.location.reload();
+        }
+    };
 
     // Mock Data for Users
     const [users, setUsers] = useState([
@@ -34,12 +69,15 @@ export default function SettingsPage() {
         <RouteGuard allowedRoles={['ADMIN']}>
             <div className="min-h-screen bg-gray-50 p-8">
                 <div className="max-w-5xl mx-auto">
-                    <div className="mb-8">
-                        <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-                            <Shield className="text-blue-600" />
-                            Configuración del Sistema
-                        </h1>
-                        <p className="text-gray-500 mt-1">Gestión centralizada de Farmacias Vallenar.</p>
+                    <div className="mb-8 flex justify-between items-start">
+                        <div>
+                            <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
+                                <Shield className="text-blue-600" />
+                                Configuración del Sistema
+                            </h1>
+                            <p className="text-gray-500 mt-1">Gestión centralizada de Farmacias Vallenar.</p>
+                        </div>
+                        <SyncStatusBadge />
                     </div>
 
                     {/* Tabs */}
@@ -76,6 +114,14 @@ export default function SettingsPage() {
                             >
                                 <Save size={18} />
                                 Respaldos
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('diagnostic')}
+                                className={`flex-1 py-4 text-sm font-medium text-center flex items-center justify-center gap-2 transition-colors ${activeTab === 'diagnostic' ? 'bg-red-50 text-red-600 border-b-2 border-red-600' : 'text-gray-500 hover:bg-gray-50'
+                                    }`}
+                            >
+                                <Activity size={18} />
+                                Diagnóstico
                             </button>
                         </div>
 
@@ -317,6 +363,48 @@ export default function SettingsPage() {
                                                         hover:file:bg-amber-200 cursor-pointer"
                                                     />
                                                 </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Diagnostic Tab */}
+                            {activeTab === 'diagnostic' && (
+                                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+                                    <InventoryDuplicates />
+
+                                    <div className="bg-red-50 border border-red-200 rounded-xl p-6">
+                                        <div className="flex items-start gap-4">
+                                            <div className="p-3 bg-red-100 rounded-lg text-red-600">
+                                                <AlertTriangle size={24} />
+                                            </div>
+                                            <div className="flex-1">
+                                                <h3 className="text-lg font-bold text-red-900">Zona de Peligro</h3>
+                                                <p className="text-red-700 mt-1 mb-4">
+                                                    Si experimentas errores graves o inconsistencias en los datos que no se resuelven sincronizando,
+                                                    puedes restablecer la aplicación a su estado original.
+                                                </p>
+
+                                                <div className="bg-white border-l-4 border-red-500 p-4 mb-6 shadow-sm">
+                                                    <p className="text-red-800 text-sm">
+                                                        <strong>Nota:</strong> Esta acción eliminará:
+                                                        <ul className="list-disc pl-5 mt-1 space-y-1">
+                                                            <li>Credenciales de sesión</li>
+                                                            <li>Caché de inventario y ventas local</li>
+                                                            <li>Configuraciones temporales</li>
+                                                        </ul>
+                                                        No eliminará datos que ya estén sincronizados en el servidor central.
+                                                    </p>
+                                                </div>
+
+                                                <button
+                                                    onClick={handleHardReset}
+                                                    className="bg-red-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-700 transition shadow-sm flex items-center gap-2"
+                                                >
+                                                    <Trash2 size={18} />
+                                                    Restablecer Aplicación (Hard Reset)
+                                                </button>
                                             </div>
                                         </div>
                                     </div>

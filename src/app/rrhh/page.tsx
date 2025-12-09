@@ -2,6 +2,8 @@ import { getPayrollData } from '@/lib/data/payroll';
 import EmployeeGrid from '@/components/rrhh/EmployeeGrid'; // Client component wrapper
 import RouteGuard from '@/components/auth/RouteGuard';
 
+import { SyncStatusBadge } from '@/presentation/components/ui/SyncStatusBadge';
+
 export const dynamic = 'force-dynamic';
 
 export default async function RRHHPage() {
@@ -55,6 +57,9 @@ export default async function RRHHPage() {
                             <p className="mt-1 text-sm text-gray-500">
                                 Gestión de personal y cálculo de remuneraciones (Anti-Canela).
                             </p>
+                        </div>
+                        <div className="mt-4 flex md:ml-4 md:mt-0">
+                            <SyncStatusBadge />
                         </div>
                     </div>
 

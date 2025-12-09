@@ -21,10 +21,18 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false } // Required for some remote DBs
 });
 
+// Log Connection Details
+pool.connect().then(client => {
+    const params = (client as any).connectionParameters;
+    console.log(`🔌 Connected to Host: ${params.host}`);
+    console.log(`🔌 Database: ${params.database}`);
+    client.release();
+}).catch(err => console.error('❌ Connection Check Failed:', err.message));
+
 // --- CONSTANTS ---
 const BRANCHES = [
-    { name: 'Sucursal Centro', address: 'Calle Prat 123, Vallenar', email: 'centro@farmaciasvallenar.cl', phone: '+56 51 261 1111' },
-    { name: 'Sucursal Prat', address: 'Calle Ramírez 456, Vallenar', email: 'prat@farmaciasvallenar.cl', phone: '+56 51 261 2222' }
+    { name: 'Farmacia Vallenar Centro', address: 'Calle Prat 123, Vallenar', email: 'centro@farmaciasvallenar.cl', phone: '+56 51 261 1111' },
+    { name: 'Farmacia Vallenar Prat', address: 'Calle Ramírez 456, Vallenar', email: 'prat@farmaciasvallenar.cl', phone: '+56 51 261 2222' }
 ];
 
 const WAREHOUSES = [
@@ -34,7 +42,7 @@ const WAREHOUSES = [
 
 const STAFF_ROLES = {
     ADMIN: { title: 'Administrador de Sucursal', salary: 1200000 },
-    CASHIER: { title: 'Cajero Vendedo', salary: 650000 },
+    CASHIER: { title: 'Cajero Vendedor', salary: 650000 },
     WAREHOUSE_CHIEF: { title: 'Jefe de Bodega', salary: 900000 }
 };
 
@@ -283,8 +291,8 @@ async function main() {
 
         await safeExecuteDDL(`ALTER TABLE cash_movements ADD COLUMN terminal_id UUID; `, 'ALTER cash_movements ADD terminal_id');
 
-        // 1. CLEANUP
-        console.log('🧹 Cleaning Database...');
+        // 1. CLEANUP (QUIRURGICA)
+        console.log('🧹 Cleaning Database (SURGICAL - PROTECTING PRODUCTS)...');
 
         const safeTruncate = async (table: string) => {
             try {
@@ -301,21 +309,28 @@ async function main() {
             }
         };
 
+        // Delete operational data
         await safeTruncate('sale_items');
         await safeTruncate('sales');
         await safeTruncate('stock_movements');
         await safeTruncate('inventory_batches');
         await safeTruncate('shift_logs');
         await safeTruncate('cash_movements');
+        await safeTruncate('queue_tickets'); // Added based on requirements
+        await safeTruncate('attendance_logs'); // Added based on requirements
 
-        // Delete rows from master tables (keep structure)
-        await client.query("DELETE FROM users WHERE role != 'DEV'");
+        // Delete Structure (keep products)
+        // We delete users but typically we might want to keep a superadmin? 
+        // User request says "Borrar Estructura: terminals, warehouses, locations, users."
+        // We will assume we recreate everything.
+        await client.query("DELETE FROM users"); // Delete all users
         await safeTruncate('warehouses');
         await safeTruncate('terminals');
         await safeTruncate('locations');
 
-        // Reset Products Inventory (Update, not Delete)
-        // await client.query('UPDATE products SET ...'); // Products are master data, inventory is in batches tables now. So just truncating batches is enough.
+        // DO NOT TRUNCATE PRODUCTS
+        const prodCount = await client.query('SELECT count(*) FROM products');
+        console.log(`   🛡 Products Table Protected. Current Count: ${prodCount.rows[0].count}`);
 
         // 2. INFRASTRUCTURE
         console.log('🏢 Building Infrastructure...');
@@ -395,33 +410,44 @@ async function main() {
         const employees: string[] = [];
 
         // Helper to create user
-        const createUser = async (name: string, role: string, locId: string, titleName: string) => {
+        const createUser = async (name: string, role: string, locId: string, titleName: string, pin: string = '1213') => {
             const id = uuidv4();
             const rut = generateRut();
-            // Security: Standard PIN '1213' for all demo users
-            const stdPin = '1213';
-            const hashedPin = hashPin(stdPin);
+            const hashedPin = hashPin(pin);
 
             await client.query(`
                 INSERT INTO users(
                 id, rut, name, role, access_pin, pin_hash, status,
                 assigned_location_id, job_title, base_salary
             ) VALUES($1, $2, $3, $4, $5, $6, 'ACTIVE', $7, $8, $9)
-            `, [id, rut, name, role, stdPin, hashedPin, locId, titleName, 800000]);
+            `, [id, rut, name, role, pin, hashedPin, locId, titleName, 800000]);
             return id;
         };
 
         // Staff for Branches
         let nameIdx = 0;
-        for (const storeId of branchIds) {
+        for (let idx = 0; idx < branchIds.length; idx++) {
+            const storeId = branchIds[idx];
+            const branchInfo = BRANCHES[idx];
+            // Admin names based on requirements
+            const adminName = idx === 0 ? "Admin Centro" : "Admin Prat";
+
             // 1 Admin
-            await createUser(`${CHILEAN_NAMES[nameIdx++ % CHILEAN_NAMES.length]} (Admin)`, 'MANAGER', storeId, 'ADMINISTRADOR');
-            // 3 Cashiers
-            for (let i = 0; i < 3; i++) {
-                const uid = await createUser(`${CHILEAN_NAMES[nameIdx++ % CHILEAN_NAMES.length]} `, 'CASHIER', storeId, 'VENDEDOR');
+            await createUser(adminName, 'MANAGER', storeId, 'ADMINISTRADOR');
+
+            // 2 Cashiers
+            for (let i = 0; i < 2; i++) {
+                const uid = await createUser(`${CHILEAN_NAMES[nameIdx++ % CHILEAN_NAMES.length]} (Cajero)`, 'CASHIER', storeId, 'CAJERO');
                 employees.push(uid);
             }
+
+            // 1 Warehouse Keeper
+            await createUser(`${CHILEAN_NAMES[nameIdx++ % CHILEAN_NAMES.length]} (Bodeguero)`, 'WAREHOUSE', storeId, 'BODEGUERO');
         }
+
+        // 3.1. GERENTE GENERAL (Global / HQ)
+        // Assign to First Branch by default for visibility or HQ
+        await createUser('Gerente General', 'GERENTE_GENERAL', branchIds[0], 'GERENTE');
 
         // Staff for Warehouses
         // ... (Skipping specific warehouse staff creation to save time, assume standard users or reuse)
@@ -434,17 +460,18 @@ async function main() {
         let products: any[] = [];
         try {
             await client.query('SAVEPOINT prod_fetch');
-            // Check for valid UUIDs to avoid insertion errors in batch tables
-            const query = "SELECT id, sku, name, sale_price, cost_price FROM products WHERE id ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' LIMIT 50";
+            // Check for valid UUIDs and fetch ALL products (no limit)
+            const query = "SELECT id, sku, name, sale_price, cost_price FROM products WHERE id ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'";
             const prodRes = await client.query(query);
             products = prodRes.rows;
             await client.query('RELEASE SAVEPOINT prod_fetch');
+            console.log(`   📦 Found ${products.length} products to stock.`);
         } catch (e: any) {
             await client.query('ROLLBACK TO SAVEPOINT prod_fetch'); // Restore transaction state
             if (e.code === '42703') { // Column missing, probably legacy schema 
                 console.warn('⚠️ Standard columns missing, trying legacy columns...');
                 // Fallback query
-                const query = "SELECT id, sku, name, price as sale_price, cost_price FROM products WHERE id ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' LIMIT 50";
+                const query = "SELECT id, sku, name, price as sale_price, cost_price FROM products WHERE id ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'";
                 const prodRes = await client.query(query);
                 products = prodRes.rows;
             } else {
@@ -456,166 +483,279 @@ async function main() {
             console.warn('⚠️ No valid products found (with UUIDs). Skipping Supply Chain Step.');
         }
 
-        // Populate Bodega General (500 units) & Auxiliar (100 units)
-        for (const p of products) {
-            // General
-            const batchGenId = uuidv4();
-            await client.query(`
-                INSERT INTO inventory_batches(
-                id, product_id, sku, name, location_id, warehouse_id,
-                quantity_real, expiry_date, lot_number,
-                cost_net, price_sell_box, stock_min, stock_max, unit_cost, sale_price
-            ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 10, 1000, $12, $13)
-            `, [
-                batchGenId, p.id, p.sku, p.name,
-                // Need the Location ID of the warehouse. 
-                // We stored warehouse IDs in warehouseMap.
-                // But inventory_batches needs location_id (Store/HQ) AND warehouse_id.
-                // We will use the LOCATION ID linked to the Warehouse.
-                // Actually `warehouseMap` stores Warehouse ID. We need its Location ID.
-                // Let's resolve location from warehouse ID.
-                (await client.query('SELECT location_id FROM warehouses WHERE id = $1', [generalWhId])).rows[0].location_id, // location_id
-                generalWhId, // warehouse_id
-                500, Date.now() + 31536000000, `L - GEN - ${p.sku} `,
-                p.cost_price || 1000, p.sale_price || 2000, p.cost_price || 1000, p.sale_price || 2000
-            ]);
+        // Populate Bodega General & Auxiliar & Branches [OPTIMIZED BATCH]
 
-            // Auxiliar
-            const batchAuxId = uuidv4();
-            await client.query(`
-                INSERT INTO inventory_batches(
-                id, product_id, sku, name, location_id, warehouse_id,
-                quantity_real, expiry_date, lot_number,
-                cost_net, price_sell_box, stock_min, stock_max, unit_cost, sale_price
-            ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 5, 200, $12, $13)
-            `, [
-                batchAuxId, p.id, p.sku, p.name,
-                (await client.query('SELECT location_id FROM warehouses WHERE id = $1', [auxWhId])).rows[0].location_id,
-                auxWhId,
-                100, Date.now() + 40000000000, `L - AUX - ${p.sku} `,
-                p.cost_price || 1000, p.sale_price || 2000, p.cost_price || 1000, p.sale_price || 2000
-            ]);
-
-            // Log Movements (Initial)
-            // ... (Simple log instruction)
+        // 1. Resolve Location IDs upfront
+        const generalLocId = (await client.query('SELECT location_id FROM warehouses WHERE id = $1', [generalWhId])).rows[0].location_id;
+        const auxLocId = (await client.query('SELECT location_id FROM warehouses WHERE id = $1', [auxWhId])).rows[0].location_id;
+        const branchLocMap = new Map<string, string>();
+        for (const whId of branchWarehouses) {
+            const locId = (await client.query('SELECT location_id FROM warehouses WHERE id = $1', [whId])).rows[0].location_id;
+            branchLocMap.set(whId, locId);
         }
 
-        console.log('🚚 Distributing to Branches (WMS)...');
-        // Distribute 20 units to each Store's Warehouse
-        for (const p of products) {
-            for (const storeWhId of branchWarehouses) {
-                // Determine Store Location ID for this warehouse
-                const storeLocId = (await client.query('SELECT location_id FROM warehouses WHERE id = $1', [storeWhId])).rows[0].location_id;
+        console.log('📦 Preparing Stock Batches...');
 
-                // Create Batch in Store Warehouse
-                const batchStoreId = uuidv4();
-                await client.query(`
-                    INSERT INTO inventory_batches(
+        const batchValues: any[] = [];
+        const batchPlaceholders: string[] = [];
+        let pCounter = 1;
+
+        // Helper to flush batch
+        const flushStockBatch = async () => {
+            if (batchValues.length === 0) return;
+            const query = `
+                INSERT INTO inventory_batches(
                 id, product_id, sku, name, location_id, warehouse_id,
                 quantity_real, expiry_date, lot_number,
                 cost_net, price_sell_box, stock_min, stock_max, unit_cost, sale_price
-            ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 5, 50, $12, $13)
-                `, [
-                    batchStoreId, p.id, p.sku, p.name,
-                    storeLocId,
-                    storeWhId,
-                    20, // 20 Units
-                    Date.now() + 30000000000, `L - TRF - ${p.sku} `,
+            ) VALUES ${batchPlaceholders.join(', ')}
+             `;
+            await client.query(query, batchValues);
+            // Reset
+            batchValues.length = 0;
+            batchPlaceholders.length = 0;
+            pCounter = 1;
+        };
+
+        let processedProds = 0;
+        for (const p of products) {
+            // A. General Warehouse (500 units)
+            const expiryGen = new Date().setFullYear(2026 + Math.floor(Math.random() * 3));
+            batchPlaceholders.push(`($${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, 10, 1000, $${pCounter++}, $${pCounter++})`);
+            batchValues.push(
+                uuidv4(), p.id, p.sku, p.name, generalLocId, generalWhId,
+                500, expiryGen, `L-GEN-${p.sku}`,
+                p.cost_price || 1000, p.sale_price || 2000, p.cost_price || 1000, p.sale_price || 2000
+            );
+
+            // B. Aux Warehouse (100 units)
+            const expiryAux = new Date().setFullYear(2027);
+            batchPlaceholders.push(`($${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, 5, 200, $${pCounter++}, $${pCounter++})`);
+            batchValues.push(
+                uuidv4(), p.id, p.sku, p.name, auxLocId, auxWhId,
+                100, expiryAux, `L-AUX-${p.sku}`,
+                p.cost_price || 1000, p.sale_price || 2000, p.cost_price || 1000, p.sale_price || 2000
+            );
+
+            // C. Branch Warehouses (20 units each)
+            for (const storeWhId of branchWarehouses) {
+                const storeLocId = branchLocMap.get(storeWhId)!;
+                const expiryStore = new Date().setFullYear(2026);
+
+                batchPlaceholders.push(`($${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, $${pCounter++}, 5, 50, $${pCounter++}, $${pCounter++})`);
+                batchValues.push(
+                    uuidv4(), p.id, p.sku, p.name, storeLocId, storeWhId,
+                    20, expiryStore, `L-TRF-${p.sku}`,
                     p.cost_price || 1000, p.sale_price || 2000, p.cost_price || 1000, p.sale_price || 2000
-                ]);
+                );
+            }
+
+            // Flush if batch gets too big (Postgres param limit ~65535. Each item uses ~13 params. 4 items per product loop = 52 params. So 500 products ~ 26000 params. Safe.)
+            if (batchValues.length > 5000) { // Approx 400 iterations
+                await flushStockBatch();
+                process.stdout.write('.');
+            }
+
+            processedProds++;
+        }
+        await flushStockBatch(); // Final flush
+        console.log(`\n✅ Stock Injected for ${processedProds} products across all warehouses.`);
+
+
+        // 5. SALES SIMULATION (Nov - Dec) [OPTIMIZED BATCH]
+        console.log('💵 Simulating Sales (Nov-Dec)...');
+
+        // A. Pre-fetch Inventory Batches to avoid N+1 queries
+        // Map: `${ sku }:${ warehouseId } ` -> { id, quantity_real }
+        const inventoryMap = new Map<string, { id: string, quantity_real: number }>();
+
+        // Fetch batches for all store warehouses
+        if (branchWarehouses.length > 0) {
+            const whList = branchWarehouses.map(id => `'${id}'`).join(',');
+            const allBatchesRes = await client.query(`
+                SELECT id, sku, warehouse_id, quantity_real 
+                FROM inventory_batches 
+                WHERE warehouse_id IN(${whList})
+            `);
+            for (const row of allBatchesRes.rows) {
+                inventoryMap.set(`${row.sku}:${row.warehouse_id} `, {
+                    id: row.id,
+                    quantity_real: row.quantity_real
+                });
             }
         }
 
-        // 5. SALES SIMULATION (Nov - Dec)
-        console.log('💵 Simulating Sales (Nov-Dec)...');
+        // B. In-Memory Simulation
+        const allSales: any[] = [];
+        const allSaleItems: any[] = [];
+        // Track inventory decrements: Map<batchId, decrement_amount>
+        const inventoryUpdates = new Map<string, number>();
 
         // Helper date range
-        const startDate = new Date('2024-11-01');
-        const endDate = new Date('2024-12-07');
+        // Helper date range
+        const startDate = new Date('2025-11-01T08:00:00');
+        const endDate = new Date('2025-12-08T20:00:00');
         const totalDays = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24));
+
+        console.log('   🎲 Generating simulation data in memory...');
 
         for (let i = 0; i <= totalDays; i++) {
             const currentDate = new Date(startDate);
             currentDate.setDate(startDate.getDate() + i);
-            const isWeekend = currentDate.getDay() === 0 || currentDate.getDay() === 6;
 
             // Loop Stores
-            for (let bIdx = 0; bIdx < branchIds.length; bIdx++) {
-                const storeId = branchIds[bIdx];
-                const storeWhId = branchWarehouses[bIdx];
-                const dailyTransactions = Math.floor(Math.random() * (80 - 40 + 1)) + 40; // 40-80 sales
-
-                // console.log(`  Processing ${ currentDate.toISOString().split('T')[0] } - Store ${ bIdx + 1 }: ${ dailyTransactions } sales`);
+            for (let idx = 0; idx < branchIds.length; idx++) {
+                const storeId = branchIds[idx];
+                const storeWhId = branchWarehouses[idx];
+                const dailyTransactions = 60; // Fixed ~60 tickets daily per requirement
 
                 for (let t = 0; t < dailyTransactions; t++) {
-                    // Random Seller
-                    const sellerId = employees[Math.floor(Math.random() * employees.length)]; // Simplify: pick any employee
-
-                    // Random Items (1-4)
-                    const itemCount = Math.floor(Math.random() * 4) + 1;
-                    const saleTotal = 0;
+                    const sellerId = employees[Math.floor(Math.random() * employees.length)];
                     const saleId = uuidv4();
-                    const items: any[] = [];
+
+                    // Sales basics
+                    const itemCount = Math.floor(Math.random() * 4) + 1;
                     let currentTotal = 0;
 
-                    // Pick random products
+                    const timestampVal = currentDate.getTime() + (Math.floor(Math.random() * 40000000)); // Random time in day
+
+                    // Items
                     for (let k = 0; k < itemCount; k++) {
                         const prod = products[Math.floor(Math.random() * products.length)];
                         const qty = Math.floor(Math.random() * 2) + 1;
                         const price = Number(prod.sale_price) || 2000;
+                        const totalLine = price * qty;
 
-                        items.push({
-                            id: uuidv4(),
-                            sku: prod.sku,
-                            price: price,
-                            qty: qty,
-                            // Find Simulated Batch in this store
-                            // Since we didn't track precise batch IDs in map, we'll query DB or just assume one exists for seed speed.
-                            // Ideally query: SELECT id FROM inventory_batches WHERE sku=$1 AND warehouse_id=$2 LIMIT 1
-                        });
-                        currentTotal += (price * qty);
-                    }
-
-                    // Insert Sale
-                    // Insert into both 'total' and 'total_amount' to support legacy/new schema hybrid
-                    await client.query(`
-                        INSERT INTO sales(
-                id, location_id, user_id, total_amount, total, payment_method,
-                timestamp, dte_status
-            ) VALUES($1, $2, $3, $4, $5, 'CASH', to_timestamp($6 / 1000.0), 'NOT_ISSUED')
-                `, [
-                        saleId,
-                        storeId,
-                        sellerId,
-                        currentTotal, // total_amount (Numeric)
-                        Math.round(currentTotal), // total (Integer safe)
-                        currentDate.getTime() + (Math.floor(Math.random() * 40000000))
-                    ]);
-
-                    // Insert Items & Decrement Stock
-                    for (const item of items) {
-                        // Find batch to deduct
-                        const batchRes = await client.query(`
-                            SELECT id, quantity_real FROM inventory_batches 
-                            WHERE sku = $1 AND warehouse_id = $2 
-                            LIMIT 1
-            `, [item.sku, storeWhId]);
+                        // Find batch in memory
+                        const batchKey = `${prod.sku}:${storeWhId} `;
+                        const batchData = inventoryMap.get(batchKey);
 
                         let batchId = null;
-                        if (batchRes.rows.length > 0) {
-                            batchId = batchRes.rows[0].id;
-                            // Decrement
-                            await client.query('UPDATE inventory_batches SET quantity_real = quantity_real - $1 WHERE id = $2', [item.qty, batchId]);
+                        if (batchData) {
+                            batchId = batchData.id;
+                            // Update In-Memory State logic (optional strictly for seed, but good for consistency)
+                            // Note: We don't stop selling if quantity < 0 in this simplified demo seed, 
+                            // but we track the decrement.
+                            const currentDec = inventoryUpdates.get(batchId) || 0;
+                            inventoryUpdates.set(batchId, currentDec + qty);
                         }
 
-                        await client.query(`
-                            INSERT INTO sale_items(
-                id, sale_id, batch_id, quantity, unit_price, total_price
-            ) VALUES($1, $2, $3, $4, $5, $6)
-                `, [item.id, saleId, batchId, item.qty, item.price, item.price * item.qty]);
+                        allSaleItems.push({
+                            id: uuidv4(),
+                            sale_id: saleId,
+                            batch_id: batchId,
+                            quantity: qty,
+                            unit_price: price,
+                            total_price: totalLine
+                        });
+
+                        currentTotal += totalLine;
                     }
+
+                    allSales.push({
+                        id: saleId,
+                        location_id: storeId,
+                        user_id: sellerId,
+                        total_amount: currentTotal,
+                        total: Math.round(currentTotal),
+                        payment_method: Math.random() > 0.4 ? 'CARD' : 'CASH', // Mixed payments
+                        timestamp: timestampVal,
+                        dte_status: 'NOT_ISSUED'
+                    });
                 }
             }
+        }
+
+        console.log(`   📦 Generated ${allSales.length} sales and ${allSaleItems.length} items.Starting Batch Insert...`);
+
+        // C. Batch Execution (Chunking)
+        const BATCH_SIZE = 50;
+        let processed = 0;
+
+        for (let i = 0; i < allSales.length; i += BATCH_SIZE) {
+            const saleChunk = allSales.slice(i, i + BATCH_SIZE);
+            const saleIds = new Set(saleChunk.map(s => s.id));
+            const itemChunk = allSaleItems.filter(item => saleIds.has(item.sale_id));
+
+            // 1. Bulk Insert Sales
+            if (saleChunk.length > 0) {
+                // Construct parameterized query
+                // ($1, $2, ...), ($8, $9, ...)
+                const values: any[] = [];
+                const placeholders: string[] = [];
+                let pIdx = 1;
+
+                for (const s of saleChunk) {
+                    placeholders.push(`($${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, to_timestamp($${pIdx++} / 1000.0), $${pIdx++})`);
+                    values.push(s.id, s.location_id, s.user_id, s.total_amount, s.total, s.payment_method, s.timestamp, s.dte_status);
+                }
+
+                const query = `
+                    INSERT INTO sales(
+            id, location_id, user_id, total_amount, total, payment_method, timestamp, dte_status
+        ) VALUES ${placeholders.join(', ')}
+`;
+                await client.query(query, values);
+            }
+
+            // 2. Bulk Insert Items
+            if (itemChunk.length > 0) {
+                const values: any[] = [];
+                const placeholders: string[] = [];
+                let pIdx = 1;
+
+                for (const item of itemChunk) {
+                    placeholders.push(`($${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++})`);
+                    values.push(item.id, item.sale_id, item.batch_id, item.quantity, item.unit_price, item.total_price);
+                }
+
+                const query = `
+                    INSERT INTO sale_items(
+    id, sale_id, batch_id, quantity, unit_price, total_price
+) VALUES ${placeholders.join(', ')}
+`;
+                await client.query(query, values);
+            }
+
+            processed += saleChunk.length;
+            if (processed % 500 === 0 || processed === allSales.length) {
+                console.log(`   ✅ Lote procesado: ${processed} / ${allSales.length} ventas completadas...`);
+            }
+        }
+
+        // D. Final Inventory Sync
+        // Instead of updating every batch in every chunk, we can do one massive update or chunked updates for inventory at the end
+        // because we tracked 'inventoryUpdates' map globally.
+        console.log('   📉 Syncing Inventory Levels...');
+
+        // Convert map to array for batch processing
+        const updatesArray = Array.from(inventoryUpdates.entries()); // [ [batchId, quantityToDeduct], ... ]
+        // Process in chunks of 500 updates
+        const UPDATE_BATCH = 500;
+        for (let i = 0; i < updatesArray.length; i += UPDATE_BATCH) {
+            const chunk = updatesArray.slice(i, i + UPDATE_BATCH); // [[id, qty], [id, qty]]
+
+            // Construct a bulk update using CASE or FROM VALUES
+            // APPROACH: UPDATE inventory_batches AS b SET quantity_real = b.quantity_real - v.qty 
+            // FROM (VALUES (id, qty), (id, qty)) AS v(id, qty) WHERE b.id = v.id::uuid
+
+            const values: any[] = [];
+            const valueTupleStrings: string[] = [];
+            let pIdx = 1;
+
+            for (const [bId, qty] of chunk) {
+                valueTupleStrings.push(`($${pIdx++}::uuid, $${pIdx++}::int)`);
+                values.push(bId, qty);
+            }
+
+            const query = `
+                UPDATE inventory_batches AS b
+                SET quantity_real = b.quantity_real - v.qty
+                FROM (VALUES ${valueTupleStrings.join(', ')}) AS v(id, qty)
+                WHERE b.id = v.id
+            `;
+
+            await client.query(query, values);
         }
 
         // 6. FINANCES (Nov-Dec)
@@ -627,9 +767,9 @@ async function main() {
             const isEndOfMonth = currentDate.getDate() === new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
             const isMidMonth = currentDate.getDate() === 15;
 
-            for (let bIdx = 0; bIdx < branchIds.length; bIdx++) {
-                const storeId = branchIds[bIdx];
-                const storeName = BRANCHES[bIdx].name;
+            for (let idx = 0; idx < branchIds.length; idx++) {
+                const storeId = branchIds[idx];
+                const storeName = BRANCHES[idx].name;
 
                 // A. Operational Expenses (Daily Random)
                 if (Math.random() > 0.7) { // 30% chance for random expense per day

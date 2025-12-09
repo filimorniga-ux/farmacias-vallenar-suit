@@ -21,13 +21,14 @@ export async function fetchInventory(warehouseId?: string): Promise<InventoryBat
                 ib.quantity_real,
                 ib.unit_cost,
                 ib.sale_price as batch_price
-            FROM products p
-            LEFT JOIN inventory_batches ib ON p.id = ib.product_id
+            FROM inventory_batches ib
+            JOIN products p ON ib.product_id::text = p.id::text
         `;
 
         const params: any[] = [];
         if (warehouseId) {
-            sql += ` WHERE ib.warehouse_id = $1`;
+            // Support both Warehouse ID and Location ID for robustness
+            sql += ` WHERE (ib.warehouse_id = $1 OR ib.location_id = $1)`;
             params.push(warehouseId);
         }
 
@@ -56,7 +57,7 @@ export async function fetchInventory(warehouseId?: string): Promise<InventoryBat
             // Batch Specifics
             stock_actual: Number(row.quantity_real) || 0,
             lot_number: row.lot_number || '',
-            expiry_date: row.batch_expiry ? new Date(row.batch_expiry).getTime() : (Date.now() + 31536000000),
+            expiry_date: (row.batch_expiry && !isNaN(new Date(row.batch_expiry).getTime())) ? new Date(row.batch_expiry).getTime() : (Date.now() + 31536000000),
             price: Number(row.batch_price) || Number(row.price) || 0,
             cost_price: Number(row.unit_cost) || 0,
 

@@ -58,7 +58,7 @@ export async function generateSalesReport(params: SalesExportParams) {
             LEFT JOIN locations l ON s.location_id = l.id
             LEFT JOIN terminals t ON s.terminal_id = t.id
             LEFT JOIN users u ON s.user_id = u.id
-            WHERE s.timestamp >= $1 AND s.timestamp <= $2
+            WHERE s.timestamp >= $1::timestamp AND s.timestamp <= $2::timestamp
         `;
 
         const startD = new Date(startDate);

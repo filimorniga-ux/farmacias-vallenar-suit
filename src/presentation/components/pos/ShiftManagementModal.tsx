@@ -25,6 +25,24 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
         }
     }, [isOpen, fetchLocations]);
 
+    // Auto-select user's location and restrict options
+    useEffect(() => {
+        const user = usePharmaStore.getState().user; // Get current user
+        if (user && user.assigned_location_id) {
+            setSelectedLocation(user.assigned_location_id);
+        }
+    }, [isOpen, employees]);
+
+    const availableLocations = locations.filter(l => {
+        const user = usePharmaStore.getState().user;
+        // If Manager/Admin of a specific branch, restrict. If Global, allow all.
+        // Assuming 'assigned_location_id' dictates the restriction.
+        if (user?.assigned_location_id) {
+            return l.id === user.assigned_location_id;
+        }
+        return true;
+    });
+
     useEffect(() => {
         if (selectedLocation) {
             fetchTerminals(selectedLocation);
