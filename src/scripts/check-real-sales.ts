@@ -4,40 +4,37 @@ import path from 'path';
 
 // Fix: Load .env explicitly
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
-if (!process.env.DATABASE_URL) {
-    dotenv.config({ path: path.resolve(process.cwd(), '.env') });
-}
 
-async function main() {
-    console.log('💰 Verificando Ventas Reales en DB...');
-
+async function checkRealSales() {
     const dbModule = await import('../lib/db');
-    const { query } = dbModule;
+    const query = dbModule.query;
+
+    console.log('💰 Validating Real Sales vs UI...');
 
     try {
-        const res = await query('SELECT SUM(total_amount) as total, COUNT(*) as count FROM sales');
-        const row = res.rows[0];
+        // 1. Total Global
+        const totalRes = await query("SELECT SUM(total_amount) as total FROM sales");
+        const total = totalRes.rows[0]?.total || 0;
+        console.log(`💵 TOTAL REAL EN DB: $${Number(total).toLocaleString('es-CL')}`);
 
-        console.log('------------------------------------------------');
-        console.log(`🧾 Total Transacciones: ${row.count}`);
-        console.log(`💵 Monto Total (SUM): ${new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(row.total || 0)}`);
-        console.log('------------------------------------------------');
-
-        // Also check by location/date to see where the money is
-        const dateRes = await query(`
-            SELECT 
-                to_char(timestamp, 'YYYY-MM') as month, 
-                SUM(total_amount) as total 
+        // 2. Breakdown by Month (to see if Nov/Dec has data)
+        const monthRes = await query(`
+            SELECT to_char(timestamp, 'YYYY-MM') as month, SUM(total_amount) as total 
             FROM sales 
             GROUP BY month 
             ORDER BY month DESC
         `);
-        console.table(dateRes.rows);
+        console.log('📅 Breakdown por Mes:', monthRes.rows);
+
+        // 3. Last 5 Sales
+        const lastSales = await query("SELECT id, total_amount, timestamp FROM sales ORDER BY timestamp DESC LIMIT 5");
+        console.log('📝 Últimas 5 Ventas:', lastSales.rows);
 
     } catch (e) {
-        console.error('Error:', e);
+        console.error('❌ Error querying DB:', e);
     }
+
     process.exit(0);
 }
 
-main();
+checkRealSales();

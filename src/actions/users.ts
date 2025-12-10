@@ -54,8 +54,8 @@ export async function createUser(data: Partial<EmployeeProfile>): Promise<{ succ
         }
 
         const sql = `
-            INSERT INTO users (id, rut, name, role, access_pin, job_title, status, phone, biometric_credentials, base_salary, afp, health_system, weekly_hours)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            INSERT INTO users (id, rut, name, role, access_pin, job_title, status, phone, biometric_credentials, base_salary, afp, health_system, weekly_hours, assigned_location_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             RETURNING *
         `;
 
@@ -73,7 +73,8 @@ export async function createUser(data: Partial<EmployeeProfile>): Promise<{ succ
             data.base_salary || 0,
             data.pension_fund || null,
             data.health_system || null,
-            data.weekly_hours || 45
+            data.weekly_hours || 45,
+            data.assigned_location_id || null
         ];
 
         const result = await query(sql, params);
@@ -98,12 +99,13 @@ export async function updateUser(id: string, data: Partial<EmployeeProfile>): Pr
         const sql = `
             UPDATE users 
             SET name = $1, role = $2, access_pin = $3, job_title = $4, status = $5, phone = $6, biometric_credentials = $7, 
-                base_salary = COALESCE($8, base_salary), 
-                afp = COALESCE($9, afp), 
-                health_system = COALESCE($10, health_system), 
-                weekly_hours = COALESCE($11, weekly_hours),
+                base_salary = $8, 
+                afp = $9, 
+                health_system = $10, 
+                weekly_hours = $11,
+                assigned_location_id = $12,
                 updated_at = NOW()
-            WHERE id = $12
+            WHERE id = $13
             RETURNING *
         `;
 
@@ -120,7 +122,8 @@ export async function updateUser(id: string, data: Partial<EmployeeProfile>): Pr
             data.pension_fund,
             data.health_system,
             data.weekly_hours,
-            id
+            data.assigned_location_id, // $12
+            id // $13
         ];
 
         const result = await query(sql, params);

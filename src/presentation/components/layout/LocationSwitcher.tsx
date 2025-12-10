@@ -4,9 +4,9 @@ import { usePharmaStore } from '../../store/useStore';
 import { MapPin, Building2, Warehouse, ChevronDown, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const LocationSelector: React.FC = () => {
+const LocationSwitcher: React.FC = () => {
     const { currentLocation, locations, switchLocation, canSwitchLocation } = useLocationStore();
-    const { user } = usePharmaStore();
+    const { user, setCurrentLocation } = usePharmaStore();
     const [isOpen, setIsOpen] = useState(false);
     const [isSwitching, setIsSwitching] = useState(false);
 
@@ -28,20 +28,9 @@ const LocationSelector: React.FC = () => {
             case 'WAREHOUSE':
                 return 'from-amber-500 to-orange-600';
             case 'STORE':
-                return 'from-blue-600 to-indigo-600'; // Darker blue for better contrast
+                return 'from-blue-600 to-indigo-600';
             default:
                 return 'from-gray-500 to-gray-600';
-        }
-    };
-
-    const getLocationBadgeColor = (type: string) => {
-        switch (type) {
-            case 'WAREHOUSE':
-                return 'bg-amber-100 text-amber-700 border-amber-300';
-            case 'STORE':
-                return 'bg-blue-100 text-blue-700 border-blue-300';
-            default:
-                return 'bg-gray-100 text-gray-700 border-gray-300';
         }
     };
 
@@ -50,10 +39,25 @@ const LocationSelector: React.FC = () => {
         setIsSwitching(true);
         setIsOpen(false);
 
+        // 1. Find Target Location
+        const target = locations.find(l => l.id === locationId);
+        if (!target) return;
+
         // Simulate transition delay for effect
         setTimeout(() => {
+            // 2. Update Location Store (Persisted)
             switchLocation(locationId, () => {
-                setTimeout(() => setIsSwitching(false), 500); // Keep showing slightly after switch
+
+                // 3. Update Pharma Store (Persisted & Actions Context)
+                // We resolve the default warehouse for this location if it's a store
+                const warehouseId = target.default_warehouse_id || (target.type === 'WAREHOUSE' ? target.id : '');
+
+                // Update Global Store
+                setCurrentLocation(target.id, warehouseId, '');
+
+                // 4. Force Hard Reload to Reset All State
+                console.log('🔄 Sincronizando contexto global y recargando...');
+                window.location.reload();
             });
         }, 800);
     };
@@ -65,14 +69,13 @@ const LocationSelector: React.FC = () => {
     return (
         <div className="relative">
             {/* Transition Overlay */}
-            {/* Transition Overlay */}
             <AnimatePresence>
                 {isSwitching && (
                     <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[9999] bg-black/20 backdrop-blur-sm flex items-center justify-center p-4"
+                        className="fixed inset-0 z-[9999] bg-black/50 backdrop-blur-md flex items-center justify-center p-4 transition-all"
                     >
                         <motion.div
                             initial={{ scale: 0.9, opacity: 0, y: 10 }}
@@ -95,13 +98,13 @@ const LocationSelector: React.FC = () => {
                             </motion.div>
 
                             <h2 className="text-2xl font-black text-slate-800 mb-2 tracking-tight">Cambiando Sucursal</h2>
-                            <p className="text-slate-500 font-medium">Sincronizando datos...</p>
+                            <p className="text-slate-500 font-medium">Sincronizando inventario y reportes...</p>
                         </motion.div>
                     </motion.div>
                 )}
             </AnimatePresence>
 
-            {/* Current Location Button - Enhanced Visibility */}
+            {/* Current Location Button */}
             <div className="flex flex-col items-end mr-2 lg:hidden">
                 <span className="text-[10px] uppercase font-bold text-slate-400">Ubicación Actual</span>
             </div>
@@ -109,34 +112,34 @@ const LocationSelector: React.FC = () => {
             <button
                 onClick={() => canSwitch && !isSwitching && setIsOpen(!isOpen)}
                 disabled={!canSwitch || isSwitching}
-                className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border-2 transition-all group relative overflow-hidden ${canSwitch
-                    ? 'hover:shadow-lg cursor-pointer hover:scale-[1.02]'
-                    : 'opacity-75 cursor-not-allowed'
-                    } bg-gradient-to-r ${getLocationColor(currentLocation.type)} text-white border-white/20 shadow-md`}
+                className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border transition-all group relative overflow-hidden ${canSwitch
+                    ? 'hover:shadow-md cursor-pointer hover:border-cyan-300'
+                    : 'opacity-75 cursor-not-allowed bg-slate-50'
+                    } bg-white text-slate-900 border-slate-200 shadow-sm`}
             >
                 {/* Shine Effect */}
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-200%] group-hover:animate-shine" />
 
-                <div className="p-1.5 bg-white/20 rounded-lg backdrop-blur-sm">
+                <div className={`p-1.5 rounded-lg bg-gradient-to-br ${getLocationColor(currentLocation.type)} text-white shadow-sm`}>
                     <Icon className="w-5 h-5" />
                 </div>
 
                 <div className="text-left">
-                    <div className="text-[10px] font-bold opacity-80 uppercase tracking-wider">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                         {currentLocation.type === 'WAREHOUSE' ? 'Estás en Bodega' : 'Estás en Sucursal'}
                     </div>
-                    <div className="text-sm font-extrabold leading-tight">
+                    <div className="text-sm font-extrabold leading-tight text-slate-800">
                         {currentLocation.name.replace('Farmacia Vallenar ', '').replace('Bodega Central ', '')}
                     </div>
                 </div>
 
                 {canSwitch ? (
-                    <div className="pl-2 border-l border-white/20 ml-1">
-                        <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''} text-white/80`} />
+                    <div className="pl-2 border-l border-slate-100 ml-1">
+                        <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''} text-slate-400`} />
                     </div>
                 ) : (
-                    <div className="pl-2 border-l border-white/20 ml-1">
-                        <Lock className="w-4 h-4 text-white/50" />
+                    <div className="pl-2 border-l border-slate-100 ml-1">
+                        <Lock className="w-4 h-4 text-slate-300" />
                     </div>
                 )}
             </button>
@@ -201,7 +204,7 @@ const LocationSelector: React.FC = () => {
                 )}
             </AnimatePresence>
 
-            {/* Locked Message for Non-Managers */}
+            {/* Locked Message */}
             {!canSwitch && (
                 <div className="absolute top-full right-0 mt-2 w-64 bg-slate-800 text-white rounded-xl p-4 text-xs shadow-xl z-50 hidden group-hover:block transition-all">
                     <div className="flex items-start gap-3">
@@ -219,4 +222,4 @@ const LocationSelector: React.FC = () => {
     );
 };
 
-export default LocationSelector;
+export default LocationSwitcher;

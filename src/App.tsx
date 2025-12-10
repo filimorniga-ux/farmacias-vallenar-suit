@@ -26,6 +26,8 @@ import { SupplierProfile } from './presentation/pages/SupplierProfile';
 import NetworkPage from './presentation/pages/NetworkPage';
 import PriceCheckPage from './presentation/pages/PriceCheckPage';
 import InventorySettings from './presentation/pages/settings/InventorySettings';
+import ContextSelectionPage from './presentation/pages/ContextSelectionPage';
+import PrintingSettingsPage from './presentation/pages/settings/PrintingSettingsPage';
 
 // DEV NOTE: To test Mobile Native Experience (Camera, Swipe Tabs, Layout),
 // use Chrome DevTools (F12) -> Toggle Device Toolbar (Cmd+Shift+M)
@@ -55,6 +57,8 @@ function App() {
                 <Route path="/price-check" element={<PriceCheckPage />} />
 
                 {/* Protected Routes */}
+                <Route path="/select-context" element={<ProtectedRoute><ContextSelectionPage /></ProtectedRoute>} />
+                <Route path="/settings/printing" element={<ProtectedRoute><PrintingSettingsPage /></ProtectedRoute>} />
                 <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
                 <Route path="/pos" element={<ProtectedRoute><POSMainScreen /></ProtectedRoute>} />
                 <Route path="/inventory" element={<ProtectedRoute><InventoryPage /></ProtectedRoute>} />

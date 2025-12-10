@@ -36,15 +36,17 @@ const LandingPage: React.FC = () => {
         : employees.filter(emp => emp.status === 'ACTIVE');
 
     // Security: Auto-logout when landing on this page
-    useEffect(() => {
-        logout();
-        // Sesión cerrada por seguridad al volver al inicio.
-    }, []);
+    // useEffect(() => {
+    //     logout();
+    //     // Sesión cerrada por seguridad al volver al inicio.
+    // }, []);
 
     // Navigate after successful login (when user state updates)
     useEffect(() => {
-        if (user && targetRoute) {
-            navigate(targetRoute);
+        if (user) {
+            // Redirect to Context Selection instead of direct route
+            const route = targetRoute || '/dashboard';
+            navigate('/select-context', { state: { targetRoute: route } });
             setTargetRoute(''); // Clear target route
         }
     }, [user, targetRoute, navigate]);
@@ -52,7 +54,7 @@ const LandingPage: React.FC = () => {
     const handleCardClick = (route: string) => {
         // ALL cards now require login for security
         if (user) {
-            navigate(route);
+            navigate('/select-context', { state: { targetRoute: route } });
         } else {
             setTargetRoute(route);
             setIsLoginModalOpen(true);

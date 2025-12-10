@@ -6,9 +6,16 @@ interface TicketBoletaProps {
     sale: SaleTransaction;
     companyName?: string;
     companyRut?: string;
+    config?: {
+        header_text?: string;
+        show_logo?: boolean;
+        footer_text?: string;
+        social_media?: string;
+        show_barcode?: boolean;
+    }
 }
 
-const TicketBoleta: React.FC<TicketBoletaProps> = ({ sale, companyName = 'FARMACIAS VALLENAR', companyRut = '76.123.456-7' }) => {
+const TicketBoleta: React.FC<TicketBoletaProps> = ({ sale, companyName = 'FARMACIAS VALLENAR', companyRut = '76.123.456-7', config }) => {
     const isDTE = sale.dte_status === 'CONFIRMED_DTE';
     const folio = sale.dte_folio || '000000';
 
@@ -16,7 +23,12 @@ const TicketBoleta: React.FC<TicketBoletaProps> = ({ sale, companyName = 'FARMAC
         <div className="bg-white p-4 w-[300px] font-mono text-xs shadow-lg border border-slate-200 mx-auto my-4">
             {/* Header */}
             <div className="text-center mb-4 border-b border-dashed border-slate-300 pb-4">
-                <h2 className="font-bold text-lg">{companyName}</h2>
+                {config?.show_logo && (
+                    <div className="flex justify-center mb-2">
+                        <div className="w-12 h-12 bg-slate-900 rounded-full flex items-center justify-center text-white font-bold text-xs">FV</div>
+                    </div>
+                )}
+                <h2 className="font-bold text-lg">{config?.header_text || companyName}</h2>
                 <p>{companyRut}</p>
                 <p>Av. Matta 550, Vallenar</p>
                 <p>Tel: +56 51 261 1234</p>
@@ -91,6 +103,10 @@ const TicketBoleta: React.FC<TicketBoletaProps> = ({ sale, companyName = 'FARMAC
                         <p className="text-[10px] font-bold text-slate-400">*** COPIA INTERNA ***</p>
                         <p className="text-[9px] text-slate-400 mt-1">Este documento es solo para control de inventario y caja.</p>
                     </div>
+                )}
+                <p className="font-bold mb-1">{config?.footer_text || '¡Gracias por su preferencia!'}</p>
+                {config?.social_media && (
+                    <p className="text-[10px] mb-2">{config.social_media}</p>
                 )}
                 <p className="text-[8px] mt-4 text-slate-400">Farmacias Vallenar - Sistema POS v2.1</p>
             </div>

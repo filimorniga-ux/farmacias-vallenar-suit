@@ -6,6 +6,8 @@ import { APP_MODULES, ROLE_PRESETS } from '../../../domain/config/roles_presets'
 import { WebAuthnService } from '../../../infrastructure/biometrics/WebAuthnService';
 import { toast } from 'sonner';
 import { formatRut } from '../../../lib/utils';
+import { useLocationStore } from '../../store/useLocationStore';
+import { MapPin } from 'lucide-react';
 
 interface EmployeeModalProps {
     isOpen: boolean;
@@ -16,6 +18,7 @@ interface EmployeeModalProps {
 
 export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, employee, onSave }) => {
     const [formData, setFormData] = useState<EmployeeProfile | null>(null);
+    const { locations } = useLocationStore();
 
     useEffect(() => {
         if (employee) {
@@ -212,6 +215,27 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                             </select>
                                         </div>
                                     </div>
+
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1 flex items-center gap-1">
+                                            <MapPin size={14} className="text-slate-400" />
+                                            Lugar de Trabajo Asignado
+                                        </label>
+                                        <select
+                                            value={formData.assigned_location_id || ''}
+                                            onChange={e => setFormData({ ...formData, assigned_location_id: e.target.value || undefined })}
+                                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                                        >
+                                            <option value="">-- Sin Asignación (Global) --</option>
+                                            {locations.map(loc => (
+                                                <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
+                                            ))}
+                                        </select>
+                                        <p className="text-xs text-slate-400 mt-1">
+                                            * Define dónde marca asistencia este empleado.
+                                        </p>
+                                    </div>
+
                                     <div>
                                         <label className="block text-sm font-bold text-slate-700 mb-1">Sueldo Base</label>
                                         <div className="relative">

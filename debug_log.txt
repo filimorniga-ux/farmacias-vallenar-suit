@@ -1,0 +1,63 @@
+DEBUG DB URL: UNDEFINED
+🔌 Initializing PostgreSQL Pool...
+Current directory: /Users/miguelperdomoserrato/farmacias-vallenar-suit
+[dotenv@17.2.3] injecting env (4) from .env.local -- tip: ⚙️  enable debug logging with { debug: true }
+DATABASE_URL defined? YES
+DB Host: otzu2xb7ra.m1xugm0lj9.tsdb.cloud.timescale.com:31684/tsdb?sslmode=require
+🛠️ Iniciando reparación de esquema WMS...
+Checking warehouses table...
+❌ FATAL: Could not connect to database: 
+❌ Error Base de Datos: AggregateError [ECONNREFUSED]: 
+    at /Users/miguelperdomoserrato/farmacias-vallenar-suit/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async query (/Users/miguelperdomoserrato/farmacias-vallenar-suit/src/lib/db.ts:53:21)
+    at async fixWmsSchema (/Users/miguelperdomoserrato/farmacias-vallenar-suit/src/scripts/fix-wms-schema.ts:29:9) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:5432
+        at createConnectionError (node:net:1678:14)
+        at afterConnectMultiple (node:net:1708:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 5432
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:5432
+        at createConnectionError (node:net:1678:14)
+        at afterConnectMultiple (node:net:1708:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 5432
+    }
+  ]
+}
+❌ Error reparando esquema WMS: AggregateError [ECONNREFUSED]: 
+    at /Users/miguelperdomoserrato/farmacias-vallenar-suit/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async query (/Users/miguelperdomoserrato/farmacias-vallenar-suit/src/lib/db.ts:53:21)
+    at async fixWmsSchema (/Users/miguelperdomoserrato/farmacias-vallenar-suit/src/scripts/fix-wms-schema.ts:29:9) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:5432
+        at createConnectionError (node:net:1678:14)
+        at afterConnectMultiple (node:net:1708:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 5432
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:5432
+        at createConnectionError (node:net:1678:14)
+        at afterConnectMultiple (node:net:1708:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 5432
+    }
+  ]
+}
