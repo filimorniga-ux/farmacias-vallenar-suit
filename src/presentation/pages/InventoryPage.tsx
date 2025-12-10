@@ -5,7 +5,7 @@ import {
     Filter, Download, Upload, AlertTriangle, Search, Plus, FileSpreadsheet,
     ChevronDown, ChevronUp, MoreHorizontal, History, RefreshCcw, Package, ScanBarcode, ArrowRightLeft, Edit, Trash2
 } from 'lucide-react';
-import { MobileScanner } from '../components/shared/MobileScanner';
+import { MobileScanner } from '../../components/shared/MobileScanner';
 import StockEntryModal from '../components/inventory/StockEntryModal';
 import StockTransferModal from '../components/inventory/StockTransferModal';
 import InventoryEditModal from '../components/inventory/InventoryEditModal';
