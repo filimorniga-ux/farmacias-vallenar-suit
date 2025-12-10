@@ -87,8 +87,8 @@ interface PharmaState {
 
     // Quotes
     quotes: Quote[];
-    createQuote: (customer?: Customer) => Quote;
-    retrieveQuote: (quoteId: string) => boolean; // Returns true if found and loaded
+    createQuote: (customer?: Customer) => Promise<Quote | null>;
+    retrieveQuote: (quoteId: string) => Promise<boolean>; // Returns true if found and loaded
 
     // Inventory Actions
     createProduct: (product: Omit<InventoryBatch, 'id'>) => InventoryBatch;
@@ -1016,7 +1016,7 @@ export const usePharmaStore = create<PharmaState>()(
 
                 if (result.success && result.quote) {
                     import('sonner').then(({ toast }) => {
-                        toast.success(`Cotización guardada: ${result.quote?.code}`);
+                        toast.success(`Cotización guardada: ${result.quote?.id}`);
                     });
                     set({ cart: [], currentCustomer: null });
                     return result.quote;
@@ -1037,27 +1037,19 @@ export const usePharmaStore = create<PharmaState>()(
                     const quote = result.quote;
 
                     // Convert QuoteItems to CartItems
-                    // Note: We might need to fetch full product details if we want full object (allows_commission etc)
-                    // But for now we use what we stored. Ideally we stored product_id and can refetch or just assume basic data.
-                    // For speed, we'll map what we have.
-                    const cartItems: CartItem[] = quote.items.map((item: any) => ({
-                        id: item.product_id || item.product_name, // Fallback
-                        sku: item.product_id || 'UNKNOWN', // Ideally SKU
-                        name: item.product_name,
-                        price: item.unit_price,
-                        quantity: item.quantity,
-                        allows_commission: false,
-                        active_ingredients: [],
-                        cost_price: 0
-                    }));
+                    // Domain Quote items are already CartItems?
+                    // actions/quotes.ts now returns Quote with items as CartItems.
+                    // So quote.items is ALREADY CartItem[].
+
+                    const cartItems = quote.items;
 
                     set({
                         cart: cartItems,
-                        currentCustomer: state.customers.find(c => c.id === quote.customer?.id) || null
+                        currentCustomer: state.customers.find(c => c.id === quote.customer_id) || null
                     });
 
                     import('sonner').then(({ toast }) => {
-                        toast.success(`Cotización cargada: ${quote.code}`);
+                        toast.success(`Cotización cargada: ${quote.id}`);
                     });
                     return true;
                 } else {
