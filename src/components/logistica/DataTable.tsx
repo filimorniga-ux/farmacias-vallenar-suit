@@ -10,19 +10,6 @@ interface DataTableProps {
 }
 
 export default function DataTable({ initialData }: DataTableProps) {
-    const { currentWarehouseId, user } = usePharmaStore(); // Get context
-    const [searchTerm, setSearchTerm] = useState('');
-    const [selectedWarehouse, setSelectedWarehouse] = useState<string>(currentWarehouseId || ''); // Initialize with context
-    const [isGrouped, setIsGrouped] = useState(true);
-
-    // Permissions: Only Managers/Admin can switch warehouse view
-    const isManager = user?.role === 'MANAGER' || user?.role === 'ADMIN' || user?.role === 'GERENTE_GENERAL';
-
-    // Force selection to current warehouse if not manager, or if no selection made
-    if (!isManager && currentWarehouseId && selectedWarehouse !== currentWarehouseId) {
-        setSelectedWarehouse(currentWarehouseId);
-    }
-
     // Extract unique warehouses from data for the dropdown
     const availableWarehouses = useMemo(() => {
         const map = new Map<string, string>();
@@ -33,6 +20,18 @@ export default function DataTable({ initialData }: DataTableProps) {
         });
         return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
     }, [initialData]);
+
+    const { currentWarehouseId, user } = usePharmaStore(); // Get context
+    const [searchTerm, setSearchTerm] = useState('');
+
+    // Initialize selectedWarehouse carefully:
+    // 1. Try currentWarehouseId
+    // 2. If not, try the first available warehouse from data
+    // 3. Fallback to empty
+    const defaultWh = currentWarehouseId || (availableWarehouses.length > 0 ? availableWarehouses[0].id : '');
+
+    const [selectedWarehouse, setSelectedWarehouse] = useState<string>(defaultWh);
+    const [isGrouped, setIsGrouped] = useState(true);
 
     const processedData = useMemo(() => {
         let regex: RegExp;

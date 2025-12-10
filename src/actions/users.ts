@@ -23,6 +23,12 @@ function mapUserFromDB(row: any): EmployeeProfile {
             ? JSON.parse(row.biometric_credentials)
             : (row.biometric_credentials || []),
         // Valores por defecto para campos requeridos por la interfaz pero no siempre en DB
+        // Salary Data
+        base_salary: Number(row.base_salary) || 0,
+        pension_fund: row.afp,
+        health_system: row.health_system,
+        weekly_hours: Number(row.weekly_hours) || 45,
+
         current_status: 'OUT', // Estado de asistencia por defecto
         assigned_location_id: row.assigned_location_id,
     };
@@ -48,8 +54,8 @@ export async function createUser(data: Partial<EmployeeProfile>): Promise<{ succ
         }
 
         const sql = `
-            INSERT INTO users (id, rut, name, role, access_pin, job_title, status, phone, biometric_credentials)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO users (id, rut, name, role, access_pin, job_title, status, phone, biometric_credentials, base_salary, afp, health_system, weekly_hours)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING *
         `;
 
@@ -62,7 +68,12 @@ export async function createUser(data: Partial<EmployeeProfile>): Promise<{ succ
             data.job_title || 'CAJERO_VENDEDOR',
             data.status || 'ACTIVE',
             data.contact_phone || null,
-            JSON.stringify(data.biometric_credentials || [])
+            JSON.stringify(data.biometric_credentials || []),
+            // HR Data
+            data.base_salary || 0,
+            data.pension_fund || null,
+            data.health_system || null,
+            data.weekly_hours || 45
         ];
 
         const result = await query(sql, params);
@@ -86,8 +97,13 @@ export async function updateUser(id: string, data: Partial<EmployeeProfile>): Pr
     try {
         const sql = `
             UPDATE users 
-            SET name = $1, role = $2, access_pin = $3, job_title = $4, status = $5, phone = $6, biometric_credentials = $7, updated_at = NOW()
-            WHERE id = $8
+            SET name = $1, role = $2, access_pin = $3, job_title = $4, status = $5, phone = $6, biometric_credentials = $7, 
+                base_salary = COALESCE($8, base_salary), 
+                afp = COALESCE($9, afp), 
+                health_system = COALESCE($10, health_system), 
+                weekly_hours = COALESCE($11, weekly_hours),
+                updated_at = NOW()
+            WHERE id = $12
             RETURNING *
         `;
 
@@ -99,6 +115,11 @@ export async function updateUser(id: string, data: Partial<EmployeeProfile>): Pr
             data.status,
             data.contact_phone || null,
             JSON.stringify(data.biometric_credentials || []),
+            // HR Data Updates
+            data.base_salary,
+            data.pension_fund,
+            data.health_system,
+            data.weekly_hours,
             id
         ];
 

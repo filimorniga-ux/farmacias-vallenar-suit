@@ -11,34 +11,44 @@ export async function fetchInventory(warehouseId?: string): Promise<InventoryBat
         // If not, we might be fetching GLOBAL catalog (master data) or all batches.
         // For POS, we usually want specific warehouse stock.
 
+        // Optimized Query:
+        // Use COALESCE and explicit casting for robust joins.
+        // We ensure we get product details even if some join keys vary in type (uuid vs text).
+
         let sql = `
             SELECT 
-                p.*, 
+                p.id as product_id,
+                p.sku,
+                p.name,
+                p.dci,
+                p.category,
+                p.units_per_box,
+                p.price_sell_box, -- Master Price
+                p.format,
+                
                 ib.id as batch_id,
                 ib.warehouse_id,
                 ib.lot_number,
                 ib.expiry_date as batch_expiry,
                 ib.quantity_real,
                 ib.unit_cost,
-                ib.sale_price as batch_price
+                ib.sale_price as batch_price,
+                ib.location_id -- Some schemas use location_id on batch
             FROM inventory_batches ib
-            JOIN products p ON ib.product_id::text = p.id::text
+            JOIN products p ON ib.product_id::text = p.id::text 
         `;
 
         const params: any[] = [];
         if (warehouseId) {
-            // Support both Warehouse ID and Location ID for robustness
-            sql += ` WHERE (ib.warehouse_id = $1 OR ib.location_id = $1)`;
+            // Robust filtering: STRICT
+            sql += ` WHERE ib.warehouse_id::text = $1`;
             params.push(warehouseId);
         }
 
-        // Note: multiple batches per product? 
-        // The Domain Type 'InventoryBatch' is actually a flattened Product + Batch info.
-        // If a product has multiple batches, this query returns multiple rows (one per batch).
-        // If a product has NO batches in this warehouse, it won't show up (LEFT JOIN matches p, but WHERE filters ib... wait).
-        // If WHERE ib.warehouse_id = $1 is applied, rows with null ib (products without stock) are excluded unless we use (ib.warehouse_id = $1 OR ib.warehouse_id IS NULL).
-        // But usually we want to see available stock.
-        // Let's stick to returning batches found.
+        // Limit results if no warehouse specified? No, POS needs full catalog usually, or we paginate.
+        // For now, implicit limit or full fetch (careful with large DBs).
+        // Added ORDER BY for consistent results.
+        sql += ` ORDER BY p.name ASC LIMIT 2000`; // Safety cap
 
         const res = await query(sql, params);
         console.log(`✅ Fetched ${res.rows.length} inventory items`);

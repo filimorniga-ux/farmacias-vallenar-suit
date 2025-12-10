@@ -19,6 +19,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
 
     useEffect(() => {
         if (employee) {
+            console.log('Employee Data Loaded:', employee);
             setFormData({ ...employee });
         }
     }, [employee]);

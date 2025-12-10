@@ -14,6 +14,8 @@ const InventoryPage: React.FC = () => {
     const { inventory, user } = usePharmaStore();
     const [searchTerm, setSearchTerm] = useState('');
     const [activeTab, setActiveTab] = useState<'MEDS' | 'RETAIL' | 'CONTROLLED'>('MEDS');
+    const [isGrouped, setIsGrouped] = useState(true); // Default to Grouped
+    const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>((user as any)?.assigned_warehouse_id || 'ALL'); // Default to User Warehouse
     const [isEntryModalOpen, setIsEntryModalOpen] = useState(false);
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);

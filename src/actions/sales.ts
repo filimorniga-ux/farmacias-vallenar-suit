@@ -277,18 +277,18 @@ export async function getSales(limit = 50, locationId?: string, terminalId?: str
         let paramIndex = 2;
 
         if (locationId) {
-            whereClause += ` AND s.location_id = $${paramIndex}`;
+            whereClause += ` AND s.location_id::text = $${paramIndex}::text`;
             params.push(locationId);
             paramIndex++;
         }
 
         if (terminalId) {
-            whereClause += ` AND s.terminal_id = $${paramIndex}`;
+            whereClause += ` AND s.terminal_id::text = $${paramIndex}::text`;
             params.push(terminalId);
             paramIndex++;
         }
 
-        const sql = `
+        const finalSql = `
             SELECT 
                 s.id, 
                 s.total_amount as total, 
@@ -312,9 +312,8 @@ export async function getSales(limit = 50, locationId?: string, terminalId?: str
                 ) as items
                 
             FROM sales s
-            LEFT JOIN sale_items si ON s.id = si.sale_id
-            LEFT JOIN inventory_batches b ON si.batch_id = b.id
-            -- FIX: Cast product_id to ensure match if one is text and other is uuid
+            LEFT JOIN sale_items si ON s.id::text = si.sale_id::text
+            LEFT JOIN inventory_batches b ON si.batch_id::text = b.id::text
             LEFT JOIN products p ON b.product_id::text = p.id::text
             WHERE 1=1 ${whereClause}
             GROUP BY s.id
@@ -322,7 +321,7 @@ export async function getSales(limit = 50, locationId?: string, terminalId?: str
             LIMIT $1
         `;
 
-        const res = await query(sql, params);
+        const res = await query(finalSql, params);
 
         // Map to Domain Type
         const sales: SaleTransaction[] = res.rows.map((row: any) => ({

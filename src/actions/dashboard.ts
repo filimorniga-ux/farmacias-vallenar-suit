@@ -26,6 +26,12 @@ export interface FinancialMetrics {
     }[];
 }
 
+// Helper for UUID validation
+function isValidUUID(uuid: string) {
+    const regex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return regex.test(uuid);
+}
+
 export async function getFinancialMetrics(
     dateRange: { from: Date; to: Date },
     locationId?: string,
@@ -34,6 +40,20 @@ export async function getFinancialMetrics(
     try {
         const fromStr = dateRange.from.toISOString();
         const toStr = dateRange.to.toISOString();
+
+        // 🛡️ Validate UUIDs to prevent 500 Errors
+        if (locationId) {
+            if (!isValidUUID(locationId)) {
+                console.warn(`⚠️ Invalid Location UUID: "${locationId}". Falling back to Global View.`);
+                locationId = undefined;
+            }
+        }
+        if (terminalId) {
+            if (!isValidUUID(terminalId)) {
+                console.warn(`⚠️ Invalid Terminal UUID: "${terminalId}". Ignoring filter.`);
+                terminalId = undefined;
+            }
+        }
 
         // 1. Base Filters
         // We use parameters array for safety (though dynamic building is needed).
@@ -44,26 +64,11 @@ export async function getFinancialMetrics(
         const params: any[] = [fromStr, toStr];
         let paramIndex = 3;
 
+        // ... (rest of logic continues correctly as locationId is now safe or undefined)
         if (locationId) {
-            salesWhere += ` AND location_id = $${paramIndex}`;
-            cashWhere += ` AND (shift_id IN (SELECT id FROM terminals WHERE location_id = $${paramIndex}))`; // Cash movements usually linked to shift_id which is terminal or session. In previous work shift_id=terminalId was used loosely.
-            // Better: cash_movements should have location_id directly? Or link via terminal.
-            // Let's assume cash_movements has terminal_id or shift_id=terminalId.
-            // In terminals.ts: createCashMovement({ shift_id: terminalId ... })
-            // So shift_id IS terminal_id in this simplified model.
-            params.push(locationId);
-            paramIndex++;
+            // ...
         }
 
-        if (terminalId) {
-            salesWhere += ` AND terminal_id = $${paramIndex}`;
-            cashWhere += ` AND shift_id = $${paramIndex}`; // shift_id is terminal_id
-            params.push(terminalId); // Push terminalId
-            // Note: If both locationId and terminalId provided, we just push terminalId if index requires.
-            // If strictly sequential, we need to manage params array carefully.
-            // Let's rebuild params dynamically properly.
-            paramIndex++;
-        }
 
         // Correct Params Rebuild
         const queryParams = [fromStr, toStr];
@@ -78,13 +83,13 @@ export async function getFinancialMetrics(
         let cashConditions = "timestamp >= $1::timestamp AND timestamp <= $2::timestamp";
 
         if (locationId) {
-            salesConditions += ` AND location_id = $3`;
-            cashConditions += ` AND shift_id IN (SELECT id FROM terminals WHERE location_id = $3)`;
+            salesConditions += ` AND location_id = $3::uuid`;
+            cashConditions += ` AND shift_id IN (SELECT id::text FROM terminals WHERE location_id = $3::uuid)`;
         }
         if (terminalId) {
             const idx = locationId ? '$4' : '$3';
-            salesConditions += ` AND terminal_id = ${idx}`;
-            cashConditions += ` AND shift_id = ${idx}`;
+            salesConditions += ` AND terminal_id = ${idx}::uuid`;
+            cashConditions += ` AND shift_id = ${idx}::text`; // Comparing shift_id (likely text) with terminal_id (uuid cast to text)
         }
 
         // --- Execute Queries ---
@@ -99,7 +104,11 @@ export async function getFinancialMetrics(
                 COALESCE(SUM(CASE WHEN payment_method = 'CREDIT' THEN total_amount ELSE 0 END), 0) as credit,
                 COALESCE(SUM(CASE WHEN payment_method = 'TRANSFER' THEN total_amount ELSE 0 END), 0) as transfer
             FROM sales 
-            WHERE ${salesConditions}
+            WHERE 
+                timestamp >= $1::timestamp 
+                AND timestamp <= $2::timestamp 
+                ${salesConditions.replace('timestamp >= $1::timestamp AND timestamp <= $2::timestamp', '')}
+                -- Removed DTE Status filter to show All Sales
         `;
         const salesRes = await query(salesSql, queryParams);
         const sRow = salesRes.rows[0];
@@ -157,7 +166,7 @@ export async function getFinancialMetrics(
                 SELECT t.id, t.name, COALESCE(SUM(s.total_amount), 0) as total
                 FROM terminals t
                 LEFT JOIN sales s ON s.terminal_id = t.id AND s.timestamp >= $1::timestamp AND s.timestamp <= $2::timestamp
-                WHERE t.location_id = $3
+                WHERE t.location_id = $3::uuid
                 GROUP BY t.id, t.name
                 ORDER BY total DESC
              `;

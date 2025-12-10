@@ -13,9 +13,14 @@ interface Props {
 
 export default function AnalyticsDashboard({ initialLocations }: Props) {
     // State
-    const [dateRange, setDateRange] = useState<{ from: string; to: string }>({
-        from: '2025-11-01',
-        to: '2025-12-31'
+    const [dateRange, setDateRange] = useState<{ from: string; to: string }>(() => {
+        const now = new Date();
+        const start = new Date(now.getFullYear(), now.getMonth(), 1);
+        const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        return {
+            from: start.toISOString().split('T')[0],
+            to: end.toISOString().split('T')[0]
+        };
     });
     const [selectedLocationId, setSelectedLocationId] = useState<string>('');
     const [selectedTerminalId, setSelectedTerminalId] = useState<string>('');

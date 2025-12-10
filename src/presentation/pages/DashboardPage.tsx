@@ -39,29 +39,60 @@ const DashboardPage: React.FC = () => {
         };
     }, []);
 
+    // --- SERVER SIDE DATA ---
+    const [serverMetrics, setServerMetrics] = useState<any>(null);
+
+    // Fetch real metrics from server
+    const refreshDashboard = async () => {
+        setIsRefreshing(true);
+        try {
+            const { getFinancialMetrics } = await import('../../actions/dashboard');
+            const now = new Date();
+            const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+            const metrics = await getFinancialMetrics({ from: startOfDay, to: endOfDay }, currentLocation?.id);
+            setServerMetrics(metrics);
+        } catch (error) {
+            console.error('Failed to fetch dashboard metrics:', error);
+        } finally {
+            setTimeout(() => setIsRefreshing(false), 500);
+        }
+    };
+
+    useEffect(() => {
+        refreshDashboard();
+    }, [currentLocation]);
+
     // --- REAL-TIME DATA AGGREGATION ---
     const dashboardData = useMemo(() => {
+        // Prefer Server Data if available, else fallback to local store (Offline Mode)
+        if (serverMetrics) {
+            return {
+                totalSales: serverMetrics.summary.total_sales,
+                cashInDrawer: serverMetrics.summary.net_cash_flow, // Approximation based on Net Cash Flow = (Open + Sales) - Expenses
+                cardSales: serverMetrics.by_payment_method.debit + serverMetrics.by_payment_method.credit,
+                transferSales: serverMetrics.by_payment_method.transfer,
+                todayExpenses: serverMetrics.summary.total_expenses,
+                activeStaff: employees.filter(emp => emp.current_status === 'IN' || emp.current_status === 'LUNCH'),
+                lowStockItems: inventory.filter(i => i.stock_actual <= (i.stock_min || 5)).length,
+                infrastructureAlert: true
+            };
+        }
+
+        // Local Fallback (Original Logic)
         const now = new Date();
         const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 
-        // 1. Financials (Today)
         const todaySales = salesHistory.filter(s => s.timestamp >= startOfDay);
         const totalSales = todaySales.reduce((sum, s) => sum + s.total, 0);
 
         const cashSales = todaySales.filter(s => s.payment_method === 'CASH').reduce((sum, s) => sum + s.total, 0);
         const cardSales = todaySales.filter(s => s.payment_method === 'DEBIT' || s.payment_method === 'CREDIT').reduce((sum, s) => sum + s.total, 0);
         const transferSales = todaySales.filter(s => s.payment_method === 'TRANSFER').reduce((sum, s) => sum + s.total, 0);
-        const digitalSales = cardSales + transferSales;
 
         const todayExpenses = expenses.filter(e => e.date >= startOfDay).reduce((sum, e) => sum + e.amount, 0);
-        const cashInDrawer = cashSales - todayExpenses; // Simplified
-
-        // 2. Staff On Duty
-        const activeStaff = employees.filter(emp => emp.current_status === 'IN' || emp.current_status === 'LUNCH');
-
-        // 3. Alerts
-        const lowStockItems = inventory.filter(i => i.stock_actual <= (i.stock_min || 5)).length;
-        const infrastructureAlert = true; // Hardcoded for now as per request "Pagar Vercel pronto"
+        const cashInDrawer = cashSales - todayExpenses;
 
         return {
             totalSales,
@@ -69,16 +100,17 @@ const DashboardPage: React.FC = () => {
             cardSales,
             transferSales,
             todayExpenses,
-            activeStaff,
-            lowStockItems,
-            infrastructureAlert
+            activeStaff: employees.filter(emp => emp.current_status === 'IN' || emp.current_status === 'LUNCH'),
+            lowStockItems: inventory.filter(i => i.stock_actual <= (i.stock_min || 5)).length,
+            infrastructureAlert: true
         };
-    }, [salesHistory, expenses, employees, inventory, currentLocation]);
+    }, [salesHistory, expenses, employees, inventory, currentLocation, serverMetrics]);
 
     // --- HANDLERS ---
     const handleRefresh = () => {
-        setIsRefreshing(true);
-        setTimeout(() => setIsRefreshing(false), 1500);
+        refreshDashboard();
+        // Also trigger sync
+        autoBackupService.start();
     };
 
     const handleLocationSwitch = (locId: string) => {
