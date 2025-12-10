@@ -1,7 +1,7 @@
 'use server';
 
 import { query } from '../lib/db';
-import { InventoryBatch, EmployeeProfile } from '../domain/types';
+import { InventoryBatch, EmployeeProfile, Location } from '../domain/types';
 
 export async function fetchInventory(warehouseId?: string): Promise<InventoryBatch[]> {
     console.log(`Fetching inventory from DB (Warehouse: ${warehouseId || 'ALL'})...`);
@@ -153,6 +153,24 @@ export async function fetchSuppliers(): Promise<import('../domain/types').Suppli
         }));
     } catch (error) {
         console.error('⚠️ Error fetching suppliers (Table might not exist):', error);
+        return [];
+    }
+}
+
+export async function fetchLocations(): Promise<Location[]> {
+    try {
+        const res = await query('SELECT * FROM locations ORDER BY name ASC');
+        return res.rows.map((row: any) => ({
+            id: row.id.toString(),
+            type: row.type || 'STORE',
+            name: row.name,
+            address: row.address || '',
+            associated_kiosks: [],
+            parent_id: row.parent_id?.toString(),
+            default_warehouse_id: row.default_warehouse_id?.toString()
+        }));
+    } catch (error) {
+        console.error('Error fetching locations:', error);
         return [];
     }
 }

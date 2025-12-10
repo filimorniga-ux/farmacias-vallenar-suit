@@ -13,6 +13,23 @@ export interface Location {
     associated_kiosks: string[]; // Kiosk IDs
     parent_id?: string;
     default_warehouse_id?: string; // NEW: Explicit WMS link
+    config?: LocationConfig;
+}
+
+export interface LocationConfig {
+    receipt_template?: {
+        header_text?: string;
+        show_logo?: boolean;
+        footer_text?: string;
+        social_media?: string;
+        show_barcode?: boolean;
+    };
+    queue_ticket_template?: {
+        welcome_message?: string;
+        show_qr?: boolean;
+        wifi_info?: string;
+        show_barcode?: boolean;
+    };
 }
 
 export interface KioskConfig {

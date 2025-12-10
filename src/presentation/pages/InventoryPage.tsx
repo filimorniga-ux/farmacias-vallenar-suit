@@ -15,7 +15,6 @@ const InventoryPage: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [activeTab, setActiveTab] = useState<'MEDS' | 'RETAIL' | 'CONTROLLED'>('MEDS');
     const [isGrouped, setIsGrouped] = useState(true); // Default to Grouped
-    const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>((user as any)?.assigned_warehouse_id || 'ALL'); // Default to User Warehouse
     const [isEntryModalOpen, setIsEntryModalOpen] = useState(false);
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -46,8 +45,10 @@ const InventoryPage: React.FC = () => {
 
     const filteredInventory = useMemo(() => {
         if (!inventory) return [];
-        return inventory.filter(item => {
-            // 1. Text Search
+
+        // 1. Filter Logic
+        const filtered = inventory.filter(item => {
+            // Text Search
             const term = searchTerm.toLowerCase();
             const matchesSearch =
                 (item.name || '').toLowerCase().includes(term) ||
@@ -56,12 +57,12 @@ const InventoryPage: React.FC = () => {
 
             if (!matchesSearch) return false;
 
-            // 2. Tab Filter
+            // Tab Filter
             if (activeTab === 'MEDS' && item.category !== 'MEDICAMENTO') return false;
             if (activeTab === 'RETAIL' && item.category === 'MEDICAMENTO') return false;
             if (activeTab === 'CONTROLLED' && !['R', 'RR', 'RCH'].includes(item.condition)) return false;
 
-            // 3. Smart Filters
+            // Smart Filters
             if (filters.expiring) {
                 const monthsUntilExpiry = (item.expiry_date - Date.now()) / (1000 * 60 * 60 * 24 * 30);
                 if (monthsUntilExpiry > 6) return false;
@@ -73,7 +74,29 @@ const InventoryPage: React.FC = () => {
 
             return true;
         });
-    }, [inventory, searchTerm, activeTab, filters]);
+
+        // 2. Grouping Logic
+        if (isGrouped) {
+            const groupedMap = new Map<string, any>();
+
+            filtered.forEach(item => {
+                const key = item.sku || item.name; // Prefer SKU
+                if (!groupedMap.has(key)) {
+                    // Clone to avoid mutating original
+                    groupedMap.set(key, { ...item, _count: 1 });
+                } else {
+                    const existing = groupedMap.get(key);
+                    existing.stock_actual += (item as any).quantity_real || item.stock_actual; // Sum quantity_real
+                    existing._count += 1;
+                    // Keep earliest expiry? Or show range? For now keep first.
+                }
+            });
+
+            return Array.from(groupedMap.values());
+        }
+
+        return filtered;
+    }, [inventory, searchTerm, activeTab, filters, isGrouped]);
 
     const getStockStatus = (item: any) => {
         if (item.stock_actual <= 0) return 'bg-red-100 text-red-700 border-red-200';

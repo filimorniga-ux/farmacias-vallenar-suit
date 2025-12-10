@@ -66,6 +66,21 @@ const DashboardPage: React.FC = () => {
 
     // --- REAL-TIME DATA AGGREGATION ---
     const dashboardData = useMemo(() => {
+        // 0. Loading State (prevent ghost data)
+        if (isRefreshing && !serverMetrics) {
+            return {
+                totalSales: 0,
+                cashInDrawer: 0,
+                cardSales: 0,
+                transferSales: 0,
+                todayExpenses: 0,
+                activeStaff: [],
+                lowStockItems: 0,
+                infrastructureAlert: false,
+                isLoading: true // Flag for UI Skeleton
+            };
+        }
+
         // Prefer Server Data if available, else fallback to local store (Offline Mode)
         if (serverMetrics) {
             return {
@@ -76,7 +91,8 @@ const DashboardPage: React.FC = () => {
                 todayExpenses: serverMetrics.summary.total_expenses,
                 activeStaff: employees.filter(emp => emp.current_status === 'IN' || emp.current_status === 'LUNCH'),
                 lowStockItems: inventory.filter(i => i.stock_actual <= (i.stock_min || 5)).length,
-                infrastructureAlert: true
+                infrastructureAlert: true,
+                isLoading: false
             };
         }
 
@@ -84,7 +100,12 @@ const DashboardPage: React.FC = () => {
         const now = new Date();
         const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 
-        const todaySales = salesHistory.filter(s => s.timestamp >= startOfDay);
+        const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).getTime();
+
+        const todaySales = salesHistory.filter(s => {
+            const t = new Date(s.timestamp).getTime();
+            return t >= startOfDay && t <= endOfDay;
+        });
         const totalSales = todaySales.reduce((sum, s) => sum + s.total, 0);
 
         const cashSales = todaySales.filter(s => s.payment_method === 'CASH').reduce((sum, s) => sum + s.total, 0);
@@ -252,44 +273,52 @@ const DashboardPage: React.FC = () => {
             <main className="p-6 space-y-8 max-w-md mx-auto md:max-w-4xl">
 
                 {/* 1. FINANCIAL PULSE */}
-                <section className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                    <FinancialCard
-                        title="Venta Total"
-                        value={`$${dashboardData.totalSales.toLocaleString()}`}
-                        icon={BarChart3}
-                        gradient="from-emerald-400 to-cyan-600"
-                        shadowColor="emerald"
-                        trend="+12%"
-                    />
-                    <FinancialCard
-                        title="Efectivo Caja"
-                        value={`$${dashboardData.cashInDrawer.toLocaleString()}`}
-                        icon={Wallet}
-                        gradient="from-blue-400 to-indigo-600"
-                        shadowColor="blue"
-                    />
-                    <FinancialCard
-                        title="Tarjetas"
-                        value={`$${dashboardData.cardSales.toLocaleString()}`}
-                        icon={CreditCard}
-                        gradient="from-cyan-500 to-blue-600"
-                        shadowColor="cyan"
-                    />
-                    <FinancialCard
-                        title="Transferencias"
-                        value={`$${dashboardData.transferSales.toLocaleString()}`}
-                        icon={ArrowRight}
-                        gradient="from-violet-500 to-fuchsia-600"
-                        shadowColor="violet"
-                    />
-                    <FinancialCard
-                        title="Gastos"
-                        value={`-$${dashboardData.todayExpenses.toLocaleString()}`}
-                        icon={ArrowDownRight}
-                        gradient="from-red-400 to-rose-600"
-                        shadowColor="red"
-                    />
-                </section>
+                {(dashboardData as any).isLoading ? (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 animate-pulse">
+                        {[1, 2, 3, 4, 5].map(i => (
+                            <div key={i} className="h-32 bg-gray-200 rounded-2xl"></div>
+                        ))}
+                    </div>
+                ) : (
+                    <section className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                        <FinancialCard
+                            title="Venta Total"
+                            value={`$${dashboardData.totalSales.toLocaleString()}`}
+                            icon={BarChart3}
+                            gradient="from-emerald-400 to-cyan-600"
+                            shadowColor="emerald"
+                            trend="+12%"
+                        />
+                        <FinancialCard
+                            title="Efectivo Caja"
+                            value={`$${dashboardData.cashInDrawer.toLocaleString()}`}
+                            icon={Wallet}
+                            gradient="from-blue-400 to-indigo-600"
+                            shadowColor="blue"
+                        />
+                        <FinancialCard
+                            title="Tarjetas"
+                            value={`$${dashboardData.cardSales.toLocaleString()}`}
+                            icon={CreditCard}
+                            gradient="from-cyan-500 to-blue-600"
+                            shadowColor="cyan"
+                        />
+                        <FinancialCard
+                            title="Transferencias"
+                            value={`$${dashboardData.transferSales.toLocaleString()}`}
+                            icon={ArrowRight}
+                            gradient="from-violet-500 to-fuchsia-600"
+                            shadowColor="violet"
+                        />
+                        <FinancialCard
+                            title="Gastos"
+                            value={`-$${dashboardData.todayExpenses.toLocaleString()}`}
+                            icon={ArrowDownRight}
+                            gradient="from-red-500 to-pink-600"
+                            shadowColor="red"
+                        />
+                    </section>
+                )}
 
                 {/* 2. LIVE OPERATION */}
                 <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -305,7 +334,7 @@ const DashboardPage: React.FC = () => {
                         </div>
                         <div className="space-y-3">
                             {dashboardData.activeStaff.length > 0 ? (
-                                dashboardData.activeStaff.map(emp => (
+                                dashboardData.activeStaff.map((emp: any) => (
                                     <div key={emp.id} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded-xl transition-colors">
                                         <div className="flex items-center gap-3">
                                             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center text-white font-bold text-xs">
@@ -357,11 +386,11 @@ const DashboardPage: React.FC = () => {
                                 Ver
                             </button>
                         </div>
-                    </div>
-                </section>
+                    </div >
+                </section >
 
                 {/* 3. QUICK ACCESS MODULES */}
-                <section>
+                < section >
                     <h2 className="text-sm font-bold text-slate-400 mb-4 uppercase tracking-wider">Módulos de Sistema</h2>
                     <div className="grid grid-cols-4 gap-3">
                         <ModuleCard
@@ -393,12 +422,12 @@ const DashboardPage: React.FC = () => {
                             route="/reports"
                         />
                     </div>
-                </section>
+                </section >
 
-            </main>
+            </main >
 
             {/* FAB for Detailed Reports */}
-            <div className="fixed bottom-6 right-6">
+            < div className="fixed bottom-6 right-6" >
                 <button
                     onClick={() => handleCardClick('/reports')}
                     className="bg-slate-900 text-white p-4 rounded-full shadow-xl shadow-slate-400/50 hover:scale-105 transition-transform flex items-center gap-2"
@@ -406,100 +435,102 @@ const DashboardPage: React.FC = () => {
                     <BarChart3 size={24} />
                     <span className="font-bold text-sm pr-2 hidden md:inline">Reporte Completo</span>
                 </button>
-            </div>
+            </div >
 
             {/* Login Modal */}
             <AnimatePresence>
-                {isLoginModalOpen && (
-                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                        <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 20 }}
-                            className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md"
-                        >
-                            {step === 'select' ? (
-                                <>
-                                    <div className="text-center mb-8">
-                                        <div className="bg-cyan-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                                            <Users className="text-cyan-700" size={32} />
-                                        </div>
-                                        <h2 className="text-2xl font-bold text-slate-900">¿Quién eres?</h2>
-                                        <p className="text-slate-500">Selecciona tu perfil</p>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-4 mb-6 max-h-60 overflow-y-auto">
-                                        {filteredEmployees.length > 0 ? (
-                                            filteredEmployees.map(emp => (
-                                                <motion.button
-                                                    key={emp.id}
-                                                    whileHover={{ scale: 1.05 }}
-                                                    whileTap={{ scale: 0.95 }}
-                                                    onClick={() => handleEmployeeSelect(emp)}
-                                                    className="p-4 rounded-2xl border-2 border-slate-200 hover:border-cyan-500 hover:bg-cyan-50 transition-all group"
-                                                >
-                                                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center text-white font-bold text-lg mx-auto mb-2">
-                                                        {emp.name.charAt(0)}
-                                                    </div>
-                                                    <p className="font-bold text-slate-800 text-xs truncate">{emp.name}</p>
-                                                    <p className="text-[10px] text-slate-400 truncate">{emp.job_title}</p>
-                                                </motion.button>
-                                            ))
-                                        ) : (
-                                            <div className="col-span-2 text-center py-8 text-slate-400">
-                                                <p>No hay usuarios disponibles</p>
+                {
+                    isLoginModalOpen && (
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                            <motion.div
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 20 }}
+                                className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md"
+                            >
+                                {step === 'select' ? (
+                                    <>
+                                        <div className="text-center mb-8">
+                                            <div className="bg-cyan-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                                                <Users className="text-cyan-700" size={32} />
                                             </div>
-                                        )}
-                                    </div>
+                                            <h2 className="text-2xl font-bold text-slate-900">¿Quién eres?</h2>
+                                            <p className="text-slate-500">Selecciona tu perfil</p>
+                                        </div>
 
-                                    <button
-                                        onClick={() => setIsLoginModalOpen(false)}
-                                        className="w-full py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition"
-                                    >
-                                        Cancelar
-                                    </button>
-                                </>
-                            ) : (
-                                <>
-                                    <div className="text-center mb-8">
-                                        <div className="w-20 h-20 rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center text-white font-bold text-3xl mx-auto mb-4">
-                                            {selectedEmployee?.name.charAt(0)}
+                                        <div className="grid grid-cols-2 gap-4 mb-6 max-h-60 overflow-y-auto">
+                                            {filteredEmployees.length > 0 ? (
+                                                filteredEmployees.map(emp => (
+                                                    <motion.button
+                                                        key={emp.id}
+                                                        whileHover={{ scale: 1.05 }}
+                                                        whileTap={{ scale: 0.95 }}
+                                                        onClick={() => handleEmployeeSelect(emp)}
+                                                        className="p-4 rounded-2xl border-2 border-slate-200 hover:border-cyan-500 hover:bg-cyan-50 transition-all group"
+                                                    >
+                                                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center text-white font-bold text-lg mx-auto mb-2">
+                                                            {emp.name.charAt(0)}
+                                                        </div>
+                                                        <p className="font-bold text-slate-800 text-xs truncate">{emp.name}</p>
+                                                        <p className="text-[10px] text-slate-400 truncate">{emp.job_title}</p>
+                                                    </motion.button>
+                                                ))
+                                            ) : (
+                                                <div className="col-span-2 text-center py-8 text-slate-400">
+                                                    <p>No hay usuarios disponibles</p>
+                                                </div>
+                                            )}
                                         </div>
-                                        <h2 className="text-2xl font-bold text-slate-900">{selectedEmployee?.name}</h2>
-                                        <p className="text-slate-500">{selectedEmployee?.job_title}</p>
-                                    </div>
 
-                                    <form onSubmit={handleLogin} className="space-y-6">
-                                        <input type="text" className="hidden" readOnly value={selectedEmployee?.rut || ''} />
-                                        <div>
-                                            <label className="block text-center text-sm font-bold text-slate-600 mb-2">
-                                                Ingresa tu PIN
-                                            </label>
-                                            <motion.input
-                                                key={error}
-                                                animate={error ? { x: [-10, 10, -10, 10, 0] } : {}}
-                                                type="password"
-                                                maxLength={4}
-                                                className={`w-full text-center text-4xl tracking-[1em] font-bold py-4 border-b-4 ${error ? 'border-red-500' : 'border-slate-200'} focus:border-cyan-600 focus:outline-none transition-colors text-slate-800`}
-                                                placeholder="••••"
-                                                value={pin}
-                                                onChange={(e) => { setPin(e.target.value); setError(''); }}
-                                                autoFocus
-                                            />
+                                        <button
+                                            onClick={() => setIsLoginModalOpen(false)}
+                                            className="w-full py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition"
+                                        >
+                                            Cancelar
+                                        </button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="text-center mb-8">
+                                            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center text-white font-bold text-3xl mx-auto mb-4">
+                                                {selectedEmployee?.name.charAt(0)}
+                                            </div>
+                                            <h2 className="text-2xl font-bold text-slate-900">{selectedEmployee?.name}</h2>
+                                            <p className="text-slate-500">{selectedEmployee?.job_title}</p>
                                         </div>
-                                        {error && <p className="text-red-500 text-center font-medium">{error}</p>}
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <button type="button" onClick={handleBack} className="py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100">Atrás</button>
-                                            <button type="submit" disabled={pin.length < 4} className="py-3 rounded-xl font-bold bg-cyan-600 text-white hover:bg-cyan-700 shadow-lg shadow-cyan-200 disabled:opacity-50">Ingresar</button>
-                                        </div>
-                                    </form>
-                                </>
-                            )}
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
-        </div>
+
+                                        <form onSubmit={handleLogin} className="space-y-6">
+                                            <input type="text" className="hidden" readOnly value={selectedEmployee?.rut || ''} />
+                                            <div>
+                                                <label className="block text-center text-sm font-bold text-slate-600 mb-2">
+                                                    Ingresa tu PIN
+                                                </label>
+                                                <motion.input
+                                                    key={error}
+                                                    animate={error ? { x: [-10, 10, -10, 10, 0] } : {}}
+                                                    type="password"
+                                                    maxLength={4}
+                                                    className={`w-full text-center text-4xl tracking-[1em] font-bold py-4 border-b-4 ${error ? 'border-red-500' : 'border-slate-200'} focus:border-cyan-600 focus:outline-none transition-colors text-slate-800`}
+                                                    placeholder="••••"
+                                                    value={pin}
+                                                    onChange={(e) => { setPin(e.target.value); setError(''); }}
+                                                    autoFocus
+                                                />
+                                            </div>
+                                            {error && <p className="text-red-500 text-center font-medium">{error}</p>}
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <button type="button" onClick={handleBack} className="py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100">Atrás</button>
+                                                <button type="submit" disabled={pin.length < 4} className="py-3 rounded-xl font-bold bg-cyan-600 text-white hover:bg-cyan-700 shadow-lg shadow-cyan-200 disabled:opacity-50">Ingresar</button>
+                                            </div>
+                                        </form>
+                                    </>
+                                )}
+                            </motion.div>
+                        </div>
+                    )
+                }
+            </AnimatePresence >
+        </div >
     );
 };
 

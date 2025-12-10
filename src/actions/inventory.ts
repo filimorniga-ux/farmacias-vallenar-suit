@@ -133,8 +133,8 @@ export async function getRecentMovements(locationId?: string, limit = 100) {
                 u.name as user_name,
                 l.name as location_name
             FROM stock_movements sm
-            LEFT JOIN users u ON sm.user_id = u.id
-            LEFT JOIN locations l ON sm.location_id = l.id
+            LEFT JOIN users u ON sm.user_id::text = u.id::text
+            LEFT JOIN locations l ON sm.location_id::text = l.id::text
             ${whereClause}
             ORDER BY sm.timestamp DESC
             LIMIT ${limit}

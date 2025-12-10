@@ -18,7 +18,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 import { useKioskGuard } from '../hooks/useKioskGuard';
 import SafeExitButton from './security/SafeExitButton';
-import { PrinterService } from '../../domain/services/PrinterService';
+import { printSaleTicket } from '../utils/print-utils';
+import { useLocationStore } from '../store/useLocationStore';
 import CustomerSelectModal from './pos/CustomerSelectModal';
 import { toast } from 'sonner';
 import { shouldGenerateDTE } from '../../domain/logic/sii_dte';
@@ -37,7 +38,9 @@ const POSMainScreen: React.FC = () => {
         loyaltyConfig, calculateDiscountValue, redeemPoints
     } = usePharmaStore();
 
-    const { enable_sii_integration } = useSettingsStore();
+    const { currentLocation } = useLocationStore();
+
+    const { enable_sii_integration, hardware } = useSettingsStore();
 
     const metrics = getShiftMetrics();
     const [isEditBaseModalOpen, setIsEditBaseModalOpen] = useState(false);
@@ -277,7 +280,7 @@ const POSMainScreen: React.FC = () => {
             }
 
             // Auto-Print Trigger
-            PrinterService.printTicket(saleToPrint, printerConfig);
+            printSaleTicket(saleToPrint, currentLocation?.config, hardware);
 
             setIsPaymentModalOpen(false);
             setTransferId('');

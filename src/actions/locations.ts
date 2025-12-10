@@ -38,7 +38,8 @@ export async function getLocations(): Promise<{ success: boolean; data?: Locatio
             address: row.address,
             associated_kiosks: row.associated_kiosks || [],
             parent_id: row.parent_id,
-            default_warehouse_id: row.default_warehouse_id
+            default_warehouse_id: row.default_warehouse_id,
+            config: row.config || undefined
         }));
 
         return { success: true, data: locations };
@@ -54,6 +55,7 @@ export async function getLocations(): Promise<{ success: boolean; data?: Locatio
                         address TEXT,
                         type TEXT DEFAULT 'STORE',
                         associated_kiosks JSONB DEFAULT '[]',
+                        config JSONB,
                         created_at TIMESTAMP DEFAULT NOW()
                     );
                 `);
@@ -84,5 +86,55 @@ export async function getLocations(): Promise<{ success: boolean; data?: Locatio
 
         console.error('Error fetching locations:', error);
         return { success: false, error: 'Failed to fetch locations' };
+    }
+}
+
+export async function updateLocation(id: string, data: Partial<Location>): Promise<{ success: boolean; error?: string }> {
+    try {
+        const fields: string[] = [];
+        const values: any[] = [];
+        let index = 1;
+
+        if (data.name) { fields.push(`name = $${index++}`); values.push(data.name); }
+        if (data.address) { fields.push(`address = $${index++}`); values.push(data.address); }
+        if (data.type) { fields.push(`type = $${index++}`); values.push(data.type); }
+        if (data.default_warehouse_id) { fields.push(`default_warehouse_id = $${index++}`); values.push(data.default_warehouse_id); }
+        if (data.config) { fields.push(`config = $${index++}`); values.push(JSON.stringify(data.config)); }
+
+        if (fields.length === 0) return { success: true };
+
+        values.push(id);
+        const queryText = `UPDATE locations SET ${fields.join(', ')} WHERE id = $${index}`;
+
+        await query(queryText, values);
+        return { success: true };
+
+    } catch (error: any) {
+        console.error('Error updating location:', error);
+
+        // Self-Healing: Missing 'config' column?
+        if (error.code === '42703' && error.message.includes('config')) {
+            console.warn('⚠️ Column config missing in locations. Auto-adding...');
+            try {
+                await query('ALTER TABLE locations ADD COLUMN IF NOT EXISTS config JSONB');
+                // Retry
+                return updateLocation(id, data);
+            } catch (alterError) {
+                return { success: false, error: 'Failed to update schema for config' };
+            }
+        }
+
+        // Missing 'default_warehouse_id' column?
+        if (error.code === '42703' && error.message.includes('default_warehouse_id')) {
+            console.warn('⚠️ Column default_warehouse_id missing in locations. Auto-adding...');
+            try {
+                await query('ALTER TABLE locations ADD COLUMN IF NOT EXISTS default_warehouse_id UUID');
+                return updateLocation(id, data);
+            } catch (alterError) {
+                return { success: false, error: 'Failed to update schema for warehouse link' };
+            }
+        }
+
+        return { success: false, error: error.message };
     }
 }

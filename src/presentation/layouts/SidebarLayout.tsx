@@ -6,7 +6,7 @@ import {
     Package, BarChart3, Truck, UserCircle, Clock, Building2, MapPin, Wrench, RotateCcw
 } from 'lucide-react';
 import { usePharmaStore } from '../store/useStore';
-import LocationSelector from '../components/layout/LocationSelector';
+import LocationSwitcher from '../components/layout/LocationSwitcher';
 import NotificationBell from '../components/notifications/NotificationBell';
 import BottomNavigation from '../components/layout/BottomNavigation';
 import AppIcon, { AppThemeColor } from '../components/ui/AppIcon';
@@ -184,13 +184,13 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                         <span className="font-bold text-slate-800">Farmacias Vallenar</span>
                         <NotificationBell userRole={user?.role || 'ALL'} />
                     </div>
-                    <LocationSelector />
+                    <LocationSwitcher />
                 </header>
 
                 {/* Desktop Header with Location Selector */}
                 <header className="hidden lg:flex bg-white/80 backdrop-blur-md px-8 py-4 border-b border-slate-100 justify-end items-center z-40 gap-4">
                     <NotificationBell userRole={user?.role || 'ALL'} />
-                    <LocationSelector />
+                    <LocationSwitcher />
                 </header>
 
                 <div className="flex-1 overflow-auto p-2">

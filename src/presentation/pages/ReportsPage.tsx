@@ -2,11 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { usePharmaStore } from '../store/useStore';
 import TimeFilter, { DateRange } from '../components/bi/TimeFilter';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { TrendingUp, DollarSign, FileText, Package, Users, Download, AlertTriangle, CheckCircle, RefreshCw, ArrowDown, ArrowUp, Clock } from 'lucide-react';
+import { TrendingUp, DollarSign, FileText, Package, Users, Download, AlertTriangle, CheckCircle, RefreshCw, ArrowDown, ArrowUp, Clock, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 // Backend Actions
-import { getCashFlowLedger, getTaxSummary, getInventoryValuation, getPayrollPreview, getDetailedFinancialSummary, getLogisticsKPIs, CashFlowEntry, TaxSummary, InventoryValuation, PayrollPreview, LogisticsKPIs } from '../../actions/reports-detail';
+import { getCashFlowLedger, getTaxSummary, getInventoryValuation, getPayrollPreview, getDetailedFinancialSummary, getLogisticsKPIs, getStockMovementsDetail, CashFlowEntry, TaxSummary, InventoryValuation, PayrollPreview, LogisticsKPIs } from '../../actions/reports-detail';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
@@ -29,6 +29,31 @@ const ReportsPage: React.FC = () => {
     const [logisticsData, setLogisticsData] = useState<InventoryValuation | null>(null);
     const [logisticsKPIs, setLogisticsKPIs] = useState<LogisticsKPIs | null>(null);
     const [payrollData, setPayrollData] = useState<PayrollPreview[]>([]);
+
+    // Logistics Detail State
+    const [activeDetailType, setActiveDetailType] = useState<'IN' | 'OUT' | null>(null);
+    const [movementDetail, setMovementDetail] = useState<any[]>([]);
+    const [loadingDetail, setLoadingDetail] = useState(false);
+
+    const handleShowDetail = async (type: 'IN' | 'OUT') => {
+        if (activeDetailType === type) {
+            setActiveDetailType(null); // Toggle off
+            return;
+        }
+
+        setActiveDetailType(type);
+        setLoadingDetail(true);
+        try {
+            const whId = currentWarehouseId || currentLocationId || '';
+            const data = await getStockMovementsDetail(type, dateRange.from.toISOString(), dateRange.to.toISOString(), whId);
+            setMovementDetail(data);
+        } catch (error) {
+            console.error(error);
+            toast.error('Error cargando detalles');
+        } finally {
+            setLoadingDetail(false);
+        }
+    };
 
     // Fetch Logic
     const fetchData = useCallback(async () => {
@@ -258,7 +283,10 @@ const ReportsPage: React.FC = () => {
                             {/* KPI Logistics Cards */}
                             {logisticsKPIs && (
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                                    <div className="bg-white p-4 rounded-xl shadow-sm border border-emerald-100">
+                                    <div
+                                        onClick={() => handleShowDetail('IN')}
+                                        className={`bg-white p-4 rounded-xl shadow-sm border border-emerald-100 cursor-pointer transition-all hover:shadow-md hover:scale-105 ${activeDetailType === 'IN' ? 'ring-2 ring-emerald-500' : ''}`}
+                                    >
                                         <div className="flex items-center gap-3 mb-2">
                                             <div className="p-2 bg-emerald-100 rounded-lg text-emerald-600">
                                                 <ArrowDown className="w-5 h-5" />
@@ -266,10 +294,13 @@ const ReportsPage: React.FC = () => {
                                             <p className="text-sm font-bold text-slate-500 uppercase">Entradas</p>
                                         </div>
                                         <p className="text-2xl font-bold text-emerald-700">{logisticsKPIs.total_in}</p>
-                                        <p className="text-xs text-slate-400 mt-1">Movimientos de entrada</p>
+                                        <p className="text-xs text-slate-400 mt-1">Clic para ver detalle</p>
                                     </div>
 
-                                    <div className="bg-white p-4 rounded-xl shadow-sm border border-red-100">
+                                    <div
+                                        onClick={() => handleShowDetail('OUT')}
+                                        className={`bg-white p-4 rounded-xl shadow-sm border border-red-100 cursor-pointer transition-all hover:shadow-md hover:scale-105 ${activeDetailType === 'OUT' ? 'ring-2 ring-red-500' : ''}`}
+                                    >
                                         <div className="flex items-center gap-3 mb-2">
                                             <div className="p-2 bg-red-100 rounded-lg text-red-600">
                                                 <ArrowUp className="w-5 h-5" />
@@ -277,7 +308,7 @@ const ReportsPage: React.FC = () => {
                                             <p className="text-sm font-bold text-slate-500 uppercase">Salidas</p>
                                         </div>
                                         <p className="text-2xl font-bold text-red-700">{logisticsKPIs.total_out}</p>
-                                        <p className="text-xs text-slate-400 mt-1">Movimientos de salida</p>
+                                        <p className="text-xs text-slate-400 mt-1">Clic para ver detalle</p>
                                     </div>
 
                                     <div className="bg-white p-4 rounded-xl shadow-sm border border-blue-100">
@@ -294,6 +325,68 @@ const ReportsPage: React.FC = () => {
                                             {logisticsKPIs.last_movement ? new Date(logisticsKPIs.last_movement).toLocaleTimeString('es-CL') : '-'}
                                         </p>
                                     </div>
+                                </div>
+                            )}
+
+                            {/* Detail Table */}
+                            {activeDetailType && (
+                                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-8 animate-in slide-in-from-top-4">
+                                    <div className={`p-4 border-b border-gray-200 flex justify-between items-center ${activeDetailType === 'IN' ? 'bg-emerald-50' : 'bg-red-50'}`}>
+                                        <h3 className={`font-bold ${activeDetailType === 'IN' ? 'text-emerald-800' : 'text-red-800'}`}>
+                                            Detalle de {activeDetailType === 'IN' ? 'Entradas' : 'Salidas'}
+                                        </h3>
+                                        <button onClick={() => setActiveDetailType(null)} className="text-gray-400 hover:text-gray-600">
+                                            <X className="w-5 h-5" />
+                                        </button>
+                                    </div>
+
+                                    {loadingDetail ? (
+                                        <div className="p-8 text-center ml-auto mr-auto flex justify-center"><RefreshCw className="w-6 h-6 animate-spin text-blue-500" /></div>
+                                    ) : (
+                                        <div className="overflow-x-auto max-h-96">
+                                            <table className="w-full text-sm">
+                                                <thead className="bg-gray-50 text-gray-500 font-bold sticky top-0">
+                                                    <tr>
+                                                        <th className="p-3 text-left">Fecha</th>
+                                                        <th className="p-3 text-left">Tipo</th>
+                                                        <th className="p-3 text-left">Producto</th>
+                                                        <th className="p-3 text-right">Cant.</th>
+                                                        <th className="p-3 text-left pl-6">Origen/Destino</th>
+                                                        <th className="p-3 text-left">Usuario</th>
+                                                        <th className="p-3 text-left">Motivo/Nota</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-gray-100">
+                                                    {movementDetail.map((mov) => (
+                                                        <tr key={mov.id} className="hover:bg-gray-50">
+                                                            <td className="p-3 text-gray-500 whitespace-nowrap">
+                                                                {new Date(mov.timestamp).toLocaleString('es-CL')}
+                                                            </td>
+                                                            <td className="p-3 overflow-hidden text-ellipsis whitespace-nowrap max-w-[150px]">
+                                                                <span className="px-2 py-1 rounded-md bg-gray-100 text-xs font-bold text-gray-700">
+                                                                    {mov.type}
+                                                                </span>
+                                                            </td>
+                                                            <td className="p-3 font-medium text-gray-800">{mov.product}</td>
+                                                            <td className={`p-3 text-right font-bold ${activeDetailType === 'IN' ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                {activeDetailType === 'IN' ? '+' : '-'}{mov.quantity}
+                                                            </td>
+                                                            <td className="p-3 pl-6 text-gray-500 text-xs">{(mov as any).location_context || '-'}</td>
+                                                            <td className="p-3 text-gray-500 text-xs">{mov.user}</td>
+                                                            <td className="p-3 text-gray-400 italic text-xs truncate max-w-xs">{mov.reason}</td>
+                                                        </tr>
+                                                    ))}
+                                                    {movementDetail.length === 0 && (
+                                                        <tr>
+                                                            <td colSpan={6} className="p-8 text-center text-gray-400">
+                                                                No se encontraron movimientos.
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 

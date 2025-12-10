@@ -1,9 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { usePharmaStore } from '../../../presentation/store/useStore';
+import { useLocationStore } from '../../../presentation/store/useLocationStore';
+import { useSettingsStore } from '../../../presentation/store/useSettingsStore';
 import { X, Search, Calendar, Printer, Eye, Lock, FileText, Download, User, RotateCcw } from 'lucide-react';
 import { generateCashReport } from '../../../actions/cash-export';
 import { toast } from 'sonner';
-import { PrinterService } from '../../../domain/services/PrinterService';
+import { printSaleTicket } from '../../utils/print-utils';
 import { SaleTransaction } from '../../../domain/types';
 import ReturnsModal from './ReturnsModal';
 
@@ -13,7 +15,9 @@ interface TransactionHistoryModalProps {
 }
 
 const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpen, onClose }) => {
-    const { salesHistory, employees, printerConfig, cashMovements, expenses, user } = usePharmaStore();
+    const { salesHistory, employees, cashMovements, expenses, user } = usePharmaStore();
+    const { currentLocation } = useLocationStore();
+    const { hardware } = useSettingsStore();
     const [adminPin, setAdminPin] = useState('');
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
@@ -54,7 +58,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
     }, [salesHistory, searchTerm, startDate, endDate]);
 
     const handleReprint = (sale: SaleTransaction) => {
-        PrinterService.printTicket(sale, printerConfig);
+        printSaleTicket(sale, currentLocation?.config, hardware);
         toast.success('Reimprimiendo ticket...');
     };
 

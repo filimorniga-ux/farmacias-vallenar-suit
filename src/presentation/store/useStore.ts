@@ -1,5 +1,6 @@
 
 import { create } from 'zustand';
+import { useLocationStore } from './useLocationStore';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import {
     InventoryBatch, EmployeeProfile, SaleItem, Customer, QueueTicket, Supplier, PurchaseOrder, CartItem, SaleTransaction, Expense, CashShift, CashMovement, CashMovementReason, AttendanceLog,
@@ -337,7 +338,7 @@ export const usePharmaStore = create<PharmaState>()(
                         }
                     }
 
-                    const [inventory, employees, sales, suppliers, cashMovements, customers, shipments, purchaseOrders] = await Promise.all([
+                    const [inventory, employees, sales, suppliers, cashMovements, customers, shipments, purchaseOrders, locations] = await Promise.all([
                         TigerDataService.fetchInventory(currentStoreState.currentWarehouseId), // Filter by Store's Warehouse
                         fetchEmployees(),
                         TigerDataService.fetchSalesHistory(), // Fetch real sales
@@ -345,8 +346,23 @@ export const usePharmaStore = create<PharmaState>()(
                         TigerDataService.fetchCashMovements(), // Fetch real cash movements
                         TigerDataService.fetchCustomers(), // Fetch real customers
                         TigerDataService.fetchShipments(currentStoreState.currentLocationId), // Fetch Real Shipments
-                        TigerDataService.fetchPurchaseOrders() // Fetch Real POs
+                        TigerDataService.fetchPurchaseOrders(), // Fetch Real POs
+                        import('../../actions/sync').then(m => m.fetchLocations()) // Fetch Locations
                     ]);
+
+                    // Initialize Service Storage to prevent Auth Warnings
+                    TigerDataService.initializeStorage({
+                        employees,
+                        products: inventory,
+                        sales,
+                        cashMovements,
+                        expenses: [] // Expenses derived later
+                    });
+
+                    // Sync Locations to LocationStore
+                    if (locations && locations.length > 0) {
+                        useLocationStore.getState().setLocations(locations);
+                    }
 
                     // Si falla la DB (Safe Mode devuelve []), mantenemos lo que haya o usamos un fallback mínimo si está vacío
                     // Si falla la DB (Safe Mode devuelve []), mantenemos lo que haya o usamos un fallback mínimo si está vacío
@@ -362,9 +378,7 @@ export const usePharmaStore = create<PharmaState>()(
                     }
 
                     // Sync Sales
-                    if (sales.length > 0) {
-                        set({ salesHistory: sales });
-                    }
+                    set({ salesHistory: sales });
 
                     // Sync Shipments
                     if (shipments && shipments.length > 0) {
@@ -988,53 +1002,70 @@ export const usePharmaStore = create<PharmaState>()(
 
             // --- Quotes ---
             quotes: [],
-            createQuote: (customer) => {
+            createQuote: async (customer) => {
                 const state = get();
-                const newQuote: Quote = {
-                    id: `COT-${Date.now().toString().slice(-6)}`,
-                    created_at: Date.now(),
-                    expires_at: Date.now() + (30 * 24 * 60 * 60 * 1000), // 30 days
-                    customer_id: customer?.id,
-                    total_amount: state.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0),
-                    status: 'ACTIVE',
-                    items: [...state.cart]
+                const context = {
+                    locationId: state.currentLocationId || 'UNKNOWN_LOC',
+                    terminalId: state.currentTerminalId || 'UNKNOWN_TERM',
+                    userId: state.currentShift?.current_cashier_id || 'UNKNOWN_USER',
+                    customerId: customer?.id
                 };
 
-                set((state) => ({
-                    quotes: [...state.quotes, newQuote],
-                    cart: [], // Clear cart after saving quote
-                    currentCustomer: null
-                }));
+                const { createQuote: createQuoteAction } = await import('../../actions/quotes');
+                const result = await createQuoteAction(state.cart, context);
 
-                import('sonner').then(({ toast }) => {
-                    toast.success(`Cotización guardada: ${newQuote.id}`);
-                });
-
-                return newQuote;
-            },
-            retrieveQuote: (quoteId) => {
-                const state = get();
-                // Try to find by exact ID or by suffix (for barcode scanning)
-                const quote = state.quotes.find(q => q.id === quoteId || q.id.endsWith(quoteId.replace('COT-', '')));
-
-                if (!quote || quote.status !== 'ACTIVE') {
+                if (result.success && result.quote) {
                     import('sonner').then(({ toast }) => {
-                        toast.error('Cotización no encontrada o expirada');
+                        toast.success(`Cotización guardada: ${result.quote?.code}`);
+                    });
+                    set({ cart: [], currentCustomer: null });
+                    return result.quote;
+                } else {
+                    import('sonner').then(({ toast }) => {
+                        toast.error('Error al guardar cotización');
+                    });
+                    return null; // Handle error appropriately
+                }
+            },
+            retrieveQuote: async (quoteCode) => {
+                const state = get();
+                const { retrieveQuote: retrieveQuoteAction } = await import('../../actions/quotes');
+
+                const result = await retrieveQuoteAction(quoteCode);
+
+                if (result.success && result.quote) {
+                    const quote = result.quote;
+
+                    // Convert QuoteItems to CartItems
+                    // Note: We might need to fetch full product details if we want full object (allows_commission etc)
+                    // But for now we use what we stored. Ideally we stored product_id and can refetch or just assume basic data.
+                    // For speed, we'll map what we have.
+                    const cartItems: CartItem[] = quote.items.map((item: any) => ({
+                        id: item.product_id || item.product_name, // Fallback
+                        sku: item.product_id || 'UNKNOWN', // Ideally SKU
+                        name: item.product_name,
+                        price: item.unit_price,
+                        quantity: item.quantity,
+                        allows_commission: false,
+                        active_ingredients: [],
+                        cost_price: 0
+                    }));
+
+                    set({
+                        cart: cartItems,
+                        currentCustomer: state.customers.find(c => c.id === quote.customer?.id) || null
+                    });
+
+                    import('sonner').then(({ toast }) => {
+                        toast.success(`Cotización cargada: ${quote.code}`);
+                    });
+                    return true;
+                } else {
+                    import('sonner').then(({ toast }) => {
+                        toast.error(result.error || 'Cotización no encontrada');
                     });
                     return false;
                 }
-
-                // Load items to cart
-                set({
-                    cart: quote.items,
-                    currentCustomer: state.customers.find(c => c.id === quote.customer_id) || null
-                });
-
-                import('sonner').then(({ toast }) => {
-                    toast.success(`Cotización cargada: ${quote.id}`);
-                });
-
-                return true;
             },
 
 

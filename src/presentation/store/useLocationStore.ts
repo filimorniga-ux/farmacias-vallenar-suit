@@ -9,6 +9,7 @@ interface LocationState {
 
     // Actions
     addLocation: (location: Location) => void;
+    setLocations: (locations: Location[]) => void;
     updateLocation: (id: string, data: Partial<Location>) => void;
     switchLocation: (id: string, onSuccess?: () => void) => void;
     canSwitchLocation: (userRole: string) => boolean;
@@ -33,6 +34,8 @@ export const useLocationStore = create<LocationState>()(
             addLocation: (location) => set((state) => ({
                 locations: [...state.locations, location]
             })),
+
+            setLocations: (locations) => set({ locations }),
 
             updateLocation: (id, data) => set((state) => ({
                 locations: state.locations.map(loc =>
