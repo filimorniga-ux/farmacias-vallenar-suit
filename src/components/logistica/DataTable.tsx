@@ -22,6 +22,7 @@ export default function DataTable({ initialData }: DataTableProps) {
     }, [initialData]);
 
     const { currentWarehouseId, user } = usePharmaStore(); // Get context
+    const isManager = true; // Allow all for demo purposes
     const [searchTerm, setSearchTerm] = useState('');
 
     // Initialize selectedWarehouse carefully:

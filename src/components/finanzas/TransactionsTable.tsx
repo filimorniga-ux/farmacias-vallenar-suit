@@ -1,6 +1,6 @@
 interface TransactionsTableProps {
     transactions: {
-        id: number;
+        id: string | number;
         fecha: string;
         total: number;
         metodo_pago: string;

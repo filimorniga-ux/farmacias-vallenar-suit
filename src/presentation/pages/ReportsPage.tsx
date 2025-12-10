@@ -2,15 +2,16 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { usePharmaStore } from '../store/useStore';
 import TimeFilter, { DateRange } from '../components/bi/TimeFilter';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { TrendingUp, DollarSign, FileText, Package, Users, Download, AlertTriangle, CheckCircle, RefreshCw } from 'lucide-react';
+import { TrendingUp, DollarSign, FileText, Package, Users, Download, AlertTriangle, CheckCircle, RefreshCw, ArrowDown, ArrowUp, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 
 // Backend Actions
-import { getCashFlowLedger, getTaxSummary, getInventoryValuation, getPayrollPreview, getDetailedFinancialSummary, CashFlowEntry, TaxSummary, InventoryValuation, PayrollPreview } from '../../actions/reports-detail';
+import { getCashFlowLedger, getTaxSummary, getInventoryValuation, getPayrollPreview, getDetailedFinancialSummary, getLogisticsKPIs, CashFlowEntry, TaxSummary, InventoryValuation, PayrollPreview, LogisticsKPIs } from '../../actions/reports-detail';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
 const ReportsPage: React.FC = () => {
+    const { currentWarehouseId, currentLocationId } = usePharmaStore();
     const [activeTab, setActiveTab] = useState<'cash' | 'tax' | 'logistics' | 'hr'>('cash');
     const [dateRange, setDateRange] = useState<DateRange>(() => {
         const now = new Date();
@@ -26,6 +27,7 @@ const ReportsPage: React.FC = () => {
     const [summary, setSummary] = useState<any>(null); // New State
     const [taxData, setTaxData] = useState<TaxSummary | null>(null);
     const [logisticsData, setLogisticsData] = useState<InventoryValuation | null>(null);
+    const [logisticsKPIs, setLogisticsKPIs] = useState<LogisticsKPIs | null>(null);
     const [payrollData, setPayrollData] = useState<PayrollPreview[]>([]);
 
     // Fetch Logic
@@ -45,8 +47,13 @@ const ReportsPage: React.FC = () => {
                 const data = await getTaxSummary(monthStr);
                 setTaxData(data);
             } else if (activeTab === 'logistics') {
-                const data = await getInventoryValuation();
-                setLogisticsData(data);
+                const whId = currentWarehouseId || currentLocationId || ''; // Fallback
+                const [valData, kpiData] = await Promise.all([
+                    getInventoryValuation(whId),
+                    getLogisticsKPIs(dateRange.from.toISOString(), dateRange.to.toISOString(), whId)
+                ]);
+                setLogisticsData(valData);
+                setLogisticsKPIs(kpiData);
             } else if (activeTab === 'hr') {
                 const data = await getPayrollPreview();
                 setPayrollData(data);
@@ -57,7 +64,7 @@ const ReportsPage: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    }, [activeTab, dateRange]);
+    }, [activeTab, dateRange, currentWarehouseId, currentLocationId]);
 
     useEffect(() => {
         fetchData();
@@ -247,6 +254,49 @@ const ReportsPage: React.FC = () => {
 
                     {!loading && activeTab === 'logistics' && logisticsData && (
                         <div className="space-y-6 animate-in slide-in-from-right-4">
+
+                            {/* KPI Logistics Cards */}
+                            {logisticsKPIs && (
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                                    <div className="bg-white p-4 rounded-xl shadow-sm border border-emerald-100">
+                                        <div className="flex items-center gap-3 mb-2">
+                                            <div className="p-2 bg-emerald-100 rounded-lg text-emerald-600">
+                                                <ArrowDown className="w-5 h-5" />
+                                            </div>
+                                            <p className="text-sm font-bold text-slate-500 uppercase">Entradas</p>
+                                        </div>
+                                        <p className="text-2xl font-bold text-emerald-700">{logisticsKPIs.total_in}</p>
+                                        <p className="text-xs text-slate-400 mt-1">Movimientos de entrada</p>
+                                    </div>
+
+                                    <div className="bg-white p-4 rounded-xl shadow-sm border border-red-100">
+                                        <div className="flex items-center gap-3 mb-2">
+                                            <div className="p-2 bg-red-100 rounded-lg text-red-600">
+                                                <ArrowUp className="w-5 h-5" />
+                                            </div>
+                                            <p className="text-sm font-bold text-slate-500 uppercase">Salidas</p>
+                                        </div>
+                                        <p className="text-2xl font-bold text-red-700">{logisticsKPIs.total_out}</p>
+                                        <p className="text-xs text-slate-400 mt-1">Movimientos de salida</p>
+                                    </div>
+
+                                    <div className="bg-white p-4 rounded-xl shadow-sm border border-blue-100">
+                                        <div className="flex items-center gap-3 mb-2">
+                                            <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
+                                                <Clock className="w-5 h-5" />
+                                            </div>
+                                            <p className="text-sm font-bold text-slate-500 uppercase">Último Movimiento</p>
+                                        </div>
+                                        <p className="text-lg font-bold text-slate-700 truncate">
+                                            {logisticsKPIs.last_movement ? new Date(logisticsKPIs.last_movement).toLocaleDateString('es-CL') : 'Sin movimientos'}
+                                        </p>
+                                        <p className="text-xs text-slate-400 mt-1">
+                                            {logisticsKPIs.last_movement ? new Date(logisticsKPIs.last_movement).toLocaleTimeString('es-CL') : '-'}
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <div className="p-5 border border-purple-200 bg-purple-50 rounded-xl">
                                     <p className="text-purple-600 font-bold uppercase text-xs">Costo Inmovilizado</p>

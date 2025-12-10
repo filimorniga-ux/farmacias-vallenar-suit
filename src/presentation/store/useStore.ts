@@ -29,7 +29,9 @@ import {
 import { TigerDataService } from '../../domain/services/TigerDataService';
 import { fetchEmployees } from '../../actions/sync';
 import { IntelligentOrderingService } from '../services/intelligentOrderingService';
-import { MOCK_INVENTORY, MOCK_EMPLOYEES, MOCK_SUPPLIERS, MOCK_SHIPMENTS } from '../../domain/mocks';
+// Mocks removed
+// Mocks removed
+
 
 // --- MOCKS MOVED TO src/domain/mocks.ts ---
 
@@ -335,13 +337,15 @@ export const usePharmaStore = create<PharmaState>()(
                         }
                     }
 
-                    const [inventory, employees, sales, suppliers, cashMovements, customers] = await Promise.all([
+                    const [inventory, employees, sales, suppliers, cashMovements, customers, shipments, purchaseOrders] = await Promise.all([
                         TigerDataService.fetchInventory(currentStoreState.currentWarehouseId), // Filter by Store's Warehouse
                         fetchEmployees(),
                         TigerDataService.fetchSalesHistory(), // Fetch real sales
                         import('../../actions/sync').then(m => m.fetchSuppliers()), // Fetch real suppliers
                         TigerDataService.fetchCashMovements(), // Fetch real cash movements
-                        TigerDataService.fetchCustomers() // Fetch real customers
+                        TigerDataService.fetchCustomers(), // Fetch real customers
+                        TigerDataService.fetchShipments(currentStoreState.currentLocationId), // Fetch Real Shipments
+                        TigerDataService.fetchPurchaseOrders() // Fetch Real POs
                     ]);
 
                     // Si falla la DB (Safe Mode devuelve []), mantenemos lo que haya o usamos un fallback mínimo si está vacío
@@ -360,6 +364,18 @@ export const usePharmaStore = create<PharmaState>()(
                     // Sync Sales
                     if (sales.length > 0) {
                         set({ salesHistory: sales });
+                    }
+
+                    // Sync Shipments
+                    if (shipments && shipments.length > 0) {
+                        set({ shipments });
+                    } else {
+                        set({ shipments: [] }); // Clear if empty (don't keep mocks)
+                    }
+
+                    // Sync POs
+                    if (purchaseOrders && purchaseOrders.length > 0) {
+                        set({ purchaseOrders });
                     }
 
                     // Sync Suppliers
@@ -441,8 +457,8 @@ export const usePharmaStore = create<PharmaState>()(
             },
 
             // --- Inventory ---
-            inventory: [], // ⚠️ DEBUG: Start empty to prove DB connection
-            suppliers: MOCK_SUPPLIERS,
+            inventory: [],
+            suppliers: [],
             supplierDocuments: [],
             purchaseOrders: [],
             reorderConfigs: [], // Intelligent ordering configurations
@@ -1281,7 +1297,7 @@ export const usePharmaStore = create<PharmaState>()(
 
             // --- WMS & Logistics ---
             stockTransfers: [],
-            shipments: MOCK_SHIPMENTS,
+            shipments: [],
             warehouseIncidents: [],
 
             createDispatch: (shipmentData) => {
@@ -1725,7 +1741,7 @@ export const usePharmaStore = create<PharmaState>()(
                 // Always ensure employees are populated
                 employees: (persistedState?.employees && persistedState.employees.length > 0)
                     ? persistedState.employees
-                    : MOCK_EMPLOYEES
+                    : []
             })
         }
     )

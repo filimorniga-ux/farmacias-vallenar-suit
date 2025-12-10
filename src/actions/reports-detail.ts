@@ -411,3 +411,54 @@ export async function getDetailedFinancialSummary(startDateStr: string, endDateS
     }
 }
 
+/**
+ * 📦 Logistics KPIs
+ */
+export interface LogisticsKPIs {
+    total_in: number;
+    total_out: number;
+    last_movement: string;
+}
+
+/**
+ * 📦 Logistics KPIs
+ */
+export async function getLogisticsKPIs(startDateStr: string, endDateStr: string, warehouseId?: string): Promise<LogisticsKPIs> {
+    try {
+        const endDateObj = endDateStr ? new Date(endDateStr) : new Date();
+        if (endDateStr) endDateObj.setHours(23, 59, 59, 999);
+        const startDateObj = startDateStr ? new Date(startDateStr) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+        const params: any[] = [startDateObj.toISOString(), endDateObj.toISOString()];
+        let locFilter = "";
+
+        if (warehouseId) {
+            locFilter = "AND location_id::text = $3";
+            params.push(warehouseId);
+        }
+
+        const sql = `
+            SELECT 
+                COUNT(*) FILTER (WHERE movement_type IN ('PURCHASE_RECEIPT', 'TRANSFER_IN', 'RETURN')) as total_in,
+                COUNT(*) FILTER (WHERE movement_type IN ('TRANSFER_OUT', 'DISPATCH', 'ADJUSTMENT_NEG')) as total_out,
+                MAX(timestamp) as last_movement
+            FROM stock_movements
+            WHERE timestamp >= $1::timestamp AND timestamp <= $2::timestamp
+            ${locFilter}
+        `;
+
+        const res = await query(sql, params);
+        const row = res.rows[0];
+
+        return {
+            total_in: Number(row.total_in) || 0,
+            total_out: Number(row.total_out) || 0,
+            last_movement: row.last_movement ? new Date(row.last_movement).toLocaleString('es-CL') : 'Sin movimiento'
+        };
+
+    } catch (error) {
+        console.error('Error fetching Logistics KPIs:', error);
+        return { total_in: 0, total_out: 0, last_movement: '-' };
+    }
+}
+
