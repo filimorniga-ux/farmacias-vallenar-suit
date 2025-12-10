@@ -4,6 +4,8 @@ import './globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
 
+import SessionGuard from '@/presentation/components/security/SessionGuard';
+
 export const metadata: Metadata = {
     title: 'Farmacias Vallenar Suit',
     description: 'Sistema integral de gestión farmacéutica para Farmacias Vallenar',
@@ -25,7 +27,11 @@ export default function RootLayout({
 }) {
     return (
         <html lang="es">
-            <body className={inter.className} suppressHydrationWarning={true}>{children}</body>
+            <body className={inter.className} suppressHydrationWarning={true}>
+                <SessionGuard>
+                    {children}
+                </SessionGuard>
+            </body>
         </html>
     );
 }

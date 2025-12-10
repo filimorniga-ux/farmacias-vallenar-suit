@@ -1,7 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { usePharmaStore } from '../store/useStore';
-import { Search, Filter, Plus, ArrowRightLeft, Package, AlertTriangle, Snowflake, Lock, Pill, Trash2, Edit, FileSpreadsheet } from 'lucide-react';
+import {
+    Filter, Download, Upload, AlertTriangle, Search, Plus, FileSpreadsheet,
+    ChevronDown, ChevronUp, MoreHorizontal, History, RefreshCcw, Package, ScanBarcode, ArrowRightLeft, Edit, Trash2
+} from 'lucide-react';
+import { MobileScanner } from '../components/shared/MobileScanner';
 import StockEntryModal from '../components/inventory/StockEntryModal';
 import StockTransferModal from '../components/inventory/StockTransferModal';
 import InventoryEditModal from '../components/inventory/InventoryEditModal';
@@ -9,6 +13,7 @@ import BulkImportModal from '../components/inventory/BulkImportModal';
 import InventoryExportModal from '../components/inventory/InventoryExportModal';
 import { hasPermission } from '../../domain/security/roles';
 import MobileActionScroll from '../components/ui/MobileActionScroll';
+import { toast } from 'sonner';
 
 const InventoryPage: React.FC = () => {
     const { inventory, user } = usePharmaStore();
@@ -21,6 +26,8 @@ const InventoryPage: React.FC = () => {
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
     const [editingItem, setEditingItem] = useState<any>(null);
+
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
 
     // Permissions
     const canManageInventory = hasPermission(user, 'MANAGE_INVENTORY');
@@ -42,6 +49,15 @@ const InventoryPage: React.FC = () => {
         window.addEventListener('resize', checkMobile);
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
+
+    const handleScan = (code: string) => {
+        setSearchTerm(code);
+        if (navigator.vibrate) navigator.vibrate(200);
+        const audio = new Audio('/beep.mp3');
+        audio.play().catch(() => { });
+        toast.success('Producto encontrado');
+        setIsScannerOpen(false);
+    };
 
     const filteredInventory = useMemo(() => {
         if (!inventory) return [];
@@ -389,6 +405,25 @@ const InventoryPage: React.FC = () => {
                     )}
                 </div>
             </div>
+
+            {/* Mobile Scanner FAB */}
+            <div className="md:hidden fixed bottom-24 right-4 z-40">
+                <button
+                    onClick={() => setIsScannerOpen(true)}
+                    className="bg-cyan-600 text-white p-4 rounded-full shadow-lg shadow-cyan-200 hover:bg-cyan-700 transition-colors"
+                >
+                    <ScanBarcode size={24} />
+                </button>
+            </div>
+
+            {/* Mobile Scanner Overlay */}
+            {isScannerOpen && (
+                <MobileScanner
+                    onScan={handleScan}
+                    onClose={() => setIsScannerOpen(false)}
+                />
+            )}
+
 
             {/* Modals */}
             <StockEntryModal isOpen={isEntryModalOpen} onClose={() => setIsEntryModalOpen(false)} />

@@ -226,12 +226,18 @@ export const usePharmaStore = create<PharmaState>()(
             login: async (userId, pin) => {
                 let authenticatedUser: EmployeeProfile | null = null;
 
-                // 1. Online Attempt
+                // 1. Online Attempt (Secure Server Action)
                 try {
-                    const { TigerDataService } = await import('../../domain/services/TigerDataService');
-                    const result = await TigerDataService.authenticate(userId, pin);
+                    // Dynamic import of Server Action
+                    const { authenticateUser } = await import('../../actions/auth');
+                    const result = await authenticateUser(userId, pin);
+
                     if (result.success && result.user) {
                         authenticatedUser = result.user;
+                    } else if (result.error && result.error.includes('Bloqueado')) {
+                        // Propagate Blocking Error
+                        import('sonner').then(({ toast }) => toast.error(result.error));
+                        return false;
                     }
                 } catch (error) {
                     console.warn('⚠️ Online login failed/unreachable, trying offline fallback...', error);
@@ -1127,31 +1133,51 @@ export const usePharmaStore = create<PharmaState>()(
                 };
             }),
 
-            closeShift: (finalAmount, authorizedBy) => set((state) => {
-                if (!state.currentShift) return state;
+            closeShift: async (finalAmount, authorizedBy) => {
+                const state = get();
+                if (!state.currentShift) return;
+
                 const metrics = state.getShiftMetrics();
+                const difference = finalAmount - metrics.expectedCash;
+
+                // 🔒 Security: Audit Log for Missing Cash
+                if (difference < 0) {
+                    try {
+                        const { logAuditAction } = await import('../../actions/security');
+                        await logAuditAction(authorizedBy, 'CASH_DIFFERENCE', {
+                            shift_id: state.currentShift.id,
+                            difference,
+                            expected: metrics.expectedCash,
+                            actual: finalAmount
+                        });
+                    } catch (e) {
+                        console.error('Failed to log cash difference', e);
+                    }
+                }
 
                 const closedShift: Shift = {
                     ...state.currentShift,
                     end_time: Date.now(),
                     status: 'CLOSED',
                     closing_amount: finalAmount,
-                    difference: finalAmount - metrics.expectedCash
+                    difference: difference
                 };
 
-                // Update terminal status
+                // Update terminals
                 const updatedTerminals = state.terminals.map(t =>
                     t.id === state.currentShift!.terminal_id ? { ...t, status: 'CLOSED' as const } : t
                 );
 
-                return {
+                set({
                     currentShift: null, // Reset current shift
                     dailyShifts: [...state.dailyShifts, closedShift], // Archive it
                     terminals: updatedTerminals,
                     cart: [], // Clear cart
                     currentCustomer: null // Clear customer
-                };
-            }),
+                });
+
+                // Optional: Sync closed shift to Server Action if needed here
+            },
             updateOpeningAmount: (newAmount) => set((state) => {
                 if (!state.currentShift) return state;
                 return {
