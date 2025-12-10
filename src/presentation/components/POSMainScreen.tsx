@@ -4,7 +4,8 @@ import { usePharmaStore } from '../store/useStore';
 import {
     Search, Plus, X, Tag, CreditCard, Banknote, Smartphone, AlertTriangle, ShoppingCart, Truck, Users, Clock, Lock, ArrowRight, BarChart3, Building2,
     TrendingUp, Wallet, ArrowDownRight, RefreshCw, MapPin, Snowflake,
-    Cloud, Wifi, WifiOff, ChevronDown, Bell, ScanBarcode, QrCode
+    Cloud, Wifi, WifiOff, ChevronDown, Bell, ScanBarcode, QrCode,
+    Scissors, TrendingDown, FileText, User, Minus, Trash2, Star, DollarSign
 } from 'lucide-react';
 import { MobileScanner } from '../../components/shared/MobileScanner';
 import { scanProduct } from '../../actions/scan';
@@ -395,7 +396,7 @@ const POSMainScreen: React.FC = () => {
 
                 <div className="z-10 bg-white/10 backdrop-blur-lg p-8 md:p-12 rounded-3xl border border-white/20 shadow-2xl max-w-lg w-full text-center">
                     <div className="w-24 h-24 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse">
-                        <LockIcon size={48} className="text-red-400" />
+                        <Lock size={48} className="text-red-400" />
                     </div>
 
                     <h1 className="text-3xl md:text-4xl font-extrabold text-white mb-2">Terminal Bloqueado</h1>
@@ -620,14 +621,14 @@ flex - 1 flex - col p - 4 md: p - 6 md: pl - 0 gap - 4
                                             onClick={() => setCashModalMode('AUDIT')}
                                             className="flex items-center gap-2 bg-purple-50 text-purple-700 px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-purple-100 font-bold transition-colors whitespace-nowrap"
                                         >
-                                            <LockIcon size={20} />
+                                            <Lock size={20} />
                                             <span className="hidden lg:inline">Arqueo</span>
                                         </button>
                                         <button
                                             onClick={() => setCashModalMode('CLOSE')}
                                             className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-slate-700 font-bold transition-colors whitespace-nowrap"
                                         >
-                                            <LockIcon size={20} />
+                                            <Lock size={20} />
                                             <span className="hidden lg:inline">Cerrar Turno</span>
                                         </button>
                                     </>
@@ -636,7 +637,7 @@ flex - 1 flex - col p - 4 md: p - 6 md: pl - 0 gap - 4
                                         onClick={() => setIsShiftModalOpen(true)}
                                         className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-green-700 font-bold transition-colors whitespace-nowrap animate-pulse"
                                     >
-                                        <LockIcon size={20} />
+                                        <Lock size={20} />
                                         <span className="hidden lg:inline">Abrir Turno</span>
                                     </button>
                                 )}
