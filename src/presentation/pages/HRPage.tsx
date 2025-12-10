@@ -207,7 +207,7 @@ const HRPage = () => {
                                                         <td className="p-6">
                                                             <div className="font-medium text-slate-700">{emp.job_title?.replace(/_/g, ' ')}</div>
                                                             <div className="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded-full inline-block mt-1">
-                                                                {ROLES[emp.role]}
+                                                                {(ROLES as Record<string, string>)[emp.role] || emp.role}
                                                             </div>
                                                         </td>
                                                         <td className="p-6">

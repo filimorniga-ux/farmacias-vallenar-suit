@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Package, Truck, ArrowRight, CheckCircle, Search, Filter, Calendar, Clock, ArrowDown, ArrowUp, X, MapPin, FileText, Camera, RotateCcw, ShoppingCart, Ban } from 'lucide-react';
+import { Package, Truck, ArrowRight, CheckCircle, Search, Filter, Calendar, Clock, ArrowDown, ArrowUp, X, MapPin, FileText, Camera, RotateCcw, ShoppingCart, Ban, Activity } from 'lucide-react';
 import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
 import { Shipment, PurchaseOrder } from '../../domain/types';
+import { getRecentMovements } from '../../actions/inventory';
 import UnifiedReception from '../components/warehouse/UnifiedReception';
 import DocumentViewerModal from '../components/warehouse/DocumentViewerModal';
 import ScanReceptionModal from '../components/warehouse/ScanReceptionModal';
@@ -12,9 +13,11 @@ import MobileActionScroll from '../components/ui/MobileActionScroll';
 import { toast } from 'sonner';
 
 export const WarehouseOps = () => {
-    const { shipments, purchaseOrders, cancelShipment, cancelPurchaseOrder, receivePurchaseOrder } = usePharmaStore();
+    const { shipments, purchaseOrders, cancelShipment, cancelPurchaseOrder, receivePurchaseOrder, inventory, createDispatch, addPurchaseOrder } = usePharmaStore();
     const { currentLocation } = useLocationStore();
-    const [activeTab, setActiveTab] = useState<'INBOUND' | 'OUTBOUND' | 'TRANSIT' | 'REVERSE' | 'SUPPLIER_ORDERS'>('INBOUND');
+    const currentLocationId = currentLocation?.id || 'SUCURSAL_CENTRO';
+
+    const [activeTab, setActiveTab] = useState<'INBOUND' | 'OUTBOUND' | 'TRANSIT' | 'REVERSE' | 'SUPPLIER_ORDERS' | 'MOVEMENTS'>('INBOUND');
     const [searchTerm, setSearchTerm] = useState('');
 
     // Modal States
@@ -34,8 +37,22 @@ export const WarehouseOps = () => {
     const [dateRange, setDateRange] = useState({ start: '', end: '' });
     const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
 
+    // Movements State
+    const [movements, setMovements] = useState<any[]>([]);
+    const [loadingMovements, setLoadingMovements] = useState(false);
+
     const isWarehouse = currentLocation?.type === 'WAREHOUSE';
-    const currentLocationId = currentLocation?.id || 'SUCURSAL_CENTRO';
+
+    // Fetch movements when tab changes to MOVEMENTS or location changes
+    React.useEffect(() => {
+        if (activeTab === 'MOVEMENTS' && currentLocationId) {
+            setLoadingMovements(true);
+            getRecentMovements(currentLocationId)
+                .then(data => setMovements(data))
+                .catch(err => console.error("Failed to fetch movements:", err))
+                .finally(() => setLoadingMovements(false));
+        }
+    }, [activeTab, currentLocationId]);
 
     // Clear all filters
     const handleClearFilters = () => {
@@ -95,6 +112,10 @@ export const WarehouseOps = () => {
                 if (activeTab === 'SUPPLIER_ORDERS') {
                     // Show all POs for now, or filter by status if needed
                     return true;
+                }
+                if (activeTab === 'MOVEMENTS') {
+                    // Movements tab has its own data, not filteredItems
+                    return false;
                 }
 
                 const s = item as Shipment;
@@ -298,6 +319,13 @@ export const WarehouseOps = () => {
                     >
                         <RotateCcw className="w-4 h-4" />
                         Devoluciones
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('MOVEMENTS')}
+                        className={`flex-none min-w-[40%] snap-center pb-3 px-4 font-bold text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${activeTab === 'MOVEMENTS' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                    >
+                        <Activity className="w-4 h-4" />
+                        Movimientos
                     </button>
                 </MobileActionScroll>
             </div>

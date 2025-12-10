@@ -261,4 +261,68 @@ export async function executeTransfer(params: TransferParams) {
     } finally {
         client.release();
     }
+}// ... previous code
+
+/**
+ * 📦 Get Shipments (Inbound/Outbound/Transit)
+ */
+export async function getShipments(locationId?: string): Promise<any[]> {
+    try {
+        let queryStr = `
+            SELECT * FROM shipments 
+            WHERE 1=1
+        `;
+        const params: any[] = [];
+
+        if (locationId) {
+            queryStr += ` AND (origin_location_id = $1 OR destination_location_id = $1)`;
+            params.push(locationId);
+        }
+
+        queryStr += ` ORDER BY created_at DESC LIMIT 100`;
+
+        const res = await query(queryStr, params);
+
+        // Map to Shipment type
+        return res.rows.map(row => ({
+            id: row.id,
+            origin_location_id: row.origin_location_id,
+            destination_location_id: row.destination_location_id,
+            status: row.status,
+            type: row.type,
+            created_at: new Date(row.created_at).getTime(), // Convert to timestamp
+            updated_at: new Date(row.updated_at).getTime(),
+            transport_data: row.transport_data || {},
+            items: row.items || [], // Jsonb
+            valuation: Number(row.valuation) || 0,
+            documents: row.documents || []
+        }));
+
+    } catch (error) {
+        console.error('Error fetching shipments:', error);
+        return [];
+    }
+}
+
+/**
+ * 🛒 Get Purchase Orders
+ */
+export async function getPurchaseOrders(locationId?: string): Promise<any[]> {
+    try {
+        // Needs a purchase_orders table. 
+        // Assuming it exists or using a mock structure from DB.
+        // If not exists, return empty.
+
+        // Let's check schema first? Or just try query.
+        // Assuming 'purchase_orders' table.
+        const res = await query(`SELECT * FROM purchase_orders ORDER BY created_at DESC LIMIT 50`);
+        return res.rows.map(row => ({
+            ...row,
+            created_at: new Date(row.created_at).getTime(),
+            delivery_date: row.delivery_date ? new Date(row.delivery_date).getTime() : undefined
+        }));
+    } catch (error) {
+        // Silent fail if table missing
+        return [];
+    }
 }

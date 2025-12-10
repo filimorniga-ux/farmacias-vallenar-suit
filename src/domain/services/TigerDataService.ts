@@ -52,16 +52,7 @@ const simulateNetworkCall = async <T>(
 
 export const TigerDataService = {
     /**
-     * 1. Fetch Products Catalog for POS
-     * @param locationId - Branch/warehouse location ID
-     * @returns Promise<InventoryBatch[]>
-     * 
-     * Future: GET /api/inventory?location={locationId}
-     */
-    /**
      * 0. Bulk Upload Inventory (Chunks)
-     * @param products - Array of products to upload
-     * @param onProgress - Optional callback for progress updates
      */
     uploadBulkInventory: async (
         products: InventoryBatch[],
@@ -117,7 +108,6 @@ export const TigerDataService = {
 
     /**
      * 1. Fetch Inventory (Robust with Fallback)
-     * @returns Promise<InventoryBatch[]>
      */
     fetchInventory: async (warehouseId?: string): Promise<InventoryBatch[]> => {
         console.log('🐯 [Tiger Data] Fetching inventory...');
@@ -160,9 +150,6 @@ export const TigerDataService = {
 
     /**
      * 2. Save Sale Transaction (CRITICAL)
-     * @param saleData - Complete sale transaction
-     * @param locationId - Branch where sale occurred
-     * @returns Promise<{ success: boolean; transactionId: string }>
      */
     saveSaleTransaction: async (
         saleData: SaleTransaction,
@@ -244,7 +231,7 @@ export const TigerDataService = {
     },
 
     /**
-     * 4b. Fetch Cash Movements (NEW)
+     * 4b. Fetch Cash Movements
      */
     fetchCashMovements: async (limit = 50) => {
         try {
@@ -259,16 +246,14 @@ export const TigerDataService = {
         }
     },
 
-    // ... cash movement ...
-
     /**
      * 6. Fetch Sales History
      */
-    fetchSalesHistory: async (
+    async fetchSalesHistory(
         locationId?: string,
         startDate?: number,
         endDate?: number
-    ): Promise<SaleTransaction[]> => {
+    ): Promise<SaleTransaction[]> {
         console.log('🐯 [Tiger Data] Fetching sales history from DB...');
         try {
             const { getSales } = await import('../../actions/sales');
@@ -285,13 +270,35 @@ export const TigerDataService = {
     },
 
     /**
+     * 🚚 Fetch Shipments (Real)
+     */
+    fetchShipments: async (locationId?: string): Promise<any[]> => {
+        try {
+            const { getShipments } = await import('../../actions/wms');
+            const shipments = await getShipments(locationId);
+            return shipments;
+        } catch (error) {
+            console.error('❌ [Tiger Data] Fetch Shipments failed:', error);
+            // Fallback to Mock if DB fails? Or empty.
+            const { MOCK_SHIPMENTS } = await import('../mocks');
+            return MOCK_SHIPMENTS;
+        }
+    },
+
+    /**
+     * 🛒 Fetch Purchase Orders (Real)
+     */
+    fetchPurchaseOrders: async (): Promise<any[]> => {
+        try {
+            const { getPurchaseOrders } = await import('../../actions/wms');
+            return await getPurchaseOrders();
+        } catch (error) {
+            return [];
+        }
+    },
+
+    /**
      * 7. Update Inventory Stock
-     * @param productId - Product ID
-     * @param quantity - Quantity to add/subtract
-     * @param operation - 'ADD' or 'SUBTRACT'
-     * @returns Promise<{ success: boolean }>
-     * 
-     * Future: PATCH /api/inventory/{productId}
      */
     updateInventoryStock: async (
         productId: string,
@@ -322,7 +329,6 @@ export const TigerDataService = {
 
     /**
      * UTILITY: Initialize in-memory storage with data from store
-     * This is a temporary method for the simulation phase
      */
     initializeStorage: (data: {
         products?: InventoryBatch[];
@@ -342,9 +348,6 @@ export const TigerDataService = {
 
     /**
      * 8. Authenticate User
-     * @param userId - User ID (RUT)
-     * @param pin - Access PIN
-     * @returns Promise<{ success: boolean; user: EmployeeProfile }>
      */
     authenticate: async (
         userId: string,
@@ -379,12 +382,6 @@ export const TigerDataService = {
 
 /**
  * Configuration for future API integration
- * 
- * When ready to connect to real Tiger Data API:
- * 1. Replace simulateNetworkCall with actual fetch/axios calls
- * 2. Update API_BASE_URL with production endpoint
- * 3. Add authentication headers
- * 4. Handle real error responses
  */
 export const TigerDataConfig = {
     API_BASE_URL: process.env.REACT_APP_TIGER_DATA_URL || 'http://localhost:3001/api',

@@ -105,3 +105,57 @@ export async function createBatch(batchData: Partial<InventoryBatch> & { userId:
         return { success: false, error: error.message };
     }
 }
+
+/**
+ * 📦 Get Recent Stock Movements
+ * Replaces MOCK_DATA in WarehouseOps
+ */
+export async function getRecentMovements(locationId?: string, limit = 100) {
+    try {
+        let whereClause = "";
+        const params: any[] = [];
+
+        if (locationId) {
+            whereClause = "WHERE sm.location_id::text = $1 OR sm.location_id::text = (SELECT default_warehouse_id::text FROM locations WHERE id::text = $1)";
+            params.push(locationId);
+        }
+
+        const sql = `
+            SELECT 
+                sm.id::text as id,
+                sm.timestamp,
+                sm.movement_type,
+                sm.quantity,
+                sm.stock_after,
+                sm.notes,
+                sm.product_name,
+                sm.sku,
+                u.name as user_name,
+                l.name as location_name
+            FROM stock_movements sm
+            LEFT JOIN users u ON sm.user_id = u.id
+            LEFT JOIN locations l ON sm.location_id = l.id
+            ${whereClause}
+            ORDER BY sm.timestamp DESC
+            LIMIT ${limit}
+        `;
+
+        const res = await query(sql, params);
+
+        return res.rows.map(row => ({
+            id: row.id,
+            date: row.timestamp,
+            type: row.movement_type,
+            product: row.product_name, // sm.product_name is usually denormalized
+            sku: row.sku,
+            quantity: Number(row.quantity),
+            user: row.user_name || 'Sistema',
+            location: row.location_name,
+            notes: row.notes
+        }));
+
+    } catch (error) {
+        console.error('Error fetching recent movements:', error);
+        return [];
+    }
+}
