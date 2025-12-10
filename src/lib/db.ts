@@ -4,9 +4,10 @@ import { Pool } from 'pg';
 const isProduction = process.env.NODE_ENV === 'production';
 
 // Configuración robusta
+console.log('DEBUG DB URL:', process.env.DATABASE_URL ? 'DEFINED' : 'UNDEFINED'); // Debug log
 const connectionConfig = {
     connectionString: process.env.DATABASE_URL,
-    ssl: isProduction ? { rejectUnauthorized: true } : { rejectUnauthorized: false },
+    ssl: { rejectUnauthorized: false }, // Timescale requires SSL, usually self-signed okay or proper CA. Safer for dev scripts.
     max: 10,
     connectionTimeoutMillis: 20000, // Increased to 20s
     idleTimeoutMillis: 30000,

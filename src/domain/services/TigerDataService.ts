@@ -143,6 +143,22 @@ export const TigerDataService = {
     },
 
     /**
+     * 1b. Fetch Customers
+     */
+    fetchCustomers: async (): Promise<any[]> => {
+        console.log('🐯 [Tiger Data] Fetching customers...');
+        try {
+            const { getCustomers } = await import('../../actions/customers');
+            const customers = await getCustomers();
+            console.log(`✅ [Tiger Data] Loaded ${customers.length} customers`);
+            return customers;
+        } catch (error) {
+            console.error('❌ [Tiger Data] Fetch Customers failed:', error);
+            return [];
+        }
+    },
+
+    /**
      * 2. Save Sale Transaction (CRITICAL)
      * @param saleData - Complete sale transaction
      * @param locationId - Branch where sale occurred

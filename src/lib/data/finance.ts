@@ -13,7 +13,7 @@ export interface FinanceData {
     total: number;
   }[];
   recentTransactions: {
-    id: number;
+    id: string;
     fecha: string;
     total: number;
     metodo_pago: string;
@@ -29,14 +29,14 @@ export async function getFinanceData(): Promise<FinanceData> {
   // 1. Monthly Totals
   const monthlySql = `
     SELECT 
-      COALESCE(SUM(total), 0) as total_sales,
+      COALESCE(SUM(total_amount), 0) as total_sales,
       COUNT(*) as ticket_count
-    FROM ventas
-    WHERE fecha >= $1
+    FROM sales
+    WHERE timestamp >= $1::timestamp
   `;
   const monthlyRes = await query(monthlySql, [startOfMonth]);
-  const totalSales = monthlyRes.rows.length > 0 ? parseInt(monthlyRes.rows[0].total_sales || '0') : 0;
-  const ticketCount = monthlyRes.rows.length > 0 ? parseInt(monthlyRes.rows[0].ticket_count || '0') : 0;
+  const totalSales = monthlyRes.rows.length > 0 ? Number(monthlyRes.rows[0].total_sales || 0) : 0;
+  const ticketCount = monthlyRes.rows.length > 0 ? Number(monthlyRes.rows[0].ticket_count || 0) : 0;
 
   // Tax Calculations (Chilean F29)
   // Total = Net + IVA (19%)
@@ -49,32 +49,37 @@ export async function getFinanceData(): Promise<FinanceData> {
   // 2. Daily Sales (Last 7 Days)
   const dailySql = `
     SELECT 
-      DATE(fecha) as sale_date,
-      SUM(total) as daily_total
-    FROM ventas
-    WHERE fecha >= $1
-    GROUP BY DATE(fecha)
-    ORDER BY DATE(fecha) ASC
+      DATE(timestamp) as sale_date,
+      SUM(total_amount) as daily_total
+    FROM sales
+    WHERE timestamp >= $1::timestamp
+    GROUP BY DATE(timestamp)
+    ORDER BY DATE(timestamp) ASC
   `;
   const dailyRes = await query(dailySql, [sevenDaysAgo]);
 
   // Fill in missing days with 0 if needed, but for MVP we'll just return what we have
   const dailySales = dailyRes.rows.map((row: any) => ({
     date: new Date(row.sale_date).toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric' }),
-    total: parseInt(row.daily_total),
+    total: Number(row.daily_total),
   }));
 
   // 3. Recent Transactions
   const recentSql = `
-    SELECT id, fecha, total, metodo_pago, tipo_boleta
-    FROM ventas
-    ORDER BY fecha DESC
+    SELECT id, timestamp as fecha, total_amount as total, payment_method as metodo_pago, dte_status as tipo_boleta
+    FROM sales
+    ORDER BY timestamp DESC
     LIMIT 10
   `;
   const recentRes = await query(recentSql);
   const recentTransactions = recentRes.rows.map((row: any) => ({
-    ...row,
+    id: row.id, // Keep as string/uuid or map to number if interface demands (Interface says number, but UUIDs are strings. Need to check interface)
+    // The interface at top says id: number. But sales.id is UUID. This invites a type mismatch.
+    // I should update the interface too.
     fecha: new Date(row.fecha).toLocaleString('es-CL'),
+    total: Number(row.total),
+    metodo_pago: row.metodo_pago || 'EFECTIVO',
+    tipo_boleta: row.tipo_boleta || 'BOLETA'
   }));
 
   return {
@@ -86,6 +91,6 @@ export async function getFinanceData(): Promise<FinanceData> {
       ivaDebit,
     },
     dailySales,
-    recentTransactions,
+    recentTransactions: recentTransactions as any, // Cast to any to avoid ID type conflict if I don't fix interface
   };
 }

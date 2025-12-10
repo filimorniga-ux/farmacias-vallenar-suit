@@ -335,12 +335,13 @@ export const usePharmaStore = create<PharmaState>()(
                         }
                     }
 
-                    const [inventory, employees, sales, suppliers, cashMovements] = await Promise.all([
+                    const [inventory, employees, sales, suppliers, cashMovements, customers] = await Promise.all([
                         TigerDataService.fetchInventory(currentStoreState.currentWarehouseId), // Filter by Store's Warehouse
                         fetchEmployees(),
                         TigerDataService.fetchSalesHistory(), // Fetch real sales
                         import('../../actions/sync').then(m => m.fetchSuppliers()), // Fetch real suppliers
-                        TigerDataService.fetchCashMovements() // Fetch real cash movements
+                        TigerDataService.fetchCashMovements(), // Fetch real cash movements
+                        TigerDataService.fetchCustomers() // Fetch real customers
                     ]);
 
                     // Si falla la DB (Safe Mode devuelve []), mantenemos lo que haya o usamos un fallback mínimo si está vacío
@@ -387,6 +388,12 @@ export const usePharmaStore = create<PharmaState>()(
                                 is_deductible: false
                             }))
                         });
+                    }
+
+                    // Sync Customers
+                    if (customers && customers.length > 0) {
+                        set({ customers });
+                        console.log(`👥 Synced ${customers.length} customers`);
                     }
 
                     const state = get();
