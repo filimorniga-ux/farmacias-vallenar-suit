@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings, User, Shield, Save, Receipt, Printer, ToggleLeft, ToggleRight, AlertTriangle, CreditCard, Star, Monitor } from 'lucide-react';
+import { Settings, User, Shield, Save, Receipt, Printer, ToggleLeft, ToggleRight, AlertTriangle, CreditCard, Star, Monitor, Building } from 'lucide-react';
 import SiiSettings from './settings/SiiSettings';
 import HardwarePage from './settings/HardwarePage';
 import InventorySettings from './settings/InventorySettings';
@@ -11,9 +11,10 @@ import { UsersList } from '../components/settings/UsersList';
 import { UsersSettingsForm } from '../components/settings/UsersSettingsForm';
 import { TerminalSettings } from '../components/settings/TerminalSettings';
 import { EmployeeProfile } from '../../domain/types';
+import { GeneralSettings } from '../components/settings/GeneralSettings';
 
 const SettingsPage: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'users' | 'sii' | 'hardware' | 'inventory' | 'billing' | 'loyalty' | 'terminals' | 'backup'>('users');
+    const [activeTab, setActiveTab] = useState<'general' | 'users' | 'sii' | 'hardware' | 'inventory' | 'billing' | 'loyalty' | 'terminals' | 'backup'>('general');
     const { enable_sii_integration, toggleSiiIntegration } = useSettingsStore();
     const { user } = usePharmaStore();
 
@@ -62,6 +63,17 @@ const SettingsPage: React.FC = () => {
             {/* Tabs */}
             <div className="bg-white rounded-t-3xl shadow-sm border border-slate-200 overflow-hidden max-w-7xl">
                 <div className="flex border-b border-slate-200 overflow-x-auto">
+                    <button
+                        onClick={() => setActiveTab('general')}
+                        className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'general'
+                            ? 'bg-cyan-50 text-cyan-700 border-b-2 border-cyan-600'
+                            : 'text-slate-500 hover:bg-slate-50'
+                            }`}
+                    >
+                        <Building size={20} />
+                        General
+                    </button>
+
                     <button
                         onClick={() => setActiveTab('users')}
                         className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'users'
@@ -157,6 +169,8 @@ const SettingsPage: React.FC = () => {
             </div>
 
             {/* Tab Content */}
+            {activeTab === 'general' && <GeneralSettings />}
+
             {activeTab === 'users' && (
                 <div className="bg-white rounded-b-3xl shadow-sm border border-t-0 border-slate-200 overflow-hidden max-w-7xl p-8">
                     {usersView === 'list' ? (

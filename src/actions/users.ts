@@ -4,6 +4,7 @@ import { query } from '../lib/db';
 import { EmployeeProfile } from '../domain/types';
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
+import { logAuditAction } from './security';
 
 // --- Types ---
 // Mapeo de la DB a nuestro tipo de dominio
@@ -146,6 +147,10 @@ export async function deleteUser(id: string): Promise<{ success: boolean; error?
         // Soft delete (cambiar estado a TERMINATED) o Hard delete según preferencia.
         // Aquí usaremos Soft Delete para mantener historial.
         await query("UPDATE users SET status = 'TERMINATED', updated_at = NOW() WHERE id = $1", [id]);
+
+        // Audit
+        await logAuditAction(null, 'DELETE_USER', { target_user_id: id });
+
         revalidatePath('/hr');
         return { success: true };
     } catch (error: any) {

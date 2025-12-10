@@ -2,6 +2,7 @@
 
 import { query, pool } from '@/lib/db';
 import { StockMovementType } from '@/domain/types';
+import { logAuditAction } from './security';
 
 interface StockMovementParams {
     productId: string; // Product ID (UUID)
@@ -133,6 +134,18 @@ export async function executeStockMovement(params: StockMovementParams) {
         ]);
 
         await client.query('COMMIT');
+        // Audit: Log Adjustments (Loss/Merma)
+        if (type === 'ADJUSTMENT' && delta < 0) {
+            await logAuditAction(userId, 'STOCK_LOSS', {
+                type,
+                product: productName,
+                sku: productSku,
+                qty: Math.abs(delta), // Log positive amount of loss
+                reason: reason,
+                location: warehouseId
+            });
+        }
+
         return { success: true, newStock: newQty };
 
     } catch (e: any) {
