@@ -1013,7 +1013,7 @@ export const usePharmaStore = create<PharmaState>()(
                 const context = {
                     locationId: state.currentLocationId || 'UNKNOWN_LOC',
                     terminalId: state.currentTerminalId || 'UNKNOWN_TERM',
-                    userId: state.currentShift?.current_cashier_id || 'UNKNOWN_USER',
+                    userId: state.currentShift?.user_id || 'UNKNOWN_USER',
                     customerId: customer?.id
                 };
 
