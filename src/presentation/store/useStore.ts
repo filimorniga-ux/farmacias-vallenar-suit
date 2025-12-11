@@ -46,7 +46,7 @@ interface PharmaState {
     // Auth
     user: EmployeeProfile | null;
     employees: EmployeeProfile[]; // Store loaded employees
-    login: (userId: string, pin: string) => Promise<boolean>;
+    login: (userId: string, pin: string, locationId?: string) => Promise<boolean>;
     logout: () => void;
 
     // Data Sync
@@ -224,14 +224,14 @@ export const usePharmaStore = create<PharmaState>()(
             // --- Auth ---
             user: null, // ALWAYS start logged out - force login
             employees: [], // ⚠️ DEBUG: Start empty to prove DB connection
-            login: async (userId, pin) => {
+            login: async (userId, pin, locationId) => {
                 let authenticatedUser: EmployeeProfile | null = null;
 
                 // 1. Online Attempt (Secure Server Action)
                 try {
                     // Dynamic import of Server Action
                     const { authenticateUser } = await import('../../actions/auth');
-                    const result = await authenticateUser(userId, pin);
+                    const result = await authenticateUser(userId, pin, locationId);
 
                     if (result.success && result.user) {
                         authenticatedUser = result.user;
@@ -297,6 +297,32 @@ export const usePharmaStore = create<PharmaState>()(
                         } catch (e) {
                             console.error('Failed to auto-set location context:', e);
                         }
+                    }
+
+                    // Persistence: Save Location Context
+                    if (locationId) {
+                        try {
+                            // Save to LocalStorage for persistence across reloads
+                            try { localStorage.setItem('context_location_id', locationId); } catch (e) { }
+
+                            // Set in Store if not already set by auto-assign logic
+                            const state = get();
+                            let warehouseId = '';
+                            if (state.locations.length > 0) {
+                                const loc = state.locations.find(l => l.id === locationId);
+                                warehouseId = loc?.default_warehouse_id || '';
+                            }
+
+                            set({
+                                currentLocationId: locationId,
+                                currentWarehouseId: warehouseId,
+                                currentTerminalId: ''
+                            });
+
+                            // Fetch Inventory for this context immediately
+                            if (warehouseId) state.fetchInventory(locationId, warehouseId);
+
+                        } catch (e) { console.error("Error persisting location context", e); }
                     }
 
                     return true;
