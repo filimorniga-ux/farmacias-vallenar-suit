@@ -6,7 +6,8 @@ import { toast } from 'sonner';
 interface AddSupplierModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSave: (supplier: Omit<Supplier, 'id'>) => void;
+    onSave: (supplier: any) => void;
+    supplierToEdit?: Supplier | null;
 }
 
 const CHILEAN_BANKS = [
@@ -50,7 +51,7 @@ const SECTORS = [
     'Equipamiento Médico'
 ];
 
-const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, onSave }) => {
+const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, onSave, supplierToEdit }) => {
     // Section 1: Company Data
     const [rut, setRut] = useState('');
     const [businessName, setBusinessName] = useState('');
@@ -68,6 +69,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
     const [emailOrders, setEmailOrders] = useState('');
     const [emailBilling, setEmailBilling] = useState('');
     const [contactEmail, setContactEmail] = useState('');
+    const [contactName, setContactName] = useState(''); // New Field
 
     // Section 3: Banking
     const [bankName, setBankName] = useState('');
@@ -82,6 +84,45 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
     // Additional fields
     const [paymentTerms, setPaymentTerms] = useState<'CONTADO' | '30_DIAS' | '60_DIAS' | '90_DIAS'>('30_DIAS');
     const [leadTimeDays, setLeadTimeDays] = useState(7);
+
+    // Effect to populate data
+    React.useEffect(() => {
+        if (isOpen && supplierToEdit) {
+            setRut(supplierToEdit.rut);
+            setBusinessName(supplierToEdit.business_name);
+            setFantasyName(supplierToEdit.fantasy_name);
+            setSector(supplierToEdit.sector);
+            setWebsite(supplierToEdit.website || '');
+
+            setAddress(supplierToEdit.address);
+            setRegion(supplierToEdit.region);
+            setCity(supplierToEdit.city);
+            setCommune(supplierToEdit.commune);
+            setPhone1(supplierToEdit.phone_1);
+            setPhone2(supplierToEdit.phone_2 || '');
+            setEmailOrders(supplierToEdit.email_orders);
+            setEmailBilling(supplierToEdit.email_billing);
+            setContactEmail(supplierToEdit.contact_email);
+            setContactName(supplierToEdit.contacts?.[0]?.name || '');
+
+            if (supplierToEdit.bank_account) {
+                setBankName(supplierToEdit.bank_account.bank);
+                setAccountType(supplierToEdit.bank_account.account_type as any);
+                setAccountNumber(supplierToEdit.bank_account.account_number);
+                setRutHolder(supplierToEdit.bank_account.rut_holder);
+            } else {
+                setBankName('');
+                setAccountNumber('');
+                setRutHolder('');
+            }
+
+            setBrands(supplierToEdit.brands || []);
+            setPaymentTerms(supplierToEdit.payment_terms as any);
+            setLeadTimeDays(supplierToEdit.lead_time_days);
+        } else if (isOpen && !supplierToEdit) {
+            handleReset();
+        }
+    }, [isOpen, supplierToEdit]);
 
     const handleAddBrand = () => {
         const trimmed = brandInput.trim();
@@ -138,7 +179,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
             contact_email: contactEmail || emailOrders,
             email_orders: emailOrders,
             email_billing: emailBilling,
-            contacts: [],
+            contacts: [{ name: contactName, email: contactEmail, phone: phone1, role: 'Vendedor' }],
             sector,
             brands,
             categories: [],
@@ -168,6 +209,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
         setEmailOrders('');
         setEmailBilling('');
         setContactEmail('');
+        setContactName('');
         setBankName('');
         setAccountType('CORRIENTE');
         setAccountNumber('');
@@ -190,8 +232,8 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                             <Building2 className="w-6 h-6 text-white" />
                         </div>
                         <div>
-                            <h2 className="text-xl font-bold text-white">Nuevo Proveedor</h2>
-                            <p className="text-blue-100 text-sm">Alta Maestra de Socio Comercial</p>
+                            <h2 className="text-xl font-bold text-white">{supplierToEdit ? 'Editar Proveedor' : 'Nuevo Proveedor'}</h2>
+                            <p className="text-blue-100 text-sm">{supplierToEdit ? 'Actualizar Ficha Técnica' : 'Alta Maestra de Socio Comercial'}</p>
                         </div>
                     </div>
                     <button
@@ -364,6 +406,18 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                     value={phone2}
                                     onChange={(e) => setPhone2(e.target.value)}
                                     placeholder="+56 9 8765 4321"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-2">
+                                    Nombre Contacto / Vendedor
+                                </label>
+                                <input
+                                    type="text"
+                                    value={contactName}
+                                    onChange={(e) => setContactName(e.target.value)}
+                                    placeholder="Juan Pérez"
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
                                 />
                             </div>

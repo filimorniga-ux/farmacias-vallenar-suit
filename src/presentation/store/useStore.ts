@@ -70,8 +70,9 @@ interface PharmaState {
     updatePurchaseOrder: (id: string, data: Partial<PurchaseOrder>) => void;
 
     // SRM Actions
-    addSupplier: (supplier: Omit<Supplier, 'id'>) => void;
-    updateSupplier: (id: string, data: Partial<Supplier>) => void;
+
+    addSupplier: (supplier: Omit<Supplier, 'id'>) => Promise<void>;
+    updateSupplier: (id: string, supplier: Partial<Supplier>) => Promise<void>;
     addSupplierDocument: (doc: Omit<SupplierDocument, 'id'>) => void;
 
     // POS & Cart
@@ -587,9 +588,18 @@ export const usePharmaStore = create<PharmaState>()(
                     import('sonner').then(({ toast }) => toast.error('Error al guardar proveedor'));
                 }
             },
-            updateSupplier: (id, data) => set((state) => ({
-                suppliers: state.suppliers.map(s => s.id === id ? { ...s, ...data } : s)
-            })),
+            updateSupplier: async (id, supplierData) => {
+                const { updateSupplier } = await import('../../actions/suppliers');
+                const result = await updateSupplier(id, supplierData);
+                if (result.success) {
+                    set((state) => ({
+                        suppliers: state.suppliers.map(s => s.id === id ? { ...s, ...supplierData } : s)
+                    }));
+                    import('sonner').then(({ toast }) => toast.success('Proveedor actualizado correctamente'));
+                } else {
+                    import('sonner').then(({ toast }) => toast.error('Error al actualizar proveedor'));
+                }
+            },
             addSupplierDocument: (docData) => set((state) => ({
                 supplierDocuments: [...state.supplierDocuments, { ...docData, id: `DOC - ${Date.now()} ` }]
             })),
