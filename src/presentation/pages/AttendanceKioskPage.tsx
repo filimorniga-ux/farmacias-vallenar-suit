@@ -14,12 +14,17 @@ const AttendanceKioskPage: React.FC = () => {
     const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
 
     // --- Activation Logic ---
-    const handleUnlock = () => {
-        const password = prompt("Ingrese contraseña de GERENTE para activar el Kiosco:");
-        if (password === 'admin123') { // Hardcoded for demo
+    // --- Activation Logic ---
+    const handleUnlock = (adminPin: string) => {
+        const adminUser = employees.find(e => e.access_pin === adminPin);
+
+        if (adminUser && (adminUser.role === 'MANAGER' || adminUser.role === 'ADMIN')) {
             setIsLocked(false);
+            setMessage({ text: `Terminal activado por ${adminUser.name}`, type: 'success' });
+            setTimeout(() => setMessage(null), 3000);
         } else {
-            alert("Contraseña incorrecta");
+            setMessage({ text: 'PIN no autorizado. Se requiere MANAGER o ADMIN.', type: 'error' });
+            setTimeout(() => setMessage(null), 3000);
         }
     };
 
@@ -117,12 +122,26 @@ const AttendanceKioskPage: React.FC = () => {
                     Este dispositivo no está activo como Kiosco de Asistencia.
                     Se requiere autorización de un Gerente para activarlo.
                 </p>
-                <button
-                    onClick={handleUnlock}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl font-bold transition-all"
-                >
-                    Activar Terminal
-                </button>
+
+                <div className="w-full max-w-xs">
+                    <input
+                        type="password"
+                        placeholder="PIN de Administración"
+                        className="w-full text-center text-2xl bg-slate-800 border-2 border-slate-700 rounded-xl py-3 px-4 text-white focus:border-blue-500 outline-none mb-4 transition-colors"
+                        maxLength={4}
+                        onChange={(e) => {
+                            if (e.target.value.length === 4) {
+                                handleUnlock(e.target.value);
+                                e.target.value = ''; // Reset input
+                            }
+                        }}
+                    />
+                    {message && (
+                        <div className={`p-3 rounded-lg text-sm font-bold text-center ${message.type === 'success' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                            {message.text}
+                        </div>
+                    )}
+                </div>
             </div>
         );
     }

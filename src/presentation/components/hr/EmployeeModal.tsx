@@ -200,7 +200,10 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                                 value={formData.role}
                                                 onChange={(e) => {
                                                     const newRole = e.target.value as Role;
+                                                    // Auto-Select Permissions from PRESET
                                                     const presetModules = ROLE_PRESETS[newRole] || [];
+                                                    console.log(`🔄 Switching Role to ${newRole}: Applying presets`, presetModules);
+
                                                     setFormData({
                                                         ...formData,
                                                         role: newRole,
@@ -213,6 +216,9 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                                     <option key={key} value={key}>{label}</option>
                                                 ))}
                                             </select>
+                                            <p className="text-xs text-blue-600 mt-1 font-medium">
+                                                * Al cambiar el rol, los permisos se asignarán automáticamente.
+                                            </p>
                                         </div>
                                     </div>
 

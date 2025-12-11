@@ -34,8 +34,9 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
             return;
         }
 
-        if (!canOverride(supervisor)) {
-            setError(`El usuario ${supervisor.name} (${supervisor.role}) no tiene permisos de supervisor.`);
+        // Strict Check: Only MANAGER or ADMIN
+        if (supervisor.role !== 'MANAGER' && supervisor.role !== 'ADMIN') {
+            setError(`El usuario ${supervisor.name} (${supervisor.role}) NO tiene privilegios de Alta Jerarquía.`);
             setPin('');
             return;
         }

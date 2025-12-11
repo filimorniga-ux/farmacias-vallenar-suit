@@ -32,6 +32,22 @@ const QueueKioskPage: React.FC = () => {
         setStep('RUT');
     };
 
+    // Setup Security
+    const [setupPin, setSetupPin] = useState('');
+    const [isSetupUnlocked, setIsSetupUnlocked] = useState(false);
+    const { employees } = usePharmaStore();
+
+    const unlockSetup = (pin: string) => {
+        const admin = employees.find(e => e.access_pin === pin && (e.role === 'MANAGER' || e.role === 'ADMIN'));
+        if (admin) {
+            setIsSetupUnlocked(true);
+            toast.success('Modo Configuración Desbloqueado');
+        } else {
+            toast.error('Acceso Denegado: Requiere Manager/Admin');
+            setSetupPin('');
+        }
+    };
+
     const handleExportLog = async () => {
         const toastId = toast.loading('Generando reporte...');
         const now = new Date();
@@ -167,35 +183,59 @@ const QueueKioskPage: React.FC = () => {
                             animate={{ opacity: 1, scale: 1 }}
                             className="bg-white/10 backdrop-blur-lg rounded-[3rem] p-8 border border-white/10 shadow-2xl text-center"
                         >
-                            <div className="mb-8">
-                                <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-400">
-                                    <Settings size={40} />
+                            {!isSetupUnlocked ? (
+                                <div className="space-y-6">
+                                    <div className="w-20 h-20 bg-red-900/50 rounded-full flex items-center justify-center mx-auto mb-4 text-red-500">
+                                        <Settings size={40} />
+                                    </div>
+                                    <h2 className="text-3xl font-bold text-white">Configuración Protegida</h2>
+                                    <p className="text-slate-400">Ingrese PIN de Administrador para configurar este Totem.</p>
+
+                                    <input
+                                        type="password"
+                                        maxLength={4}
+                                        placeholder="PIN"
+                                        className="w-48 text-center text-3xl bg-black/30 border-2 border-slate-600 rounded-xl py-4 text-white focus:border-cyan-500 outline-none tracking-widest"
+                                        value={setupPin}
+                                        onChange={(e) => {
+                                            setSetupPin(e.target.value);
+                                            if (e.target.value.length === 4) unlockSetup(e.target.value);
+                                        }}
+                                    />
                                 </div>
-                                <h2 className="text-3xl font-bold text-white mb-2">Configuración Inicial</h2>
-                                <p className="text-slate-400">Selecciona la sucursal para este Totem</p>
-                            </div>
+                            ) : (
+                                <>
+                                    <div className="mb-8">
+                                        <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-400">
+                                            <Settings size={40} />
+                                        </div>
+                                        <h2 className="text-3xl font-bold text-white mb-2">Configuración Inicial</h2>
+                                        <p className="text-slate-400">Selecciona la sucursal para este Totem</p>
+                                    </div>
 
-                            <div className="grid grid-cols-1 gap-4">
-                                <button
-                                    onClick={() => handleSetup('SUC-CENTRO')}
-                                    className="p-6 bg-slate-800 hover:bg-cyan-600 rounded-2xl text-white font-bold text-xl transition-colors border border-slate-700 hover:border-cyan-400"
-                                >
-                                    📍 Sucursal Centro
-                                </button>
-                                <button
-                                    onClick={() => handleSetup('SUC-NORTE')}
-                                    className="p-6 bg-slate-800 hover:bg-purple-600 rounded-2xl text-white font-bold text-xl transition-colors border border-slate-700 hover:border-purple-400"
-                                >
-                                    📍 Sucursal Norte
-                                </button>
+                                    <div className="grid grid-cols-1 gap-4">
+                                        <button
+                                            onClick={() => handleSetup('SUC-CENTRO')}
+                                            className="p-6 bg-slate-800 hover:bg-cyan-600 rounded-2xl text-white font-bold text-xl transition-colors border border-slate-700 hover:border-cyan-400"
+                                        >
+                                            📍 Sucursal Centro
+                                        </button>
+                                        <button
+                                            onClick={() => handleSetup('SUC-NORTE')}
+                                            className="p-6 bg-slate-800 hover:bg-purple-600 rounded-2xl text-white font-bold text-xl transition-colors border border-slate-700 hover:border-purple-400"
+                                        >
+                                            📍 Sucursal Norte
+                                        </button>
 
-                                <button
-                                    onClick={handleExportLog}
-                                    className="p-4 bg-transparent border border-slate-700 text-slate-500 rounded-2xl hover:text-white hover:border-slate-500 transition-colors text-sm mt-4"
-                                >
-                                    📊 Descargar Historial (Excel)
-                                </button>
-                            </div>
+                                        <button
+                                            onClick={handleExportLog}
+                                            className="p-4 bg-transparent border border-slate-700 text-slate-500 rounded-2xl hover:text-white hover:border-slate-500 transition-colors text-sm mt-4"
+                                        >
+                                            📊 Descargar Historial (Excel)
+                                        </button>
+                                    </div>
+                                </>
+                            )}
                         </motion.div>
                     )}
 
