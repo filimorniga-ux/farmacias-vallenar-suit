@@ -38,7 +38,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     return <SidebarLayout>{children}</SidebarLayout>;
 };
 
-function App() {
+function App({ forceContextSelection }: { forceContextSelection?: boolean }) {
     const { syncData } = usePharmaStore();
 
     useEffect(() => {
@@ -50,7 +50,7 @@ function App() {
             <Toaster position="top-center" richColors />
             <Routes>
                 {/* Public Routes */}
-                <Route path="/" element={<LandingPage />} />
+                <Route path="/" element={forceContextSelection ? <ContextSelectionPage /> : <LandingPage />} />
                 <Route path="/kiosk" element={<AttendanceKioskPage />} />
                 <Route path="/kiosk/setup" element={<AttendanceKioskPage />} /> {/* Protected by Internal UI Lock */}
                 <Route path="/access" element={<AccessControlPage />} />
@@ -58,9 +58,9 @@ function App() {
                 <Route path="/totem" element={<QueueKioskPage />} />
                 <Route path="/totem/setup" element={<QueueKioskPage />} /> {/* Protected by Internal UI Lock */}
                 <Route path="/price-check" element={<PriceCheckPage />} />
+                <Route path="/select-context" element={<ContextSelectionPage />} />
 
                 {/* Protected Routes */}
-                <Route path="/select-context" element={<ProtectedRoute><ContextSelectionPage /></ProtectedRoute>} />
                 <Route path="/settings/printing" element={<ProtectedRoute><PrintingSettingsPage /></ProtectedRoute>} />
                 <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
                 <Route path="/pos" element={<ProtectedRoute><POSMainScreen /></ProtectedRoute>} />

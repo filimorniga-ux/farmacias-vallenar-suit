@@ -45,7 +45,7 @@ export async function authenticateUser(userId: string, pin: string, locationId?:
             // If strict mode is required:
             if (!isGlobalRole && user.assigned_location_id && user.assigned_location_id !== locationId) {
                 await logAuditAction(userId, 'LOGIN_BLOCKED_LOCATION', { attempted: locationId, assigned: user.assigned_location_id });
-                return { success: false, error: 'No tienes permisos para acceder a esta sucursal.' };
+                return { success: false, error: 'No tienes contrato en esta sucursal.' };
             }
         }
 
