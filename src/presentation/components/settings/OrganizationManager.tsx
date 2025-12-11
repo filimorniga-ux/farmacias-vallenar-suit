@@ -7,6 +7,7 @@ import { createLocation, createWarehouse, createTerminal, assignEmployeeToLocati
 import { getTerminalsByLocation } from '@/actions/terminals';
 import { getUsers } from '@/actions/users';
 import { toast } from 'sonner';
+import { useRouter } from 'next/navigation';
 
 interface OrganizationManagerProps {
     initialLocations: Location[];
@@ -19,6 +20,51 @@ export default function OrganizationManager({ initialLocations }: OrganizationMa
     const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
 
     const [editLocation, setEditLocation] = useState<Location | null>(null); // NEW: Edit State
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+
+    // Derived state
+    const stores = locations.filter(l => l.type !== 'WAREHOUSE');
+    const warehouses = locations.filter(l => l.type === 'WAREHOUSE');
+
+    const router = useRouter();
+
+    // Effect to sync props to state if needed (optional, but good if parent updates)
+    useEffect(() => {
+        setLocations(initialLocations);
+    }, [initialLocations]);
+
+    const handleCreate = async (e: React.FormEvent<HTMLFormElement>) => {
+        e.preventDefault();
+        const formData = new FormData(e.currentTarget);
+        const name = formData.get('name') as string;
+        const address = formData.get('address') as string;
+
+        try {
+            if (activeView === 'STORES') {
+                const res = await createLocation({ name, address });
+                if (res.success) {
+                    toast.success('Sucursal creada');
+                    setIsCreateModalOpen(false);
+                    router.refresh();
+                } else {
+                    toast.error('Error al crear sucursal');
+                }
+            } else {
+                const hqId = locations.find(l => l.type === 'HQ')?.id;
+                const res = await createWarehouse(name, hqId);
+
+                if (res.success) {
+                    toast.success('Bodega creada');
+                    setIsCreateModalOpen(false);
+                    router.refresh();
+                } else {
+                    toast.error('Error al crear bodega');
+                }
+            }
+        } catch (error) {
+            toast.error('Error inesperado');
+        }
+    };
 
     // ... (rest of initializations)
 
@@ -41,7 +87,7 @@ export default function OrganizationManager({ initialLocations }: OrganizationMa
 
             {/* Grid View */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in duration-300">
-                {activeView === 'STORES' && stores.map(store => (
+                {activeView === 'STORES' && stores.map((store: Location) => (
                     <LocationCard
                         key={store.id}
                         location={store}
@@ -52,7 +98,7 @@ export default function OrganizationManager({ initialLocations }: OrganizationMa
                 ))}
 
 
-                {activeView === 'WAREHOUSES' && warehouses.map(wh => (
+                {activeView === 'WAREHOUSES' && warehouses.map((wh: Location) => (
                     <div
                         key={wh.id}
                         className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-all group"

@@ -1,17 +1,19 @@
 import React, { useState, useMemo } from 'react';
 import { usePharmaStore } from '../store/useStore';
-import { Search, Plus, Filter, Building2, Phone, Mail, CreditCard, Star, ChevronRight, Download } from 'lucide-react';
+import { Search, Plus, Filter, Building2, Phone, Mail, CreditCard, Star, ChevronRight, Download, Pencil } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import AddSupplierModal from '../components/suppliers/AddSupplierModal';
 import { toast } from 'sonner';
 import { AdvancedExportModal } from '../components/common/AdvancedExportModal';
 import { generateSupplierReport } from '../../actions/supplier-export';
+import { Supplier } from '../../domain/types';
 
 export const SuppliersPage = () => {
-    const { suppliers, addSupplier } = usePharmaStore();
+    const { suppliers, addSupplier, updateSupplier } = usePharmaStore();
     const [searchTerm, setSearchTerm] = useState('');
     const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
 
     // Export State
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -19,7 +21,7 @@ export const SuppliersPage = () => {
 
     const exportItems = useMemo(() => suppliers.map(s => ({
         id: s.id,
-        label: s.business_name, // Or fantasy_name? User usually searches fantasy name.
+        label: s.business_name,
         detail: s.rut
     })), [suppliers]);
 
@@ -55,9 +57,25 @@ export const SuppliersPage = () => {
         return matchesSearch && matchesCategory;
     });
 
-    const handleSaveSupplier = (supplierData: any) => {
-        addSupplier(supplierData);
-        toast.success(`✅ Proveedor ${supplierData.fantasy_name} registrado exitosamente`);
+    const handleSaveSupplier = async (supplierData: any) => {
+        if (editingSupplier) {
+            await updateSupplier(editingSupplier.id, supplierData);
+            setEditingSupplier(null);
+        } else {
+            await addSupplier(supplierData);
+        }
+        setIsAddModalOpen(false);
+    };
+
+    const handleEditClick = (e: React.MouseEvent, supplier: Supplier) => {
+        e.preventDefault(); // Prevent Link navigation
+        setEditingSupplier(supplier);
+        setIsAddModalOpen(true);
+    };
+
+    const handleAddNew = () => {
+        setEditingSupplier(null);
+        setIsAddModalOpen(true);
     };
 
     return (
@@ -77,7 +95,7 @@ export const SuppliersPage = () => {
                         Exportar Excel
                     </button>
                     <button
-                        onClick={() => setIsAddModalOpen(true)}
+                        onClick={handleAddNew}
                         className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm"
                     >
                         <Plus size={20} />
@@ -91,6 +109,7 @@ export const SuppliersPage = () => {
                 isOpen={isAddModalOpen}
                 onClose={() => setIsAddModalOpen(false)}
                 onSave={handleSaveSupplier}
+                supplierToEdit={editingSupplier}
             />
 
             {/* Filters */}
@@ -127,8 +146,17 @@ export const SuppliersPage = () => {
                     <Link
                         to={`/suppliers/${supplier.id}`}
                         key={supplier.id}
-                        className="group bg-white rounded-xl shadow-sm border border-slate-200 hover:shadow-md hover:border-blue-300 transition-all duration-200 overflow-hidden flex flex-col"
+                        className="group bg-white rounded-xl shadow-sm border border-slate-200 hover:shadow-md hover:border-blue-300 transition-all duration-200 overflow-hidden flex flex-col relative"
                     >
+                        {/* Edit Button */}
+                        <button
+                            onClick={(e) => handleEditClick(e, supplier)}
+                            className="absolute top-4 right-4 p-2 bg-slate-100 hover:bg-blue-100 text-slate-500 hover:text-blue-600 rounded-full transition-colors z-10"
+                            title="Editar Proveedor"
+                        >
+                            <Pencil size={16} />
+                        </button>
+
                         <div className="p-5 flex-1">
                             <div className="flex justify-between items-start mb-4">
                                 <div className="flex items-center gap-3">
