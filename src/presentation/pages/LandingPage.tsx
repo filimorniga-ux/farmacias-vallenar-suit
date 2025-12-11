@@ -343,31 +343,7 @@ const LandingPage: React.FC = () => {
                     </div>
                 )}
             </AnimatePresence>
-            {/* Download Hub */}
-            <div className="mt-16 text-center">
-                <p className="text-slate-400 text-sm font-medium mb-4">Descargar Aplicación de Escritorio</p>
-                <div className="flex gap-4 justify-center">
-                    <a
-                        href="https://github.com/filimorniga-ux/farmacias-vallenar-suit/releases/latest/download/Farmacias-Vallenar-Suit-Setup.exe"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 px-6 py-3 bg-white border border-slate-200 rounded-xl text-slate-600 font-bold hover:border-cyan-500 hover:text-cyan-600 transition-colors shadow-sm"
-                    >
-                        <img src="https://upload.wikimedia.org/wikipedia/commons/8/87/Windows_logo_-_2021.svg" alt="Windows" className="w-5 h-5" />
-                        Descargar Última Versión
-                    </a>
-                    <a
-                        href="https://github.com/filimorniga-ux/farmacias-vallenar-suit/releases/latest/download/Farmacias-Vallenar-Suit-arm64.dmg"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 px-6 py-3 bg-white border border-slate-200 rounded-xl text-slate-600 font-bold hover:border-cyan-500 hover:text-cyan-600 transition-colors shadow-sm"
-                    >
-                        <img src="https://upload.wikimedia.org/wikipedia/commons/2/21/MacOS_wordmark_%282017%29.svg" alt="macOS" className="w-12" />
-                        Descargar Última Versión
-                    </a>
-                </div>
-                <p className="text-xs text-slate-300 mt-2">Versión más reciente (Auto-actualizable)</p>
-            </div>
+
         </div>
     );
 };

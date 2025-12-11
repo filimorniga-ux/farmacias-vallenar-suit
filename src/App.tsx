@@ -52,8 +52,11 @@ function App() {
                 {/* Public Routes */}
                 <Route path="/" element={<LandingPage />} />
                 <Route path="/kiosk" element={<AttendanceKioskPage />} />
+                <Route path="/kiosk/setup" element={<AttendanceKioskPage />} /> {/* Protected by Internal UI Lock */}
                 <Route path="/access" element={<AccessControlPage />} />
                 <Route path="/queue" element={<QueueKioskPage />} />
+                <Route path="/totem" element={<QueueKioskPage />} />
+                <Route path="/totem/setup" element={<QueueKioskPage />} /> {/* Protected by Internal UI Lock */}
                 <Route path="/price-check" element={<PriceCheckPage />} />
 
                 {/* Protected Routes */}
