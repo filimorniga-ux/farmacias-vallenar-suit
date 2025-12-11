@@ -2,6 +2,155 @@
 
 import { query } from '@/lib/db';
 import ExcelJS from 'exceljs';
+import { ExcelService } from '@/lib/excel-generator';
+
+interface ExportStockParams {
+    startDate: string; // ISO
+    endDate: string; // ISO
+    locationId?: string;
+    locationName?: string;
+    creatorName?: string;
+}
+
+export async function exportStockMovements(params: ExportStockParams) {
+    try {
+        const { startDate, endDate, locationId, locationName, creatorName } = params;
+        const excel = new ExcelService();
+
+        console.log(`📦 [Export] Generando Reporte de Movimientos: ${startDate} - ${endDate} (${locationId || 'ALL'})`);
+
+        // SQL Query
+        let whereClause = "WHERE sm.timestamp >= $1::timestamp AND sm.timestamp <= $2::timestamp";
+        const sqlParams: any[] = [startDate, endDate];
+
+        if (locationId) {
+            whereClause += " AND (sm.location_id::text = $3 OR sm.location_id::text = (SELECT default_warehouse_id::text FROM locations WHERE id::text = $3))";
+            sqlParams.push(locationId);
+        }
+
+        const sql = `
+            SELECT 
+                sm.timestamp,
+                sm.movement_type,
+                sm.quantity,
+                sm.stock_after,
+                sm.notes,
+                sm.product_name,
+                sm.sku,
+                u.name as user_name,
+                l.name as location_name
+            FROM stock_movements sm
+            LEFT JOIN users u ON sm.user_id::text = u.id::text
+            LEFT JOIN locations l ON sm.location_id::text = l.id::text
+            ${whereClause}
+            ORDER BY sm.timestamp DESC
+            LIMIT 5000
+        `;
+
+        const res = await query(sql, sqlParams);
+
+        const data = res.rows.map(row => ({
+            date: new Date(row.timestamp).toLocaleDateString('es-CL'),
+            time: new Date(row.timestamp).toLocaleTimeString('es-CL'),
+            type: row.movement_type,
+            sku: row.sku,
+            product: row.product_name,
+            qty: Number(row.quantity),
+            stock: Number(row.stock_after),
+            user: row.user_name || 'Sistema',
+            notes: row.notes || '-'
+        }));
+
+        const buffer = await excel.generateReport({
+            title: 'Kardex de Movimientos de Inventario',
+            subtitle: `Bodega: ${locationName || 'General'} | Período: ${new Date(startDate).toLocaleDateString()} - ${new Date(endDate).toLocaleDateString()}`,
+            sheetName: 'Movimientos',
+            creator: creatorName,
+            locationName: locationName,
+            columns: [
+                { header: 'Fecha', key: 'date', width: 12 },
+                { header: 'Hora', key: 'time', width: 10 },
+                { header: 'Tipo', key: 'type', width: 20 },
+                { header: 'SKU', key: 'sku', width: 15 },
+                { header: 'Producto', key: 'product', width: 40 },
+                { header: 'Cantidad', key: 'qty', width: 10 },
+                { header: 'Saldo', key: 'stock', width: 10 },
+                { header: 'Usuario', key: 'user', width: 20 },
+                { header: 'Notas / Ref', key: 'notes', width: 30 }
+            ],
+            data: data
+        });
+
+        const base64 = buffer.toString('base64');
+        return { success: true, data: base64, filename: `Kardex_${startDate.split('T')[0]}.xlsx` };
+
+    } catch (error: any) {
+        console.error('Error exporting stock movements:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function exportPurchaseOrders(params: ExportStockParams) {
+    try {
+        const { startDate, endDate, locationId, locationName, creatorName } = params;
+        const excel = new ExcelService();
+
+        console.log(`🛒 [Export] Generando Reporte de Compras: ${startDate} - ${endDate}`);
+
+        // SQL Query
+        // Note: Purchase Orders are usually filtered by creation date
+        const sql = `
+            SELECT 
+                po.id,
+                po.supplier_id,
+                po.status,
+                po.total_estimated,
+                po.created_at,
+                po.destination_location_id,
+                l.name as location_name
+            FROM purchase_orders po
+            LEFT JOIN locations l ON po.destination_location_id::text = l.id::text
+            WHERE po.created_at >= $1::timestamp AND po.created_at <= $2::timestamp
+            ORDER BY po.created_at DESC
+        `;
+
+        const res = await query(sql, [startDate, endDate]);
+
+        const data = res.rows.map(row => ({
+            id: row.id,
+            date: new Date(row.created_at).toLocaleDateString('es-CL'),
+            supplier: row.supplier_id, // Usually ID, maybe name if join
+            status: row.status,
+            total: Number(row.total_estimated),
+            destination: row.location_name || row.destination_location_id
+        }));
+
+        const buffer = await excel.generateReport({
+            title: 'Reporte de Pedidos a Proveedor',
+            subtitle: `Período: ${new Date(startDate).toLocaleDateString()} - ${new Date(endDate).toLocaleDateString()}`,
+            sheetName: 'Pedidos',
+            creator: creatorName,
+            locationName: locationName,
+            columns: [
+                { header: 'ID Pedido', key: 'id', width: 20 },
+                { header: 'Fecha', key: 'date', width: 12 },
+                { header: 'Proveedor', key: 'supplier', width: 25 },
+                { header: 'Estado', key: 'status', width: 15 },
+                { header: 'Destino', key: 'destination', width: 20 },
+                { header: 'Monto Estimado', key: 'total', width: 15, style: { numFmt: '"$"#,##0' } }
+            ],
+            data: data
+        });
+
+        const base64 = buffer.toString('base64');
+        return { success: true, data: base64, filename: `Pedidos_${startDate.split('T')[0]}.xlsx` };
+
+    } catch (error: any) {
+        console.error('Error exporting purchase orders:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 
 interface InventoryExportParams {
     startDate?: string; // Not used for Snapshot but kept for compatibility

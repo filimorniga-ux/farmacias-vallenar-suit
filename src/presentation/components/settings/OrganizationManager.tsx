@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Location, Terminal, EmployeeProfile } from '@/domain/types';
 import { MapPin, Warehouse, Monitor, Users, Plus, X, ChevronRight, Printer, UserPlus, CheckCircle } from 'lucide-react';
 import { createLocation, createWarehouse, createTerminal, assignEmployeeToLocation } from '@/actions/network';
@@ -17,48 +17,10 @@ export default function OrganizationManager({ initialLocations }: OrganizationMa
     const [locations, setLocations] = useState<Location[]>(initialLocations);
     const [activeView, setActiveView] = useState<'STORES' | 'WAREHOUSES'>('STORES');
     const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
-    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
-    // Derived Lists
-    const stores = locations.filter(l => l.type === 'STORE' || l.type === 'HQ');
-    const warehouses = locations.filter(l => l.type === 'WAREHOUSE');
+    const [editLocation, setEditLocation] = useState<Location | null>(null); // NEW: Edit State
 
-    // --- Actions ---
-    const handleCreate = async (e: React.FormEvent) => {
-        e.preventDefault();
-        const formData = new FormData(e.target as HTMLFormElement);
-        const name = formData.get('name') as string;
-
-        if (activeView === 'STORES') {
-            const address = formData.get('address') as string;
-            toast.promise(createLocation({ name, address }), {
-                loading: 'Creando Sucursal...',
-                success: (res) => {
-                    if (res.success) {
-                        setIsCreateModalOpen(false);
-                        window.location.reload();
-                        return `Sucursal creada`;
-                    }
-                    throw new Error(res.error);
-                },
-                error: (err) => err.message
-            });
-        } else {
-            // Create Standalone Warehouse
-            toast.promise(createWarehouse(name), { // decoupled from store
-                loading: 'Creando Bodega...',
-                success: (res) => {
-                    if (res.success) {
-                        setIsCreateModalOpen(false);
-                        window.location.reload();
-                        return `Bodega creada`;
-                    }
-                    throw new Error(res.error);
-                },
-                error: (err) => err.message
-            });
-        }
-    };
+    // ... (rest of initializations)
 
     return (
         <div className="relative min-h-[600px] flex flex-col gap-6">
@@ -79,54 +41,16 @@ export default function OrganizationManager({ initialLocations }: OrganizationMa
 
             {/* Grid View */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in duration-300">
-                {activeView === 'STORES' && stores.map(store => {
-                    // Find assigned warehouse data for display
-                    const assignedWarehouse = warehouses.find(w => w.id === store.default_warehouse_id);
-                    // Legacy fallback: find warehouse with parent_id = store.id (if any)
-                    const legacyLinked = warehouses.filter(w => w.parent_id === store.id);
+                {activeView === 'STORES' && stores.map(store => (
+                    <LocationCard
+                        key={store.id}
+                        location={store}
+                        warehouses={warehouses}
+                        onOpenDetail={() => setSelectedLocation(store)}
+                        onOpenEdit={() => setEditLocation(store)}
+                    />
+                ))}
 
-                    return (
-                        <div
-                            key={store.id}
-                            onClick={() => setSelectedLocation(store)}
-                            className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md hover:border-cyan-200 cursor-pointer transition-all group relative overflow-hidden"
-                        >
-                            <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-slate-50 to-transparent -mr-8 -mt-8 rounded-full pointer-events-none" />
-
-                            <div className="flex justify-between items-start mb-4 relative z-10">
-                                <div className="p-3 bg-cyan-50 text-cyan-600 rounded-xl group-hover:bg-cyan-100 transition-colors">
-                                    <MapPin size={24} />
-                                </div>
-                                <span className={`text-xs px-2 py-1 rounded-full font-bold ${store.type === 'HQ' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
-                                    {store.type === 'HQ' ? 'Matriz' : 'Sucursal'}
-                                </span>
-                            </div>
-
-                            <h3 className="text-xl font-bold text-slate-800 mb-1 leading-tight">{store.name}</h3>
-                            <p className="text-sm text-slate-500 mb-4 flex items-center gap-1"><MapPin size={12} /> {store.address}</p>
-
-                            <div className="flex flex-col gap-2 text-sm border-t pt-4">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-slate-400">Abastecimiento:</span>
-                                    {assignedWarehouse ? (
-                                        <span className="text-emerald-600 font-bold flex items-center gap-1">
-                                            <Warehouse size={12} /> {assignedWarehouse.name}
-                                        </span>
-                                    ) : (
-                                        <span className="text-red-400 font-bold text-xs flex items-center gap-1">
-                                            <AlertTriangle size={12} /> Sin Asignar
-                                        </span>
-                                    )}
-                                </div>
-                                {legacyLinked.length > 0 && (
-                                    <span className="text-[10px] text-slate-400">
-                                        * Tiene {legacyLinked.length} bodegas internas
-                                    </span>
-                                )}
-                            </div>
-                        </div>
-                    );
-                })}
 
                 {activeView === 'WAREHOUSES' && warehouses.map(wh => (
                     <div
@@ -408,8 +332,138 @@ function LocationDetailDrawer({ location, allLocations, onClose }: { location: L
     );
 }
 
-// --- Generic Components ---
+// --- Sub-Component: Location Card (With Logic) ---
+import { getLocationHealth } from '@/actions/network-stats';
+import { Settings, AlertCircle, ShoppingBag, UserCheck } from 'lucide-react';
+import LocationEditModal from './LocationEditModal'; // Assuming same folder import
 
+function LocationCard({
+    location,
+    warehouses,
+    onOpenDetail,
+    onOpenEdit
+}: {
+    location: Location,
+    warehouses: Location[],
+    onOpenDetail: () => void,
+    onOpenEdit: () => void
+}) {
+    const assignedWarehouse = warehouses.find(w => w.id === location.default_warehouse_id);
+    const legacyLinked = warehouses.filter(w => w.parent_id === location.id);
+
+    // Stats State
+    const [stats, setStats] = useState({ stockAlerts: 0, cashAlerts: 0, staffPresent: 0 });
+    const [loadingStats, setLoadingStats] = useState(true);
+
+    useEffect(() => {
+        getLocationHealth(location.id).then(res => {
+            setStats(res);
+            setLoadingStats(false);
+        });
+    }, [location.id]);
+
+    return (
+        <div
+            className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md hover:border-cyan-200 transition-all group relative overflow-hidden flex flex-col h-full"
+        >
+            <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-slate-50 to-transparent -mr-8 -mt-8 rounded-full pointer-events-none" />
+
+            {/* Header */}
+            <div className="flex justify-between items-start mb-4 relative z-10">
+                <div onClick={onOpenDetail} className="cursor-pointer p-3 bg-cyan-50 text-cyan-600 rounded-xl group-hover:bg-cyan-100 transition-colors">
+                    <MapPin size={24} />
+                </div>
+                <div className="flex gap-2">
+                    <span className={`text-xs px-2 py-1 rounded-full font-bold h-fit ${location.type === 'HQ' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
+                        {location.type === 'HQ' ? 'Matriz' : 'Sucursal'}
+                    </span>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onOpenEdit(); }}
+                        className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                        title="Editar Configuración"
+                    >
+                        <Settings size={18} />
+                    </button>
+                </div>
+            </div>
+
+            {/* Title & Address */}
+            <div onClick={onOpenDetail} className="cursor-pointer mb-4 flex-1">
+                <h3 className="text-xl font-bold text-slate-800 mb-1 leading-tight">{location.name}</h3>
+                <p className="text-sm text-slate-500 flex items-center gap-1"><MapPin size={12} /> {location.address}</p>
+            </div>
+
+            {/* Live Stats */}
+            <div className="grid grid-cols-3 gap-2 py-3 border-t border-b border-slate-100 mb-4">
+                <div className="text-center" title="Alertas de Stock">
+                    <p className={`text-xs font-bold ${stats.stockAlerts > 0 ? 'text-red-500' : 'text-slate-400'}`}>
+                        {loadingStats ? '-' : stats.stockAlerts}
+                    </p>
+                    <ShoppingBag size={14} className="mx-auto text-slate-300 mt-1" />
+                </div>
+                <div className="text-center" title="Cajas Abiertas > 12h">
+                    <p className={`text-xs font-bold ${stats.cashAlerts > 0 ? 'text-amber-500' : 'text-slate-400'}`}>
+                        {loadingStats ? '-' : stats.cashAlerts}
+                    </p>
+                    <Monitor size={14} className="mx-auto text-slate-300 mt-1" />
+                </div>
+                <div className="text-center" title="Personal Presente">
+                    <p className="text-xs font-bold text-emerald-600">
+                        {loadingStats ? '-' : stats.staffPresent}
+                    </p>
+                    <UserCheck size={14} className="mx-auto text-slate-300 mt-1" />
+                </div>
+            </div>
+
+            {/* Footer / Warehouse Info */}
+            <div className="flex flex-col gap-2 text-sm pt-2" onClick={onOpenDetail}>
+                <div className="flex items-center justify-between cursor-pointer">
+                    <span className="text-slate-400 text-xs">Abastecimiento:</span>
+                    {assignedWarehouse ? (
+                        <span className="text-emerald-600 font-bold flex items-center gap-1 text-xs">
+                            <Warehouse size={12} /> {assignedWarehouse.name}
+                        </span>
+                    ) : (
+                        <span className="text-red-400 font-bold text-xs flex items-center gap-1">
+                            <AlertTriangle size={12} /> Sin Asignar
+                        </span>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ... existing code ...
+
+// Update Main Component mapping
+// inside OrganizationManager function...
+// State for Edit Modal
+const [editLocation, setEditLocation] = useState<Location | null>(null);
+
+// ... return JSX ...
+
+// Replace mapping:
+// {activeView === 'STORES' && stores.map(store => (
+//     <LocationCard 
+//         key={store.id} 
+//         location={store} 
+//         warehouses={warehouses} 
+//         onOpenDetail={() => setSelectedLocation(store)}
+//         onOpenEdit={() => setEditLocation(store)}
+//     />
+// ))}
+
+// Add Modal Render:
+// {editLocation && (
+//    <LocationEditModal 
+//        location={editLocation} 
+//        onClose={() => setEditLocation(null)}
+//        onUpdate={() => window.location.reload()}
+//    />
+// )}
+
+// ... existing imports/helpers ...
 function TabButton({ active, onClick, icon, label }: any) {
     return (
         <button

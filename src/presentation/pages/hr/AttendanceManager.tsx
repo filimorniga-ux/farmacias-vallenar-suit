@@ -11,7 +11,7 @@ interface AttendanceManagerProps {
 }
 
 const AttendanceManager: React.FC<AttendanceManagerProps> = ({ viewMode = 'LIVE' }) => {
-    const { employees, attendanceLogs } = usePharmaStore();
+    const { employees, attendanceLogs, user } = usePharmaStore();
     const [internalTab, setInternalTab] = useState<'LIVE' | 'HISTORY'>(viewMode);
     const [searchTerm, setSearchTerm] = useState('');
     const [dateRange, setDateRange] = useState<'TODAY' | 'WEEK' | 'MONTH'>('TODAY');
@@ -97,7 +97,10 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ viewMode = 'LIVE'
         const result = await exportAttendanceReport({
             startDate: startDate.toISOString(),
             endDate: new Date().toISOString(),
-            userRole: 'MANAGER' // Assuming manager view
+            userRole: user?.role || 'MANAGER',
+            locationName: 'Sucursal Actual', // Context
+            creatorName: user?.name,
+            locationId: undefined // Can pass if available in store
         });
 
         if (result.success && result.data) {

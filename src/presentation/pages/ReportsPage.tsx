@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 
 // Backend Actions
 import { getCashFlowLedger, getTaxSummary, getInventoryValuation, getPayrollPreview, getDetailedFinancialSummary, getLogisticsKPIs, getStockMovementsDetail, CashFlowEntry, TaxSummary, InventoryValuation, PayrollPreview, LogisticsKPIs } from '../../actions/reports-detail';
+import { exportFinanceReport, ReportType } from '../../actions/finance-export';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
@@ -95,8 +96,47 @@ const ReportsPage: React.FC = () => {
         fetchData();
     }, [fetchData]);
 
-    const handleExportPDF = async () => {
-        toast.info('Exportación PDF en construcción para reportes nuevos');
+    // Export Logic
+    const [isExporting, setIsExporting] = useState(false);
+
+    const handleExportExcel = async () => {
+        setIsExporting(true);
+        try {
+            const whId = currentWarehouseId || currentLocationId || '';
+            const startDate = dateRange.from.toISOString();
+            const endDate = dateRange.to.toISOString();
+
+            let type: ReportType = 'CASH_FLOW';
+            if (activeTab === 'tax') type = 'TAX';
+            if (activeTab === 'logistics') type = 'LOGISTICS';
+            if (activeTab === 'hr') type = 'PAYROLL';
+
+            const result = await exportFinanceReport({
+                type,
+                startDate,
+                endDate,
+                warehouseId: whId,
+                locationId: currentLocationId, // Context for header
+                locationName: 'Sucursal Actual' // You could fetch name from store if needed
+            });
+
+            if (result.success && result.fileData) {
+                const link = document.createElement('a');
+                link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${result.fileData}`;
+                link.download = result.fileName || 'reporte.xlsx';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                toast.success('Reporte Excel generado correctamente');
+            } else {
+                toast.error('Error al generar: ' + result.error);
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error('Error inesperado al exportar');
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     const tabs = [
@@ -118,16 +158,20 @@ const ReportsPage: React.FC = () => {
                     <p className="text-gray-600 mt-1">Auditoría detallada y cumplimiento normativo</p>
                 </div>
                 <div className="flex gap-2">
+
+
+
                     <button onClick={fetchData} className="p-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 transition">
                         <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
                     </button>
-                    {/* <button
-                        onClick={handleExportPDF}
-                        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 font-bold shadow-lg shadow-blue-200"
+                    <button
+                        onClick={handleExportExcel}
+                        disabled={isExporting || loading}
+                        className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 font-bold shadow-lg shadow-green-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
-                        <Download className="w-5 h-5" />
-                        Exportar PDF
-                    </button> */}
+                        {isExporting ? <RefreshCw className="animate-spin w-5 h-5" /> : <Download className="w-5 h-5" />}
+                        Exportar Excel
+                    </button>
                 </div>
             </div>
 

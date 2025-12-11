@@ -1,6 +1,6 @@
 'use server';
 
-import ExcelJS from 'exceljs';
+import { ExcelService } from '@/lib/excel-generator';
 import { query } from '@/lib/db';
 
 interface SalesExportParams {
@@ -13,20 +13,19 @@ interface SalesExportParams {
 }
 
 export async function generateSalesReport(params: SalesExportParams) {
-    const { startDate, endDate, locationId, terminalId, requestingUserRole, requestingUserLocationId } = params;
-
-    // --- SECURITY LOGIC ---
-    const isManagerial = ['MANAGER', 'ADMIN', 'QF', 'GERENTE_GENERAL'].includes(requestingUserRole || '');
-    let effectiveLocationId = locationId;
-
-    if (!isManagerial) {
-        // Force local location for non-managers
-        effectiveLocationId = requestingUserLocationId;
-    }
-
     try {
-        const workbook = new ExcelJS.Workbook();
-        workbook.created = new Date();
+        const { startDate, endDate, locationId, terminalId, requestingUserRole, requestingUserLocationId } = params;
+
+        // --- SECURITY LOGIC ---
+        const isManagerial = ['MANAGER', 'ADMIN', 'QF', 'GERENTE_GENERAL'].includes(requestingUserRole || '');
+        let effectiveLocationId = locationId;
+
+        if (!isManagerial) {
+            effectiveLocationId = requestingUserLocationId;
+        }
+
+        const excel = new ExcelService();
+        console.log(`📊 [Export] Generando Reporte de Ventas: ${startDate} - ${endDate}`);
 
         // Query: Sales + Items + Products + Locations + Terminals + Users
         // Note: sales.timestamp is BIGINT in DB? Or TIMESTAMP?
@@ -81,32 +80,9 @@ export async function generateSalesReport(params: SalesExportParams) {
 
         const res = await query(sql, qParams);
 
-        const sheet = workbook.addWorksheet('Detalle de Ventas');
-
-        sheet.columns = [
-            { header: 'ID Venta', key: 'id', width: 20 },
-            { header: 'Fecha', key: 'date', width: 12 },
-            { header: 'Hora', key: 'time', width: 10 },
-            { header: 'Sucursal', key: 'location', width: 20 },
-            { header: 'Caja', key: 'terminal', width: 15 },
-            { header: 'Vendedor', key: 'seller', width: 20 },
-            { header: 'Cliente RUT', key: 'rut', width: 12 },
-            { header: 'SKU', key: 'sku', width: 15 },
-            { header: 'Producto', key: 'product', width: 40 },
-            { header: 'Cantidad', key: 'qty', width: 10 },
-            { header: 'P. Unit.', key: 'price', width: 12 },
-            { header: 'Total Item', key: 'total_item', width: 12 },
-            { header: 'Forma Pago', key: 'pay', width: 15 },
-            { header: 'Folio DTE', key: 'dte', width: 10 },
-        ];
-
-        // Headers Style
-        sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-        sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } };
-
-        res.rows.forEach(row => {
+        const data = res.rows.map(row => {
             const d = new Date(row.timestamp);
-            sheet.addRow({
+            return {
                 id: row.sale_id,
                 date: d.toLocaleDateString(),
                 time: d.toLocaleTimeString(),
@@ -121,20 +97,38 @@ export async function generateSalesReport(params: SalesExportParams) {
                 total_item: Number(row.total_item),
                 pay: row.payment_method,
                 dte: row.dte_folio || ''
-            });
+            };
         });
 
-        const buffer = await workbook.xlsx.writeBuffer();
-        const base64 = Buffer.from(buffer).toString('base64');
+        const buffer = await excel.generateReport({
+            title: 'Detalle de Ventas',
+            subtitle: `Período: ${startD.toLocaleDateString()} - ${endD.toLocaleDateString()}`,
+            sheetName: 'Ventas',
+            // creator: ??? // Need to pass creator name via params if desired
+            columns: [
+                { header: 'ID Venta', key: 'id', width: 20 },
+                { header: 'Fecha', key: 'date', width: 12 },
+                { header: 'Hora', key: 'time', width: 10 },
+                { header: 'Sucursal', key: 'location', width: 20 },
+                { header: 'Caja', key: 'terminal', width: 15 },
+                { header: 'Vendedor', key: 'seller', width: 20 },
+                { header: 'Cliente RUT', key: 'rut', width: 12 },
+                { header: 'SKU', key: 'sku', width: 15 },
+                { header: 'Producto', key: 'product', width: 40 },
+                { header: 'Cantidad', key: 'qty', width: 10 },
+                { header: 'P. Unit.', key: 'price', width: 12, style: { numFmt: '"$"#,##0' } },
+                { header: 'Total Item', key: 'total_item', width: 12, style: { numFmt: '"$"#,##0' } },
+                { header: 'Forma Pago', key: 'pay', width: 15 },
+                { header: 'Folio DTE', key: 'dte', width: 10 },
+            ],
+            data: data
+        });
 
-        return {
-            success: true,
-            data: base64,
-            filename: `Reporte_Ventas_Detallado_${startDate}.xlsx`
-        };
+        const base64 = buffer.toString('base64');
+        return { success: true, data: base64, filename: `Reporte_Ventas_${startDate.split('T')[0]}.xlsx` };
 
     } catch (error: any) {
-        console.error('Error in generateSalesReport:', error);
+        console.error('Error generating sales report:', error);
         return { success: false, error: error.message };
     }
 }

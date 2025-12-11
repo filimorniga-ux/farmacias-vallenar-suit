@@ -3,7 +3,7 @@ import { usePharmaStore } from '../../../presentation/store/useStore';
 import { useLocationStore } from '../../../presentation/store/useLocationStore';
 import { useSettingsStore } from '../../../presentation/store/useSettingsStore';
 import { X, Search, Calendar, Printer, Eye, Lock, FileText, Download, User, RotateCcw } from 'lucide-react';
-import { generateCashReport } from '../../../actions/cash-export';
+import { exportSalesHistory } from '../../../actions/pos-export';
 import { toast } from 'sonner';
 import { printSaleTicket } from '../../utils/print-utils';
 import { SaleTransaction } from '../../../domain/types';
@@ -65,27 +65,20 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
     const handleExport = async () => {
         setIsExporting(true);
         try {
-            // Use inputs for date range
             const startDateISO = new Date(startDate).toISOString();
             const endDateISO = new Date(endDate).toISOString();
 
-            const result = await generateCashReport({
+            const result = await exportSalesHistory({
                 startDate: startDateISO,
                 endDate: endDateISO,
-                // For Transaction History (Admin View), we likely want ALL terminals/locations 
-                // but limited by the User's Role capabilities enforced by Backend.
-                // passing undefined means "ALL" (Backend will restrict if needed).
                 locationId: user?.role === 'MANAGER' || user?.role === 'ADMIN' ? undefined : user?.assigned_location_id,
-                terminalId: undefined, // All terminals
-                requestingUserRole: user?.role || 'CASHIER',
-                requestingUserLocationId: user?.assigned_location_id
+                requestingUserRole: user?.role || 'CASHIER'
             });
 
             if (result.success && result.fileData) {
-                // Trigger Download
                 const link = document.createElement('a');
                 link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${result.fileData}`;
-                link.download = result.fileName || 'reporte_historico.xlsx';
+                link.download = result.fileName || 'reporte_ventas.xlsx';
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
