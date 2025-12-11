@@ -1,14 +1,13 @@
-'use client';
+import ClientApp from '../components/ClientApp';
+import { cookies } from 'next/headers';
 
-import dynamic from 'next/dynamic';
+export default async function Page() {
+    const cookieStore = await cookies();
+    const hasLocation = cookieStore.has('preferred_location_id');
 
-// Import App dynamically to avoid SSR issues with HashRouter/Browser APIs if any
-const App = dynamic(() => import('../App'), { ssr: false });
-
-export default function Page() {
     return (
         <div className="min-h-screen bg-slate-50 text-slate-900">
-            <App />
+            <ClientApp forceContextSelection={!hasLocation} />
         </div>
     );
 }
