@@ -8,6 +8,7 @@ import { getTerminalsByLocation } from '@/actions/terminals';
 import { getUsers } from '@/actions/users';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
+import LocationEditModal from './LocationEditModal';
 
 interface OrganizationManagerProps {
     initialLocations: Location[];
@@ -155,6 +156,15 @@ export default function OrganizationManager({ initialLocations }: OrganizationMa
                     location={selectedLocation}
                     allLocations={locations}
                     onClose={() => setSelectedLocation(null)}
+                />
+            )}
+
+            {/* Edit Modal */}
+            {editLocation && (
+                <LocationEditModal
+                    location={editLocation}
+                    onClose={() => setEditLocation(null)}
+                    onUpdate={() => window.location.reload()}
                 />
             )}
         </div>
@@ -381,7 +391,6 @@ function LocationDetailDrawer({ location, allLocations, onClose }: { location: L
 // --- Sub-Component: Location Card (With Logic) ---
 import { getLocationHealth } from '@/actions/network-stats';
 import { Settings, AlertCircle, ShoppingBag, UserCheck } from 'lucide-react';
-import LocationEditModal from './LocationEditModal'; // Assuming same folder import
 
 function LocationCard({
     location,
@@ -482,32 +491,7 @@ function LocationCard({
 
 // ... existing code ...
 
-// Update Main Component mapping
-// inside OrganizationManager function...
-// State for Edit Modal
-const [editLocation, setEditLocation] = useState<Location | null>(null);
 
-// ... return JSX ...
-
-// Replace mapping:
-// {activeView === 'STORES' && stores.map(store => (
-//     <LocationCard 
-//         key={store.id} 
-//         location={store} 
-//         warehouses={warehouses} 
-//         onOpenDetail={() => setSelectedLocation(store)}
-//         onOpenEdit={() => setEditLocation(store)}
-//     />
-// ))}
-
-// Add Modal Render:
-// {editLocation && (
-//    <LocationEditModal 
-//        location={editLocation} 
-//        onClose={() => setEditLocation(null)}
-//        onUpdate={() => window.location.reload()}
-//    />
-// )}
 
 // ... existing imports/helpers ...
 function TabButton({ active, onClick, icon, label }: any) {

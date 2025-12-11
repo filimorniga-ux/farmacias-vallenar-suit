@@ -109,7 +109,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                 setBankName(supplierToEdit.bank_account.bank);
                 setAccountType(supplierToEdit.bank_account.account_type as any);
                 setAccountNumber(supplierToEdit.bank_account.account_number);
-                setRutHolder(supplierToEdit.bank_account.rut_holder);
+                setRutHolder(supplierToEdit.bank_account.rut_holder || '');
             } else {
                 setBankName('');
                 setAccountNumber('');
@@ -179,7 +179,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
             contact_email: contactEmail || emailOrders,
             email_orders: emailOrders,
             email_billing: emailBilling,
-            contacts: [{ name: contactName, email: contactEmail, phone: phone1, role: 'Vendedor' }],
+            contacts: [{ name: contactName, email: contactEmail, phone: phone1, role: 'Vendedor', is_primary: true }],
             sector,
             brands,
             categories: [],
