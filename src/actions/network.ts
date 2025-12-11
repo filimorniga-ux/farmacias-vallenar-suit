@@ -138,6 +138,59 @@ export async function assignEmployeeToLocation(userId: string, locationId: strin
     }
 }
 
+/**
+ * Updates details of a Location (Store/Warehouse).
+ */
+export async function updateLocationDetails(
+    id: string,
+    data: { name: string; address?: string; phone?: string; email?: string; manager_id?: string }
+) {
+    try {
+        await ensureExtendedColumns(); // Ensure phone, email, manager_id exist
+
+        const fields: string[] = [];
+        const values: any[] = [];
+        let idx = 1;
+
+        if (data.name) { fields.push(`name = $${idx}`); values.push(data.name); idx++; }
+        if (data.address !== undefined) { fields.push(`address = $${idx}`); values.push(data.address); idx++; }
+        if (data.phone !== undefined) { fields.push(`phone = $${idx}`); values.push(data.phone); idx++; }
+        if (data.email !== undefined) { fields.push(`email = $${idx}`); values.push(data.email); idx++; }
+        if (data.manager_id !== undefined) { fields.push(`manager_id = $${idx}`); values.push(data.manager_id || null); idx++; }
+
+        values.push(id); // ID is the last param
+
+        if (fields.length === 0) return { success: true }; // Nothing to update
+
+        const sql = `UPDATE locations SET ${fields.join(', ')} WHERE id = $${idx}`;
+        await query(sql, values);
+
+        revalidatePath('/settings/organization');
+        return { success: true };
+    } catch (error) {
+        console.error('Error updating location:', error);
+        return { success: false, error: 'Database Update Failed' };
+    }
+}
+
+/**
+ * Deactivates a location (Soft Delete).
+ */
+export async function deactivateLocation(id: string) {
+    try {
+        await ensureActiveColumn();
+
+        await query(`UPDATE locations SET is_active = false WHERE id = $1`, [id]);
+
+        revalidatePath('/settings/organization');
+        return { success: true };
+    } catch (error) {
+        console.error('Error deactivating location:', error);
+        return { success: false, error: 'Deactivation Failed' };
+    }
+}
+
+
 
 // --- Schema Helpers (Auto-Migration) ---
 
@@ -191,3 +244,28 @@ async function ensureUserLocationColumn() {
         `);
     } catch (e) { console.error('Migration Error (assigned_location_id):', e); }
 }
+
+async function ensureExtendedColumns() {
+    try {
+        await query(`
+            DO $$ 
+            BEGIN 
+                BEGIN ALTER TABLE locations ADD COLUMN phone VARCHAR(50); EXCEPTION WHEN duplicate_column THEN NULL; END;
+                BEGIN ALTER TABLE locations ADD COLUMN email VARCHAR(100); EXCEPTION WHEN duplicate_column THEN NULL; END;
+                BEGIN ALTER TABLE locations ADD COLUMN manager_id UUID; EXCEPTION WHEN duplicate_column THEN NULL; END;
+            END $$;
+        `);
+    } catch (e) { console.error('Migration Error (extended columns):', e); }
+}
+
+async function ensureActiveColumn() {
+    try {
+        await query(`
+            DO $$ 
+            BEGIN 
+                BEGIN ALTER TABLE locations ADD COLUMN is_active BOOLEAN DEFAULT TRUE; EXCEPTION WHEN duplicate_column THEN NULL; END;
+            END $$;
+        `);
+    } catch (e) { console.error('Migration Error (is_active):', e); }
+}
+

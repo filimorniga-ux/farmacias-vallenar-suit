@@ -12,9 +12,11 @@ import { UsersSettingsForm } from '../components/settings/UsersSettingsForm';
 import { TerminalSettings } from '../components/settings/TerminalSettings';
 import { EmployeeProfile } from '../../domain/types';
 import { GeneralSettings } from '../components/settings/GeneralSettings';
+import { AuditLogTable } from '../components/settings/AuditLogTable';
 
 const SettingsPage: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'general' | 'users' | 'sii' | 'hardware' | 'inventory' | 'billing' | 'loyalty' | 'terminals' | 'backup'>('general');
+    const [activeTab, setActiveTab] = useState<'general' | 'users' | 'sii' | 'hardware' | 'inventory' | 'billing' | 'loyalty' | 'terminals' | 'backup' | 'audit'>('general');
+
     const { enable_sii_integration, toggleSiiIntegration } = useSettingsStore();
     const { user } = usePharmaStore();
 
@@ -127,6 +129,20 @@ const SettingsPage: React.FC = () => {
                         Mantenimiento
                     </button>
 
+                    {/* Security Audit Tab (Manager Only) */}
+                    {(user?.role === 'MANAGER' || user?.role === 'ADMIN') && (
+                        <button
+                            onClick={() => setActiveTab('audit')}
+                            className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'audit'
+                                ? 'bg-indigo-50 text-indigo-700 border-b-2 border-indigo-600'
+                                : 'text-slate-500 hover:bg-slate-50'
+                                }`}
+                        >
+                            <Shield size={20} />
+                            Seguridad
+                        </button>
+                    )}
+
                     {/* Loyalty Tab (Manager Only) */}
                     {(user?.role === 'MANAGER' || user?.role === 'ADMIN') && (
                         <button
@@ -214,6 +230,14 @@ const SettingsPage: React.FC = () => {
             )}
             {activeTab === 'hardware' && <HardwarePage />}
             {activeTab === 'inventory' && <InventorySettings />}
+            {/* Security Audit Tab (Manager Only) */}
+            {(user?.role === 'MANAGER' || user?.role === 'ADMIN') && (
+                <div className="bg-white rounded-b-3xl shadow-sm border border-t-0 border-slate-200 overflow-hidden max-w-7xl p-8">
+                    {activeTab === 'audit' && <AuditLogTable />}
+                </div>
+            )}
+
+            {/* Loyalty Tab Content */}
             {activeTab === 'loyalty' && <LoyaltySettings />}
 
             {/* Billing Tab Content */}

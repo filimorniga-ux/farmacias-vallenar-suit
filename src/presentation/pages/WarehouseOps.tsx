@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Package, Truck, ArrowRight, CheckCircle, Search, Filter, Calendar, Clock, ArrowDown, ArrowUp, X, MapPin, FileText, Camera, RotateCcw, ShoppingCart, Ban, Activity } from 'lucide-react';
+import { Package, Truck, ArrowRight, CheckCircle, Search, Filter, Calendar, Clock, ArrowDown, ArrowUp, X, MapPin, FileText, Camera, RotateCcw, ShoppingCart, Ban, Activity, FileSpreadsheet } from 'lucide-react';
 import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
 import { Shipment, PurchaseOrder } from '../../domain/types';
 import { getRecentMovements } from '../../actions/inventory';
+import { exportStockMovements, exportPurchaseOrders } from '../../actions/inventory-export';
 import UnifiedReception from '../components/warehouse/UnifiedReception';
 import DocumentViewerModal from '../components/warehouse/DocumentViewerModal';
 import ScanReceptionModal from '../components/warehouse/ScanReceptionModal';
@@ -13,7 +14,7 @@ import MobileActionScroll from '../components/ui/MobileActionScroll';
 import { toast } from 'sonner';
 
 export const WarehouseOps = () => {
-    const { shipments, purchaseOrders, cancelShipment, cancelPurchaseOrder, receivePurchaseOrder, inventory, createDispatch, addPurchaseOrder } = usePharmaStore();
+    const { user, shipments, purchaseOrders, cancelShipment, cancelPurchaseOrder, receivePurchaseOrder, inventory, createDispatch, addPurchaseOrder } = usePharmaStore();
     const { currentLocation } = useLocationStore();
     const currentLocationId = currentLocation?.id || 'SUCURSAL_CENTRO';
 
@@ -231,6 +232,52 @@ export const WarehouseOps = () => {
         }
     };
 
+    const handleExportExcel = async () => {
+        const toastId = toast.loading('Generando Excel...');
+        try {
+            // Default range: Last 30 days if not specified
+            const startDate = dateRange.start
+                ? new Date(dateRange.start).toISOString()
+                : new Date(new Date().setDate(new Date().getDate() - 30)).toISOString();
+
+            const endDate = dateRange.end
+                ? new Date(dateRange.end).toISOString()
+                : new Date().toISOString();
+
+            const params = {
+                startDate,
+                endDate,
+                locationId: currentLocationId,
+                locationName: currentLocation?.name || 'Bodega Actual',
+                creatorName: user?.name
+            };
+
+            let result;
+            if (activeTab === 'SUPPLIER_ORDERS') {
+                result = await exportPurchaseOrders(params);
+            } else {
+                result = await exportStockMovements(params);
+            }
+
+            if (result && result.success && result.data) {
+                const link = document.createElement('a');
+                link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${result.data}`;
+                link.download = result.filename || 'reporte.xlsx';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                toast.success('Excel descargado correctamente');
+            } else {
+                toast.error('Error: ' + (result?.error || 'Desconocido'));
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error('Error al exportar Excel');
+        } finally {
+            toast.dismiss(toastId);
+        }
+    };
+
     return (
         <div className="p-6 space-y-6 h-[calc(100vh-80px)] overflow-y-auto">
             <div className="flex justify-between items-center">
@@ -253,6 +300,16 @@ export const WarehouseOps = () => {
                         <FileText className="w-4 h-4" />
                         Reportes
                     </button>
+
+                    {(activeTab === 'MOVEMENTS' || activeTab === 'SUPPLIER_ORDERS') && (
+                        <button
+                            onClick={handleExportExcel}
+                            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 font-bold text-sm shadow-lg shadow-green-200"
+                        >
+                            <FileSpreadsheet className="w-4 h-4" />
+                            Exportar Excel
+                        </button>
+                    )}
 
                     {activeTab === 'SUPPLIER_ORDERS' ? (
                         <button
@@ -455,7 +512,54 @@ export const WarehouseOps = () => {
 
             {/* Content Area */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 min-h-[400px] p-6">
-                {filteredItems.length === 0 ? (
+                {activeTab === 'MOVEMENTS' ? (
+                    movements.length === 0 ? (
+                        <div className="text-center py-12 text-gray-400">
+                            <Activity className="w-16 h-16 mx-auto mb-4 opacity-20" />
+                            <h3 className="text-lg font-bold text-gray-500">No hay movimientos recientes</h3>
+                        </div>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-gray-50 text-gray-700 font-bold border-b border-gray-200">
+                                    <tr>
+                                        <th className="px-4 py-3">Fecha/Hora</th>
+                                        <th className="px-4 py-3">Tipo</th>
+                                        <th className="px-4 py-3">SKU</th>
+                                        <th className="px-4 py-3">Producto</th>
+                                        <th className="px-4 py-3 text-right">Cant.</th>
+                                        <th className="px-4 py-3 text-right">Saldo</th>
+                                        <th className="px-4 py-3">Usuario</th>
+                                        <th className="px-4 py-3">Notas</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {movements.map((mov) => (
+                                        <tr key={mov.id} className="hover:bg-gray-50 transition-colors">
+                                            <td className="px-4 py-3 whitespace-nowrap">
+                                                {new Date(mov.date).toLocaleDateString()} <span className="text-gray-400 text-xs">{new Date(mov.date).toLocaleTimeString()}</span>
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <span className={`px-2 py-1 rounded-full text-xs font-bold 
+                                                    ${mov.type === 'INBOUND' ? 'bg-green-100 text-green-700' :
+                                                        mov.type === 'OUTBOUND' ? 'bg-red-100 text-red-700' :
+                                                            'bg-blue-100 text-blue-700'}`}>
+                                                    {mov.type}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-3 font-mono text-xs">{mov.sku}</td>
+                                            <td className="px-4 py-3 font-medium text-gray-800">{mov.product}</td>
+                                            <td className="px-4 py-3 text-right font-bold">{mov.quantity}</td>
+                                            <td className="px-4 py-3 text-right text-gray-500">{mov.stock ?? '-'}</td>
+                                            <td className="px-4 py-3 text-gray-600 truncate max-w-[150px]">{mov.user}</td>
+                                            <td className="px-4 py-3 text-gray-500 italic truncate max-w-[200px]">{mov.notes}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )
+                ) : filteredItems.length === 0 ? (
                     <div className="text-center py-12 text-gray-400">
                         <Package className="w-16 h-16 mx-auto mb-4 opacity-20" />
                         <h3 className="text-lg font-bold text-gray-500">No hay registros encontrados</h3>
