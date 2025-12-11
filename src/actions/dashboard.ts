@@ -84,12 +84,12 @@ export async function getFinancialMetrics(
 
         if (locationId) {
             salesConditions += ` AND location_id = $3::uuid`;
-            cashConditions += ` AND shift_id IN (SELECT id::text FROM terminals WHERE location_id = $3::uuid)`;
+            cashConditions += ` AND terminal_id IN (SELECT id FROM terminals WHERE location_id = $3::uuid)`;
         }
         if (terminalId) {
             const idx = locationId ? '$4' : '$3';
             salesConditions += ` AND terminal_id = ${idx}::uuid`;
-            cashConditions += ` AND shift_id = ${idx}::text`; // Comparing shift_id (likely text) with terminal_id (uuid cast to text)
+            cashConditions += ` AND terminal_id = ${idx}::uuid`;
         }
 
         // --- Execute Queries ---

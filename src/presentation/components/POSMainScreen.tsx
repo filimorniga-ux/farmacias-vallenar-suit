@@ -426,7 +426,7 @@ const POSMainScreen: React.FC = () => {
         <div className="flex h-[calc(100vh-80px)] bg-slate-100 overflow-hidden">
 
             {/* COL 1: Búsqueda (Fixed 350px Desktop, 100% Mobile Catalog View) */}
-            <div className={`w - full md: w - [350px] flex - col p - 4 md: p - 6 md: pr - 3 gap - 4 h - full ${mobileView === 'CART' ? 'hidden md:flex' : 'flex'} `}>
+            <div className={`w-full md:w-[350px] flex-col p-4 md:p-6 md:pr-3 gap-4 h-full ${mobileView === 'CART' ? 'hidden md:flex' : 'flex'}`}>
                 <div className="bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col h-full overflow-hidden">
                     <div className="p-4 md:p-6 border-b border-slate-100">
                         <div className="relative flex items-center gap-2">
@@ -548,13 +548,14 @@ const POSMainScreen: React.FC = () => {
                 </div>
             )}
 
-            {/* COL 2: Carrito y Pago (75% Desktop, 100% Mobile Cart View) */}
+            {/* COL 2: Carrito y Pago (Always visible on Desktop, Toggled on Mobile) */}
             <div className={`
-                fixed inset - 0 z - 50 bg - slate - 100 md:static md: bg - transparent md: z - auto
-flex - 1 flex - col p - 4 md: p - 6 md: pl - 0 gap - 4
-                ${mobileView === 'CART' ? 'flex' : 'hidden md:flex'}
-`}>
-                <div className={`flex - 1 rounded - 3xl shadow - xl border border - slate - 200 overflow - hidden flex flex - col h - full transition - colors ${isQuoteMode ? 'bg-amber-50 border-amber-200' : 'bg-white'} `}>
+                fixed inset-0 z-50 bg-slate-100 
+                md:static md:bg-transparent md:z-auto md:flex md:flex-1
+                flex-col p-4 md:p-6 md:pl-0 gap-4
+                ${mobileView === 'CART' ? 'flex' : 'hidden'}
+            `}>
+                <div className={`flex-1 rounded-3xl shadow-xl border border-slate-200 overflow-hidden flex flex-col h-full transition-colors ${isQuoteMode ? 'bg-amber-50 border-amber-200' : 'bg-white'}`}>
                     {/* Header */}
                     <div className="p-4 md:p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                         <div className="flex items-center gap-4">
@@ -566,7 +567,7 @@ flex - 1 flex - col p - 4 md: p - 6 md: pl - 0 gap - 4
                                 <TrendingDown className="rotate-90" size={24} />
                             </button>
 
-                            <div className={`p - 2 md: p - 3 rounded - 2xl hidden md:block ${isQuoteMode ? 'bg-amber-100 text-amber-700' : 'bg-cyan-100 text-cyan-700'} `}>
+                            <div className={`p-2 md:p-3 rounded-2xl hidden md:block ${isQuoteMode ? 'bg-amber-100 text-amber-700' : 'bg-cyan-100 text-cyan-700'}`}>
                                 {isQuoteMode ? <FileText size={28} /> : <ShoppingCart size={28} />}
                             </div>
                             <div>
@@ -600,8 +601,8 @@ flex - 1 flex - col p - 4 md: p - 6 md: pl - 0 gap - 4
                                 </div>
                             </div>
                             {/* Shift Status Badge - Compact on Mobile */}
-                            <div className={`px - 2 md: px - 4 py - 1 md: py - 2 rounded - lg font - bold text - [10px] md: text - sm flex items - center gap - 2 ${currentShift?.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} `}>
-                                <div className={`w - 2 h - 2 rounded - full ${currentShift?.status === 'ACTIVE' ? 'bg-green-500 animate-pulse' : 'bg-red-500'} `} />
+                            <div className={`px-2 md:px-4 py-1 md:py-2 rounded-lg font-bold text-[10px] md:text-sm flex items-center gap-2 ${currentShift?.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                <div className={`w-2 h-2 rounded-full ${currentShift?.status === 'ACTIVE' ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
                                 <span className="hidden md:inline">{currentShift?.status === 'ACTIVE' ? `TURNO #${currentShift.id.slice(-6)} - ABIERTO` : 'CAJA CERRADA'}</span>
                                 <span className="md:hidden">{currentShift?.status === 'ACTIVE' ? `#${currentShift.id.slice(-6)} ` : 'CERRADO'}</span>
                             </div>
@@ -653,7 +654,7 @@ flex - 1 flex - col p - 4 md: p - 6 md: pl - 0 gap - 4
                                 </button>
                                 <button
                                     onClick={() => setIsQuoteMode(!isQuoteMode)}
-                                    className={`flex items - center gap - 2 px - 4 py - 2 md: px - 5 md: py - 3 rounded - full font - bold transition - colors whitespace - nowrap ${isQuoteMode ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'} `}
+                                    className={`flex items-center gap-2 px-4 py-2 md:px-5 md:py-3 rounded-full font-bold transition-colors whitespace-nowrap ${isQuoteMode ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                                 >
                                     <FileText size={20} />
                                     <span className="hidden lg:inline">{isQuoteMode ? 'Salir Cotiz.' : 'Cotizar'}</span>
@@ -856,7 +857,7 @@ flex - 1 flex - col p - 4 md: p - 6 md: pl - 0 gap - 4
                             <button
                                 onClick={handlePrePayment}
                                 disabled={cart.length === 0 || !currentShift || currentShift.status !== 'ACTIVE'}
-                                className={`w - full md: w - auto px - 8 md: px - 12 py - 4 md: py - 6 rounded - 2xl font - extrabold text - xl md: text - 2xl shadow - lg transition - all transform hover: scale - 105 disabled: opacity - 50 disabled: cursor - not - allowed disabled: transform - none ${isQuoteMode ? 'bg-amber-500 hover:bg-amber-400 text-amber-950 shadow-amber-900/50' : 'bg-emerald-500 hover:bg-emerald-400 text-emerald-950 shadow-emerald-900/50'} `}
+                                className={`w-full md:w-auto px-8 md:px-12 py-4 md:py-6 rounded-2xl font-extrabold text-xl md:text-2xl shadow-lg transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none ${isQuoteMode ? 'bg-amber-500 hover:bg-amber-400 text-amber-950 shadow-amber-900/50' : 'bg-emerald-500 hover:bg-emerald-400 text-emerald-950 shadow-emerald-900/50'}`}
                             >
                                 {isQuoteMode ? 'GUARDAR (F9)' : 'PAGAR (F9)'}
                             </button>
@@ -967,21 +968,21 @@ flex - 1 flex - col p - 4 md: p - 6 md: pl - 0 gap - 4
                             <div className="grid grid-cols-3 gap-4 mb-8">
                                 <button
                                     onClick={() => setPaymentMethod('CASH')}
-                                    className={`p - 4 rounded - 2xl border - 2 flex flex - col items - center gap - 2 transition - all ${paymentMethod === 'CASH' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-100 text-slate-400'} `}
+                                    className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all ${paymentMethod === 'CASH' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-100 text-slate-400'}`}
                                 >
                                     <Banknote size={24} />
                                     <span className="text-xs font-bold">EFECTIVO</span>
                                 </button>
                                 <button
                                     onClick={() => setPaymentMethod('DEBIT')}
-                                    className={`p - 4 rounded - 2xl border - 2 flex flex - col items - center gap - 2 transition - all ${paymentMethod === 'DEBIT' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-100 text-slate-400'} `}
+                                    className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all ${paymentMethod === 'DEBIT' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-100 text-slate-400'}`}
                                 >
                                     <CreditCard size={24} />
                                     <span className="text-xs font-bold">TARJETA</span>
                                 </button>
                                 <button
                                     onClick={() => setPaymentMethod('TRANSFER')}
-                                    className={`p - 4 rounded - 2xl border - 2 flex flex - col items - center gap - 2 transition - all ${paymentMethod === 'TRANSFER' ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-slate-100 text-slate-400'} `}
+                                    className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all ${paymentMethod === 'TRANSFER' ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-slate-100 text-slate-400'}`}
                                 >
                                     <Smartphone size={24} />
                                     <span className="text-xs font-bold">TRANSF.</span>
