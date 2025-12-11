@@ -272,18 +272,24 @@ export const usePharmaStore = create<PharmaState>()(
                                 const assignedLoc = locRes.data.find(l => l.id === authenticatedUser!.assigned_location_id);
                                 if (assignedLoc) {
                                     const warehouseId = assignedLoc.default_warehouse_id || '';
-                                    console.log(`📍 Auto-Setting Context: Location=${assignedLoc.name}, Warehouse=${warehouseId}`);
+                                    const currentLoc = get().currentLocationId;
+                                    const currentTerm = get().currentTerminalId;
 
-                                    set({
-                                        currentLocationId: assignedLoc.id,
-                                        currentWarehouseId: warehouseId,
-                                        // Try to find a terminal? Or leave empty for manual selection.
-                                        currentTerminalId: ''
-                                    });
+                                    // Only update if location changed or not set
+                                    if (currentLoc !== assignedLoc.id) {
+                                        console.log(`📍 Auto-Setting Context: Location=${assignedLoc.name}, Warehouse=${warehouseId}`);
+                                        set({
+                                            currentLocationId: assignedLoc.id,
+                                            currentWarehouseId: warehouseId,
+                                            currentTerminalId: '' // Reset terminal only on location change
+                                        });
 
-                                    // ⚡️ Refresh Inventory for the new context
-                                    if (warehouseId) {
-                                        get().fetchInventory(assignedLoc.id, warehouseId).catch(console.error);
+                                        // ⚡️ Refresh Inventory for the new context
+                                        if (warehouseId) {
+                                            get().fetchInventory(assignedLoc.id, warehouseId).catch(console.error);
+                                        }
+                                    } else {
+                                        console.log('📍 Context stable. Preserving session.');
                                     }
                                 }
                             }
