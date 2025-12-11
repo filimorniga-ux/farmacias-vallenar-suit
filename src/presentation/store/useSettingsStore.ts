@@ -11,6 +11,18 @@ interface SettingsState {
     // Hardware
     hardware: HardwareConfig;
     updateHardwareConfig: (config: Partial<HardwareConfig>) => void;
+
+    // Security
+    security: {
+        idle_timeout_minutes: number;
+        max_login_attempts: number;
+        lockout_duration_minutes: number;
+    };
+    updateSecurityConfig: (config: Partial<{
+        idle_timeout_minutes: number;
+        max_login_attempts: number;
+        lockout_duration_minutes: number;
+    }>) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -30,6 +42,16 @@ export const useSettingsStore = create<SettingsState>()(
             },
             updateHardwareConfig: (config) => set((state) => ({
                 hardware: { ...state.hardware, ...config }
+            })),
+
+            // Security Defaults
+            security: {
+                idle_timeout_minutes: 5,
+                max_login_attempts: 5,
+                lockout_duration_minutes: 15
+            },
+            updateSecurityConfig: (config) => set((state) => ({
+                security: { ...state.security, ...config }
             }))
         }),
         {

@@ -4,15 +4,17 @@ import React, { useState } from 'react';
 import { useIdleTimer } from '../../hooks/useIdleTimer';
 import LockScreen from './LockScreen';
 import { usePharmaStore } from '../../store/useStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
 import { usePathname } from 'next/navigation';
 
 export default function SessionGuard({ children }: { children: React.ReactNode }) {
     const [isLocked, setIsLocked] = useState(false);
     const { user } = usePharmaStore();
+    const { security } = useSettingsStore();
     const pathname = usePathname();
 
-    // Configuration: 5 Minutes
-    const TIMEOUT_MS = 5 * 60 * 1000;
+    // Configuration: Dynamic from Store (Minutes to Ms)
+    const TIMEOUT_MS = (security?.idle_timeout_minutes || 5) * 60 * 1000;
 
     const handleIdle = () => {
         // Only lock if user is logged in

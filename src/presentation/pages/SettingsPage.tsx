@@ -13,6 +13,7 @@ import { TerminalSettings } from '../components/settings/TerminalSettings';
 import { EmployeeProfile } from '../../domain/types';
 import { GeneralSettings } from '../components/settings/GeneralSettings';
 import { AuditLogTable } from '../components/settings/AuditLogTable';
+import { SecurityPolicyPanel } from '../components/settings/SecurityPolicyPanel';
 
 const SettingsPage: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'general' | 'users' | 'sii' | 'hardware' | 'inventory' | 'billing' | 'loyalty' | 'terminals' | 'backup' | 'audit'>('general');
@@ -233,7 +234,12 @@ const SettingsPage: React.FC = () => {
             {/* Security Audit Tab (Manager Only) */}
             {(user?.role === 'MANAGER' || user?.role === 'ADMIN') && (
                 <div className="bg-white rounded-b-3xl shadow-sm border border-t-0 border-slate-200 overflow-hidden max-w-7xl p-8">
-                    {activeTab === 'audit' && <AuditLogTable />}
+                    {activeTab === 'audit' && (
+                        <>
+                            <SecurityPolicyPanel />
+                            <AuditLogTable />
+                        </>
+                    )}
                 </div>
             )}
 

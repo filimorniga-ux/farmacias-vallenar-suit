@@ -9,8 +9,12 @@ import { headers } from 'next/headers';
  */
 export async function checkRateLimit(identifier: string): Promise<{ allowed: boolean; error?: string }> {
     try {
-        const MAX_ATTEMPTS = 5;
-        const BLOCK_DURATION_MINUTES = 10;
+        // Fetch Dynamic Settings
+        const settingsRes = await query("SELECT key, value FROM app_settings WHERE key IN ('SECURITY_MAX_LOGIN_ATTEMPTS', 'SECURITY_LOCKOUT_DURATION_MINUTES')");
+        const settingsMap = new Map(settingsRes.rows.map((row: any) => [row.key, row.value]));
+
+        const MAX_ATTEMPTS = parseInt(settingsMap.get('SECURITY_MAX_LOGIN_ATTEMPTS') || '5');
+        const BLOCK_DURATION_MINUTES = parseInt(settingsMap.get('SECURITY_LOCKOUT_DURATION_MINUTES') || '15');
         const WINDOW_MINUTES = 10;
 
         // 1. Check if blocked
@@ -58,8 +62,12 @@ export async function checkRateLimit(identifier: string): Promise<{ allowed: boo
  */
 export async function incrementRateLimit(identifier: string) {
     try {
-        const MAX_ATTEMPTS = 5;
-        const BLOCK_DURATION_MINUTES = 10;
+        // Fetch Dynamic Settings
+        const settingsRes = await query("SELECT key, value FROM app_settings WHERE key IN ('SECURITY_MAX_LOGIN_ATTEMPTS', 'SECURITY_LOCKOUT_DURATION_MINUTES')");
+        const settingsMap = new Map(settingsRes.rows.map((row: any) => [row.key, row.value]));
+
+        const MAX_ATTEMPTS = parseInt(settingsMap.get('SECURITY_MAX_LOGIN_ATTEMPTS') || '5');
+        const BLOCK_DURATION_MINUTES = parseInt(settingsMap.get('SECURITY_LOCKOUT_DURATION_MINUTES') || '15');
 
         // Upsert logic (PG 9.5+)
         await query(`
