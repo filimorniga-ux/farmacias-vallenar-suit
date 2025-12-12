@@ -2,6 +2,7 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { usePharmaStore } from './presentation/store/useStore';
+import { useLocationStore } from './presentation/store/useLocationStore';
 import { Toaster } from 'sonner';
 
 // Layouts
@@ -42,9 +43,11 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 
 function App({ forceContextSelection }: { forceContextSelection?: boolean }) {
     const { syncData } = usePharmaStore();
+    const { fetchLocations } = useLocationStore();
 
     useEffect(() => {
         syncData();
+        fetchLocations();
     }, []);
 
     return (

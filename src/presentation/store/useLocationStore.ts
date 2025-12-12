@@ -13,6 +13,7 @@ interface LocationState {
     updateLocation: (id: string, data: Partial<Location>) => void;
     switchLocation: (id: string, onSuccess?: () => void) => void;
     canSwitchLocation: (userRole: string) => boolean;
+    fetchLocations: () => Promise<void>; // Sync with Backend
 
     registerKiosk: (kiosk: KioskConfig) => void;
     updateKioskStatus: (id: string, status: 'ACTIVE' | 'INACTIVE') => void;
@@ -36,6 +37,22 @@ export const useLocationStore = create<LocationState>()(
             })),
 
             setLocations: (locations) => set({ locations }),
+
+            fetchLocations: async () => {
+                try {
+                    const { getLocationsWithTerminals } = await import('@/actions/network');
+                    const res = await getLocationsWithTerminals();
+                    if (res.success && res.locations) {
+                        set({ locations: res.locations });
+                        // Also sync terminals if needed? Store mostly cares about locations logic for now
+                        // But wait, the stores 'locations' type has 'associated_kiosks' (ids).
+                        // The server action 'getLocationsWithTerminals' correctly maps terminals to 'associated_kiosks' ids.
+                        // So the state is consistent.
+                    }
+                } catch (error) {
+                    console.error('Failed to sync locations', error);
+                }
+            },
 
             updateLocation: (id, data) => set((state) => ({
                 locations: state.locations.map(loc =>

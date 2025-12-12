@@ -575,51 +575,54 @@ const POSMainScreen: React.FC = () => {
             `}>
                 <div className={`flex-1 rounded-3xl shadow-xl border border-slate-200 overflow-hidden flex flex-col h-full transition-colors ${isQuoteMode ? 'bg-amber-50 border-amber-200' : 'bg-white'}`}>
                     {/* Header */}
-                    <div className="p-4 md:p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                        <div className="flex items-center gap-4">
-                            {/* Mobile Back Button */}
-                            <button
-                                onClick={() => setMobileView('CATALOG')}
-                                className="md:hidden p-2 -ml-2 text-slate-600 hover:bg-slate-200 rounded-full mr-2"
-                            >
-                                <TrendingDown className="rotate-90" size={24} />
-                            </button>
+                    <div className="p-4 md:p-6 border-b border-slate-100 flex flex-col md:flex-row md:justify-between md:items-center bg-slate-50/50 gap-4">
+                        <div className="flex items-center gap-4 justify-between md:justify-start w-full md:w-auto">
+                            <div className="flex items-center gap-4">
+                                {/* Mobile Back Button */}
+                                <button
+                                    onClick={() => setMobileView('CATALOG')}
+                                    className="md:hidden p-2 -ml-2 text-slate-600 hover:bg-slate-200 rounded-full mr-2"
+                                >
+                                    <TrendingDown className="rotate-90" size={24} />
+                                </button>
 
-                            <div className={`p-2 md:p-3 rounded-2xl hidden md:block ${isQuoteMode ? 'bg-amber-100 text-amber-700' : 'bg-cyan-100 text-cyan-700'}`}>
-                                {isQuoteMode ? <FileText size={28} /> : <ShoppingCart size={28} />}
-                            </div>
-                            <div>
-                                <h1 className="text-xl md:text-2xl font-extrabold text-slate-800 flex items-center gap-2">
-                                    {isQuoteMode ? 'Cotización' : 'Carrito'}
-                                    {isQuoteMode && <span className="text-xs bg-amber-200 text-amber-800 px-2 py-1 rounded-full">MODO COTIZACIÓN</span>}
-                                </h1>
-                                <div className="flex items-center gap-2 mt-1">
-                                    {currentCustomer ? (
-                                        <div className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg border border-emerald-100">
-                                            <User size={14} />
-                                            <span className="text-xs font-bold">{currentCustomer.fullName}</span>
-                                            <button
-                                                onClick={() => setCustomer(null)}
-                                                className="p-0.5 hover:bg-emerald-200 rounded-full"
-                                            >
-                                                <X size={12} />
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-xs text-slate-400 font-bold hidden md:inline">👤 Cliente: Anónimo</span>
-                                            <button
-                                                onClick={() => setIsCustomerSelectModalOpen(true)}
-                                                className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded-md hover:bg-slate-200 transition"
-                                            >
-                                                + CLIENTE
-                                            </button>
-                                        </div>
-                                    )}
+                                <div className={`p-2 md:p-3 rounded-2xl hidden md:block ${isQuoteMode ? 'bg-amber-100 text-amber-700' : 'bg-cyan-100 text-cyan-700'}`}>
+                                    {isQuoteMode ? <FileText size={28} /> : <ShoppingCart size={28} />}
+                                </div>
+                                <div>
+                                    <h1 className="text-xl md:text-2xl font-extrabold text-slate-800 flex items-center gap-2">
+                                        {isQuoteMode ? 'Cotización' : 'Carrito'}
+                                        {isQuoteMode && <span className="text-xs bg-amber-200 text-amber-800 px-2 py-1 rounded-full">MODO COTIZACIÓN</span>}
+                                    </h1>
+                                    <div className="flex items-center gap-2 mt-1">
+                                        {currentCustomer ? (
+                                            <div className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg border border-emerald-100">
+                                                <User size={14} />
+                                                <span className="text-xs font-bold">{currentCustomer.fullName}</span>
+                                                <button
+                                                    onClick={() => setCustomer(null)}
+                                                    className="p-0.5 hover:bg-emerald-200 rounded-full"
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs text-slate-400 font-bold hidden md:inline">👤 Cliente: Anónimo</span>
+                                                <button
+                                                    onClick={() => setIsCustomerSelectModalOpen(true)}
+                                                    className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded-md hover:bg-slate-200 transition"
+                                                >
+                                                    + CLIENTE
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
-                            {/* Shift Status Badge - Compact on Mobile */}
-                            <div className={`px-2 md:px-4 py-1 md:py-2 rounded-lg font-bold text-[10px] md:text-sm flex items-center gap-2 ${currentShift?.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+
+                            {/* Shift Status Badge - Compact on Mobile - Moved to right on mobile flex row if possible, or just stay */}
+                            <div className={`px-2 md:px-4 py-1 md:py-2 rounded-lg font-bold text-[10px] md:text-sm flex items-center gap-2 flex-shrink-0 ${currentShift?.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                                 <div className={`w-2 h-2 rounded-full ${currentShift?.status === 'ACTIVE' ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
                                 <span className="hidden md:inline">{currentShift?.status === 'ACTIVE' ? `TURNO #${currentShift.id.slice(-6)} - ABIERTO` : 'CAJA CERRADA'}</span>
                                 <span className="md:hidden">{currentShift?.status === 'ACTIVE' ? `#${currentShift.id.slice(-6)} ` : 'CERRADO'}</span>

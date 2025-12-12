@@ -13,29 +13,36 @@ import { updateLocationConfig } from '@/actions/network';
 import { AlertTriangle, Settings, AlertCircle, ShoppingBag, UserCheck } from 'lucide-react';
 import { getLocationHealth } from '@/actions/network-stats';
 
-interface OrganizationManagerProps {
-    initialLocations: Location[];
-}
-
-export default function OrganizationManager({ initialLocations }: OrganizationManagerProps) {
+export default function OrganizationManager() {
     // --- State ---
-    const [locations, setLocations] = useState<Location[]>(initialLocations);
+    const [locations, setLocations] = useState<Location[]>([]);
     const [activeView, setActiveView] = useState<'STORES' | 'WAREHOUSES'>('STORES');
     const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
 
-    const [editLocation, setEditLocation] = useState<Location | null>(null); // NEW: Edit State
+    const [editLocation, setEditLocation] = useState<Location | null>(null);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-
-    // Derived state
-    const stores = locations.filter(l => l.type !== 'WAREHOUSE');
-    const warehouses = locations.filter(l => l.type === 'WAREHOUSE');
+    const [isLoading, setIsLoading] = useState(true);
 
     const router = useRouter();
 
-    // Effect to sync props to state if needed (optional, but good if parent updates)
+    const loadData = async () => {
+        setIsLoading(true);
+        try {
+            const { getLocationsWithTerminals } = await import('@/actions/network');
+            const res = await getLocationsWithTerminals();
+            if (res.success && res.locations) {
+                setLocations(res.locations);
+            }
+        } catch (error) {
+            toast.error("Error cargando datos de organización");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     useEffect(() => {
-        setLocations(initialLocations);
-    }, [initialLocations]);
+        loadData();
+    }, []);
 
     const handleCreate = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -49,6 +56,7 @@ export default function OrganizationManager({ initialLocations }: OrganizationMa
                 if (res.success) {
                     toast.success('Sucursal creada');
                     setIsCreateModalOpen(false);
+                    loadData(); // Reload local state
                     router.refresh();
                 } else {
                     toast.error('Error al crear sucursal');
@@ -60,6 +68,7 @@ export default function OrganizationManager({ initialLocations }: OrganizationMa
                 if (res.success) {
                     toast.success('Bodega creada');
                     setIsCreateModalOpen(false);
+                    loadData(); // Reload local state
                     router.refresh();
                 } else {
                     toast.error('Error al crear bodega');
@@ -69,6 +78,10 @@ export default function OrganizationManager({ initialLocations }: OrganizationMa
             toast.error('Error inesperado');
         }
     };
+
+    // Derived state
+    const stores = locations.filter(l => l.type !== 'WAREHOUSE');
+    const warehouses = locations.filter(l => l.type === 'WAREHOUSE');
 
     // ... (rest of initializations)
 
