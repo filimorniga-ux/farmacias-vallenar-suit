@@ -59,11 +59,6 @@ export async function openTerminal(terminalId: string, userId: string, initialCa
         }
 
         // 2. Register Opening Cash Movement
-        // We'll call createCashMovement internally or let the frontend do it?
-        // Better to do it transactionally here.
-        // Importing createCashMovement might cause circular deps if not careful.
-        // We'll direct insert for speed/safety within this transaction block logic if needed, 
-        // but calling the action is cleaner.
         const { createCashMovement } = await import('./cash');
 
         const movementResult = await createCashMovement({
@@ -100,14 +95,11 @@ export async function openTerminal(terminalId: string, userId: string, initialCa
 /**
  * Closes a terminal.
  */
-export async function closeTerminal(terminalId: string, userId: string, finalCash: number, comments: string) {
+export async function closeTerminal(terminalId: string, userId: string, finalCash: number, comments: string, withdrawalAmount?: number) {
     try {
         const { createCashMovement } = await import('./cash');
 
-        // Register Closing Movement (or just log it?)
-        // Usually we register the "Declared Cash" or "Withdrawal of all cash".
-        // Let's standard: Register CLOSING event.
-
+        // Register Closing Movement
         const movementResult = await createCashMovement({
             shift_id: terminalId,
             user_id: userId,
@@ -124,11 +116,27 @@ export async function closeTerminal(terminalId: string, userId: string, finalCas
             throw new Error('Failed to register closing cash');
         }
 
+        // Close Terminal in DB
         await query(`
             UPDATE terminals 
             SET status = 'CLOSED', current_cashier_id = NULL
             WHERE id = $1
         `, [terminalId]);
+
+        // Auto Treasury Entry (Custody Chain V2)
+        const { createRemittance } = await import('./treasury');
+
+        const termRes = await query("SELECT location_id, name FROM terminals WHERE id = $1", [terminalId]);
+        const locationId = termRes.rows[0].location_id;
+
+        if (withdrawalAmount && withdrawalAmount > 0) {
+            await createRemittance(
+                locationId,
+                terminalId,
+                withdrawalAmount,
+                userId
+            );
+        }
 
         revalidatePath('/');
         return { success: true };
@@ -204,13 +212,6 @@ export async function getTerminalsByLocation(locationId: string): Promise<{ succ
                     );
                 `);
 
-                // Seed it (Assume we have a location from previous step, or just random UUID for location logic if user selected something)
-                // But we need to link it to the locationId passed in logic? 
-                // Wait, if table is empty, we should seed for THIS locationId or a generic default?
-                // Ideally, if locationId is provided, we create a terminal for IT.
-                // But usually we just create a default linked to the default Location created in locations.ts.
-
-                // Let's create a default terminal for the requested locationId so the UI isn't empty.
                 const { v4: uuidv4 } = await import('uuid');
                 const defaultTermId = uuidv4();
 
