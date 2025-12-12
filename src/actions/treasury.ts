@@ -10,6 +10,7 @@ export interface FinancialAccount {
     name: string;
     type: 'SAFE' | 'BANK' | 'PETTY_CASH' | 'EQUITY';
     balance: number;
+    is_active: boolean;
 }
 
 export interface TreasuryTransaction {
@@ -25,7 +26,7 @@ export interface TreasuryTransaction {
 export async function getFinancialAccounts(locationId: string): Promise<{ success: boolean; data?: FinancialAccount[]; error?: string }> {
     try {
         const res = await query(
-            "SELECT * FROM financial_accounts WHERE location_id = $1 ORDER BY type DESC",
+            "SELECT * FROM financial_accounts WHERE (location_id = $1 OR location_id IS NULL) ORDER BY type DESC",
             [locationId]
         );
         return { success: true, data: res.rows };
