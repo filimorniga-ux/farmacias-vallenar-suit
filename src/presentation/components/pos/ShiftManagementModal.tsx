@@ -53,7 +53,20 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     if (!isOpen) return null;
 
     const availableTerminals = terminals.filter(t => t.status === 'CLOSED');
-    const cashiers = employees.filter(e => ['CASHIER', 'QF', 'MANAGER', 'ADMIN'].includes(e.role));
+    const cashiers = employees.filter(e => {
+        const isRoleValid = ['CASHIER', 'QF', 'MANAGER', 'ADMIN'].includes(e.role);
+
+        // Filter by selected location if set (Strict Segregation)
+        // Except for Global Roles if we want them to be selectable everywhere? 
+        // Usually Manager wants to select THEIR staff.
+        // If a Manager is Global, they might want to assign themselves to any terminal.
+        // Let's allow Global Roles to appear everywhere, but Local roles only in their location.
+
+        const isGlobal = ['MANAGER', 'ADMIN', 'QF'].includes(e.role); // Manager/Admin/QF roam
+        const isLocalMatch = e.assigned_location_id === selectedLocation;
+
+        return isRoleValid && (isGlobal || isLocalMatch);
+    });
 
     const handleNext = () => {
         if (!selectedLocation || !selectedTerminal || !selectedCashier || !openingAmount) {

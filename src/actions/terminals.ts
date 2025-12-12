@@ -33,9 +33,29 @@ export async function registerTerminal(terminalId: string, locationId: string, n
 export async function openTerminal(terminalId: string, userId: string, initialCash: number) {
     try {
         // 1. Check if already open
-        const existing = await query('SELECT status FROM terminals WHERE id = $1', [terminalId]);
-        if (existing.rows[0]?.status === 'OPEN') {
+        // 1. Fetch Terminal & Check Status
+        const termRes = await query('SELECT * FROM terminals WHERE id = $1', [terminalId]);
+        if (termRes.rows.length === 0) return { success: false, error: 'Terminal not found' };
+
+        const terminal = termRes.rows[0];
+        if (terminal.status === 'OPEN') {
             return { success: false, error: 'Terminal is already open' };
+        }
+
+        // 2. Fetch User & Validate Location Access
+        const userRes = await query('SELECT role, assigned_location_id FROM users WHERE id = $1', [userId]);
+        if (userRes.rows.length === 0) return { success: false, error: 'User not found' };
+
+        const user = userRes.rows[0];
+
+        // GLOBAL ROLE CHECK (Matches auth.ts logic)
+        const role = (user.role || '').toUpperCase();
+        const isGlobalAdmin = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'DRIVER', 'QF'].includes(role);
+
+        if (!isGlobalAdmin) {
+            if (user.assigned_location_id !== terminal.location_id) {
+                return { success: false, error: '⛔ Acceso Denegado: No tienes contrato en esta sucursal.' };
+            }
         }
 
         // 2. Register Opening Cash Movement

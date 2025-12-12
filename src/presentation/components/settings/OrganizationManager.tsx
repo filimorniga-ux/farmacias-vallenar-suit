@@ -200,7 +200,7 @@ function LocationDetailDrawer({ location, allLocations, onClose }: { location: L
                     if (res.success && res.data) setTerminals(res.data);
                 }
                 if (activeTab === 'STAFF') {
-                    const res = await getUsers();
+                    const res = await getUsers({ locationId: location.id });
                     if (res.success && res.data) setAllUsers(res.data);
                 }
             } finally {
