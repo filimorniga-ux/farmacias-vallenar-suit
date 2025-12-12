@@ -1,7 +1,7 @@
 'use server';
 
 import { query } from '@/lib/db';
-import { Location, EmployeeProfile } from '@/domain/types';
+import { Location, Terminal, EmployeeProfile } from '@/domain/types';
 import { revalidatePath } from 'next/cache';
 
 // --- Types for Inputs ---
@@ -10,16 +10,6 @@ export interface LocationInput {
     address: string;
     phone?: string;
     manager_id?: string;
-}
-
-export async function getLocations() {
-    try {
-        const result = await query('SELECT id, name FROM locations WHERE is_active = true ORDER BY name ASC');
-        return result.rows;
-    } catch (error) {
-        console.error('Error fetching locations:', error);
-        return [];
-    }
 }
 
 export interface TerminalInput {
@@ -31,24 +21,71 @@ export interface TerminalInput {
     };
 }
 
+// --- Data Fetching ---
+
+export async function getLocationsWithTerminals() {
+    try {
+        await ensureActiveColumn(); // Ensure column exists
+        // 1. Fetch Locations
+        const locRes = await query('SELECT * FROM locations WHERE is_active = true ORDER BY created_at ASC');
+        const locations: Location[] = locRes.rows.map(row => ({
+            id: row.id,
+            name: row.name,
+            address: row.address,
+            type: row.type || 'STORE',
+            default_warehouse_id: row.default_warehouse_id,
+            parent_id: row.parent_id,
+            associated_kiosks: [], // Will populate
+            config: row.config || {}
+        }));
+
+        // 2. Fetch Terminals
+        const termRes = await query("SELECT * FROM terminals WHERE status != 'DELETED'");
+        const terminals: Terminal[] = termRes.rows.map(row => ({
+            id: row.id,
+            location_id: row.location_id,
+            name: row.name,
+            status: row.status,
+            config: row.config || {}
+        }));
+
+        // 3. Nest Terminals into Locations (for frontend convenience if matching type)
+        // Note: The domain type 'Location' has 'associated_kiosks' which is string[] usually. 
+        // We might want to just return them separately or map IDs.
+        // Let's rely on mapping IDs to 'associated_kiosks' for compatibility.
+
+        locations.forEach(loc => {
+            loc.associated_kiosks = terminals
+                .filter(t => t.location_id === loc.id)
+                .map(t => t.id);
+        });
+
+        return { success: true, locations, terminals };
+
+    } catch (error) {
+        console.error('Error fetching organization data:', error);
+        return { success: false, error: 'Failed to fetch data' };
+    }
+}
+
+
 // --- Actions ---
 
 /**
  * Creates a new Branch (Sucursal).
- * NO auto-creation of Warehouse.
  */
 export async function createLocation(data: LocationInput) {
     const { v4: uuidv4 } = await import('uuid');
     const locationId = uuidv4();
 
     try {
-        await ensureParentIdColumn(); // Keep for hierarchy safety
-        await ensureDefaultWarehouseColumn(); // New column
+        await ensureParentIdColumn();
+        await ensureDefaultWarehouseColumn();
+        await ensureActiveColumn();
 
-        // Create the Store (Sucursal)
         await query(`
-            INSERT INTO locations (id, name, address, type, created_at)
-            VALUES ($1, $2, $3, 'STORE', NOW())
+            INSERT INTO locations (id, name, address, type, created_at, is_active)
+            VALUES ($1, $2, $3, 'STORE', NOW(), true)
         `, [locationId, data.name, data.address]);
 
         revalidatePath('/settings/organization');
@@ -61,7 +98,6 @@ export async function createLocation(data: LocationInput) {
 
 /**
  * Creates a standalone Warehouse.
- * Optional: Can be linked to a store via parent_id (hierarchical) but logic is now flexible.
  */
 export async function createWarehouse(name: string, parentStoreId?: string) {
     const { v4: uuidv4 } = await import('uuid');
@@ -69,8 +105,8 @@ export async function createWarehouse(name: string, parentStoreId?: string) {
 
     try {
         await query(`
-            INSERT INTO locations (id, name, type, parent_id, created_at)
-            VALUES ($1, $2, 'WAREHOUSE', $3, NOW())
+            INSERT INTO locations (id, name, type, parent_id, created_at, is_active)
+            VALUES ($1, $2, 'WAREHOUSE', $3, NOW(), true)
         `, [id, name, parentStoreId || null]);
 
         revalidatePath('/settings/organization');
@@ -82,7 +118,7 @@ export async function createWarehouse(name: string, parentStoreId?: string) {
 }
 
 /**
- * Updates a Location's configuration, specifically the Default Warehouse.
+ * Updates a Location's configuration.
  */
 export async function updateLocationConfig(locationId: string, defaultWarehouseId: string) {
     try {
@@ -127,19 +163,11 @@ export async function createTerminal(data: TerminalInput) {
     }
 }
 
-/**
- * Assigns an employee to a location.
- */
+// Reuse existing assignEmployeeToLocation, etc.
 export async function assignEmployeeToLocation(userId: string, locationId: string) {
     try {
         await ensureUserLocationColumn();
-
-        await query(`
-            UPDATE users 
-            SET assigned_location_id = $2
-            WHERE id = $1
-        `, [userId, locationId]);
-
+        await query(`UPDATE users SET assigned_location_id = $2 WHERE id = $1`, [userId, locationId]);
         revalidatePath('/settings/organization');
         return { success: true };
     } catch (error) {
@@ -148,134 +176,54 @@ export async function assignEmployeeToLocation(userId: string, locationId: strin
     }
 }
 
-/**
- * Updates details of a Location (Store/Warehouse).
- */
 export async function updateLocationDetails(
     id: string,
     data: { name: string; address?: string; phone?: string; email?: string; manager_id?: string }
 ) {
     try {
-        await ensureExtendedColumns(); // Ensure phone, email, manager_id exist
-
+        await ensureExtendedColumns();
         const fields: string[] = [];
         const values: any[] = [];
         let idx = 1;
 
-        if (data.name) { fields.push(`name = $${idx}`); values.push(data.name); idx++; }
-        if (data.address !== undefined) { fields.push(`address = $${idx}`); values.push(data.address); idx++; }
-        if (data.phone !== undefined) { fields.push(`phone = $${idx}`); values.push(data.phone); idx++; }
-        if (data.email !== undefined) { fields.push(`email = $${idx}`); values.push(data.email); idx++; }
-        if (data.manager_id !== undefined) { fields.push(`manager_id = $${idx}`); values.push(data.manager_id || null); idx++; }
+        if (data.name) { fields.push(`name = $${idx++}`); values.push(data.name); }
+        if (data.address !== undefined) { fields.push(`address = $${idx++}`); values.push(data.address); }
+        if (data.phone !== undefined) { fields.push(`phone = $${idx++}`); values.push(data.phone); }
+        if (data.email !== undefined) { fields.push(`email = $${idx++}`); values.push(data.email); }
+        if (data.manager_id !== undefined) { fields.push(`manager_id = $${idx++}`); values.push(data.manager_id || null); }
 
-        values.push(id); // ID is the last param
-
-        if (fields.length === 0) return { success: true }; // Nothing to update
-
-        const sql = `UPDATE locations SET ${fields.join(', ')} WHERE id = $${idx}`;
-        await query(sql, values);
-
+        if (fields.length === 0) return { success: true };
+        values.push(id);
+        await query(`UPDATE locations SET ${fields.join(', ')} WHERE id = $${idx}`, values);
         revalidatePath('/settings/organization');
         return { success: true };
     } catch (error) {
-        console.error('Error updating location:', error);
-        return { success: false, error: 'Database Update Failed' };
+        console.error('Error updating details:', error);
+        return { success: false, error: 'Update Failed' };
     }
 }
 
-/**
- * Deactivates a location (Soft Delete).
- */
 export async function deactivateLocation(id: string) {
     try {
         await ensureActiveColumn();
-
         await query(`UPDATE locations SET is_active = false WHERE id = $1`, [id]);
-
         revalidatePath('/settings/organization');
         return { success: true };
     } catch (error) {
-        console.error('Error deactivating location:', error);
         return { success: false, error: 'Deactivation Failed' };
     }
 }
 
-
-
-// --- Schema Helpers (Auto-Migration) ---
-
-async function ensureParentIdColumn() {
-    try {
-        await query(`ALTER TABLE locations ADD COLUMN IF NOT EXISTS parent_id UUID;`);
-    } catch (e) { /* ignore if fails on older PG without IF NOT EXISTS support, but keeping simple */ }
-}
-
-async function ensureDefaultWarehouseColumn() {
-    try {
-        await query(`
-            DO $$ 
-            BEGIN 
-                BEGIN
-                    ALTER TABLE locations ADD COLUMN default_warehouse_id UUID;
-                EXCEPTION
-                    WHEN duplicate_column THEN RAISE NOTICE 'column default_warehouse_id already exists.';
-                END;
-            END $$;
-        `);
-    } catch (e) { console.error('Migration Error (default_warehouse_id):', e); }
-}
-
-async function ensureTerminalConfigColumn() {
-    try {
-        await query(`
-            DO $$ 
-            BEGIN 
-                BEGIN
-                    ALTER TABLE terminals ADD COLUMN config JSONB DEFAULT '{}';
-                EXCEPTION
-                    WHEN duplicate_column THEN RAISE NOTICE 'column config already exists.';
-                END;
-            END $$;
-        `);
-    } catch (e) { }
-}
-
-async function ensureUserLocationColumn() {
-    try {
-        await query(`
-            DO $$ 
-            BEGIN 
-                BEGIN
-                    ALTER TABLE users ADD COLUMN assigned_location_id UUID;
-                EXCEPTION
-                    WHEN duplicate_column THEN RAISE NOTICE 'column assigned_location_id already exists.';
-                END;
-            END $$;
-        `);
-    } catch (e) { console.error('Migration Error (assigned_location_id):', e); }
-}
-
+// --- Migrations ---
+async function ensureParentIdColumn() { try { await query(`ALTER TABLE locations ADD COLUMN IF NOT EXISTS parent_id UUID;`); } catch (e) { } }
+async function ensureDefaultWarehouseColumn() { try { await query(`ALTER TABLE locations ADD COLUMN IF NOT EXISTS default_warehouse_id UUID;`); } catch (e) { } }
+async function ensureTerminalConfigColumn() { try { await query(`ALTER TABLE terminals ADD COLUMN IF NOT EXISTS config JSONB DEFAULT '{}';`); } catch (e) { } }
+async function ensureUserLocationColumn() { try { await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_location_id UUID;`); } catch (e) { } }
 async function ensureExtendedColumns() {
     try {
-        await query(`
-            DO $$ 
-            BEGIN 
-                BEGIN ALTER TABLE locations ADD COLUMN phone VARCHAR(50); EXCEPTION WHEN duplicate_column THEN NULL; END;
-                BEGIN ALTER TABLE locations ADD COLUMN email VARCHAR(100); EXCEPTION WHEN duplicate_column THEN NULL; END;
-                BEGIN ALTER TABLE locations ADD COLUMN manager_id UUID; EXCEPTION WHEN duplicate_column THEN NULL; END;
-            END $$;
-        `);
-    } catch (e) { console.error('Migration Error (extended columns):', e); }
+        await query(`ALTER TABLE locations ADD COLUMN IF NOT EXISTS phone VARCHAR(50);`);
+        await query(`ALTER TABLE locations ADD COLUMN IF NOT EXISTS email VARCHAR(100);`);
+        await query(`ALTER TABLE locations ADD COLUMN IF NOT EXISTS manager_id UUID;`);
+    } catch (e) { }
 }
-
-async function ensureActiveColumn() {
-    try {
-        await query(`
-            DO $$ 
-            BEGIN 
-                BEGIN ALTER TABLE locations ADD COLUMN is_active BOOLEAN DEFAULT TRUE; EXCEPTION WHEN duplicate_column THEN NULL; END;
-            END $$;
-        `);
-    } catch (e) { console.error('Migration Error (is_active):', e); }
-}
-
+async function ensureActiveColumn() { try { await query(`ALTER TABLE locations ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;`); } catch (e) { } }

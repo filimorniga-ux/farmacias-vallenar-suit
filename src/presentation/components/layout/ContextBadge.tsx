@@ -26,19 +26,19 @@ const ContextBadge = () => {
     return (
         <div className="flex items-center gap-2 md:gap-3">
             {/* Location Badge (Always Visible) */}
-            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full border border-blue-100 shadow-sm animate-in slide-in-from-top-2">
+            <div className="flex items-center gap-1.5 px-2 md:px-3 py-1 md:py-1.5 bg-blue-50 text-blue-700 rounded-full border border-blue-100 shadow-sm animate-in slide-in-from-top-2 flex-shrink-0">
                 <MapPin size={14} className="flex-shrink-0" />
-                <span className="text-xs md:text-sm font-bold truncate max-w-[150px]">
+                <span className="text-[10px] md:text-sm font-bold truncate max-w-[80px] md:max-w-[150px]">
                     {activeLocation.name}
                 </span>
             </div>
 
             {/* Terminal Badge (Visible if Shift is Active or Terminal Selected) */}
             {(activeTerminal || isShiftOpen) && (
-                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-50 text-orange-700 rounded-full border border-orange-100 shadow-sm animate-in slide-in-from-top-2 delay-75">
+                <div className="flex items-center gap-1.5 px-2 md:px-3 py-1 md:py-1.5 bg-orange-50 text-orange-700 rounded-full border border-orange-100 shadow-sm animate-in slide-in-from-top-2 delay-75 flex-shrink-0">
                     <Monitor size={14} className="flex-shrink-0" />
-                    <span className="text-xs md:text-sm font-bold truncate">
-                        {activeTerminal?.name || 'Caja Activa'}
+                    <span className="text-[10px] md:text-sm font-bold truncate max-w-[60px] md:max-w-none">
+                        {activeTerminal?.name || 'Caja'}
                     </span>
                 </div>
             )}

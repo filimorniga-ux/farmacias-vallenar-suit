@@ -82,8 +82,8 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
 
             {/* Sidebar - Mobile & Desktop */}
             <motion.aside
-                className={`fixed inset-y-0 left-0 z-50 bg-white border-r border-slate-100 flex flex-col transition-all duration-300 ease-in-out
-                lg:relative lg:translate-x-0 shadow-xl lg:shadow-none
+                className={`fixed inset-y-0 left-0 z-[60] bg-white border-r border-slate-100 flex flex-col transition-all duration-300 ease-in-out
+                lg:relative lg:translate-x-0 shadow-xl lg:shadow-none h-full
                 ${isCollapsed ? 'w-20' : 'w-72'}
                 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
             `}>
@@ -116,7 +116,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                     {isCollapsed ? <Menu size={12} /> : <X size={12} />}
                 </button>
 
-                <nav className="px-3 space-y-1.5 overflow-y-auto max-h-[calc(100vh-180px)] scrollbar-hide pb-4">
+                <nav className="flex-1 overflow-y-auto px-3 space-y-1.5 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent py-4">
                     {filteredMenu.map((item) => {
                         const isActive = location.pathname === item.path;
                         return (
@@ -153,7 +153,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                     })}
                 </nav>
 
-                <div className="absolute bottom-0 left-0 w-full p-4 bg-white border-t border-slate-100">
+                <div className="shrink-0 w-full p-4 bg-white border-t border-slate-100 z-10">
                     <div className={`flex items-center gap-3 mb-4 px-2 ${isCollapsed ? 'justify-center' : ''}`}>
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white font-bold shadow-lg shadow-cyan-200 flex-shrink-0">
                             {user?.name.charAt(0)}
@@ -182,16 +182,20 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                     <div className="flex items-center gap-3">
                         <button
                             onClick={() => setIsMobileMenuOpen(true)}
-                            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg lg:hidden"
+                            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg hidden md:block lg:hidden"
                         >
                             <Menu size={24} />
                         </button>
                         <span className="font-bold text-slate-800">Farmacias Vallenar</span>
                         <NotificationBell userRole={user?.role || 'ALL'} />
                     </div>
-                    <div className="flex items-center gap-2">
-                        <ContextBadge />
-                        <LocationSwitcher />
+                    <div className="flex items-center gap-2 flex-1 justify-end min-w-0">
+                        <div className="overflow-x-auto scrollbar-hide flex items-center gap-2 max-w-full">
+                            <ContextBadge />
+                            <div className="flex-shrink-0">
+                                <LocationSwitcher />
+                            </div>
+                        </div>
                     </div>
                 </header>
 

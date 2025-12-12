@@ -6,7 +6,7 @@ import {
     toggleAccountStatus,
     FinancialAccount
 } from '../../../actions/financial-accounts';
-import { getLocations } from '../../../actions/network';
+import { getLocationsWithTerminals } from '../../../actions/network';
 import { Plus, Edit2, Archive, CheckCircle, Wallet, Building, CircleDollarSign, Coins } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -32,14 +32,14 @@ export const FinancialAccountsSettings: React.FC = () => {
         setIsLoading(true);
         const [accRes, locRes] = await Promise.all([
             getFinancialAccounts(),
-            getLocations()
+            getLocationsWithTerminals()
         ]);
 
         if (accRes.success && accRes.data) {
             setAccounts(accRes.data as FinancialAccount[]);
         }
-        if (locRes) {
-            setLocations(locRes);
+        if (locRes.success && locRes.locations) {
+            setLocations(locRes.locations);
         }
         setIsLoading(false);
     };
