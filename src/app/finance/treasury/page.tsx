@@ -332,11 +332,24 @@ export default function TreasuryPage() {
                                                 className="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 focus:ring-2 focus:ring-amber-500 outline-none transition-all font-medium text-slate-700"
                                             >
                                                 <option value="" disabled>-- Seleccionar Cuenta Destino --</option>
-                                                {accounts.filter(a => a.type !== 'SAFE').map(acc => (
-                                                    <option key={acc.id} value={acc.id}>
-                                                        {acc.name} ({acc.type === 'BANK' ? 'Banco' : acc.type === 'PETTY_CASH' ? 'Caja Chica' : 'Patrimonio'})
-                                                    </option>
-                                                ))}
+                                                {accounts
+                                                    .filter(a => a.is_active && a.id !== selectedAccount?.id)
+                                                    .map(acc => {
+                                                        let icon = '💰';
+                                                        let typeLabel = '';
+                                                        switch (acc.type) {
+                                                            case 'BANK': icon = '🏦'; typeLabel = 'Banco'; break;
+                                                            case 'PETTY_CASH': icon = '🐷'; typeLabel = 'Caja Chica'; break;
+                                                            case 'EQUITY': icon = '💼'; typeLabel = 'Patrimonio'; break;
+                                                            case 'SAFE': icon = '🔐'; typeLabel = 'Caja'; break;
+                                                            default: typeLabel = 'Cuenta';
+                                                        }
+                                                        return (
+                                                            <option key={acc.id} value={acc.id}>
+                                                                {icon} {acc.name} ({typeLabel})
+                                                            </option>
+                                                        );
+                                                    })}
                                             </select>
                                         </div>
 

@@ -163,6 +163,7 @@ export interface EmployeeProfile {
     status: 'ACTIVE' | 'ON_LEAVE' | 'TERMINATED';
     base_location_id?: string; // Sucursal Base (Contractual)
     assigned_location_id?: string; // Dónde trabaja hoy (Operativo)
+    token_version?: number;
 
     // Personal Data
     contact_phone?: string;

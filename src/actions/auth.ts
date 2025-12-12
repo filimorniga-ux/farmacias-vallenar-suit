@@ -48,9 +48,22 @@ export async function authenticateUser(userId: string, pin: string, locationId?:
             }
         }
 
+        // Initialize Session Data
+        await query(`
+            UPDATE users 
+            SET last_active_at = NOW(), 
+                current_context_data = $2,
+                token_version = COALESCE(token_version, 1)
+            WHERE id = $1
+        `, [userId, JSON.stringify({ location_id: locationId || 'HQ' })]);
+
         // Clear Rate Limit on success
         await clearRateLimit(userId);
         await logAuditAction(user.id, 'LOGIN_SUCCESS', { role: user.role, location: locationId });
+
+        // Ensure token_version is returned (refetch or use what we updated/had)
+        // Simple optimization: Just return the user obj, we ensure it has current token_version
+        user.token_version = res.rows[0].token_version || 1;
 
         return { success: true, user: user };
 

@@ -1,14 +1,27 @@
-import React from 'react';
-import { Shield, Clock, Lock, AlertTriangle } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Shield, Key, Lock, AlertTriangle, Clock } from 'lucide-react';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { toast } from 'sonner';
+import { ActiveSessionsTable } from './ActiveSessionsTable';
 
 export const SecurityPolicyPanel: React.FC = () => {
     const { security, updateSecurityConfig } = useSettingsStore();
+    const [localSettings, setLocalSettings] = useState(security);
+
+    useEffect(() => {
+        setLocalSettings(security);
+    }, [security]);
 
     const handleSave = () => {
-        // Here we would ideally persist to backend via API
+        updateSecurityConfig(localSettings);
         toast.success("Políticas de seguridad actualizadas localmente");
+    };
+
+    const handleChange = (field: string, value: number) => {
+        setLocalSettings(prev => ({
+            ...prev,
+            [field]: value
+        }));
     };
 
     return (
@@ -109,6 +122,10 @@ export const SecurityPolicyPanel: React.FC = () => {
                 >
                     Guardar Políticas
                 </button>
+            </div>
+            {/* Active Sessions Monitoring */}
+            <div className="mt-8">
+                <ActiveSessionsTable />
             </div>
         </div>
     );
