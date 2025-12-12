@@ -9,6 +9,9 @@ import { getUsers } from '@/actions/users';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import LocationEditModal from './LocationEditModal';
+import { updateLocationConfig } from '@/actions/network';
+import { AlertTriangle, Settings, AlertCircle, ShoppingBag, UserCheck } from 'lucide-react';
+import { getLocationHealth } from '@/actions/network-stats';
 
 interface OrganizationManagerProps {
     initialLocations: Location[];
@@ -173,8 +176,8 @@ export default function OrganizationManager({ initialLocations }: OrganizationMa
 
 // --- Sub-Component: Detail Drawer ---
 // Must import 'updateLocationConfig'
-import { updateLocationConfig } from '@/actions/network';
-import { AlertTriangle } from 'lucide-react';
+// --- Sub-Component: Detail Drawer ---
+// Must import 'updateLocationConfig' moved to top
 
 function LocationDetailDrawer({ location, allLocations, onClose }: { location: Location, allLocations: Location[], onClose: () => void }) {
     const [activeTab, setActiveTab] = useState<'CONFIG' | 'TERMINALS' | 'STAFF'>('CONFIG'); // Changed Warehouses to Config/General
@@ -389,8 +392,7 @@ function LocationDetailDrawer({ location, allLocations, onClose }: { location: L
 }
 
 // --- Sub-Component: Location Card (With Logic) ---
-import { getLocationHealth } from '@/actions/network-stats';
-import { Settings, AlertCircle, ShoppingBag, UserCheck } from 'lucide-react';
+// --- Sub-Component: Location Card (With Logic) ---
 
 function LocationCard({
     location,

@@ -142,8 +142,8 @@ async function main() {
             const insertValues: any[] = [id, rut, sup.name, fantasyNameVal, sup.address];
             let idx = 6;
 
-            if (hasWebsite) { insertFields.push('website'); insertValues.push(websiteVal); }
-            if (hasNotes) { insertFields.push('notes'); insertValues.push(notesVal); }
+            if (hasWebsite) { insertFields.push('website'); insertValues.push(String(websiteVal)); }
+            if (hasNotes) { insertFields.push('notes'); insertValues.push(String(notesVal)); }
 
             // Phone Logic
             if (hasPhone) { insertFields.push('phone'); insertValues.push(phoneVal); }

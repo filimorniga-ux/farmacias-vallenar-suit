@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { usePharmaStore } from '@/presentation/store/useStore';
-import { getFinancialAccounts, getTreasuryTransactions, depositToBank, getPendingRemittances, confirmRemittance, FinancialAccount, TreasuryTransaction, Remittance } from '@/actions/treasury';
+import { getFinancialAccounts, getTreasuryTransactions, transferFunds, getPendingRemittances, confirmRemittance, FinancialAccount, TreasuryTransaction, Remittance } from '@/actions/treasury';
 import { toast } from 'sonner';
 import { Landmark, Briefcase, DollarSign, ArrowRight, ArrowDownLeft, ArrowUpRight, History, CheckCircle, Package, LayoutDashboard, FileText } from 'lucide-react';
 import { TreasuryHistoryTab } from '@/presentation/components/treasury/TreasuryHistoryTab';
@@ -18,9 +18,11 @@ export default function TreasuryPage() {
     const [loading, setLoading] = useState(true);
     const [selectedAccount, setSelectedAccount] = useState<FinancialAccount | null>(null);
 
-    // Deposit Modal State
-    const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
-    const [depositAmount, setDepositAmount] = useState('');
+    // Deposit/Transfer Modal State
+    const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+    const [transferAmount, setTransferAmount] = useState('');
+    const [transferNote, setTransferNote] = useState('');
+    const [targetAccountId, setTargetAccountId] = useState('');
     const [activeTab, setActiveTab] = useState<'SUMMARY' | 'HISTORY'>('SUMMARY');
 
     // Load Data
@@ -64,22 +66,31 @@ export default function TreasuryPage() {
         loadTreasuryData();
     }, [user?.assigned_location_id]); // Reload if location changes (unlikely for user but possible)
 
-    const handleDeposit = async () => {
+    const handleTransfer = async () => {
         if (!selectedAccount || selectedAccount.type !== 'SAFE') return;
-        if (!depositAmount || isNaN(Number(depositAmount)) || Number(depositAmount) <= 0) {
+        if (!transferAmount || isNaN(Number(transferAmount)) || Number(transferAmount) <= 0) {
             toast.error('Monto inválido');
             return;
         }
+        if (!targetAccountId) {
+            toast.error('Seleccione una cuenta de destino');
+            return;
+        }
 
-        toast.promise(depositToBank(selectedAccount.id, Number(depositAmount), user?.id || 'sys'), {
-            loading: 'Procesando depósito...',
+        const targetAccount = accounts.find(a => a.id === targetAccountId);
+        const description = `Traspaso a ${targetAccount?.name || 'Cuenta'} - ${transferNote || 'Sin nota'}`;
+
+        toast.promise(transferFunds(selectedAccount.id, targetAccountId, Number(transferAmount), description, user?.id || 'sys'), {
+            loading: 'Procesando transferencia...',
             success: () => {
-                setIsDepositModalOpen(false);
-                setDepositAmount('');
+                setIsTransferModalOpen(false);
+                setTransferAmount('');
+                setTransferNote('');
+                setTargetAccountId('');
                 loadTreasuryData(); // Refresh all
-                return 'Depósito registrado correctamente';
+                return 'Transferencia registrada correctamente';
             },
-            error: (err: any) => err.message || 'Error en depósito'
+            error: (err: any) => err.message || 'Error en transferencia'
         });
     };
 
@@ -210,10 +221,10 @@ export default function TreasuryPage() {
 
                             <div className="mt-6 pt-4 border-t border-slate-800 flex gap-2">
                                 <button
-                                    onClick={() => setIsDepositModalOpen(true)}
+                                    onClick={() => setIsTransferModalOpen(true)}
                                     className="flex-1 bg-amber-500 hover:bg-amber-600 text-black font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors"
                                 >
-                                    <Landmark size={18} /> Depositar a Banco
+                                    <ArrowUpRight size={18} /> Registrar Salida
                                 </button>
                             </div>
                         </div>
@@ -289,47 +300,78 @@ export default function TreasuryPage() {
                         </div>
                     </div>
 
-                    {/* Deposit Modal */}
-                    {isDepositModalOpen && (
+                    {/* Transfer Modal */}
+                    {isTransferModalOpen && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
                             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
                                 <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                                     <h2 className="text-xl font-bold flex items-center gap-2 text-slate-800">
-                                        <Landmark className="text-amber-500" /> Depósito Bancario
+                                        <ArrowUpRight className="text-amber-500" /> Registrar Salida de Efectivo
                                     </h2>
-                                    <button onClick={() => setIsDepositModalOpen(false)} className="text-slate-400 hover:text-red-500 transition-colors">
+                                    <button onClick={() => setIsTransferModalOpen(false)} className="text-slate-400 hover:text-red-500 transition-colors">
                                         <span className="sr-only">Cerrar</span>
                                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                                     </button>
                                 </div>
 
                                 <div className="p-6 space-y-6">
-                                    <div className="bg-amber-50 p-4 rounded-xl border border-amber-100">
-                                        <p className="text-amber-800 text-sm font-medium mb-1">Saldo en Caja Fuerte</p>
-                                        <p className="text-2xl font-mono font-bold text-amber-900">${Number(safeAccount?.balance || 0).toLocaleString('es-CL')}</p>
+                                    <div className="bg-amber-50 p-4 rounded-xl border border-amber-100 flex justify-between items-center">
+                                        <div>
+                                            <p className="text-amber-800 text-xs font-bold uppercase mb-1">Origen: Caja Fuerte</p>
+                                            <p className="text-2xl font-mono font-bold text-amber-900">${Number(safeAccount?.balance || 0).toLocaleString('es-CL')}</p>
+                                        </div>
+                                        <Briefcase className="text-amber-300" size={32} />
                                     </div>
 
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-2">Monto a Depositar</label>
-                                        <div className="relative">
-                                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-2">Destino de los Fondos</label>
+                                            <select
+                                                value={targetAccountId}
+                                                onChange={(e) => setTargetAccountId(e.target.value)}
+                                                className="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 focus:ring-2 focus:ring-amber-500 outline-none transition-all font-medium text-slate-700"
+                                            >
+                                                <option value="" disabled>-- Seleccionar Cuenta Destino --</option>
+                                                {accounts.filter(a => a.type !== 'SAFE').map(acc => (
+                                                    <option key={acc.id} value={acc.id}>
+                                                        {acc.name} ({acc.type === 'BANK' ? 'Banco' : acc.type === 'PETTY_CASH' ? 'Caja Chica' : 'Patrimonio'})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-2">Monto a Transferir</label>
+                                            <div className="relative">
+                                                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                                <input
+                                                    type="number"
+                                                    value={transferAmount}
+                                                    onChange={(e) => setTransferAmount(e.target.value)}
+                                                    className="w-full pl-10 p-4 text-xl font-mono border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none"
+                                                    placeholder="0"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-2">Nota / Motivo</label>
                                             <input
-                                                type="number"
-                                                autoFocus
-                                                value={depositAmount}
-                                                onChange={(e) => setDepositAmount(e.target.value)}
-                                                className="w-full pl-10 p-4 text-xl font-mono border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none"
-                                                placeholder="0"
+                                                type="text"
+                                                value={transferNote}
+                                                onChange={(e) => setTransferNote(e.target.value)}
+                                                className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none"
+                                                placeholder="Ej: Depósito diario, Retiro socios, Compra insumos..."
                                             />
                                         </div>
-                                        <p className="text-xs text-slate-400 mt-2">El monto se descontará de la Caja Fuerte y se sumará al Banco.</p>
                                     </div>
 
                                     <button
-                                        onClick={handleDeposit}
-                                        className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 rounded-xl shadow-lg shadow-slate-900/10 active:scale-[0.98] transition-all"
+                                        onClick={handleTransfer}
+                                        disabled={!transferAmount || !targetAccountId}
+                                        className="w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl shadow-lg shadow-slate-900/10 active:scale-[0.98] transition-all flex justify-center items-center gap-2"
                                     >
-                                        Confirmar Depósito
+                                        Confirmar Salida <ArrowRight size={18} />
                                     </button>
                                 </div>
                             </div>
