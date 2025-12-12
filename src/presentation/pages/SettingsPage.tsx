@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings, User, Shield, Save, Receipt, Printer, ToggleLeft, ToggleRight, AlertTriangle, CreditCard, Star, Monitor, Building } from 'lucide-react';
+import { Settings, User, Shield, Save, Receipt, Printer, ToggleLeft, ToggleRight, AlertTriangle, CreditCard, Star, Monitor, Building, Wallet } from 'lucide-react';
 import SiiSettings from './settings/SiiSettings';
 import HardwarePage from './settings/HardwarePage';
 import InventorySettings from './settings/InventorySettings';
@@ -14,9 +14,10 @@ import { EmployeeProfile } from '../../domain/types';
 import { GeneralSettings } from '../components/settings/GeneralSettings';
 import { AuditLogTable } from '../components/settings/AuditLogTable';
 import { SecurityPolicyPanel } from '../components/settings/SecurityPolicyPanel';
+import { FinancialAccountsSettings } from '../components/settings/FinancialAccountsSettings';
 
 const SettingsPage: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'general' | 'users' | 'sii' | 'hardware' | 'inventory' | 'billing' | 'loyalty' | 'terminals' | 'backup' | 'audit'>('general');
+    const [activeTab, setActiveTab] = useState<'general' | 'users' | 'sii' | 'hardware' | 'inventory' | 'billing' | 'loyalty' | 'terminals' | 'backup' | 'audit' | 'finances'>('general');
 
     const { enable_sii_integration, toggleSiiIntegration } = useSettingsStore();
     const { user } = usePharmaStore();
@@ -146,16 +147,29 @@ const SettingsPage: React.FC = () => {
 
                     {/* Loyalty Tab (Manager Only) */}
                     {(user?.role === 'MANAGER' || user?.role === 'ADMIN') && (
-                        <button
-                            onClick={() => setActiveTab('loyalty')}
-                            className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'loyalty'
-                                ? 'bg-amber-50 text-amber-700 border-b-2 border-amber-600'
-                                : 'text-slate-500 hover:bg-slate-50'
-                                }`}
-                        >
-                            <Star size={20} />
-                            Fidelización
-                        </button>
+                        <>
+                            <button
+                                onClick={() => setActiveTab('finances')}
+                                className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'finances'
+                                    ? 'bg-emerald-50 text-emerald-700 border-b-2 border-emerald-600'
+                                    : 'text-slate-500 hover:bg-slate-50'
+                                    }`}
+                            >
+                                <Wallet size={20} />
+                                Finanzas
+                            </button>
+
+                            <button
+                                onClick={() => setActiveTab('loyalty')}
+                                className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'loyalty'
+                                    ? 'bg-amber-50 text-amber-700 border-b-2 border-amber-600'
+                                    : 'text-slate-500 hover:bg-slate-50'
+                                    }`}
+                            >
+                                <Star size={20} />
+                                Fidelización
+                            </button>
+                        </>
                     )}
 
                     {/* Infrastructure Billing Tab (Manager Only) */}
@@ -245,6 +259,9 @@ const SettingsPage: React.FC = () => {
 
             {/* Loyalty Tab Content */}
             {activeTab === 'loyalty' && <LoyaltySettings />}
+
+            {/* Finances Tab Content */}
+            {activeTab === 'finances' && <FinancialAccountsSettings />}
 
             {/* Billing Tab Content */}
             {activeTab === 'billing' && (

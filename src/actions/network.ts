@@ -12,6 +12,16 @@ export interface LocationInput {
     manager_id?: string;
 }
 
+export async function getLocations() {
+    try {
+        const result = await query('SELECT id, name FROM locations WHERE is_active = true ORDER BY name ASC');
+        return result.rows;
+    } catch (error) {
+        console.error('Error fetching locations:', error);
+        return [];
+    }
+}
+
 export interface TerminalInput {
     name: string;
     location_id: string; // The Store ID
