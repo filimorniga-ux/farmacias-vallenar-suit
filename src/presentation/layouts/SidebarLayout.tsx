@@ -9,7 +9,8 @@ import ContextBadge from '../components/layout/ContextBadge';
 import { usePharmaStore } from '../store/useStore';
 import LocationSwitcher from '../components/layout/LocationSwitcher';
 import NotificationBell from '../components/notifications/NotificationBell';
-import BottomNavigation from '../components/layout/BottomNavigation';
+// import BottomNavigation from '../components/layout/BottomNavigation'; // Replaced by MobileBottomNav
+import MobileBottomNav from '../components/layout/MobileBottomNav';
 import AppIcon, { AppThemeColor } from '../components/ui/AppIcon';
 
 const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
@@ -109,9 +110,10 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                 {/* Collapse Toggle (Desktop Only) */}
                 <button
                     onClick={() => setIsCollapsed(!isCollapsed)}
-                    className="hidden md:flex absolute -right-3 top-8 w-6 h-6 bg-white border border-slate-200 rounded-full items-center justify-center text-slate-400 hover:text-cyan-600 shadow-sm z-50"
+                    className="hidden lg:flex absolute -right-3 top-8 w-6 h-6 bg-white border border-slate-200 rounded-full items-center justify-center text-slate-400 hover:text-cyan-600 shadow-sm z-50 hover:scale-110 transition-transform"
+                    title={isCollapsed ? "Expandir menú" : "Contraer menú"}
                 >
-                    {isCollapsed ? <Menu size={14} /> : <X size={14} className="rotate-45" />}
+                    {isCollapsed ? <Menu size={12} /> : <X size={12} />}
                 </button>
 
                 <nav className="px-3 space-y-1.5 overflow-y-auto max-h-[calc(100vh-180px)] scrollbar-hide pb-4">
@@ -216,7 +218,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                 </div>
 
                 {/* Mobile Bottom Navigation */}
-                <BottomNavigation onMenuClick={() => setIsMobileMenuOpen(true)} />
+                <MobileBottomNav onMenuClick={() => setIsMobileMenuOpen(true)} />
             </main>
         </div>
     );
