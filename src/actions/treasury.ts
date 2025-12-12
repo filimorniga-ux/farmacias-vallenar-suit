@@ -8,7 +8,7 @@ export interface FinancialAccount {
     id: string;
     location_id: string;
     name: string;
-    type: 'SAFE' | 'BANK';
+    type: 'SAFE' | 'BANK' | 'PETTY_CASH' | 'EQUITY';
     balance: number;
 }
 
@@ -111,6 +111,65 @@ export async function depositToBank(safeId: string, amount: number, userId: stri
     } catch (error) {
         console.error('Deposit error:', error);
         return { success: false, error: 'Error processing deposit' };
+    }
+}
+
+
+/**
+ * Generic Fund Transfer between Accounts
+ */
+export async function transferFunds(
+    fromId: string,
+    toId: string,
+    amount: number,
+    description: string,
+    userId: string
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        if (amount <= 0) return { success: false, error: 'Monto inválido' };
+
+        // 1. Validate Source
+        const sourceRes = await query("SELECT balance FROM financial_accounts WHERE id = $1", [fromId]);
+        if (sourceRes.rows.length === 0) return { success: false, error: 'Cuenta origen no encontrada' };
+        if (Number(sourceRes.rows[0].balance) < amount) return { success: false, error: 'Fondos insuficientes' };
+
+        // 2. Validate Destination
+        const destRes = await query("SELECT id FROM financial_accounts WHERE id = $1", [toId]);
+        if (destRes.rows.length === 0) return { success: false, error: 'Cuenta destino no encontrada' };
+
+        // 3. Execute Transfer
+        const client = await import('@/lib/db').then(mod => mod.pool.connect());
+        try {
+            await client.query('BEGIN');
+
+            // Debit Source
+            await client.query("UPDATE financial_accounts SET balance = balance - $1 WHERE id = $2", [amount, fromId]);
+            await client.query(`
+                INSERT INTO treasury_transactions (id, account_id, amount, type, description, created_by)
+                VALUES ($1, $2, $3, 'OUT', $4, $5)
+            `, [uuidv4(), fromId, amount, description || 'Transferencia Saliente', userId]);
+
+            // Credit Destination
+            await client.query("UPDATE financial_accounts SET balance = balance + $1 WHERE id = $2", [amount, toId]);
+            await client.query(`
+                INSERT INTO treasury_transactions (id, account_id, amount, type, description, created_by)
+                VALUES ($1, $2, $3, 'IN', $4, $5)
+            `, [uuidv4(), toId, amount, description || 'Transferencia Entrante', userId]);
+
+            await client.query('COMMIT');
+        } catch (e) {
+            await client.query('ROLLBACK');
+            throw e;
+        } finally {
+            client.release();
+        }
+
+        revalidatePath('/finance/treasury');
+        return { success: true };
+
+    } catch (error) {
+        console.error('Transfer error:', error);
+        return { success: false, error: 'Error procesando transferencia' };
     }
 }
 

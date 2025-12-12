@@ -3,7 +3,7 @@ import { useLocation, Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
     LayoutDashboard, ShoppingCart, Users, Settings, LogOut, X, Menu,
-    Package, BarChart3, Truck, UserCircle, Clock, Building2, MapPin, Wrench, RotateCcw, Landmark
+    Package, BarChart3, Truck, UserCircle, Clock, Building2, MapPin, Wrench, RotateCcw, Landmark, FileSpreadsheet
 } from 'lucide-react';
 import ContextBadge from '../components/layout/ContextBadge';
 import { usePharmaStore } from '../store/useStore';
@@ -58,6 +58,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
         { icon: MapPin, label: 'Gestión de Red', path: '/network', roles: ['MANAGER', 'ADMIN'], color: 'slate' as AppThemeColor },
         { icon: Clock, label: 'Control Asistencia', path: '/access', roles: ['MANAGER', 'ADMIN'], color: 'sky' as AppThemeColor },
         { icon: Landmark, label: 'Tesorería', path: '/finance/treasury', roles: ['MANAGER', 'ADMIN'], color: 'emerald' as AppThemeColor },
+        { icon: FileSpreadsheet, label: 'Cierre Mensual', path: '/finance/monthly-closing', roles: ['MANAGER', 'ADMIN'], color: 'indigo' as AppThemeColor },
         { icon: Settings, label: 'Configuración', path: '/settings', roles: ['MANAGER'], color: 'gray' as AppThemeColor },
     ];
 
