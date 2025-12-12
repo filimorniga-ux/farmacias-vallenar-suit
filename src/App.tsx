@@ -28,6 +28,7 @@ import PriceCheckPage from './presentation/pages/PriceCheckPage';
 import InventorySettings from './presentation/pages/settings/InventorySettings';
 import ContextSelectionPage from './presentation/pages/ContextSelectionPage';
 import PrintingSettingsPage from './presentation/pages/settings/PrintingSettingsPage';
+import TreasuryPage from './app/finance/treasury/page';
 
 // DEV NOTE: To test Mobile Native Experience (Camera, Swipe Tabs, Layout),
 // use Chrome DevTools (F12) -> Toggle Device Toolbar (Cmd+Shift+M)
@@ -72,6 +73,7 @@ function App({ forceContextSelection }: { forceContextSelection?: boolean }) {
                 <Route path="/reports" element={<ProtectedRoute><ReportsPage /></ProtectedRoute>} />
                 <Route path="/supply-chain" element={<ProtectedRoute><SupplyChainPage /></ProtectedRoute>} />
                 <Route path="/clients" element={<ProtectedRoute><ClientsPage /></ProtectedRoute>} />
+                <Route path="/finance/treasury" element={<ProtectedRoute><TreasuryPage /></ProtectedRoute>} />
                 <Route path="/hr" element={<ProtectedRoute><HRPage /></ProtectedRoute>} />
                 <Route path="/network" element={<ProtectedRoute><NetworkPage /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />

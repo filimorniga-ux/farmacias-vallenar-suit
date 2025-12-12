@@ -281,10 +281,17 @@ export const WarehouseOps = () => {
     return (
         <div className="p-6 space-y-6 h-[calc(100vh-80px)] overflow-y-auto">
             <div className="flex justify-between items-center">
-                <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                    <Package className="w-8 h-8 text-blue-600" />
-                    Operaciones Logísticas (WMS)
-                </h1>
+                <div>
+                    <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                        <Package className="w-8 h-8 text-blue-600" />
+                        Operaciones Logísticas (WMS)
+                    </h1>
+                    {currentLocation && (
+                        <p className="text-indigo-600 font-bold ml-10 mt-1">
+                            Viendo: {currentLocation.name} (Bodega Principal)
+                        </p>
+                    )}
+                </div>
                 <div className="flex gap-2">
                     <button
                         onClick={() => setIsScanReceptionOpen(true)}

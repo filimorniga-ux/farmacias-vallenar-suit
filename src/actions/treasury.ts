@@ -234,3 +234,46 @@ export async function recordAutoTreasuryEntry(locationId: string, amount: number
         return false;
     }
 }
+
+export interface RemittanceHistoryItem extends Remittance {
+    location_name?: string;
+    terminal_name?: string;
+    cashier_name?: string;
+    receiver_name?: string;
+    shift_start?: Date;
+    shift_end?: Date;
+    cash_count_diff?: number;
+    notes?: string;
+}
+
+export async function getRemittanceHistory(locationId?: string): Promise<{ success: boolean; data?: RemittanceHistoryItem[]; error?: string }> {
+    try {
+        let queryStr = `
+            SELECT 
+                r.*,
+                l.name as location_name,
+                t.name as terminal_name,
+                u1."fullName" as cashier_name,
+                u2."fullName" as receiver_name
+            FROM treasury_remittances r
+            LEFT JOIN locations l ON r.location_id = l.id
+            LEFT JOIN terminals t ON r.source_terminal_id = t.id
+            LEFT JOIN users u1 ON r.created_by = u1.id
+            LEFT JOIN users u2 ON r.received_by = u2.id
+        `;
+
+        const params: any[] = [];
+        if (locationId) {
+            queryStr += " WHERE r.location_id = $1";
+            params.push(locationId);
+        }
+
+        queryStr += " ORDER BY r.created_at DESC LIMIT 100";
+
+        const res = await query(queryStr, params);
+        return { success: true, data: res.rows };
+    } catch (error) {
+        console.error('Error fetching remittance history:', error);
+        return { success: false, error: 'Failed to fetch history' };
+    }
+}

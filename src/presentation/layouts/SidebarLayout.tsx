@@ -3,8 +3,9 @@ import { useLocation, Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
     LayoutDashboard, ShoppingCart, Users, Settings, LogOut, X, Menu,
-    Package, BarChart3, Truck, UserCircle, Clock, Building2, MapPin, Wrench, RotateCcw
+    Package, BarChart3, Truck, UserCircle, Clock, Building2, MapPin, Wrench, RotateCcw, Landmark
 } from 'lucide-react';
+import ContextBadge from '../components/layout/ContextBadge';
 import { usePharmaStore } from '../store/useStore';
 import LocationSwitcher from '../components/layout/LocationSwitcher';
 import NotificationBell from '../components/notifications/NotificationBell';
@@ -56,6 +57,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
         { icon: Users, label: 'Recursos Humanos', path: '/hr', roles: ['MANAGER', 'ADMIN'], color: 'rose' as AppThemeColor },
         { icon: MapPin, label: 'Gestión de Red', path: '/network', roles: ['MANAGER', 'ADMIN'], color: 'slate' as AppThemeColor },
         { icon: Clock, label: 'Control Asistencia', path: '/access', roles: ['MANAGER', 'ADMIN'], color: 'sky' as AppThemeColor },
+        { icon: Landmark, label: 'Tesorería', path: '/finance/treasury', roles: ['MANAGER', 'ADMIN'], color: 'emerald' as AppThemeColor },
         { icon: Settings, label: 'Configuración', path: '/settings', roles: ['MANAGER'], color: 'gray' as AppThemeColor },
     ];
 
@@ -184,11 +186,15 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                         <span className="font-bold text-slate-800">Farmacias Vallenar</span>
                         <NotificationBell userRole={user?.role || 'ALL'} />
                     </div>
-                    <LocationSwitcher />
+                    <div className="flex items-center gap-2">
+                        <ContextBadge />
+                        <LocationSwitcher />
+                    </div>
                 </header>
 
                 {/* Desktop Header with Location Selector */}
                 <header className="hidden lg:flex bg-white/80 backdrop-blur-md px-8 py-4 border-b border-slate-100 justify-end items-center z-40 gap-4">
+                    <ContextBadge />
                     <NotificationBell userRole={user?.role || 'ALL'} />
                     <LocationSwitcher />
                 </header>

@@ -217,6 +217,7 @@ const LandingPage: React.FC = () => {
                                             }}
                                             placeholder="••••"
                                             className={`w-full text-center text-4xl font-bold py-3 border-b-4 ${error ? 'border-red-500 text-red-500' : 'border-slate-200 focus:border-cyan-500 text-slate-800'} outline-none bg-transparent tracking-[1em]`}
+                                            autoComplete="new-password"
                                         />
 
                                         {error && <p className="text-red-500 text-sm text-center font-bold">{error}</p>}
