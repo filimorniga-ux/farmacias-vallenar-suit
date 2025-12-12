@@ -37,13 +37,12 @@ export async function authenticateUser(userId: string, pin: string, locationId?:
 
         // 3. Location Authorization Check (New Contextual Auth)
         if (locationId) {
-            // Global Roles bypass location check
-            const isGlobalRole = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'DRIVER', 'QF'].includes(user.role);
+            // Global Roles bypass location check (Case Insensitive + Safe)
+            const role = (user.role || '').toUpperCase();
+            const isGlobalAdmin = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'DRIVER', 'QF'].includes(role);
 
             // Check if user is assigned to this location or is global
-            // Note: user.assigned_location_id might be stored in DB.
-            // If strict mode is required:
-            if (!isGlobalRole && user.assigned_location_id && user.assigned_location_id !== locationId) {
+            if (!isGlobalAdmin && user.assigned_location_id && user.assigned_location_id !== locationId) {
                 await logAuditAction(userId, 'LOGIN_BLOCKED_LOCATION', { attempted: locationId, assigned: user.assigned_location_id });
                 return { success: false, error: 'No tienes contrato en esta sucursal.' };
             }

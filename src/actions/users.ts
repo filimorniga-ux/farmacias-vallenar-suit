@@ -35,9 +35,19 @@ function mapUserFromDB(row: any): EmployeeProfile {
     };
 }
 
-export async function getUsers(): Promise<{ success: boolean; data?: EmployeeProfile[]; error?: string }> {
+export async function getUsers(filters?: { locationId?: string }): Promise<{ success: boolean; data?: EmployeeProfile[]; error?: string }> {
     try {
-        const result = await query('SELECT * FROM users ORDER BY name ASC');
+        let queryStr = 'SELECT * FROM users';
+        const params: any[] = [];
+
+        if (filters?.locationId) {
+            queryStr += ' WHERE assigned_location_id = $1';
+            params.push(filters.locationId);
+        }
+
+        queryStr += ' ORDER BY name ASC';
+
+        const result = await query(queryStr, params);
         const users = result.rows.map(mapUserFromDB);
         return { success: true, data: users };
     } catch (error: any) {
