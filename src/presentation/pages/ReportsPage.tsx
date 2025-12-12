@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 // Backend Actions
 import { getCashFlowLedger, getTaxSummary, getInventoryValuation, getPayrollPreview, getDetailedFinancialSummary, getLogisticsKPIs, getStockMovementsDetail, CashFlowEntry, TaxSummary, InventoryValuation, PayrollPreview, LogisticsKPIs } from '../../actions/reports-detail';
 import { exportFinanceReport, ReportType } from '../../actions/finance-export';
+import { HRReportTab } from '../components/reports/HRReportTab';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
@@ -109,7 +110,9 @@ const ReportsPage: React.FC = () => {
             let type: ReportType = 'CASH_FLOW';
             if (activeTab === 'tax') type = 'TAX';
             if (activeTab === 'logistics') type = 'LOGISTICS';
-            if (activeTab === 'hr') type = 'PAYROLL';
+            if (activeTab === 'tax') type = 'TAX';
+            if (activeTab === 'logistics') type = 'LOGISTICS';
+            if (activeTab === 'hr') type = 'ATTENDANCE'; // Changed from PAYROLL to ATTENDANCE per requirement
 
             const result = await exportFinanceReport({
                 type,
@@ -478,45 +481,49 @@ const ReportsPage: React.FC = () => {
                     )}
 
                     {!loading && activeTab === 'hr' && (
-                        <div className="space-y-6 animate-in slide-in-from-right-4">
-                            <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                                <Users size={20} className="text-gray-400" />
-                                Pre-Nómina de Remuneraciones
-                            </h3>
+                        <div className="space-y-8">
+                            <HRReportTab dateRange={dateRange} locationId={currentLocationId || undefined} />
 
-                            <div className="overflow-x-auto border border-gray-200 rounded-lg">
-                                <table className="w-full text-sm">
-                                    <thead className="bg-gray-50 text-gray-500 font-bold">
-                                        <tr>
-                                            <th className="p-3 text-left">RUT</th>
-                                            <th className="p-3 text-left">Colaborador</th>
-                                            <th className="p-3 text-left">Cargo</th>
-                                            <th className="p-3 text-right">Sueldo Base</th>
-                                            <th className="p-3 text-right text-red-500">AFP (11%)</th>
-                                            <th className="p-3 text-right text-red-500">Salud (7%)</th>
-                                            <th className="p-3 text-right bg-blue-50 font-bold text-blue-800">Líquido a Pagar</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
-                                        {payrollData.map((emp) => (
-                                            <tr key={emp.employee_id} className="hover:bg-gray-50">
-                                                <td className="p-3 font-mono text-gray-500">{emp.rut}</td>
-                                                <td className="p-3 font-bold text-gray-800">{emp.name}</td>
-                                                <td className="p-3 text-gray-600">{emp.job_title}</td>
-                                                <td className="p-3 text-right">${emp.base_salary.toLocaleString('es-CL')}</td>
-                                                <td className="p-3 text-right text-red-600">-${emp.deductions.afp.toLocaleString('es-CL')}</td>
-                                                <td className="p-3 text-right text-red-600">-${emp.deductions.health.toLocaleString('es-CL')}</td>
-                                                <td className="p-3 text-right bg-blue-50 font-bold text-blue-800 border-l border-blue-100">
-                                                    ${emp.total_liquid.toLocaleString('es-CL')}
-                                                </td>
+                            <div className="border-t border-gray-200 pt-8 animate-in slide-in-from-right-4">
+                                <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2 mb-4">
+                                    <Users size={20} className="text-gray-400" />
+                                    Pre-Nómina de Remuneraciones
+                                </h3>
+
+                                <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-gray-50 text-gray-500 font-bold">
+                                            <tr>
+                                                <th className="p-3 text-left">RUT</th>
+                                                <th className="p-3 text-left">Colaborador</th>
+                                                <th className="p-3 text-left">Cargo</th>
+                                                <th className="p-3 text-right">Sueldo Base</th>
+                                                <th className="p-3 text-right text-red-500">AFP (11%)</th>
+                                                <th className="p-3 text-right text-red-500">Salud (7%)</th>
+                                                <th className="p-3 text-right bg-blue-50 font-bold text-blue-800">Líquido a Pagar</th>
                                             </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {payrollData.map((emp) => (
+                                                <tr key={emp.employee_id} className="hover:bg-gray-50">
+                                                    <td className="p-3 font-mono text-gray-500">{emp.rut}</td>
+                                                    <td className="p-3 font-bold text-gray-800">{emp.name}</td>
+                                                    <td className="p-3 text-gray-600">{emp.job_title}</td>
+                                                    <td className="p-3 text-right">${emp.base_salary.toLocaleString('es-CL')}</td>
+                                                    <td className="p-3 text-right text-red-600">-${emp.deductions.afp.toLocaleString('es-CL')}</td>
+                                                    <td className="p-3 text-right text-red-600">-${emp.deductions.health.toLocaleString('es-CL')}</td>
+                                                    <td className="p-3 text-right bg-blue-50 font-bold text-blue-800 border-l border-blue-100">
+                                                        ${emp.total_liquid.toLocaleString('es-CL')}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <p className="text-xs text-gray-400 mt-2">
+                                    * Cálculo referencial basado en sueldo base bruto. No incluye gratificaciones, bonos, horas extra ni cargas familiares.
+                                </p>
                             </div>
-                            <p className="text-xs text-gray-400 mt-2">
-                                * Cálculo referencial basado en sueldo base bruto. No incluye gratificaciones, bonos, horas extra ni cargas familiares.
-                            </p>
                         </div>
                     )}
                 </div>

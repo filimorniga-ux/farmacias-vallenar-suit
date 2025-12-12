@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { usePharmaStore } from '../store/useStore';
+import { useLocationStore } from '../store/useLocationStore';
 import {
     Filter, Download, Upload, AlertTriangle, Search, Plus, FileSpreadsheet,
     ChevronDown, ChevronUp, MoreHorizontal, History, RefreshCcw, Package, ScanBarcode, ArrowRightLeft, Edit, Trash2
@@ -16,7 +17,9 @@ import MobileActionScroll from '../components/ui/MobileActionScroll';
 import { toast } from 'sonner';
 
 const InventoryPage: React.FC = () => {
-    const { inventory, user } = usePharmaStore();
+    const { inventory, user, currentLocationId } = usePharmaStore();
+    const { locations } = useLocationStore();
+    const activeLocation = locations.find(l => l.id === currentLocationId);
     const [searchTerm, setSearchTerm] = useState('');
     const [activeTab, setActiveTab] = useState<'MEDS' | 'RETAIL' | 'CONTROLLED'>('MEDS');
     const [isGrouped, setIsGrouped] = useState(true); // Default to Grouped
@@ -148,7 +151,10 @@ const InventoryPage: React.FC = () => {
                         <h1 className="text-3xl font-extrabold text-slate-900 flex items-center gap-3">
                             <Package className="text-cyan-600" /> Maestro de Inventario
                         </h1>
-                        <p className="text-slate-500 mt-1">WMS & Control de Stock</p>
+                        <p className="text-slate-500 mt-1 font-medium">
+                            WMS & Control de Stock
+                            {activeLocation && <span className="text-indigo-600 font-bold ml-2"> — Viendo: {activeLocation.name} (Bodega Principal)</span>}
+                        </p>
                     </div>
 
                     <MobileActionScroll>

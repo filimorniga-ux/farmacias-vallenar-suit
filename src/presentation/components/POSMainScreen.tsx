@@ -5,7 +5,7 @@ import {
     Search, Plus, X, Tag, CreditCard, Banknote, Smartphone, AlertTriangle, ShoppingCart, Truck, Users, Clock, Lock, ArrowRight, BarChart3, Building2,
     TrendingUp, Wallet, ArrowDownRight, RefreshCw, MapPin, Snowflake,
     Cloud, Wifi, WifiOff, ChevronDown, Bell, ScanBarcode, QrCode,
-    Scissors, TrendingDown, FileText, User, Minus, Trash2, Star, DollarSign
+    Scissors, TrendingDown, FileText, User, Minus, Trash2, Star, DollarSign, Printer
 } from 'lucide-react';
 import { MobileScanner } from '../../components/shared/MobileScanner';
 import { scanProduct } from '../../actions/scan';
@@ -18,6 +18,7 @@ import CashManagementModal from './pos/CashManagementModal'; // Updated import
 import CashOutModal from './pos/CashOutModal';
 import QuickFractionModal from './pos/QuickFractionModal';
 import ShiftManagementModal from './pos/ShiftManagementModal';
+import { ShiftHandoverModal } from './pos/ShiftHandoverModal'; // New Import
 import TransactionHistoryModal from './pos/TransactionHistoryModal';
 import CameraScanner from './ui/CameraScanner';
 import { CartItem, InventoryBatch } from '../../domain/types';
@@ -72,6 +73,7 @@ const POSMainScreen: React.FC = () => {
     const [isCustomerSelectModalOpen, setIsCustomerSelectModalOpen] = useState(false);
     const [isQuickFractionModalOpen, setIsQuickFractionModalOpen] = useState(false);
     const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
+    const [isHandoverModalOpen, setIsHandoverModalOpen] = useState(false); // New State
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [isScannerOpen, setIsScannerOpen] = useState(false);
 
@@ -83,6 +85,20 @@ const POSMainScreen: React.FC = () => {
 
     // Quote Mode
     const [isQuoteMode, setIsQuoteMode] = useState(false);
+
+    // Auto-Print Preference (Persisted)
+    const [autoPrint, setAutoPrint] = useState(() => {
+        if (typeof window !== 'undefined') {
+            return localStorage.getItem('pos_auto_print') !== 'false'; // Default to true
+        }
+        return true;
+    });
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('pos_auto_print', String(autoPrint));
+        }
+    }, [autoPrint]);
 
     // Helper for FEFO Selection
     const findBestBatch = (code: string) => {
@@ -303,7 +319,9 @@ const POSMainScreen: React.FC = () => {
             }
 
             // Auto-Print Trigger
-            printSaleTicket(saleToPrint, currentLocation?.config, hardware);
+            if (autoPrint) {
+                await printSaleTicket(saleToPrint, currentLocation?.config, hardware);
+            }
 
             setIsPaymentModalOpen(false);
             setTransferId('');
@@ -611,6 +629,13 @@ const POSMainScreen: React.FC = () => {
                             <MobileActionScroll className="w-full md:w-auto justify-end">
                                 {currentShift?.status === 'ACTIVE' ? (
                                     <>
+                                        <button
+                                            onClick={() => setIsHandoverModalOpen(true)}
+                                            className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-slate-800 border border-slate-700 font-bold transition-colors whitespace-nowrap shadow-lg shadow-black/10"
+                                        >
+                                            <RefreshCw size={20} />
+                                            <span className="hidden lg:inline">Cambio Turno</span>
+                                        </button>
                                         <button
                                             onClick={() => setCashModalMode('MOVEMENT')}
                                             className="flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-blue-100 font-bold transition-colors whitespace-nowrap"
@@ -1096,6 +1121,21 @@ const POSMainScreen: React.FC = () => {
                                 </div>
                             </div>
 
+                            <div className="flex items-center justify-between mb-4 px-2 bg-slate-100 p-3 rounded-xl border border-slate-200">
+                                <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer select-none w-full">
+                                    <input
+                                        type="checkbox"
+                                        checked={autoPrint}
+                                        onChange={(e) => setAutoPrint(e.target.checked)}
+                                        className="w-5 h-5 rounded text-cyan-600 focus:ring-cyan-500 border-gray-300"
+                                    />
+                                    <div className="flex items-center gap-2">
+                                        <Printer size={18} className="text-slate-500" />
+                                        <span>Imprimir Ticket Automáticamente</span>
+                                    </div>
+                                </label>
+                            </div>
+
                             <button
                                 onClick={handleCheckout}
                                 className="w-full py-4 bg-cyan-600 text-white font-bold rounded-xl hover:bg-cyan-700 transition shadow-lg shadow-cyan-200 flex items-center justify-center gap-2"
@@ -1116,6 +1156,11 @@ const POSMainScreen: React.FC = () => {
             <TransactionHistoryModal
                 isOpen={isHistoryModalOpen}
                 onClose={() => setIsHistoryModalOpen(false)}
+            />
+
+            <ShiftHandoverModal
+                isOpen={isHandoverModalOpen}
+                onClose={() => setIsHandoverModalOpen(false)}
             />
 
             <CustomerSelectModal

@@ -10,10 +10,12 @@ import {
     getPayrollPreview,
     getStockMovementsDetail
 } from './reports-detail';
+import { getAttendanceReport } from './attendance-report';
+import { getRemittanceHistory } from './treasury';
 
 // Re-using types from reports-detail if needed, or inferring
 
-export type ReportType = 'CASH_FLOW' | 'TAX' | 'LOGISTICS' | 'PAYROLL';
+export type ReportType = 'CASH_FLOW' | 'TAX' | 'LOGISTICS' | 'PAYROLL' | 'ATTENDANCE' | 'TREASURY_HISTORY';
 
 interface FinanceExportParams {
     type: ReportType;
@@ -170,6 +172,75 @@ export async function exportFinanceReport(params: FinanceExportParams) {
                         { header: 'AFP ($)', key: 'afp', width: 15 },
                         { header: 'Salud ($)', key: 'health', width: 15 },
                         { header: 'Líquido ($)', key: 'liquid', width: 15 }
+                    ],
+                    data: data
+                });
+                break;
+            }
+
+            case 'ATTENDANCE': {
+                const report = await getAttendanceReport(startDate, endDate, locationId);
+
+                const data = report.map(r => ({
+                    date: r.date,
+                    rut: r.rut,
+                    name: r.user_name,
+                    role: r.job_title,
+                    in: r.check_in ? new Date(r.check_in).toLocaleTimeString('es-CL') : '-',
+                    out: r.check_out ? new Date(r.check_out).toLocaleTimeString('es-CL') : '-',
+                    hours: r.hours_worked.toFixed(2),
+                    status: r.status === 'LATE' ? 'ATRASO' : r.status === 'PRESENT' ? 'PRESENTE' : 'AUSENTE'
+                }));
+
+                buffer = await excel.generateReport({
+                    title: 'Reporte de Asistencia',
+                    subtitle: `Desde ${new Date(startDate).toLocaleDateString()} hasta ${new Date(endDate).toLocaleDateString()}`,
+                    sheetName: 'Asistencia',
+                    creator: userName,
+                    locationName: locationName,
+                    columns: [
+                        { header: 'Fecha', key: 'date', width: 15 },
+                        { header: 'RUT', key: 'rut', width: 15 },
+                        { header: 'Nombre', key: 'name', width: 30 },
+                        { header: 'Cargo', key: 'role', width: 20 },
+                        { header: 'Entrada', key: 'in', width: 10 },
+                        { header: 'Salida', key: 'out', width: 10 },
+                        { header: 'Horas', key: 'hours', width: 10 },
+                        { header: 'Estado', key: 'status', width: 15 }
+                    ],
+                    data: data
+                });
+                break;
+            }
+
+            case 'TREASURY_HISTORY': {
+                const history = await getRemittanceHistory(locationId);
+                const data = (history.data || []).map(r => ({
+                    date: new Date(r.created_at).toLocaleString('es-CL'),
+                    location: r.location_name || '-',
+                    terminal: r.terminal_name || '-',
+                    cashier: r.cashier_name || 'Desconocido',
+                    amount: r.amount,
+                    diff: r.cash_count_diff || 0,
+                    status: r.status === 'RECEIVED' ? 'RECIBIDO' : 'PENDIENTE',
+                    receiver: r.receiver_name || '-'
+                }));
+
+                buffer = await excel.generateReport({
+                    title: 'Historial de Rendiciones de Tesorería',
+                    subtitle: `Generado el ${new Date().toLocaleDateString('es-CL')}`,
+                    sheetName: 'Rendiciones',
+                    creator: userName,
+                    locationName: locationName,
+                    columns: [
+                        { header: 'Fecha', key: 'date', width: 20 },
+                        { header: 'Sucursal', key: 'location', width: 20 },
+                        { header: 'Terminal', key: 'terminal', width: 15 },
+                        { header: 'Cajero', key: 'cashier', width: 25 },
+                        { header: 'Monto Entregado ($)', key: 'amount', width: 15 },
+                        { header: 'Diferencia ($)', key: 'diff', width: 15 },
+                        { header: 'Estado', key: 'status', width: 15 },
+                        { header: 'Recibido Por', key: 'receiver', width: 20 }
                     ],
                     data: data
                 });
