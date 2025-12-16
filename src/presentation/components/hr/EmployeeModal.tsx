@@ -159,7 +159,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                     <div>
                                         <label className="block text-sm font-bold text-slate-700 mb-1">Estado</label>
                                         <select
-                                            value={formData.status}
+                                            value={formData.status || ''}
                                             onChange={e => setFormData({ ...formData, status: e.target.value as any })}
                                             className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
                                         >
@@ -182,7 +182,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                         <div>
                                             <label className="block text-sm font-bold text-slate-700 mb-1">Cargo</label>
                                             <select
-                                                value={formData.job_title}
+                                                value={formData.job_title || ''}
                                                 onChange={e => setFormData({ ...formData, job_title: e.target.value as any })}
                                                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
                                             >
@@ -197,7 +197,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                         <div>
                                             <label className="block text-sm font-bold text-slate-700 mb-1">Rol Sistema</label>
                                             <select
-                                                value={formData.role}
+                                                value={formData.role || ''}
                                                 onChange={(e) => {
                                                     const newRole = e.target.value as Role;
                                                     // Auto-Select Permissions from PRESET

@@ -2,9 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePharmaStore } from '../store/useStore';
-import { Store, UserCircle, Clock, Ticket, ArrowRight, Loader2, RefreshCw } from 'lucide-react';
+import { Store, UserCircle, Clock, Ticket, ArrowRight, Loader2, RefreshCw, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { EmployeeProfile } from '../../domain/types';
+import PriceCheckerModal from '../components/public/PriceCheckerModal';
 
 const LandingPage: React.FC = () => {
     const navigate = useNavigate();
@@ -15,10 +16,17 @@ const LandingPage: React.FC = () => {
 
     // Login UI State
     const [isLoginOpen, setIsLoginOpen] = useState(false);
+    const [isPriceCheckOpen, setIsPriceCheckOpen] = useState(false);
     const [selectedEmployee, setSelectedEmployee] = useState<EmployeeProfile | null>(null);
     const [pin, setPin] = useState('');
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+
+    // Security PIN State
+    const [isPinModalOpen, setIsPinModalOpen] = useState(false);
+    const [securityPin, setSecurityPin] = useState('');
+    const [pinError, setPinError] = useState(false);
 
     // Initial Check
     useEffect(() => {
@@ -56,8 +64,31 @@ const LandingPage: React.FC = () => {
         setIsLoading(false);
     };
 
+    // Initial Loading Check
+    if (!context) {
+        return (
+            <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+                <Loader2 className="animate-spin text-cyan-400" size={40} />
+            </div>
+        );
+    }
+
     // Filter active employees
-    const validEmployees = employees.filter(e => e.status === 'ACTIVE');
+    const validEmployees = employees.filter(e => {
+        if (e.status !== 'ACTIVE') return false;
+
+        // Admins and Managers are visible everywhere (Global Access)
+        if (e.role === 'ADMIN' || e.role === 'MANAGER') return true;
+
+        // Regular staff only visible in their assigned location
+        return e.assigned_location_id === context.id;
+    });
+
+    const filteredEmployees = validEmployees.filter(emp =>
+        emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (emp.role || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (emp.job_title || '').toLowerCase().includes(searchTerm.toLowerCase())
+    );
 
     if (!context) return null; // Or Loader
 
@@ -160,6 +191,24 @@ const LandingPage: React.FC = () => {
                             Entrar <ArrowRight size={14} className="ml-2" />
                         </div>
                     </motion.div>
+
+                    {/* 5. Public Price Checker */}
+                    <motion.div
+                        whileHover={{ scale: 1.02, y: -5 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => setIsPinModalOpen(true)}
+                        className="cursor-pointer bg-gradient-to-br from-emerald-500 to-teal-600 rounded-3xl p-8 relative overflow-hidden shadow-2xl shadow-emerald-900/40 border border-white/10 group"
+                    >
+                        <div className="absolute top-0 right-0 p-4 opacity-10 bg-white blur-3xl w-32 h-32 rounded-full -mr-10 -mt-10" />
+                        <div className="bg-white/20 w-16 h-16 rounded-2xl flex items-center justify-center backdrop-blur-sm mb-6 text-white group-hover:scale-110 transition-transform">
+                            <Search size={40} />
+                        </div>
+                        <h3 className="text-2xl font-bold text-white mb-2">Consultor Precios</h3>
+                        <p className="text-emerald-100/90 text-sm mb-6">Herramienta pública para verificar precios y stock por sucursal.</p>
+                        <div className="flex items-center text-xs font-bold text-white uppercase tracking-wider bg-white/20 px-4 py-2 rounded-lg w-fit backdrop-blur-md">
+                            Consultar <ArrowRight size={14} className="ml-2" />
+                        </div>
+                    </motion.div>
                 </div>
 
                 {/* Login Modal Overlay */}
@@ -180,22 +229,40 @@ const LandingPage: React.FC = () => {
                                 </div>
 
                                 {!selectedEmployee ? (
-                                    <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                                        {validEmployees.map(emp => (
-                                            <button
-                                                key={emp.id}
-                                                onClick={() => setSelectedEmployee(emp)}
-                                                className="w-full flex items-center p-3 rounded-xl hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-all group"
-                                            >
-                                                <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold group-hover:bg-cyan-100 group-hover:text-cyan-700 transition-colors">
-                                                    {emp.name.charAt(0)}
-                                                </div>
-                                                <div className="ml-3 text-left">
-                                                    <p className="text-slate-800 font-bold text-sm">{emp.name}</p>
-                                                    <p className="text-slate-400 text-xs">{emp.job_title}</p>
-                                                </div>
-                                            </button>
-                                        ))}
+                                    <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                                        {/* Search Bar */}
+                                        <div className="relative mb-4 sticky top-0 z-10 bg-white pb-2">
+                                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                            <input
+                                                type="text"
+                                                placeholder="Buscar usuario..."
+                                                value={searchTerm}
+                                                onChange={(e) => setSearchTerm(e.target.value)}
+                                                className="w-full pl-10 pr-4 py-2 bg-slate-100 border-none rounded-xl text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-cyan-500 outline-none transition-all"
+                                                autoFocus
+                                            />
+                                        </div>
+
+                                        {filteredEmployees.length === 0 ? (
+                                            <div className="text-center py-8 text-slate-400">
+                                                <p className="text-sm">No se encontraron usuarios.</p>
+                                            </div>
+                                        ) : (
+                                            filteredEmployees.map(emp => (
+                                                <button
+                                                    key={emp.id}
+                                                    onClick={() => setSelectedEmployee(emp)}
+                                                    className="w-full flex items-center p-3 rounded-xl hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-all group"
+                                                >
+                                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold transition-colors ${emp.role === 'ADMIN' ? 'bg-purple-100 text-purple-600' : emp.role === 'MANAGER' ? 'bg-cyan-100 text-cyan-600' : 'bg-slate-100 text-slate-600'}`}>
+                                                        {emp.name.charAt(0)}
+                                                    </div>
+                                                    <div className="ml-3 text-left">
+                                                        <p className="text-slate-800 font-bold text-sm">{emp.name}</p>
+                                                        <p className="text-slate-400 text-xs">{emp.role === 'ADMIN' ? 'ADMINISTRADOR' : emp.role === 'MANAGER' ? 'GERENTE' : emp.job_title}</p>
+                                                    </div>
+                                                </button>
+                                            )))}
                                     </div>
                                 ) : (
                                     <form onSubmit={handleLogin} className="space-y-6">
@@ -203,7 +270,10 @@ const LandingPage: React.FC = () => {
                                             <div onClick={() => setSelectedEmployee(null)} className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center text-2xl font-bold text-slate-600 mb-2 cursor-pointer hover:bg-red-50 hover:text-red-500 transition-colors">
                                                 {selectedEmployee.name.charAt(0)}
                                             </div>
-                                            <h3 className="font-bold text-slate-900">{selectedEmployee.name}</h3>
+                                        </div>
+                                        <div className="text-center mb-4">
+                                            <h3 className="font-bold text-slate-900 text-xl">{selectedEmployee.name}</h3>
+                                            <p className="text-sm text-slate-400">{selectedEmployee.job_title || 'Empleado'}</p>
                                         </div>
 
                                         <input
@@ -238,6 +308,69 @@ const LandingPage: React.FC = () => {
                         </div>
                     )}
                 </AnimatePresence>
+
+                {/* PIN Modal for Price Checker */}
+                <AnimatePresence>
+                    {isPinModalOpen && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.9 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.9 }}
+                                className="bg-slate-900 border border-slate-700 rounded-3xl p-8 w-full max-w-sm text-center relative"
+                            >
+                                <button
+                                    onClick={() => {
+                                        setIsPinModalOpen(false);
+                                        setSecurityPin('');
+                                        setPinError(false);
+                                    }}
+                                    className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors"
+                                >✕</button>
+
+                                <div className="mb-6">
+                                    <div className="w-16 h-16 bg-slate-800 rounded-2xl flex items-center justify-center mx-auto mb-4 text-cyan-400">
+                                        <div className="flex">
+                                            <span className="text-2xl font-bold">*</span>
+                                            <span className="text-2xl font-bold">*</span>
+                                            <span className="text-2xl font-bold">*</span>
+                                        </div>
+                                    </div>
+                                    <h3 className="text-xl font-bold text-white">Seguridad</h3>
+                                    <p className="text-slate-400 text-sm">Ingrese PIN para acceder al modo Kiosco</p>
+                                </div>
+
+                                <input
+                                    type="password"
+                                    autoFocus
+                                    className={`w-full bg-slate-800 border-2 ${pinError ? 'border-red-500 text-red-500' : 'border-slate-700 text-white focus:border-cyan-500'} rounded-xl py-4 text-center text-3xl font-bold tracking-[1em] outline-none transition-all mb-4`}
+                                    maxLength={4}
+                                    placeholder="••••"
+                                    value={securityPin}
+                                    onChange={(e) => {
+                                        const val = e.target.value.replace(/\D/g, '').slice(0, 4);
+                                        setSecurityPin(val);
+                                        setPinError(false);
+                                        if (val === '1213') {
+                                            setIsPinModalOpen(false);
+                                            setSecurityPin('');
+                                            setIsPriceCheckOpen(true);
+                                        } else if (val.length === 4) {
+                                            setPinError(true);
+                                            setTimeout(() => setSecurityPin(''), 500);
+                                        }
+                                    }}
+                                />
+                                {pinError && <p className="text-red-500 text-sm font-bold animate-pulse">PIN Incorrecto</p>}
+                            </motion.div>
+                        </div>
+                    )}
+                </AnimatePresence>
+
+                <PriceCheckerModal
+                    isOpen={isPriceCheckOpen}
+                    onClose={() => setIsPriceCheckOpen(false)}
+                />
 
                 <footer className="mt-12 text-center text-slate-600 text-sm">
                     <p>&copy; 2025 Farmacias Vallenar. Todos los derechos reservados.</p>

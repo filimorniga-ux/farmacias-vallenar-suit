@@ -22,7 +22,7 @@ const DashboardPage: React.FC = () => {
     const [targetRoute, setTargetRoute] = useState('');
     const [selectedEmployee, setSelectedEmployee] = useState<EmployeeProfile | null>(null);
     const [step, setStep] = useState<'select' | 'pin'>('select');
-    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(true); // Start true to prevent flicker
     const [isOnline, setIsOnline] = useState(true);
 
     // --- AUTO-BACKUP & NETWORK MONITOR ---
@@ -44,7 +44,9 @@ const DashboardPage: React.FC = () => {
 
     // Fetch real metrics from server
     const refreshDashboard = async () => {
-        setIsRefreshing(true);
+        // Only set loading true if it's a manual refresh or initial load, to avoid flicker on background updates if we wanted that (but here we want skeleton)
+        // setIsRefreshing(true); // Already true on init.
+
         try {
             const { getFinancialMetrics } = await import('../../actions/dashboard');
             const now = new Date();
@@ -56,7 +58,8 @@ const DashboardPage: React.FC = () => {
         } catch (error) {
             console.error('Failed to fetch dashboard metrics:', error);
         } finally {
-            setTimeout(() => setIsRefreshing(false), 500);
+            // Small delay to ensure smooth transition
+            setTimeout(() => setIsRefreshing(false), 300);
         }
     };
 
@@ -129,6 +132,7 @@ const DashboardPage: React.FC = () => {
 
     // --- HANDLERS ---
     const handleRefresh = () => {
+        setIsRefreshing(true); // Trigger skeleton
         refreshDashboard();
         // Also trigger sync
         autoBackupService.start();
@@ -250,16 +254,19 @@ const DashboardPage: React.FC = () => {
                                 <ChevronDown size={14} className="text-slate-400" />
                             </button>
                             {/* Dropdown (Simplified) */}
-                            <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden hidden group-hover:block animate-in fade-in slide-in-from-top-2">
-                                {locations.map(loc => (
-                                    <button
-                                        key={loc.id}
-                                        onClick={() => handleLocationSwitch(loc.id)}
-                                        className={`w-full text-left px-4 py-3 text-sm font-medium hover:bg-slate-50 ${currentLocation?.id === loc.id ? 'text-cyan-600 bg-cyan-50' : 'text-slate-600'}`}
-                                    >
-                                        {loc.name}
-                                    </button>
-                                ))}
+                            {/* Dropdown (with padding bridge to prevent closing) */}
+                            <div className="absolute right-0 top-full pt-2 w-48 hidden group-hover:block z-50 animate-in fade-in slide-in-from-top-2">
+                                <div className="bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden">
+                                    {locations.map(loc => (
+                                        <button
+                                            key={loc.id}
+                                            onClick={() => handleLocationSwitch(loc.id)}
+                                            className={`w-full text-left px-4 py-3 text-sm font-medium hover:bg-slate-50 ${currentLocation?.id === loc.id ? 'text-cyan-600 bg-cyan-50' : 'text-slate-600'}`}
+                                        >
+                                            {loc.name}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                         </div>
 

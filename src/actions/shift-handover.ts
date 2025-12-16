@@ -140,6 +140,15 @@ export async function executeHandover(
 
         await client.query('COMMIT');
 
+        // 6. Notify Managers
+        const { notifyManagers } = await import('./notifications'); // Dynamic import to avoid circular dep issues if any, though unlikely here
+        await notifyManagers(
+            terminal.location_id,
+            "💰 Nueva Remesa Pendiente",
+            `El cajero ${userId} ha cerrado turno. Monto: $${summary.amountToWithdraw.toLocaleString('es-CL')}`,
+            "/finance/treasury"
+        );
+
         revalidatePath('/pos');
         revalidatePath('/finance/treasury');
 

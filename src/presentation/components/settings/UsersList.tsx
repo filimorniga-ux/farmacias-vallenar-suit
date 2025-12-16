@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Edit2, UserPlus, Loader2, Shield, User } from 'lucide-react';
-import { getUsers } from '../../../actions/users';
+import { Edit2, UserPlus, Loader2, Shield, User, Trash2, Power, AlertTriangle } from 'lucide-react';
+import { getUsers, toggleUserStatus, deleteUser } from '../../../actions/users';
 import { EmployeeProfile } from '../../../domain/types';
+import { usePharmaStore } from '../../store/useStore';
 import { toast } from 'sonner';
 
 interface UsersListProps {
@@ -10,8 +11,44 @@ interface UsersListProps {
 }
 
 export const UsersList: React.FC<UsersListProps> = ({ onEdit, onCreate }) => {
+    const { user: currentUser } = usePharmaStore();
     const [users, setUsers] = useState<EmployeeProfile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+
+    const handleToggleStatus = async (user: EmployeeProfile) => {
+        const newStatus = user.status !== 'ACTIVE';
+
+        // Optimistic update
+        setUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: newStatus ? 'ACTIVE' : 'TERMINATED' } : u));
+
+        const res = await toggleUserStatus(user.id, newStatus);
+
+        if (res.success) {
+            toast.success(`Usuario ${newStatus ? 'activado' : 'desactivado'} correcamente`);
+        } else {
+            // Revert
+            setUsers(prev => prev.map(u => u.id === user.id ? user : u));
+            toast.error(res.error || 'Error al cambiar estado');
+        }
+    };
+
+    const handleDelete = async (targetUser: EmployeeProfile) => {
+        if (!confirm(`¿Estás seguro de eliminar a ${targetUser.name}? Esta acción no se puede deshacer.`)) return;
+
+        if (targetUser.id === currentUser?.id) {
+            toast.error("No puedes eliminarte a ti mismo.");
+            return;
+        }
+
+        const res = await deleteUser(targetUser.id);
+
+        if (res.success) {
+            setUsers(prev => prev.filter(u => u.id !== targetUser.id));
+            toast.success('Usuario eliminado permanentemente');
+        } else {
+            toast.error(res.error || 'Error al eliminar');
+        }
+    };
 
     const loadUsers = async () => {
         setIsLoading(true);
@@ -89,18 +126,35 @@ export const UsersList: React.FC<UsersListProps> = ({ onEdit, onCreate }) => {
                                     </span>
                                 </td>
                                 <td className="py-3 px-4">
-                                    <span className={`px-2 py-1 rounded-full text-xs font-bold ${user.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                                        }`}>
-                                        {user.status === 'ACTIVE' ? 'Activo' : 'Inactivo'}
-                                    </span>
+                                    <button
+                                        onClick={() => handleToggleStatus(user)}
+                                        className={`px-3 py-1 rounded-full text-xs font-bold transition-all hover:scale-105 ${user.status === 'ACTIVE'
+                                                ? 'bg-green-100 text-green-700 hover:bg-red-100 hover:text-red-700'
+                                                : 'bg-slate-200 text-slate-500 hover:bg-green-100 hover:text-green-700'
+                                            }`}
+                                        title={user.status === 'ACTIVE' ? "Click para DESACTIVAR" : "Click para ACTIVAR"}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            <Power size={12} />
+                                            {user.status === 'ACTIVE' ? 'Activo' : 'Inactivo'}
+                                        </div>
+                                    </button>
                                 </td>
-                                <td className="py-3 px-4 text-right">
+                                <td className="py-3 px-4 text-right flex items-center justify-end gap-2">
                                     <button
                                         onClick={() => onEdit(user)}
                                         className="p-2 text-cyan-600 hover:bg-cyan-50 rounded-lg transition"
                                         title="Editar Usuario"
                                     >
                                         <Edit2 size={18} />
+                                    </button>
+                                    <button
+                                        onClick={() => handleDelete(user)}
+                                        className={`p-2 rounded-lg transition ${currentUser?.id === user.id ? 'text-slate-300 cursor-not-allowed' : 'text-red-500 hover:bg-red-50'}`}
+                                        title="Eliminar Usuario"
+                                        disabled={currentUser?.id === user.id}
+                                    >
+                                        <Trash2 size={18} />
                                     </button>
                                 </td>
                             </tr>

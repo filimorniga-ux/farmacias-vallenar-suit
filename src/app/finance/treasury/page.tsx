@@ -324,6 +324,8 @@ export default function TreasuryPage() {
                                     </div>
 
                                     <div className="space-y-4">
+                                        {/* DEBUG: Verificar cuentas cargadas */}
+                                        {(() => { console.log('Cuentas cargadas:', accounts); return null; })()}
                                         <div>
                                             <label className="block text-sm font-bold text-slate-700 mb-2">Destino de los Fondos</label>
                                             <select
@@ -346,7 +348,7 @@ export default function TreasuryPage() {
                                                         }
                                                         return (
                                                             <option key={acc.id} value={acc.id}>
-                                                                {icon} {acc.name} ({typeLabel})
+                                                                {acc.name} ({typeLabel})
                                                             </option>
                                                         );
                                                     })}

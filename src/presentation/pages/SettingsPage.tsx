@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Settings, User, Shield, Save, Receipt, Printer, ToggleLeft, ToggleRight, AlertTriangle, CreditCard, Star, Monitor, Building, Wallet } from 'lucide-react';
 import SiiSettings from './settings/SiiSettings';
 import HardwarePage from './settings/HardwarePage';
@@ -17,7 +18,12 @@ import { SecurityPolicyPanel } from '../components/settings/SecurityPolicyPanel'
 import { FinancialAccountsSettings } from '../components/settings/FinancialAccountsSettings';
 
 const SettingsPage: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'general' | 'users' | 'sii' | 'hardware' | 'inventory' | 'billing' | 'loyalty' | 'terminals' | 'backup' | 'audit' | 'finances'>('general');
+    const [searchParams, setSearchParams] = useSearchParams();
+    const activeTab = (searchParams.get('tab') as 'general' | 'users' | 'sii' | 'hardware' | 'inventory' | 'billing' | 'loyalty' | 'terminals' | 'backup' | 'audit' | 'finances') || 'general';
+
+    const setActiveTab = (tab: string) => {
+        setSearchParams({ tab });
+    };
 
     const { enable_sii_integration, toggleSiiIntegration } = useSettingsStore();
     const { user } = usePharmaStore();

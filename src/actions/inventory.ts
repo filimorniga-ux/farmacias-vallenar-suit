@@ -159,3 +159,124 @@ export async function getRecentMovements(locationId?: string, limit = 100) {
         return [];
     }
 }
+
+/**
+ * 🔍 Get Inventory (Strict Isolation)
+ * Retorna el inventario filtrado estrictamente por Location ID.
+ */
+export async function getInventory(locationId: string): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    try {
+        if (!locationId) return { success: false, error: 'Location ID is required' };
+
+        console.log(`📦 [Server Action] Fetching Inventory for Location: ${locationId}`);
+
+        // La consulta une inventory_batches con products para tener la info completa
+        // FILTRO ESTRICTO: WHERE ib.location_id = $1
+        const sql = `
+            SELECT 
+                p.id as product_id,
+                p.sku,
+                p.name,
+                p.dci,
+                p.category,
+                p.units_per_box,
+                p.price_sell_box, 
+                p.format,
+                
+                ib.id as batch_id,
+                ib.location_id,     -- ESTA ES LA CLAVE DE LA AISLACIÓN
+                ib.warehouse_id,
+                ib.lot_number,
+                ib.expiry_date as batch_expiry,
+                ib.quantity_real as stock_actual,
+                ib.unit_cost,
+                ib.sale_price as batch_price,
+                ib.stock_min,
+                ib.stock_max
+
+            FROM inventory_batches ib
+            JOIN products p ON ib.product_id::text = p.id::text
+            WHERE ib.location_id::text = $1
+            ORDER BY p.name ASC
+        `;
+
+        const res = await query(sql, [locationId]);
+
+        // Mapeo a un formato amigable para el frontend (InventoryBatch)
+        const inventory = res.rows.map(row => ({
+            id: row.batch_id, // Usamos el ID del lote como ID único en la tabla
+            sku: row.sku,
+            name: row.name,
+            dci: row.dci,
+            category: row.category || 'MEDICAMENTO',
+
+            // Stock y Ubicación
+            location_id: row.location_id,
+            warehouse_id: row.warehouse_id,
+            stock_actual: Number(row.stock_actual) || 0,
+            stock_min: Number(row.stock_min) || 5,
+
+            // Precios y Costos
+            price: Number(row.batch_price) || Number(row.price_sell_box) || 0,
+            cost_price: Number(row.unit_cost) || 0,
+
+            // Lote
+            expiry_date: (row.batch_expiry) ? new Date(row.batch_expiry).getTime() : Date.now(),
+            lot_number: row.lot_number,
+
+            // Metadata
+            format: row.format,
+            units_per_box: row.units_per_box,
+            is_generic: false // TODO: Traer de DB
+        }));
+
+        console.log(`✅ Found ${inventory.length} items for ${locationId}`);
+        return { success: true, data: inventory };
+
+    } catch (error: any) {
+        console.error('❌ Error fetching inventory:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+
+/**
+ * ☢️ NUCLEAR DELETE: Clear Location Inventory
+ * Elimina TODO el stock de una sucursal específica.
+ * Requiere validación de seguridad extra.
+ */
+export async function clearLocationInventory(locationId: string, userId: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    console.log(`☢️ [NUCLEAR] Attempting to clear inventory for location: ${locationId} by user ${userId}`);
+
+    try {
+        // 1. Security Check: Verify User Role
+        const userRes = await query(`SELECT role FROM users WHERE id = $1`, [userId]);
+        if (userRes.rows.length === 0) return { success: false, error: 'User not found' };
+
+        const role = userRes.rows[0].role;
+        if (role !== 'ADMIN' && role !== 'MANAGER') {
+            return { success: false, error: 'Unauthorized: Only ADMIN or MANAGER can perform this action.' };
+        }
+
+        // 2. The Purge
+        // Filter STRICTLY by location_id
+        const result = await query(`
+            DELETE FROM inventory_batches 
+            WHERE location_id = $1
+        `, [locationId]);
+
+        console.log(`💥 [NUCLEAR] Deleted ${result.rowCount} items from ${locationId}`);
+
+        // 3. Revalidate
+        revalidatePath('/inventory');
+
+        return {
+            success: true,
+            message: `Se eliminaron ${result.rowCount} registros de inventario en la sucursal.`
+        };
+
+    } catch (error: any) {
+        console.error('❌ Nuclear Delete Failed:', error);
+        return { success: false, error: error.message };
+    }
+}

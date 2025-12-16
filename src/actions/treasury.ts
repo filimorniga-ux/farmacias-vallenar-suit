@@ -136,7 +136,7 @@ export async function transferFunds(
 
         // 2. Validate Destination
         const destRes = await query("SELECT id FROM financial_accounts WHERE id = $1", [toId]);
-        if (destRes.rows.length === 0) return { success: false, error: 'Cuenta destino no encontrada' };
+        if (destRes.rows.length === 0) return { success: false, error: "La cuenta de destino no es válida o fue eliminada." };
 
         // 3. Execute Transfer
         const client = await import('@/lib/db').then(mod => mod.pool.connect());

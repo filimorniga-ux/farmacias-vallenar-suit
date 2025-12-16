@@ -45,7 +45,7 @@ export async function getUsers(filters?: { locationId?: string }): Promise<{ suc
             params.push(filters.locationId);
         }
 
-        queryStr += ' ORDER BY name ASC';
+        queryStr += " ORDER BY CASE WHEN role = 'ADMIN' THEN 1 WHEN role = 'MANAGER' THEN 2 ELSE 3 END, name ASC";
 
         const result = await query(queryStr, params);
         const users = result.rows.map(mapUserFromDB);
@@ -154,17 +154,33 @@ export async function updateUser(id: string, data: Partial<EmployeeProfile>): Pr
 
 export async function deleteUser(id: string): Promise<{ success: boolean; error?: string }> {
     try {
-        // Soft delete (cambiar estado a TERMINATED) o Hard delete según preferencia.
-        // Aquí usaremos Soft Delete para mantener historial.
-        await query("UPDATE users SET status = 'TERMINATED', updated_at = NOW() WHERE id = $1", [id]);
+        // 1. Intentar Hard Delete primero (Eliminar físicamente si no tiene historial)
+        await query("DELETE FROM users WHERE id = $1", [id]);
 
         // Audit
-        await logAuditAction(null, 'DELETE_USER', { target_user_id: id });
+        await logAuditAction(null, 'DELETE_USER', { target_user_id: id, type: 'HARD_DELETE' });
 
         revalidatePath('/hr');
         return { success: true };
     } catch (error: any) {
+        // 2. Si falla por FK (23503), sugerir desactivación
+        if (error.code === '23503') {
+            return { success: false, error: 'No se puede eliminar porque tiene historial (ventas/turnos). Desactívelo en su lugar.' };
+        }
         console.error('Error deleting user:', error);
         return { success: false, error: 'Error al eliminar usuario' };
+    }
+}
+
+export async function toggleUserStatus(id: string, newStatus: boolean): Promise<{ success: boolean; error?: string }> {
+    try {
+        const statusStr = newStatus ? 'ACTIVE' : 'TERMINATED'; // Mapeamos Inactivo a TERMINATED por ahora
+        await query("UPDATE users SET status = $1, updated_at = NOW() WHERE id = $2", [statusStr, id]);
+
+        revalidatePath('/hr');
+        return { success: true };
+    } catch (error: any) {
+        console.error('Error toggling user status:', error);
+        return { success: false, error: 'Error al cambiar estado' };
     }
 }

@@ -28,7 +28,7 @@ import {
     Location
 } from '../../domain/types';
 import { TigerDataService } from '../../domain/services/TigerDataService';
-import { fetchEmployees } from '../../actions/sync';
+// import { fetchEmployees } from '../../actions/sync'; // Converted to dynamic import for safety
 import { IntelligentOrderingService } from '../services/intelligentOrderingService';
 // Mocks removed
 // Mocks removed
@@ -129,8 +129,10 @@ interface PharmaState {
     currentShift: Shift | null;
     dailyShifts: Shift[]; // History of shifts for the day
     terminals: Terminal[];
-    addTerminal: (terminal: Omit<Terminal, 'id'>) => void;
-    updateTerminal: (id: string, updates: Partial<Terminal>) => void;
+    addTerminal: (terminal: Omit<Terminal, 'id'>) => Promise<void>;
+    updateTerminal: (id: string, updates: Partial<Terminal>) => Promise<void>;
+    deleteTerminal: (id: string) => Promise<void>;
+    forceCloseTerminal: (id: string) => Promise<void>;
     cashMovements: CashMovement[];
 
     openShift: (amount: number, cashierId: string, authorizedBy: string, terminalId: string, locationId: string) => void;
@@ -219,7 +221,23 @@ export const usePharmaStore = create<PharmaState>()(
             currentLocationId: '', // Default empty to force selection
             currentWarehouseId: '', // Default empty
             currentTerminalId: '', // Default empty
-            setCurrentLocation: (loc, wh, term) => set({ currentLocationId: loc, currentWarehouseId: wh, currentTerminalId: term }),
+            setCurrentLocation: (loc, wh, term) => {
+                const prevLoc = get().currentLocationId;
+
+                // Set new context
+                set({ currentLocationId: loc, currentWarehouseId: wh, currentTerminalId: term });
+
+                // If location changed, refresh data
+                if (loc && loc !== prevLoc) {
+                    console.log(`📍 Context Switch: ${prevLoc} -> ${loc}. Refreshing Data...`);
+                    // 1. Clear current inventory to prevent stale data ghosting
+                    set({ inventory: [], isLoading: true });
+
+                    // 2. Fetch new data
+                    get().fetchTerminals(loc);
+                    get().fetchInventory(loc, wh);
+                }
+            },
 
             // --- Auth ---
             user: null, // ALWAYS start logged out - force login
@@ -321,6 +339,8 @@ export const usePharmaStore = create<PharmaState>()(
 
                             // Fetch Inventory for this context immediately
                             if (warehouseId) state.fetchInventory(locationId, warehouseId);
+                            // Fetch Terminals for this context immediately
+                            state.fetchTerminals(locationId);
 
                         } catch (e) { console.error("Error persisting location context", e); }
                     }
@@ -378,8 +398,8 @@ export const usePharmaStore = create<PharmaState>()(
                     }
 
                     const [inventory, employees, sales, suppliers, cashMovements, customers, shipments, purchaseOrders, locations] = await Promise.all([
-                        TigerDataService.fetchInventory(currentStoreState.currentWarehouseId), // Filter by Store's Warehouse
-                        fetchEmployees(),
+                        currentStoreState.currentLocationId ? TigerDataService.fetchInventory(currentStoreState.currentLocationId) : Promise.resolve([]), // FIX: Check if location is set
+                        import('../../actions/sync').then(m => m.fetchEmployees()),
                         TigerDataService.fetchSalesHistory(), // Fetch real sales
                         import('../../actions/sync').then(m => m.fetchSuppliers()), // Fetch real suppliers
                         TigerDataService.fetchCashMovements(), // Fetch real cash movements
@@ -403,9 +423,8 @@ export const usePharmaStore = create<PharmaState>()(
                         useLocationStore.getState().setLocations(locations);
                     }
 
-                    // Si falla la DB (Safe Mode devuelve []), mantenemos lo que haya o usamos un fallback mínimo si está vacío
-                    // Si falla la DB (Safe Mode devuelve []), mantenemos lo que haya o usamos un fallback mínimo si está vacío
-                    if (inventory.length > 0) set({ inventory });
+                    // FIX: Always set inventory, even if empty, to reflect "cleared" state
+                    set({ inventory });
 
                     if (employees.length > 0) {
                         set({ employees });
@@ -497,11 +516,19 @@ export const usePharmaStore = create<PharmaState>()(
                 set({ isLoading: true });
                 try {
                     const state = get();
-                    const wh = warehouseId || state.currentWarehouseId;
+                    const wh = warehouseId || state.currentWarehouseId; // Deprecated for Fetch, kept for logic if needed
+                    const targetLocation = locationId || state.currentLocationId;
+
+                    // Skip fetch if no location selected (prevents warnings)
+                    if (!targetLocation) {
+                        set({ inventory: [], isLoading: false });
+                        return;
+                    }
+
                     // Use TigerDataService to fetch inventory consistent with syncData
                     // Ensure TigerDataService is imported or available. It is imported at top.
                     const { TigerDataService } = await import('../../domain/services/TigerDataService');
-                    const inventory = await TigerDataService.fetchInventory(wh);
+                    const inventory = await TigerDataService.fetchInventory(targetLocation);
                     set({ inventory, isLoading: false });
                 } catch (error) {
                     console.error(error);
@@ -1126,27 +1153,135 @@ export const usePharmaStore = create<PharmaState>()(
             },
 
             terminals: [],
-            fetchTerminals: async (locationId: string) => {
+            fetchTerminals: async (locationId) => {
+                set({ isLoading: true });
                 try {
+                    // Logic to fetch terminals for a specific location
+                    // Can reuse action or direct API
                     const { getTerminalsByLocation } = await import('../../actions/terminals');
-                    const result = await getTerminalsByLocation(locationId);
-                    if (result.success && result.data) {
-                        set({ terminals: result.data });
+                    const res = await getTerminalsByLocation(locationId);
+                    if (res.success && res.data) {
+                        console.log('✅ Terminals set in store for Location', locationId, 'Count:', res.data.length, res.data);
+                        set({ terminals: res.data });
                     } else {
+                        console.warn('⚠️ Fetch Terminals yielded no data or error for', locationId);
                         set({ terminals: [] });
                     }
-                } catch (error) {
-                    console.error('Failed to fetch terminals', error);
-                    set({ terminals: [] });
+                } catch (e) {
+                    console.error('Failed to fetch terminals', e);
+                } finally {
+                    set({ isLoading: false });
                 }
             },
 
-            addTerminal: (terminal) => set((state) => ({
-                terminals: [...state.terminals, { ...terminal, id: `TERM-${Date.now()}` }]
-            })),
-            updateTerminal: (id, updates) => set((state) => ({
-                terminals: state.terminals.map(t => t.id === id ? { ...t, ...updates } : t)
-            })),
+            addTerminal: async (terminal) => {
+                const { createTerminal } = await import('../../actions/network');
+                // Optimistic Update (Temporary ID)
+                const tempId = `TEMP-${Date.now()}`;
+                set((state) => ({
+                    terminals: [...state.terminals, { ...terminal, id: tempId, status: 'CLOSED' }]
+                }));
+
+                try {
+                    const res = await createTerminal({
+                        name: terminal.name,
+                        location_id: terminal.location_id,
+                        printer_config: terminal.printer_config
+                    });
+
+                    if (res.success && res.id) {
+                        // Replace Temp ID with Real ID
+                        set((state) => ({
+                            terminals: state.terminals.map(t => t.id === tempId ? { ...t, id: res.id! } : t)
+                        }));
+                        import('sonner').then(({ toast }) => toast.success('Caja creada correctamente'));
+                    } else {
+                        // Rollback
+                        set((state) => ({
+                            terminals: state.terminals.filter(t => t.id !== tempId)
+                        }));
+                        import('sonner').then(({ toast }) => toast.error('Error al crear caja: ' + res.error));
+                    }
+                } catch (error) {
+                    set((state) => ({
+                        terminals: state.terminals.filter(t => t.id !== tempId)
+                    }));
+                    console.error(error);
+                }
+            },
+            deleteTerminal: async (id) => {
+                const { deleteTerminal } = await import('../../actions/terminals');
+
+                // Optimistic Update
+                const previousTerminals = get().terminals;
+                set((state) => ({
+                    terminals: state.terminals.filter(t => t.id !== id)
+                }));
+
+                try {
+                    const res = await deleteTerminal(id);
+                    if (!res.success) {
+                        // Rollback
+                        set({ terminals: previousTerminals });
+                        import('sonner').then(({ toast }) => toast.error('Error al eliminar caja: ' + res.error));
+                    } else {
+                        import('sonner').then(({ toast }) => toast.success('Caja eliminada correctamente'));
+                    }
+                } catch (error) {
+                    console.error(error);
+                    set({ terminals: previousTerminals });
+                }
+            },
+            forceCloseTerminal: async (id) => {
+                const { closeTerminal } = await import('../../actions/terminals');
+                const currentUser = get().user;
+
+                // Optimistic Update
+                set((state) => ({
+                    terminals: state.terminals.map(t => t.id === id ? { ...t, status: 'CLOSED', current_cashier_id: undefined } : t)
+                }));
+
+                try {
+                    // Force close with 0 cash and admin comment
+                    const res = await closeTerminal(id, currentUser?.id || 'ADMIN_FORCE', 0, 'Cierre Administrativo Forzado');
+
+                    if (!res.success) {
+                        import('sonner').then(({ toast }) => toast.error('Error al forzar cierre: ' + res.error));
+                        // Re-fetch to sync true state
+                        get().fetchTerminals(get().currentLocationId || get().terminals.find(t => t.id === id)?.location_id || '');
+                    } else {
+                        import('sonner').then(({ toast }) => toast.success('Caja cerrada forzosamente'));
+                    }
+                } catch (error) {
+                    console.error(error);
+                    import('sonner').then(({ toast }) => toast.error('Error de conexión'));
+                }
+            },
+            updateTerminal: async (id, updates) => {
+                const { updateTerminal } = await import('../../actions/terminals');
+
+                // Optimistic Update
+                set((state) => ({
+                    terminals: state.terminals.map(t => t.id === id ? { ...t, ...updates } : t)
+                }));
+
+                try {
+                    const res = await updateTerminal(id, {
+                        name: updates.name || '',
+                        is_active: updates.is_active
+                    });
+
+                    if (!res.success) {
+                        // Rollback (requires fetching previous state, or just alerting)
+                        import('sonner').then(({ toast }) => toast.error('Error al actualizar caja: ' + res.error));
+                        // Ideally revert optimistic update here
+                    } else {
+                        import('sonner').then(({ toast }) => toast.success('Caja actualizada'));
+                    }
+                } catch (error) {
+                    console.error(error);
+                }
+            },
             cashMovements: [],
 
             openShift: (amount, cashierId, authorizedBy, terminalId, locationId) => set((state) => {
@@ -1805,35 +1940,20 @@ export const usePharmaStore = create<PharmaState>()(
             }
         }),
         {
-            name: 'farmacias-vallenar-DEBUG-v1', // ⚠️ DEBUG MODE: Force clean slate
-            version: 1,
-            storage: createJSONStorage(() => indexedDBStorage),
+            name: 'pharma-storage', // unique name
+            storage: createJSONStorage(() => localStorage), // (optional) by default, 'localStorage' is used
+            // OPTIONAL: Filter what to persist. 
+            // We want to persist SETTINGS but NOT transactional data (Inventory, Sales, Employees) 
+            // because that should be fresh from DB on login.
             partialize: (state) => ({
-                user: state.user,
-                cart: state.cart,
-                inventory: state.inventory,
-                customers: state.customers,
-                salesHistory: state.salesHistory,
-                expenses: state.expenses,
-                currentShift: state.currentShift,
-                cashMovements: state.cashMovements,
-                attendanceLogs: state.attendanceLogs,
-                employees: state.employees,
-                stockTransfers: state.stockTransfers,
-                warehouseIncidents: state.warehouseIncidents,
+                printerConfig: state.printerConfig,
                 siiConfiguration: state.siiConfiguration,
-                siiCafs: state.siiCafs,
-                dteDocuments: state.dteDocuments
+                loyaltyConfig: state.loyaltyConfig,
+                // Maybe persist current context ID?
+                currentLocationId: state.currentLocationId,
+                currentWarehouseId: state.currentWarehouseId,
+                currentTerminalId: state.currentTerminalId
             }),
-            // Merge function to ensure employees are never empty
-            merge: (persistedState: any, currentState: PharmaState) => ({
-                ...currentState,
-                ...persistedState,
-                // Always ensure employees are populated
-                employees: (persistedState?.employees && persistedState.employees.length > 0)
-                    ? persistedState.employees
-                    : []
-            })
         }
     )
 );
