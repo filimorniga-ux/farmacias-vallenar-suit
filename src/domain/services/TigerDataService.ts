@@ -107,28 +107,35 @@ export const TigerDataService = {
     },
 
     /**
-     * 1. Fetch Inventory (Robust with Fallback)
+     * 1. Fetch Inventory (Strict Location Filter)
+     * Updated to use getInventory from actions/inventory.ts
      */
-    fetchInventory: async (warehouseId?: string): Promise<InventoryBatch[]> => {
-        console.log('🐯 [Tiger Data] Fetching inventory...');
+    fetchInventory: async (locationId?: string): Promise<InventoryBatch[]> => {
+        console.log('🐯 [Tiger Data] Fetching inventory for location:', locationId);
         try {
-            // 1. Try to fetch from Server Action (DB)
-            const { fetchInventory } = await import('../../actions/sync');
-            const dbInventory = await fetchInventory(warehouseId);
+            // 1. Try to fetch from Server Action (Strict Mode)
+            const { getInventory } = await import('../../actions/inventory');
 
-            // Allow empty DB (valid state after truncate)
-            if (dbInventory) {
-                console.log(`✅ [Tiger Data] Loaded ${dbInventory.length} items from DB`);
-                return dbInventory;
+            // If no locationId, we might fetch all? Or fail safer? 
+            // For now, if no location, return empty to force selection or handle gracefully.
+            if (!locationId) {
+                console.warn('⚠️ [Tiger Data] No location specified for inventory fetch.');
+                return [];
             }
 
-            // Only throw if dbInventory is null/undefined (connection error)
-            throw new Error('DB Connection failed');
+            const result = await getInventory(locationId);
+
+            if (result.success && result.data) {
+                console.log(`✅ [Tiger Data] Loaded ${result.data.length} items from DB for ${locationId}`);
+                return result.data as InventoryBatch[];
+            }
+
+            // Only throw if success is false 
+            console.error('❌ [Tiger Data] DB Fetch returned error:', result.error);
+            return []; // Return empty if error, but do NOT fall back to mocks. Mocks are for dev only.
         } catch (error) {
-            console.error('❌ [Tiger Data] DB Fetch failed, using MOCK data:', error);
-            // 2. Fallback to Mock Data
-            const { MOCK_INVENTORY } = await import('../mocks');
-            return MOCK_INVENTORY;
+            console.error('❌ [Tiger Data] DB Fetch failed (Exception):', error);
+            return []; // Return empty on crash. NEVER return mock data in this context to avoid confusion.
         }
     },
 

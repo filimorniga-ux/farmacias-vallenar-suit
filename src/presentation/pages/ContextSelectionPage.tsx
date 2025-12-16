@@ -63,7 +63,18 @@ const ContextSelectionPage: React.FC = () => {
                         ¿Dónde inicias turno hoy?
                     </h2>
 
-                    {isLoading && publicLocations.length === 0 ? (
+                    {isLoading ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-pulse">
+                            {[1, 2, 3].map(i => (
+                                <div key={i} className="h-48 bg-white/5 rounded-2xl border border-white/5 p-6">
+                                    <div className="w-12 h-12 bg-white/10 rounded-xl mb-4" />
+                                    <div className="h-8 w-3/4 bg-white/10 rounded-lg mb-2" />
+                                    <div className="h-4 w-1/2 bg-white/5 rounded-lg mb-6" />
+                                    <div className="h-8 w-1/3 bg-white/10 rounded-full" />
+                                </div>
+                            ))}
+                        </div>
+                    ) : publicLocations.length === 0 ? (
                         <div className="flex flex-col items-center justify-center p-12 text-center text-slate-500">
                             <Store size={48} className="mb-4 opacity-20" />
                             <h3 className="text-xl font-bold mb-2">No hay sucursales configuradas</h3>

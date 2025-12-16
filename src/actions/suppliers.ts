@@ -120,3 +120,21 @@ export async function updateSupplier(id: string, data: Partial<Supplier>) {
         return { success: false, error: 'Update failed' };
     }
 }
+
+export async function getSuppliersList() {
+    try {
+        const res = await query('SELECT id, name FROM suppliers WHERE is_active = true ORDER BY name ASC');
+        // Fallback: If 'name' doesn't exist (using business_name/fantasy_name?), use fantasy_name
+        // Wait, schema used in `createSupplier` uses `business_name`, `fantasy_name`.
+        // Let's fix the query to `SELECT id, COALESCE(fantasy_name, business_name) as name ...`
+
+        const res2 = await query(`
+            SELECT id, COALESCE(NULLIF(fantasy_name,''), business_name) as name 
+            FROM suppliers 
+            ORDER BY name ASC
+        `);
+        return res2.rows;
+    } catch (e) {
+        return [];
+    }
+}

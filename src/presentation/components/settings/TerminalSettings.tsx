@@ -1,29 +1,79 @@
-import React, { useState } from 'react';
-import { Monitor, Plus, MapPin, Users, Edit, Trash, X, Save, Check } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Monitor, Plus, MapPin, Users, Edit, Trash, X, Save, Check, RefreshCw } from 'lucide-react';
 import { usePharmaStore } from '../../store/useStore';
 import { Terminal } from '../../../domain/types';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const LOCATIONS = [
-    { id: 'LOC-001', name: 'Sucursal Centro' },
-    { id: 'LOC-002', name: 'Sucursal Norte' },
-    { id: 'LOC-003', name: 'Kiosco' }
-];
-
 export const TerminalSettings: React.FC = () => {
-    const { terminals, addTerminal, updateTerminal, employees } = usePharmaStore();
+    const {
+        terminals,
+        locations,
+        employees,
+        addTerminal,
+        updateTerminal,
+        fetchLocations,
+        fetchTerminals,
+        isLoading
+    } = usePharmaStore();
+
+    const activeLocations = locations.filter(l => l.is_active !== false);
+
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingTerminal, setEditingTerminal] = useState<Terminal | null>(null);
 
+    // Filter/View State
+    // Initialize from localStorage to persist selection across reloads
+    const [selectedViewLocationId, setSelectedViewLocationId] = useState<string>(() => {
+        return localStorage.getItem('settings_view_location_id') || '';
+    });
+
     // Form State
     const [name, setName] = useState('');
-    const [locationId, setLocationId] = useState('LOC-001');
+    const [locationId, setLocationId] = useState('');
     const [allowedUsers, setAllowedUsers] = useState<string[]>([]); // Array of IDs
+
+    // Initial Load
+    useEffect(() => {
+        const load = async () => {
+            await fetchLocations();
+        };
+        load();
+    }, []);
+
+    // Set default view location and fetch terminals when locations load
+    useEffect(() => {
+        if (locations.length > 0) {
+            if (!selectedViewLocationId) {
+                // If nothing in localstorage, default to first active
+                const defaultLoc = activeLocations[0]?.id;
+                // Only set if we actually found one
+                if (defaultLoc) {
+                    setSelectedViewLocationId(defaultLoc);
+                }
+            } else {
+                // FORCE: If stored location is already valid, force FETCH now.
+                // The previous logic relied on the 'persistence' effect, but that only triggers if 'selectedViewLocationId' *changes* or on mount.
+                // If it's the same as default state, it might not fire. Or if hydration is tricky.
+                console.log('🔄 Initial Load: Fetching terminals for', selectedViewLocationId);
+                fetchTerminals(selectedViewLocationId);
+            }
+        }
+    }, [locations]); // Run when locations load
+
+    // Persist to LocalStorage and Fetch whenever it changes
+    useEffect(() => {
+        if (selectedViewLocationId) {
+            localStorage.setItem('settings_view_location_id', selectedViewLocationId);
+            console.log('🔄 View Location Changed: Fetching terminals for', selectedViewLocationId);
+            fetchTerminals(selectedViewLocationId);
+        }
+    }, [selectedViewLocationId]);
 
     const openCreateModal = () => {
         setEditingTerminal(null);
         setName('');
-        setLocationId('LOC-001');
+        // Default to the currently viewing location, or fallback to the first active one
+        setLocationId(selectedViewLocationId || activeLocations[0]?.id || '');
         setAllowedUsers([]);
         setIsModalOpen(true);
     };
@@ -36,24 +86,30 @@ export const TerminalSettings: React.FC = () => {
         setIsModalOpen(true);
     };
 
-    const handleSave = (e: React.FormEvent) => {
+    const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
 
         if (editingTerminal) {
-            updateTerminal(editingTerminal.id, {
+            await updateTerminal(editingTerminal.id, {
                 name,
                 location_id: locationId,
                 allowed_users: allowedUsers
             });
         } else {
-            addTerminal({
+            await addTerminal({
                 name,
                 location_id: locationId,
                 status: 'CLOSED', // Default
-                allowed_users: allowedUsers
+                allowed_users: allowedUsers,
+                printer_config: undefined // Optional
             });
         }
         setIsModalOpen(false);
+
+        // Auto-switch view to the location where we just created the terminal
+        if (locationId !== selectedViewLocationId) {
+            setSelectedViewLocationId(locationId);
+        }
     };
 
     const toggleUser = (userId: string) => {
@@ -64,25 +120,79 @@ export const TerminalSettings: React.FC = () => {
         );
     };
 
+    // 🕵️‍♂️ DEBUG: Frontend Rendering Check
+    console.log('--- DEBUG RENDER ---');
+    console.log('Selected Location:', selectedViewLocationId);
+    console.log('Terminals in State:', terminals);
+    console.log('Is Loading:', isLoading);
+
     return (
         <div className="bg-white rounded-b-3xl shadow-sm border border-t-0 border-slate-200 overflow-hidden max-w-7xl p-8">
-            <div className="flex justify-between items-center mb-8">
-                <div>
-                    <h2 className="text-2xl font-bold text-slate-800">Cajas y Terminales</h2>
-                    <p className="text-slate-500">Administra los puntos de venta y sus permisos.</p>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+                <div className="flex items-center gap-3">
+                    <div>
+                        <h2 className="text-2xl font-bold text-slate-800">Cajas y Terminales</h2>
+                        <p className="text-slate-500">Administra los puntos de venta y sus permisos.</p>
+                    </div>
+                    <button
+                        onClick={() => {
+                            if (selectedViewLocationId) {
+                                console.log('🔄 Manual Refresh requested for:', selectedViewLocationId);
+                                fetchTerminals(selectedViewLocationId);
+                            }
+                        }}
+                        className="p-2 hover:bg-slate-100 rounded-full text-slate-500 hover:text-blue-600 transition-colors"
+                        title="Refrescar lista"
+                    >
+                        <RefreshCw size={20} className={isLoading ? 'animate-spin' : ''} />
+                    </button>
                 </div>
-                <button
-                    onClick={openCreateModal}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition font-bold shadow-lg"
-                >
-                    <Plus size={20} />
-                    Nueva Caja
-                </button>
+
+                <div className="flex items-center gap-4">
+                    {/* Location Filter */}
+                    <div className="relative">
+                        <select
+                            value={selectedViewLocationId}
+                            onChange={(e) => setSelectedViewLocationId(e.target.value)}
+                            className="appearance-none pl-4 pr-10 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50 min-w-[220px] font-medium text-slate-700 cursor-pointer hover:border-blue-400 transition-colors"
+                        >
+                            {activeLocations.length === 0 && <option value="">Cargando sucursales...</option>}
+                            {activeLocations.map(loc => (
+                                <option key={loc.id} value={loc.id}>{loc.name}</option>
+                            ))}
+                        </select>
+                        <MapPin size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    </div>
+
+                    <button
+                        onClick={openCreateModal}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition font-bold shadow-lg whitespace-nowrap"
+                    >
+                        <Plus size={20} />
+                        Nueva Caja
+                    </button>
+                </div>
             </div>
+
+            {/* Empty State */}
+            {!isLoading && terminals.length === 0 && (
+                <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
+                    <Monitor size={48} className="mx-auto text-slate-300 mb-4" />
+                    <h3 className="text-lg font-bold text-slate-600">No hay cajas en esta sucursal</h3>
+                    <p className="text-slate-500 mb-4">Selecciona otra sucursal o crea una nueva caja.</p>
+                </div>
+            )}
+
+            {isLoading && terminals.length === 0 && (
+                <div className="text-center py-12">
+                    <RefreshCw className="animate-spin mx-auto text-blue-500 mb-2" size={32} />
+                    <p className="text-slate-500">Cargando cajas...</p>
+                </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {terminals.map(terminal => {
-                    const locationName = LOCATIONS.find(l => l.id === terminal.location_id)?.name || terminal.location_id;
+                    const locationName = locations.find(l => l.id === terminal.location_id)?.name || 'Sucursal Desconocida';
                     const authorizedCount = terminal.allowed_users?.length || 0;
 
                     return (
@@ -98,6 +208,31 @@ export const TerminalSettings: React.FC = () => {
                                     >
                                         <Edit size={16} />
                                     </button>
+                                    <button
+                                        onClick={() => {
+                                            if (window.confirm('¿Estás seguro de eliminar esta caja? Esta acción no se puede deshacer.')) {
+                                                usePharmaStore.getState().deleteTerminal(terminal.id);
+                                            }
+                                        }}
+                                        className="p-2 bg-white text-slate-600 hover:text-red-600 rounded-lg shadow-sm border border-slate-100"
+                                        title="Eliminar Caja"
+                                    >
+                                        <Trash size={16} />
+                                    </button>
+
+                                    {terminal.status === 'OPEN' && (
+                                        <button
+                                            onClick={() => {
+                                                if (window.confirm('¿FORZAR CIERRE DE CAJA? Esto cerrará la caja sin cuadratura y liberará al cajero. Úsalo solo si la caja quedó "pegada".')) {
+                                                    usePharmaStore.getState().forceCloseTerminal(terminal.id);
+                                                }
+                                            }}
+                                            className="p-2 bg-white text-slate-600 hover:text-orange-600 rounded-lg shadow-sm border border-slate-100"
+                                            title="Forzar Cierre Administrativo"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-lock"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                                        </button>
+                                    )}
                                 </div>
                             </div>
 
@@ -161,7 +296,7 @@ export const TerminalSettings: React.FC = () => {
                                             onChange={e => setLocationId(e.target.value)}
                                             className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white"
                                         >
-                                            {LOCATIONS.map(loc => (
+                                            {activeLocations.map(loc => (
                                                 <option key={loc.id} value={loc.id}>{loc.name}</option>
                                             ))}
                                         </select>
@@ -181,8 +316,8 @@ export const TerminalSettings: React.FC = () => {
                                                     key={emp.id}
                                                     onClick={() => toggleUser(emp.id)}
                                                     className={`cursor-pointer p-3 rounded-lg border flex items-center justify-between transition-all ${isSelected
-                                                            ? 'bg-blue-50 border-blue-500 shadow-sm'
-                                                            : 'bg-white border-slate-200 hover:border-blue-300'
+                                                        ? 'bg-blue-50 border-blue-500 shadow-sm'
+                                                        : 'bg-white border-slate-200 hover:border-blue-300'
                                                         }`}
                                                 >
                                                     <div className="truncate">

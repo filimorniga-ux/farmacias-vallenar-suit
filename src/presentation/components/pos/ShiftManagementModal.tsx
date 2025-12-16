@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { usePharmaStore } from '../../store/useStore';
 import { X, User, DollarSign, Monitor, Lock, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
-import { openTerminal } from '../../../actions/terminals';
+import { openTerminal, getAvailableTerminalsForShift } from '../../../actions/terminals';
+import { Terminal } from '@/domain/types';
 
 interface ShiftManagementModalProps {
     isOpen: boolean;
@@ -10,7 +11,7 @@ interface ShiftManagementModalProps {
 }
 
 const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onClose }) => {
-    const { terminals, employees, openShift, fetchLocations, locations, fetchTerminals } = usePharmaStore();
+    const { employees, openShift, fetchLocations, locations } = usePharmaStore();
 
     const [selectedLocation, setSelectedLocation] = useState('');
     const [selectedTerminal, setSelectedTerminal] = useState('');
@@ -18,6 +19,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     const [openingAmount, setOpeningAmount] = useState('');
     const [managerPin, setManagerPin] = useState('');
     const [step, setStep] = useState<'DETAILS' | 'AUTH'>('DETAILS');
+    const [availableTerminals, setAvailableTerminals] = useState<Terminal[]>([]);
 
     useEffect(() => {
         if (isOpen) {
@@ -34,6 +36,9 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     }, [isOpen, employees]);
 
     const availableLocations = locations.filter(l => {
+        // Exclude inactive locations
+        if (l.is_active === false) return false;
+
         const user = usePharmaStore.getState().user;
         // If Manager/Admin of a specific branch, restrict. If Global, allow all.
         // Assuming 'assigned_location_id' dictates the restriction.
@@ -45,14 +50,24 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
 
     useEffect(() => {
         if (selectedLocation) {
-            fetchTerminals(selectedLocation);
+            // Fetch truly available terminals from server (Active, Not Deleted, No Open Session)
+            getAvailableTerminalsForShift(selectedLocation).then(res => {
+                if (res.success && res.data) {
+                    setAvailableTerminals(res.data as Terminal[]);
+                } else {
+                    setAvailableTerminals([]);
+                    toast.error('Error cargando terminales disponibles');
+                }
+            });
             setSelectedTerminal(''); // Reset terminal when location changes
+        } else {
+            setAvailableTerminals([]);
         }
-    }, [selectedLocation, fetchTerminals]);
+    }, [selectedLocation]);
 
     if (!isOpen) return null;
 
-    const availableTerminals = terminals.filter(t => t.status === 'CLOSED');
+    // const availableTerminals = terminals.filter(t => t.status === 'CLOSED'); // Replaced by server-side fetch
     const cashiers = employees.filter(e => {
         const isRoleValid = ['CASHIER', 'QF', 'MANAGER', 'ADMIN'].includes(e.role);
 
@@ -140,7 +155,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                                             className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-cyan-500 outline-none appearance-none"
                                         >
                                             <option value="">Seleccione Sucursal...</option>
-                                            {locations.map(loc => (
+                                            {availableLocations.map(loc => (
                                                 <option key={loc.id} value={loc.id}>{loc.name}</option>
                                             ))}
                                         </select>

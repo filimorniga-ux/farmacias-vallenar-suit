@@ -70,9 +70,9 @@ export const useLocationStore = create<LocationState>()(
             },
 
             canSwitchLocation: (userRole) => {
-                // MANAGER and QF can switch freely
+                // MANAGER, ADMIN, and QF can switch freely
                 // CASHIER and WAREHOUSE are locked to their assigned location
-                return userRole === 'MANAGER' || userRole === 'QF';
+                return userRole === 'MANAGER' || userRole === 'ADMIN' || userRole === 'QF';
             },
 
             registerKiosk: (kiosk) => set((state) => ({

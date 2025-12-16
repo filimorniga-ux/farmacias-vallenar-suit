@@ -49,8 +49,8 @@ const LocationSwitcher: React.FC = () => {
             switchLocation(locationId, () => {
 
                 // 3. Update Pharma Store (Persisted & Actions Context)
-                // We resolve the default warehouse for this location if it's a store
-                const warehouseId = target.default_warehouse_id || (target.type === 'WAREHOUSE' ? target.id : '');
+                // We resolve the default warehouse for this location. If none, use the location itself.
+                const warehouseId = target.default_warehouse_id || target.id;
 
                 // Update Global Store
                 setCurrentLocation(target.id, warehouseId, '');

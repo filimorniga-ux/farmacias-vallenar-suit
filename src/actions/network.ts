@@ -15,50 +15,89 @@ export interface LocationInput {
 export interface TerminalInput {
     name: string;
     location_id: string; // The Store ID
+    allowed_users?: string[]; // IDs of employees allowed to use this terminal
     printer_config?: {
         receipt_printer_id?: string;
         label_printer_id?: string;
     };
 }
 
+// --- Migrations ---
+async function ensureParentIdColumn() { try { await query(`ALTER TABLE locations ADD COLUMN IF NOT EXISTS parent_id UUID;`); } catch (e) { } }
+async function ensureDefaultWarehouseColumn() { try { await query(`ALTER TABLE locations ADD COLUMN IF NOT EXISTS default_warehouse_id UUID;`); } catch (e) { } }
+async function ensureUserLocationColumn() { try { await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_location_id UUID;`); } catch (e) { } }
+async function ensureExtendedColumns() {
+    try {
+        await query(`ALTER TABLE locations ADD COLUMN IF NOT EXISTS phone VARCHAR(50);`);
+        await query(`ALTER TABLE locations ADD COLUMN IF NOT EXISTS email VARCHAR(100);`);
+        await query(`ALTER TABLE locations ADD COLUMN IF NOT EXISTS manager_id UUID;`);
+    } catch (e) { }
+}
+async function ensureActiveColumn() { try { await query(`ALTER TABLE locations ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;`); } catch (e) { } }
+async function ensureConfigColumn() { try { await query(`ALTER TABLE locations ADD COLUMN IF NOT EXISTS config JSONB DEFAULT '{}';`); } catch (e) { } }
+async function ensureTerminalColumns() {
+    try {
+        await query(`
+            ALTER TABLE terminals 
+            ADD COLUMN IF NOT EXISTS config JSONB DEFAULT '{}',
+            ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true,
+            ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP,
+            ADD COLUMN IF NOT EXISTS allowed_users TEXT[] DEFAULT '{}'
+        `);
+    } catch (e) {
+        console.warn('Migration warning:', e);
+    }
+}
+
+
 // --- Data Fetching ---
 
 export async function getLocationsWithTerminals() {
     try {
         await ensureActiveColumn(); // Ensure column exists
+        await ensureConfigColumn();
+        await ensureTerminalColumns();
+
         // 1. Fetch Locations
-        const locRes = await query('SELECT * FROM locations WHERE is_active = true ORDER BY created_at ASC');
-        const locations: Location[] = locRes.rows.map(row => ({
+        // Optimized Query: 1 Round-trip, 0 Loops
+        const queryText = `
+            SELECT 
+                l.id, l.name, l.address, l.type, l.default_warehouse_id, l.parent_id, l.config,
+                COALESCE(
+                    json_agg(
+                        json_build_object(
+                            'id', t.id, 
+                            'name', t.name, 
+                            'location_id', t.location_id, 
+                            'status', t.status,
+                            'allowed_users', t.allowed_users
+                        ) ORDER BY t.name ASC
+                    ) FILTER (WHERE t.id IS NOT NULL AND t.status != 'DELETED'), 
+                    '[]'
+                ) as terminals
+            FROM locations l
+            LEFT JOIN terminals t ON t.location_id = l.id
+            WHERE (l.is_active = true OR l.is_active IS NULL)
+            GROUP BY l.id
+            ORDER BY l.name ASC
+        `;
+
+        const res = await query(queryText);
+
+        // Map to domain types
+        const locations: Location[] = res.rows.map(row => ({
             id: row.id,
             name: row.name,
             address: row.address,
             type: row.type || 'STORE',
             default_warehouse_id: row.default_warehouse_id,
             parent_id: row.parent_id,
-            associated_kiosks: [], // Will populate
+            associated_kiosks: row.terminals.map((t: any) => t.id), // Populate for compatibility
             config: row.config || {}
         }));
 
-        // 2. Fetch Terminals
-        const termRes = await query("SELECT * FROM terminals WHERE status != 'DELETED'");
-        const terminals: Terminal[] = termRes.rows.map(row => ({
-            id: row.id,
-            location_id: row.location_id,
-            name: row.name,
-            status: row.status,
-            config: row.config || {}
-        }));
-
-        // 3. Nest Terminals into Locations (for frontend convenience if matching type)
-        // Note: The domain type 'Location' has 'associated_kiosks' which is string[] usually. 
-        // We might want to just return them separately or map IDs.
-        // Let's rely on mapping IDs to 'associated_kiosks' for compatibility.
-
-        locations.forEach(loc => {
-            loc.associated_kiosks = terminals
-                .filter(t => t.location_id === loc.id)
-                .map(t => t.id);
-        });
+        // Flatten terminals for the return object
+        const terminals: Terminal[] = res.rows.flatMap(row => row.terminals);
 
         return { success: true, locations, terminals };
 
@@ -146,20 +185,23 @@ export async function createTerminal(data: TerminalInput) {
     const id = uuidv4();
 
     try {
-        await ensureTerminalConfigColumn();
+        // Ensure migration has run here
+        await ensureTerminalColumns();
         const configJson = data.printer_config ? JSON.stringify(data.printer_config) : '{}';
 
+        // Pass allowed_users or empty array
+        const allowedUsers = data.allowed_users || [];
+
         await query(`
-            INSERT INTO terminals (id, location_id, name, status, config, created_at)
-            VALUES ($1, $2, $3, 'CLOSED', $4, NOW())
-        `, [id, data.location_id, data.name, configJson]);
+            INSERT INTO terminals (id, location_id, name, status, config, created_at, is_active, allowed_users)
+            VALUES ($1, $2, $3, 'CLOSED', $4, NOW(), true, $5)
+        `, [id, data.location_id, data.name, configJson, allowedUsers]);
 
-        revalidatePath('/settings/organization');
+        // revalidatePath('/settings/organization');
         return { success: true, id };
-
     } catch (error) {
         console.error('Error creating terminal:', error);
-        return { success: false, error: 'Failed to create terminal' };
+        return { success: false, error: 'Failed to create terminal: ' + (error as any).message };
     }
 }
 
@@ -178,7 +220,7 @@ export async function assignEmployeeToLocation(userId: string, locationId: strin
 
 export async function updateLocationDetails(
     id: string,
-    data: { name: string; address?: string; phone?: string; email?: string; manager_id?: string }
+    data: { name: string; address?: string; phone?: string; email?: string; manager_id?: string; is_active?: boolean }
 ) {
     try {
         await ensureExtendedColumns();
@@ -191,6 +233,7 @@ export async function updateLocationDetails(
         if (data.phone !== undefined) { fields.push(`phone = $${idx++}`); values.push(data.phone); }
         if (data.email !== undefined) { fields.push(`email = $${idx++}`); values.push(data.email); }
         if (data.manager_id !== undefined) { fields.push(`manager_id = $${idx++}`); values.push(data.manager_id || null); }
+        if (data.is_active !== undefined) { fields.push(`is_active = $${idx++}`); values.push(data.is_active); }
 
         if (fields.length === 0) return { success: true };
         values.push(id);
@@ -213,17 +256,3 @@ export async function deactivateLocation(id: string) {
         return { success: false, error: 'Deactivation Failed' };
     }
 }
-
-// --- Migrations ---
-async function ensureParentIdColumn() { try { await query(`ALTER TABLE locations ADD COLUMN IF NOT EXISTS parent_id UUID;`); } catch (e) { } }
-async function ensureDefaultWarehouseColumn() { try { await query(`ALTER TABLE locations ADD COLUMN IF NOT EXISTS default_warehouse_id UUID;`); } catch (e) { } }
-async function ensureTerminalConfigColumn() { try { await query(`ALTER TABLE terminals ADD COLUMN IF NOT EXISTS config JSONB DEFAULT '{}';`); } catch (e) { } }
-async function ensureUserLocationColumn() { try { await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_location_id UUID;`); } catch (e) { } }
-async function ensureExtendedColumns() {
-    try {
-        await query(`ALTER TABLE locations ADD COLUMN IF NOT EXISTS phone VARCHAR(50);`);
-        await query(`ALTER TABLE locations ADD COLUMN IF NOT EXISTS email VARCHAR(100);`);
-        await query(`ALTER TABLE locations ADD COLUMN IF NOT EXISTS manager_id UUID;`);
-    } catch (e) { }
-}
-async function ensureActiveColumn() { try { await query(`ALTER TABLE locations ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;`); } catch (e) { } }

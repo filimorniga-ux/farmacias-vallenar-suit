@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { Location, EmployeeProfile } from '@/domain/types';
-import { updateLocationDetails, deactivateLocation } from '@/actions/network';
+import { updateLocationDetails } from '@/actions/network';
+import { deleteLocation } from '@/actions/locations';
 import { getUsers } from '@/actions/users';
 import { X, Save, Trash2, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
@@ -13,6 +14,7 @@ interface LocationEditModalProps {
     onUpdate: () => void; // Trigger reload or state update
 }
 
+// Location Editing Modal
 export default function LocationEditModal({ location, onClose, onUpdate }: LocationEditModalProps) {
     const [isLoading, setIsLoading] = useState(false);
     const [managers, setManagers] = useState<EmployeeProfile[]>([]);
@@ -23,7 +25,8 @@ export default function LocationEditModal({ location, onClose, onUpdate }: Locat
         address: location.address,
         phone: (location as any).phone || '', // Cast to any if type is not updated yet in frontend types
         email: (location as any).email || '',
-        manager_id: (location as any).manager_id || ''
+        manager_id: (location as any).manager_id || '',
+        is_active: location.is_active !== false // Default to true
     });
 
     useEffect(() => {
@@ -57,18 +60,37 @@ export default function LocationEditModal({ location, onClose, onUpdate }: Locat
     };
 
     const handleDelete = async () => {
-        if (!confirm('¿Estás seguro de desactivar esta sucursal? Esta acción no elimina datos históricos pero la ocultará de listas activas.')) return;
+        if (!confirm('PELIGRO: ¿Estás seguro de ELIMINAR permanentemente esta sucursal? Si tiene datos históricos, la operación será bloqueada por seguridad.')) return;
 
         setIsLoading(true);
         try {
-            const res = await deactivateLocation(location.id);
+            const res = await deleteLocation(location.id);
             if (res.success) {
-                toast.success('Sucursal desactivada');
+                toast.success('Sucursal eliminada permanentemente');
                 onUpdate(); // Should fetch list again
                 onClose();
             } else {
-                toast.error('No se pudo desactivar');
+                // Smart Fallback: Suggest Deactivation
+                if (res.error && res.error.includes('No se puede eliminar')) {
+                    const shouldDeactivate = confirm(`${res.error}\n\n¿Deseas DESACTIVARLA en su lugar? Esto la ocultará de los selectores pero mantendrá la integridad de datos.`);
+
+                    if (shouldDeactivate) {
+                        const updateRes = await updateLocationDetails(location.id, { ...form, is_active: false });
+                        if (updateRes.success) {
+                            toast.success('Sucursal desactivada (marcada como cerrada)');
+                            onUpdate();
+                            onClose();
+                            return;
+                        } else {
+                            toast.error('Error al desactivar: ' + updateRes.error);
+                        }
+                    }
+                } else {
+                    toast.error(res.error || 'No se pudo eliminar');
+                }
             }
+        } catch (e) {
+            toast.error('Error de conexión');
         } finally {
             setIsLoading(false);
         }
@@ -153,6 +175,21 @@ export default function LocationEditModal({ location, onClose, onUpdate }: Locat
                             <p className="text-xs text-slate-500 mt-1">Solo usuarios con rol MANAGER o ADMIN.</p>
                         </div>
 
+                        {/* Status Toggle */}
+                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-center justify-between">
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700">Estado de Sucursal</label>
+                                <p className="text-xs text-slate-500">Desactiva para ocultar sin eliminar datos.</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setForm({ ...form, is_active: !form.is_active })}
+                                className={`w-12 h-6 rounded-full transition-colors relative ${form.is_active ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                            >
+                                <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-all ${form.is_active ? 'left-7' : 'left-1'}`} />
+                            </button>
+                        </div>
+
                     </form>
 
                     {/* Danger Zone */}
@@ -165,7 +202,7 @@ export default function LocationEditModal({ location, onClose, onUpdate }: Locat
                             onClick={handleDelete}
                             className="w-full py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 text-sm font-medium flex items-center justify-center gap-2 transition-colors"
                         >
-                            <Trash2 size={16} /> Desactivar esta ubicación
+                            <Trash2 size={16} /> Eliminar Sucursal Permanentemente
                         </button>
                     </div>
 
@@ -185,7 +222,7 @@ export default function LocationEditModal({ location, onClose, onUpdate }: Locat
                         {isLoading ? 'Guardando...' : <><Save size={18} /> Guardar Cambios</>}
                     </button>
                 </div>
-            </div>
-        </div>
+            </div >
+        </div >
     );
 }

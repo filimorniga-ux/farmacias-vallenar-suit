@@ -1,9 +1,13 @@
 import React, { useState } from 'react';
 import { useLocationStore } from '../store/useLocationStore';
 import { usePharmaStore } from '../store/useStore';
-import { MapPin, Warehouse, Store, Plus, Tablet, QrCode, Settings, CheckCircle, XCircle, Users, Shield, ArrowRightLeft, UserPlus, Monitor } from 'lucide-react';
+import { createLocation } from '@/actions/locations';
+import { updateUser } from '@/actions/users';
+import { MapPin, Warehouse, Store, Plus, Tablet, QrCode, Settings, CheckCircle, Users, Shield, ArrowRightLeft, Monitor } from 'lucide-react';
 import { Location, EmployeeProfile } from '../../domain/types';
+import LocationEditModal from '../components/settings/LocationEditModal';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 
 const NetworkPage = () => {
     const { locations, kiosks, currentLocation, addLocation, switchLocation, generatePairingCode } = useLocationStore();
@@ -14,25 +18,32 @@ const NetworkPage = () => {
     const [isWizardOpen, setIsWizardOpen] = useState(false);
     const [newLocation, setNewLocation] = useState<Partial<Location>>({ type: 'STORE', name: '', address: '' });
     const [pairingCode, setPairingCode] = useState<string | null>(null);
+    const [editingLocation, setEditingLocation] = useState<Location | null>(null);
 
     // Manager Promotion State
     const [promotionTarget, setPromotionTarget] = useState<EmployeeProfile | null>(null);
     const [managerPin, setManagerPin] = useState('');
 
-    const handleCreateLocation = () => {
+    const handleCreateLocation = async () => {
         if (!newLocation.name || !newLocation.address) return;
 
-        const location: Location = {
-            id: `LOC-${Date.now()}`,
-            type: newLocation.type as any,
-            name: newLocation.name!,
-            address: newLocation.address!,
-            associated_kiosks: []
-        };
+        try {
+            const res = await createLocation({
+                ...newLocation,
+                type: newLocation.type as any
+            });
 
-        addLocation(location);
-        setIsWizardOpen(false);
-        setNewLocation({ type: 'STORE', name: '', address: '' });
+            if (res.success && res.data) {
+                toast.success('Ubicación creada exitosamente');
+                addLocation(res.data); // Update local store
+                setIsWizardOpen(false);
+                setNewLocation({ type: 'STORE', name: '', address: '' });
+            } else {
+                toast.error(res.error || 'Error al crear ubicación');
+            }
+        } catch (error) {
+            toast.error('Error de conexión');
+        }
     };
 
     const handleGenerateCode = (kioskId: string) => {
@@ -40,64 +51,115 @@ const NetworkPage = () => {
         setPairingCode(code);
     };
 
+    const handleMoveEmployee = async (employee: EmployeeProfile, targetLocationId: string | null) => {
+        if (!currentLocation && targetLocationId) return;
+
+        try {
+            // Optimistic Update (Store) - Not implemented in store yet, so we rely on fetch
+            // Call Backend
+            // We need to pass full object to updateUser? No, it takes Partial.
+            const res = await updateUser(employee.id, {
+                // Pass full object to prevent overwriting with nulls in backend
+                ...employee,
+                assigned_location_id: targetLocationId || undefined // undefined might not work if logic expects string or null.
+            } as any);
+
+
+            if (res.success) {
+                toast.success('Personal reasignado');
+                // Refresh Employees
+                usePharmaStore.getState().syncData();
+            } else {
+                toast.error('Error al mover personal: ' + res.error);
+            }
+        } catch (error) {
+            toast.error('Error de conexión');
+        }
+    };
+
+
     // --- RENDERERS ---
 
     const renderBranches = () => (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto pb-20">
-            {locations.map(location => (
-                <div key={location.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden group hover:shadow-md transition-all">
-                    <div className="p-6 border-b border-slate-100 flex justify-between items-start">
-                        <div className="flex items-start gap-3">
-                            <div className={`p-3 rounded-xl ${location.type === 'WAREHOUSE' ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'}`}>
-                                {location.type === 'WAREHOUSE' ? <Warehouse size={24} /> : <Store size={24} />}
-                            </div>
-                            <div>
-                                <h3 className="font-bold text-slate-800 text-lg">{location.name}</h3>
-                                <p className="text-xs text-slate-500 font-medium">{location.type === 'HQ' ? 'Casa Matriz' : location.type === 'WAREHOUSE' ? 'Bodega' : 'Sucursal'}</p>
-                            </div>
-                        </div>
-                        <button className="text-slate-300 hover:text-slate-600 transition-colors">
-                            <Settings size={18} />
-                        </button>
-                    </div>
-
-                    {/* KPIs */}
-                    <div className="grid grid-cols-3 gap-2 p-4 border-b border-slate-100 bg-slate-50/50">
-                        <div className="text-center">
-                            <p className="text-xs text-slate-400 font-bold">VENTAS</p>
-                            <p className="text-sm font-bold text-slate-700">$1.2M</p>
-                        </div>
-                        <div className="text-center border-l border-slate-200">
-                            <p className="text-xs text-slate-400 font-bold">PERSONAL</p>
-                            <p className="text-sm font-bold text-slate-700">
-                                {employees.filter(e => e.assigned_location_id === location.id || (!e.assigned_location_id && e.base_location_id === location.id)).length}
-                            </p>
-                        </div>
-                        <div className="text-center border-l border-slate-200">
-                            <p className="text-xs text-slate-400 font-bold">ALERTAS</p>
-                            <p className="text-sm font-bold text-red-500">3</p>
-                        </div>
-                    </div>
-
-                    <div className="p-6 space-y-4">
-                        <div>
-                            <p className="text-xs font-bold text-slate-400 uppercase mb-1">Dirección</p>
-                            <p className="text-sm text-slate-600 flex items-center gap-1">
-                                <MapPin size={14} /> {location.address}
-                            </p>
-                        </div>
-                    </div>
-
-                    <div className="bg-slate-50 p-4 border-t border-slate-100 flex justify-between items-center">
-                        <span className="text-xs font-bold text-slate-500">ID: {location.id}</span>
-                        {currentLocation?.id === location.id && (
-                            <span className="flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-100 px-2 py-1 rounded-full">
-                                <CheckCircle size={12} /> Contexto Activo
-                            </span>
-                        )}
-                    </div>
+        <div className="h-full overflow-y-auto pb-20">
+            {locations.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-[50vh] text-slate-400">
+                    <Store size={48} className="mb-4 text-slate-200" />
+                    <h3 className="text-lg font-bold text-slate-600 mb-2">No hay sucursales registradas</h3>
+                    <p className="text-sm mb-6 text-center max-w-xs">Comienza creando tu primera sucursal o bodega para operar la red.</p>
+                    <button
+                        onClick={() => setIsWizardOpen(true)}
+                        className="bg-cyan-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-cyan-700 transition w-fit"
+                    >
+                        Crear Primera Sucursal
+                    </button>
                 </div>
-            ))}
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {locations.map(location => (
+                        <div key={location.id} className={`bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden group hover:shadow-md transition-all ${location.is_active === false ? 'opacity-60 grayscale' : ''}`}>
+                            <div className="p-6 border-b border-slate-100 flex justify-between items-start">
+                                <div className="flex items-start gap-3">
+                                    <div className={`p-3 rounded-xl ${location.type === 'WAREHOUSE' ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'}`}>
+                                        {location.type === 'WAREHOUSE' ? <Warehouse size={24} /> : <Store size={24} />}
+                                    </div>
+                                    <div>
+                                        <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
+                                            {location.name}
+                                            {location.is_active === false && (
+                                                <span className="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full uppercase tracking-wider">Cerrado</span>
+                                            )}
+                                        </h3>
+                                        <p className="text-xs text-slate-500 font-medium">{location.type === 'HQ' ? 'Casa Matriz' : location.type === 'WAREHOUSE' ? 'Bodega' : 'Sucursal'}</p>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => setEditingLocation(location)}
+                                    className="text-slate-300 hover:text-slate-600 transition-colors"
+                                >
+                                    <Settings size={18} />
+                                </button>
+                            </div>
+
+                            {/* KPIs */}
+                            <div className="grid grid-cols-3 gap-2 p-4 border-b border-slate-100 bg-slate-50/50">
+                                <div className="text-center">
+                                    <p className="text-xs text-slate-400 font-bold">VENTAS</p>
+                                    <p className="text-sm font-bold text-slate-700">$1.2M</p>
+                                </div>
+                                <div className="text-center border-l border-slate-200">
+                                    <p className="text-xs text-slate-400 font-bold">PERSONAL</p>
+                                    <p className="text-sm font-bold text-slate-700">
+                                        {employees.filter(e => e.assigned_location_id === location.id || (!e.assigned_location_id && e.base_location_id === location.id)).length}
+                                    </p>
+                                </div>
+                                <div className="text-center border-l border-slate-200">
+                                    <p className="text-xs text-slate-400 font-bold">ALERTAS</p>
+                                    <p className="text-sm font-bold text-red-500">3</p>
+                                </div>
+                            </div>
+
+                            <div className="p-6 space-y-4">
+                                <div>
+                                    <p className="text-xs font-bold text-slate-400 uppercase mb-1">Dirección</p>
+                                    <p className="text-sm text-slate-600 flex items-center gap-1">
+                                        <MapPin size={14} /> {location.address}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="bg-slate-50 p-4 border-t border-slate-100 flex justify-between items-center">
+                                <span className="text-xs font-bold text-slate-500">ID: {location.id}</span>
+                                {currentLocation?.id === location.id && (
+                                    <span className="flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-100 px-2 py-1 rounded-full">
+                                        <CheckCircle size={12} /> Contexto Activo
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 
@@ -121,10 +183,15 @@ const NetworkPage = () => {
                                 </div>
                             </div>
                             <div className="text-right">
-                                <p className="text-xs font-bold text-slate-400">{emp.assigned_location_id || 'Sin Asignar'}</p>
-                                <button className="text-xs text-cyan-600 font-bold opacity-0 group-hover:opacity-100 transition-opacity">
-                                    Mover a {currentLocation?.name}
-                                </button>
+                                <p className="text-xs font-bold text-slate-400">{locations.find(l => l.id === emp.assigned_location_id)?.name || 'Sin Asignar'}</p>
+                                {currentLocation && (
+                                    <button
+                                        onClick={() => handleMoveEmployee(emp, currentLocation.id)}
+                                        className="text-xs text-cyan-600 font-bold opacity-0 group-hover:opacity-100 transition-opacity hover:underline"
+                                    >
+                                        Mover a {currentLocation.name}
+                                    </button>
+                                )}
                             </div>
                         </div>
                     ))}
@@ -149,7 +216,11 @@ const NetworkPage = () => {
                                         <p className="text-xs text-slate-500">{emp.job_title}</p>
                                     </div>
                                 </div>
-                                <button className="p-2 text-slate-400 hover:text-red-500 transition-colors">
+                                <button
+                                    onClick={() => handleMoveEmployee(emp, null)}
+                                    title="Desvincular (Enviar a Global)"
+                                    className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+                                >
                                     <ArrowRightLeft size={16} />
                                 </button>
                             </div>
@@ -431,6 +502,18 @@ const NetworkPage = () => {
                         </button>
                     </div>
                 </div>
+            )}
+            {/* Edit Modal */}
+            {editingLocation && (
+                <LocationEditModal
+                    location={editingLocation}
+                    onClose={() => setEditingLocation(null)}
+                    onUpdate={() => {
+                        // Refresh Data
+                        const { fetchLocations } = useLocationStore.getState();
+                        fetchLocations();
+                    }}
+                />
             )}
         </div>
     );

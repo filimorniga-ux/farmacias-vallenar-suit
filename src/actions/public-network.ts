@@ -20,6 +20,7 @@ export async function getPublicLocations(): Promise<{ success: boolean; data?: P
         const res = await query(`
             SELECT id, name, address, type 
             FROM locations 
+            WHERE (is_active = true OR is_active IS NULL)
             ORDER BY name ASC
         `);
 

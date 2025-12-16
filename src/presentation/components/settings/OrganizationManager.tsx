@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Location, Terminal, EmployeeProfile } from '@/domain/types';
-import { MapPin, Warehouse, Monitor, Users, Plus, X, ChevronRight, Printer, UserPlus, CheckCircle } from 'lucide-react';
+import { MapPin, Warehouse, Monitor, Users, Plus, X, ChevronRight, Printer, UserPlus, CheckCircle, User, Clock, FileText, Edit2, Trash2 } from 'lucide-react';
 import { createLocation, createWarehouse, createTerminal, assignEmployeeToLocation } from '@/actions/network';
 import { getTerminalsByLocation } from '@/actions/terminals';
 import { getUsers } from '@/actions/users';
@@ -318,18 +318,92 @@ function LocationDetailDrawer({ location, allLocations, onClose }: { location: L
                         {loading && <p className="text-center text-slate-400 py-4">Cargando...</p>}
                         {!loading && terminals.length === 0 && <EmptyState text="No hay terminales activos." />}
                         {terminals.map(t => (
-                            <div key={t.id} className="bg-white p-4 rounded-xl border border-slate-100 flex flex-col gap-2 shadow-sm">
-                                <div className="flex justify-between items-center">
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><Monitor size={18} /></div>
-                                        <span className="font-medium text-slate-700">{t.name}</span>
+                            <div key={t.id} className={`bg-white p-4 rounded-xl border ${t.status === 'OPEN' ? 'border-green-200 shadow-green-100' : 'border-slate-200'} shadow-sm flex items-center justify-between`}>
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${t.status === 'OPEN' ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-400'}`}>
+                                        <Monitor size={20} />
                                     </div>
-                                    <span className={`text-xs px-2 py-1 rounded ${t.status === 'OPEN' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                                        {t.status === 'OPEN' ? 'ABIERTO' : 'CERRADO'}
-                                    </span>
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <h4 className="font-bold text-slate-800">{t.name}</h4>
+                                            {t.status === 'OPEN' ? (
+                                                <span className="bg-green-100 text-green-700 text-[10px] px-2 py-0.5 rounded-full font-bold">OPERATIVA</span>
+                                            ) : (
+                                                <span className="bg-slate-100 text-slate-500 text-[10px] px-2 py-0.5 rounded-full font-bold border border-slate-200">CERRADA</span>
+                                            )}
+                                        </div>
+                                        <div className="flex gap-4 mt-1">
+                                            {t.current_cashier_name && (
+                                                <div className="flex items-center gap-1 text-xs text-slate-500">
+                                                    <User size={12} /> {t.current_cashier_name}
+                                                </div>
+                                            )}
+                                            {t.opened_at && (
+                                                <div className="flex items-center gap-1 text-xs text-slate-500">
+                                                    <Clock size={12} /> {new Date(t.opened_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                </div>
+                                            )}
+                                            {t.blind_counts_count !== undefined && t.blind_counts_count > 0 && (
+                                                <div className="flex items-center gap-1 text-xs text-amber-600 font-bold bg-amber-50 px-2 rounded-full">
+                                                    <FileText size={10} /> {t.blind_counts_count} Arqueos
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
-                                <div className="flex gap-2 mt-2">
-                                    <button className="text-xs flex items-center gap-1 text-slate-400 hover:text-cyan-600"><Printer size={12} /> Configurar Impresoras</button>
+
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => {
+                                            const newName = prompt("Nuevo nombre:", t.name);
+                                            if (newName && newName !== t.name) {
+                                                import('@/actions/terminals').then(({ updateTerminal }) => {
+                                                    toast.promise(updateTerminal(t.id, { name: newName }), {
+                                                        loading: 'Actualizando...',
+                                                        success: () => { window.location.reload(); return 'Nombre actualizado'; },
+                                                        error: 'Error'
+                                                    });
+                                                });
+                                            }
+                                        }}
+                                        className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                                        title="Editar Nombre"
+                                    >
+                                        <Edit2 size={18} />
+                                    </button>
+
+                                    {t.status === 'CLOSED' ? (
+                                        <button
+                                            onClick={() => {
+                                                if (confirm('¿Seguro que deseas eliminar esta caja? Esta acción no se puede deshacer.')) {
+                                                    import('@/actions/terminals').then(({ deleteTerminal }) => {
+                                                        toast.promise(deleteTerminal(t.id), {
+                                                            loading: 'Eliminando...',
+                                                            success: () => { window.location.reload(); return 'Terminal eliminado'; },
+                                                            error: (err) => err.message || 'Error al eliminar'
+                                                        });
+                                                    });
+                                                }
+                                            }}
+                                            className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                            title="Eliminar Terminal"
+                                        >
+                                            <Trash2 size={18} />
+                                        </button>
+                                    ) : (
+                                        <div title="Caja con turno abierto" className="p-2 text-slate-200 cursor-not-allowed">
+                                            <Trash2 size={18} />
+                                        </div>
+                                    )}
+
+                                    <div className="w-px h-8 bg-slate-100 mx-1"></div>
+
+                                    <button className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+                                        <Printer size={18} />
+                                    </button>
+                                    <button className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+                                        <Settings size={18} />
+                                    </button>
                                 </div>
                             </div>
                         ))}

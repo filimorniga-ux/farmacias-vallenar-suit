@@ -14,6 +14,7 @@ export interface Location {
     parent_id?: string;
     default_warehouse_id?: string; // NEW: Explicit WMS link
     config?: LocationConfig;
+    is_active?: boolean; // NEW: Status toggle
 }
 
 export interface LocationConfig {
@@ -272,6 +273,17 @@ export interface Terminal {
     status: 'OPEN' | 'CLOSED';
     allowed_users?: string[]; // IDs of employees allowed to use this terminal. Empty = All.
     current_cashier_id?: string; // If OPEN, who is using it
+    // Telementry
+    current_cashier_name?: string;
+    opened_at?: number;
+    authorized_by_name?: string;
+    blind_counts_count?: number;
+    is_active?: boolean;
+    deleted_at?: string; // For soft deletes
+    printer_config?: {
+        receipt_printer_id?: string;
+        label_printer_id?: string;
+    };
 }
 
 export interface Warehouse {

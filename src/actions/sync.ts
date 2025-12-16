@@ -101,7 +101,7 @@ export async function fetchInventory(warehouseId?: string): Promise<InventoryBat
 
 export async function fetchEmployees(): Promise<EmployeeProfile[]> {
     try {
-        const res = await query('SELECT * FROM users');
+        const res = await query("SELECT * FROM users ORDER BY CASE WHEN role = 'ADMIN' THEN 1 WHEN role = 'MANAGER' THEN 2 ELSE 3 END, name ASC");
 
         return res.rows.map((row: any) => ({
             id: row.id.toString(),
@@ -109,6 +109,7 @@ export async function fetchEmployees(): Promise<EmployeeProfile[]> {
             name: row.name,
             role: row.role,
             access_pin: row.access_pin || row.pin, // Match DB column (access_pin)
+            assigned_location_id: row.assigned_location_id?.toString(),
             status: row.status,
             current_status: 'OUT',
             job_title: row.job_title || 'EMPLEADO',
@@ -167,7 +168,8 @@ export async function fetchLocations(): Promise<Location[]> {
             address: row.address || '',
             associated_kiosks: [],
             parent_id: row.parent_id?.toString(),
-            default_warehouse_id: row.default_warehouse_id?.toString()
+            default_warehouse_id: row.default_warehouse_id?.toString(),
+            is_active: row.is_active !== false // Default to true if null
         }));
     } catch (error) {
         console.error('Error fetching locations:', error);

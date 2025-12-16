@@ -17,7 +17,7 @@ import MobileActionScroll from '../components/ui/MobileActionScroll';
 import { toast } from 'sonner';
 
 const InventoryPage: React.FC = () => {
-    const { inventory, user, currentLocationId } = usePharmaStore();
+    const { inventory, user, currentLocationId, setCurrentLocation } = usePharmaStore();
     const { locations } = useLocationStore();
     const activeLocation = locations.find(l => l.id === currentLocationId);
     const [searchTerm, setSearchTerm] = useState('');
@@ -29,6 +29,11 @@ const InventoryPage: React.FC = () => {
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
     const [editingItem, setEditingItem] = useState<any>(null);
+
+    // Nuclear Delete State
+    const [isNuclearModalOpen, setIsNuclearModalOpen] = useState(false);
+    const [nuclearConfirmation, setNuclearConfirmation] = useState('');
+    const [isDeleting, setIsDeleting] = useState(false);
 
     const [isScannerOpen, setIsScannerOpen] = useState(false);
 
@@ -142,6 +147,35 @@ const InventoryPage: React.FC = () => {
         );
     }
 
+    // --- Nuclear Option ---
+    const handleNuclearDelete = async () => {
+        if (!activeLocation) return;
+        if (nuclearConfirmation.toUpperCase() !== 'BORRAR') {
+            toast.error('Escribe "BORRAR" para confirmar.');
+            return;
+        }
+
+        setIsDeleting(true);
+        try {
+            const { clearLocationInventory } = await import('../../actions/inventory');
+            const result = await clearLocationInventory(activeLocation.id, user?.id || '');
+
+            if (result.success) {
+                toast.success(result.message);
+                setIsNuclearModalOpen(false);
+                setNuclearConfirmation('');
+                // Refresh
+                window.location.reload();
+            } else {
+                toast.error(result.error);
+            }
+        } catch (error) {
+            toast.error('Error crítico al eliminar.');
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
     return (
         <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
             <div className="p-6 pb-0 shrink-0">
@@ -151,10 +185,38 @@ const InventoryPage: React.FC = () => {
                         <h1 className="text-3xl font-extrabold text-slate-900 flex items-center gap-3">
                             <Package className="text-cyan-600" /> Maestro de Inventario
                         </h1>
-                        <p className="text-slate-500 mt-1 font-medium">
-                            WMS & Control de Stock
-                            {activeLocation && <span className="text-indigo-600 font-bold ml-2"> — Viendo: {activeLocation.name} (Bodega Principal)</span>}
-                        </p>
+                        <div className="flex items-center gap-3 mt-2">
+                            <p className="text-slate-500 font-medium">
+                                WMS & Control de Stock
+                            </p>
+
+                            {/* Location Selector */}
+                            <div className="relative group z-20">
+                                <button className="flex items-center gap-2 px-3 py-1 bg-white border border-slate-200 rounded-lg shadow-sm hover:border-indigo-300 transition-colors">
+                                    <span className="text-sm font-bold text-indigo-700">
+                                        {activeLocation ? activeLocation.name : 'Seleccionar Sucursal'}
+                                    </span>
+                                    <ChevronDown size={14} className="text-indigo-400 group-hover:rotate-180 transition-transform" />
+                                </button>
+
+                                {/* Dropdown (Wrapper with padding bridge) */}
+                                <div className="absolute top-full left-0 pt-2 w-64 hidden group-hover:block z-50 animate-in fade-in slide-in-from-top-2">
+                                    <div className="bg-white rounded-xl shadow-xl border border-slate-100 p-2">
+                                        <div className="text-xs font-bold text-slate-400 uppercase px-2 py-1 mb-1">Cambiar Sucursal</div>
+                                        {locations.map(loc => (
+                                            <button
+                                                key={loc.id}
+                                                onClick={() => setCurrentLocation(loc.id, loc.default_warehouse_id || '', '')}
+                                                className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${currentLocationId === loc.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
+                                            >
+                                                {loc.name}
+                                                {currentLocationId === loc.id && <span className="w-2 h-2 rounded-full bg-indigo-500"></span>}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <MobileActionScroll>
@@ -235,6 +297,16 @@ const InventoryPage: React.FC = () => {
                             <Filter size={14} /> Stock Crítico
                         </button>
                     </div>
+
+                    {/* Danger Zone */}
+                    {(user?.role === 'ADMIN' || user?.role === 'MANAGER') && (
+                        <button
+                            onClick={() => setIsNuclearModalOpen(true)}
+                            className="ml-auto px-4 py-2 rounded-lg text-xs font-bold border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-800 transition flex items-center gap-2"
+                        >
+                            <Trash2 size={14} /> Vaciar Inventario
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -423,12 +495,14 @@ const InventoryPage: React.FC = () => {
             </div>
 
             {/* Mobile Scanner Overlay */}
-            {isScannerOpen && (
-                <MobileScanner
-                    onScan={handleScan}
-                    onClose={() => setIsScannerOpen(false)}
-                />
-            )}
+            {
+                isScannerOpen && (
+                    <MobileScanner
+                        onScan={handleScan}
+                        onClose={() => setIsScannerOpen(false)}
+                    />
+                )
+            }
 
 
             {/* Modals */}
@@ -436,7 +510,69 @@ const InventoryPage: React.FC = () => {
             <StockTransferModal isOpen={isTransferModalOpen} onClose={() => setIsTransferModalOpen(false)} />
             <InventoryEditModal isOpen={isEditModalOpen} onClose={() => { setIsEditModalOpen(false); setEditingItem(null); }} product={editingItem} />
             <BulkImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} />
+
             <InventoryExportModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} />
+
+            {/* Nuclear Delete Modal */}
+            {
+                isNuclearModalOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border-2 border-red-100 animate-in zoom-in-95">
+                            <div className="flex flex-col items-center text-center gap-4">
+                                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-2">
+                                    <AlertTriangle className="text-red-600" size={32} />
+                                </div>
+
+                                <h2 className="text-2xl font-bold text-slate-900">¿Vaciar Inventario?</h2>
+
+                                <p className="text-slate-600">
+                                    Estás a punto de eliminar <span className="font-bold text-red-600">TODO el stock</span> de la sucursal:
+                                    <br />
+                                    <span className="text-lg font-black text-slate-800 mt-1 block">{activeLocation?.name || 'Esta Sucursal'}</span>
+                                </p>
+
+                                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 font-medium w-full text-left">
+                                    <p className="font-bold flex items-center gap-2 mb-1"><AlertTriangle size={14} /> Advertencia:</p>
+                                    <ul className="list-disc list-inside space-y-1 ml-1 opacity-90">
+                                        <li>Esta acción es irreversible.</li>
+                                        <li>No afectará a otras sucursales.</li>
+                                        <li>Los productos seguirán existiendo en el maestro.</li>
+                                    </ul>
+                                </div>
+
+                                <div className="w-full mt-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 text-left">
+                                        Escribe "BORRAR" para confirmar:
+                                    </label>
+                                    <input
+                                        type="text"
+                                        className="w-full p-3 border-2 border-red-200 rounded-xl focus:border-red-500 focus:outline-none font-bold text-center uppercase"
+                                        placeholder="BORRAR"
+                                        value={nuclearConfirmation}
+                                        onChange={(e) => setNuclearConfirmation(e.target.value)}
+                                    />
+                                </div>
+
+                                <div className="flex gap-3 w-full mt-4">
+                                    <button
+                                        onClick={() => setIsNuclearModalOpen(false)}
+                                        className="flex-1 py-3 font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        onClick={handleNuclearDelete}
+                                        disabled={nuclearConfirmation.toUpperCase() !== 'BORRAR' || isDeleting}
+                                        className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-red-200"
+                                    >
+                                        {isDeleting ? 'Eliminando...' : 'Sí, Vaciar Todo'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
         </div>
     );
 };

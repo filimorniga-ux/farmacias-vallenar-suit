@@ -60,7 +60,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
         { icon: Clock, label: 'Control Asistencia', path: '/access', roles: ['MANAGER', 'ADMIN'], color: 'sky' as AppThemeColor },
         { icon: Landmark, label: 'Tesorería', path: '/finance/treasury', roles: ['MANAGER', 'ADMIN'], color: 'emerald' as AppThemeColor },
         { icon: FileSpreadsheet, label: 'Cierre Mensual', path: '/finance/monthly-closing', roles: ['MANAGER', 'ADMIN'], color: 'indigo' as AppThemeColor },
-        { icon: Settings, label: 'Configuración', path: '/settings', roles: ['MANAGER'], color: 'gray' as AppThemeColor },
+        { icon: Settings, label: 'Configuración', path: '/settings', roles: ['MANAGER', 'ADMIN'], color: 'gray' as AppThemeColor },
     ];
 
     const filteredMenu = menuItems.filter(item => user && item.roles.includes(user.role));
