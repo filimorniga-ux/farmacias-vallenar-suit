@@ -2,6 +2,7 @@
 
 import { query } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
+import { isValidUUID } from '@/lib/utils';
 
 export interface FinancialMetrics {
     summary: {
@@ -27,10 +28,7 @@ export interface FinancialMetrics {
 }
 
 // Helper for UUID validation
-function isValidUUID(uuid: string) {
-    const regex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    return regex.test(uuid);
-}
+// Helper removed (use shared in @/lib/utils)
 
 export async function getFinancialMetrics(
     dateRange: { from: Date; to: Date },

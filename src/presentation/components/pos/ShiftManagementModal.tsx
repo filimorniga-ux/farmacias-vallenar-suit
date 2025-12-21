@@ -83,6 +83,54 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     const isZombie = selectedTerminal && openableTerminals.length > 0 && !openableTerminals.some(t => t.id === selectedTerminal);
 
 
+    // --- AUTO-HEAL: GHOST SESSION DETECTION & FIX ---
+    useEffect(() => {
+        const healGhosts = async () => {
+            if (!locations || !selectedLocation) return;
+            const currentTerminals = terminals.filter(t => t.location_id === selectedLocation);
+
+            // Definition of "Ghost":
+            // 1. Status is OPEN
+            // 2. BUT missing cashier_id OR session_id (Critical Integrity Fail)
+            const ghosts = currentTerminals.filter(t =>
+                t.status === 'OPEN' && (!t.current_cashier_id || !t.session_id)
+            );
+
+            if (ghosts.length > 0) {
+                // If user is Admin/Manager, or we just want to keep system clean?
+                // Ideally only Admins/Managers should trigger this to avoid chaos, 
+                // OR we do it silently if it's clearly a data corruption (missing ID).
+                // Let's do it safely: Only if user has permissions or if it's blatant corruption.
+                const canHeal = ['ADMIN', 'MANAGER'].includes(user?.role || '') || ghosts.every(g => !g.current_cashier_id);
+
+                if (canHeal) {
+                    toast.warning(`🧹 Detectadas ${ghosts.length} sesiones fantasmas. Reparando...`);
+
+                    for (const ghost of ghosts) {
+                        try {
+                            console.log(`🔧 Auto-healing terminal ${ghost.name} (${ghost.id})...`);
+                            await forceCloseTerminalShift(ghost.id, 'SYSTEM_AUTOHEAL');
+                        } catch (e) {
+                            console.error('Failed to auto-heal', ghost.id, e);
+                        }
+                    }
+
+                    toast.success('✅ Sistema optimizado: Sesiones fantasmas cerradas.');
+                    // Refresh data
+                    fetchTerminals(selectedLocation);
+                    getAvailableTerminalsForShift(selectedLocation).then(res => {
+                        if (res.success && res.data) setOpenableTerminals(res.data as Terminal[]);
+                    });
+                }
+            }
+        };
+
+        healGhosts();
+    }, [selectedLocation, terminals.length, user?.role]);
+    // Dependency on terminals.length ensures we run when list updates
+    // ------------------------------------------------
+
+
     const handleForceUnlock = async () => {
         if (!window.confirm('Esta caja tiene un turno abierto. ¿Deseas cerrarlo forzosamente para entrar?')) return;
 
@@ -340,55 +388,101 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                                         </div>
                                     </div>
 
-                                    {/* Terminal Select */}
+                                    {/* Terminal Select - GOD LEVEL UX */}
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-1">Terminal</label>
                                         <select
                                             value={selectedTerminal}
                                             onChange={(e) => setSelectedTerminal(e.target.value)}
                                             disabled={!selectedLocation}
-                                            className={`w-full p-3 bg-slate-50 border rounded-xl focus:ring-2 outline-none disabled:opacity-50 ${isZombie ? 'border-red-500 text-red-600 font-bold bg-red-50' : 'border-slate-200 focus:ring-cyan-500'}`}
+                                            className={`w-full p-3 border rounded-xl focus:ring-2 outline-none disabled:opacity-50 transition-colors bg-slate-50
+                                                ${selectedTerminalData?.status === 'OPEN'
+                                                    ? (isMySession ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-red-300 bg-red-50 text-red-800')
+                                                    : 'border-slate-200 focus:ring-cyan-500'
+                                                }
+                                            `}
                                         >
                                             <option value="">
                                                 {!selectedLocation ? 'Primero seleccione sucursal' : 'Seleccione Terminal...'}
                                             </option>
                                             {displayTerminals.map(t => {
                                                 const isOpenable = openableTerminals.some(ot => ot.id === t.id);
-                                                // If I have an active session here, I want to be able to select it to resume!
-                                                // So openness check should allow if it is MY session (checked via store)
-                                                // But openableTerminals (server) says it's unavailable.
-                                                // We rely on 'displayTerminals' (store) to show it.
-
                                                 const isMine = t.current_cashier_id === user?.id && t.status === 'OPEN';
+                                                const isOccupied = !isOpenable && !isMine;
+
+                                                // Icon/Text Logic
+                                                let statusLabel = '';
+                                                if (isMine) statusLabel = '🟠 (Tu Turno)';
+                                                else if (isOccupied) statusLabel = '🔴 (Ocupada)';
+                                                else statusLabel = '🟢 (Disponible)';
 
                                                 return (
-                                                    <option key={t.id} value={t.id} className={!isOpenable && !isMine ? "text-red-500 font-bold" : (isMine ? "text-cyan-600 font-bold" : "")}>
-                                                        {t.name}
-                                                        {isMine ? ' 🟢 (Tu Turno Activo)' : (!isOpenable ? ' 🔴 (Ocupada)' : '')}
+                                                    <option
+                                                        key={t.id}
+                                                        value={t.id}
+                                                        className={isMine ? "text-amber-600 font-bold" : (isOccupied ? "text-red-500 font-bold" : "text-slate-700")}
+                                                    >
+                                                        {t.name} {statusLabel}
                                                     </option>
                                                 );
                                             })}
                                         </select>
 
-                                        {isZombie && !isActiveSession && ( // Only show Zombie warning if it's NOT a recognized active session we can handle
-                                            <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
-                                                <div className="flex-1 text-xs text-red-700">
-                                                    <strong>⚠️ Acción Requerida:</strong> Inconsistencia de Estado detectada.
-                                                </div>
-                                                <button
-                                                    onClick={handleForceUnlock}
-                                                    disabled={isForceLoading}
-                                                    className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg shadow-sm transition-colors"
-                                                >
-                                                    {isForceLoading ? 'Fixing...' : 'REPARAR'}
-                                                </button>
-                                            </div>
-                                        )}
+                                        {/* UX INTELLIGENTE: Contextual Help & Actions */}
+                                        {selectedTerminal && (
+                                            <div className="mt-2 animate-in fade-in slide-in-from-top-1">
 
-                                        {/* GHOST MATCH in Dropdow Logic */}
-                                        {isGhostSession && (
-                                            <div className="mt-2 text-xs text-amber-600 font-bold text-center animate-pulse">
-                                                ⚠️ Sesión zombi detectada en este terminal (Tuya, pero en otro dispositivo)
+                                                {/* CASE A: MY SESSION */}
+                                                {isMySession && (
+                                                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between">
+                                                        <div className="text-xs text-amber-800">
+                                                            <strong>🟠 Retomar Turno:</strong> Ya tienes una sesión activa aquí.
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* CASE B: OCCUPIED BY OTHER / ZOMBIE */}
+                                                {(isActiveSession && !isMySession) && (
+                                                    <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex flex-col gap-2">
+                                                        <div className="flex items-start gap-2">
+                                                            <div className="mt-0.5"><Lock size={14} className="text-red-500" /></div>
+                                                            <div className="flex-1 text-xs text-red-800">
+                                                                <strong>🔴 Caja Ocupada:</strong>
+                                                                <br />
+                                                                Sesión abierta por <span className="font-bold">{sessionOwner}</span>.
+                                                            </div>
+                                                        </div>
+
+                                                        {/* GOD MODE ACTION: Allow Managers/Admins to liberate instantly */}
+                                                        {['ADMIN', 'MANAGER'].includes(user?.role || '') && (
+                                                            <button
+                                                                onClick={handleForceUnlock}
+                                                                disabled={isForceLoading}
+                                                                className="w-full mt-1 py-1.5 bg-white border border-red-200 hover:bg-red-50 text-red-600 font-bold text-xs rounded shadow-sm transition-colors flex items-center justify-center gap-2"
+                                                            >
+                                                                {isForceLoading ? 'Liberando...' : '🔓 FORZAR LIBERACIÓN (ADMIN)'}
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {/* CASE C: ZOMBIE (Server says occupied, Local says closed?? Or vice versa) */}
+                                                {/* If terminal is NOT in openable list, but local status says CLOSED, it's a Server-Side Zombie */}
+                                                {!openableTerminals.some(ot => ot.id === selectedTerminal) && !isActiveSession && (
+                                                    <div className="p-3 bg-slate-100 border border-slate-200 rounded-lg flex flex-col gap-2">
+                                                        <div className="text-xs text-slate-600">
+                                                            <strong>⚠️ Estado Inconsistente:</strong> El servidor reporta ocupación.
+                                                        </div>
+                                                        <button
+                                                            onClick={handleForceUnlock}
+                                                            disabled={isForceLoading}
+                                                            className="w-full py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded"
+                                                        >
+                                                            🔧 REPARAR ESTADO
+                                                        </button>
+                                                    </div>
+                                                )}
+
                                             </div>
                                         )}
                                     </div>
