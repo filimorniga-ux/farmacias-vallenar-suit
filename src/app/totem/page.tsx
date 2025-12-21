@@ -103,7 +103,7 @@ export default function TotemPage() {
             {/* Hidden Print Area */}
             <div id="ticket-print-area" className="hidden print:block text-black">
                 <h2 className="text-2xl font-bold mb-2">Farmacias Vallenar</h2>
-                <p className="text-sm mb-4">{new Date().toLocaleString()}</p>
+                <p className="text-sm mb-4" suppressHydrationWarning>{new Date().toLocaleString()}</p>
                 <div className="text-6xl font-black border-y-4 border-black py-4 my-4">
                     {lastTicket}
                 </div>

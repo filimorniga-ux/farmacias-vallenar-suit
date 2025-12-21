@@ -6,6 +6,8 @@ import { CashMovementReason } from '../../../domain/types';
 import { SupervisorOverrideModal } from '../security/SupervisorOverrideModal';
 import { toast } from 'sonner';
 import { generateCashReport } from '../../../actions/cash-export';
+import { getShiftMetrics as getServerShiftMetrics, ShiftMetricsDetailed } from '../../../actions/cash-management';
+import { TransactionListModal } from './TransactionListModal';
 
 interface CashManagementModalProps {
     isOpen: boolean;
@@ -14,7 +16,7 @@ interface CashManagementModalProps {
 }
 
 const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClose, mode }) => {
-    const { currentShift, closeShift, registerCashMovement, getShiftMetrics, salesHistory, cashMovements, expenses, user, employees, terminals } = usePharmaStore();
+    const { currentShift, closeShift, registerCashMovement, getShiftMetrics, user } = usePharmaStore();
 
     // Security State
     const [isSupervisorModalOpen, setIsSupervisorModalOpen] = useState(false);
@@ -30,8 +32,24 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
 
     // Closing State
     const [closingAmount, setClosingAmount] = useState('');
-    const [metrics, setMetrics] = useState<any>(null);
-    const [expandedSection, setExpandedSection] = useState<'TRANSFER' | 'CARD' | null>(null);
+    const [metrics, setMetrics] = useState<any>(null); // Local fallback
+    const [serverMetrics, setServerMetrics] = useState<ShiftMetricsDetailed | null>(null);
+    const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
+    const [expandedSection, setExpandedSection] = useState<'SALES_BREAKDOWN' | 'MANUAL_IN' | 'MANUAL_OUT' | null>(null);
+    const [selectedTransactions, setSelectedTransactions] = useState<{ title: string, list: any[] } | null>(null);
+
+    // Helper to translate methods
+    const getMethodLabel = (method: string) => {
+        const labels: Record<string, string> = {
+            'CASH': 'Efectivo',
+            'DEBIT': 'Débito',
+            'CREDIT': 'Crédito', // This is the new important one
+            'TRANSFER': 'Transferencia',
+            'CHECK': 'Cheque',
+            'OTHER': 'Otro'
+        };
+        return labels[method] || method;
+    };
 
     // Effect 1: Initialization & State Reset
     useEffect(() => {
@@ -49,20 +67,33 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                 setIsSupervisorModalOpen(true);
             }
         }
-    }, [isOpen, mode]); // Removed currentShift from resetting dependencies
+    }, [isOpen, mode]);
 
-    // Effect 2: Data Refresh
+    // Effect 2: Data Refresh (Hybrid: Local Instant + Server Verified)
     useEffect(() => {
         if (isOpen && currentShift?.status === 'ACTIVE') {
-            const m = getShiftMetrics();
-            console.log('📊 [CashManagement] Metrics loaded:', m);
-            setMetrics(m);
-        } else {
-            // Optional: Handle inactive shift case if needed
-        }
-    }, [isOpen, currentShift, getShiftMetrics]); // Keep this responsive to data changes without resetting UI
+            // 1. Local Instant Feedback
+            const localM = getShiftMetrics();
+            setMetrics(localM);
 
-    // ... (keep existing useEffect for interval)
+            // 2. Server Authority (Fetch in background)
+            if (!currentShift.terminal_id) {
+                console.warn('⚠️ [CashManagement] Skipping metrics fetch: Missing terminal_id');
+                return;
+            }
+
+            setIsLoadingMetrics(true);
+            getServerShiftMetrics(currentShift.terminal_id).then(res => {
+                if (res.success && res.data) {
+                    console.log('📊 [CashManagement] Server Metrics loaded:', res.data);
+                    setServerMetrics(res.data);
+                } else {
+                    toast.error('Error sincronizando métricas de servidor');
+                }
+                setIsLoadingMetrics(false);
+            });
+        }
+    }, [isOpen, currentShift, getShiftMetrics]);
 
     const handleSupervisorAuthorize = (authorizedBy: string) => {
         console.log('✅ [CashManagement] Supervisor Authorized:', authorizedBy, 'Mode:', mode);
@@ -87,10 +118,11 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
             const result = await generateCashReport({
                 startDate: new Date(start).toISOString(),
                 endDate: new Date(end).toISOString(),
-                locationId: user?.assigned_location_id, // Use explicit location
+                locationId: user?.assigned_location_id,
                 terminalId: currentShift.terminal_id,
                 requestingUserRole: user?.role || 'CASHIER',
-                requestingUserLocationId: user?.assigned_location_id
+                requestingUserLocationId: user?.assigned_location_id,
+                shiftMetrics: serverMetrics || undefined // Pass the metrics here
             });
 
             if (result.success && result.fileData) {
@@ -115,7 +147,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
     const handleRegisterMovement = () => {
         const numAmount = parseInt(amount);
         if (isNaN(numAmount) || numAmount <= 0) return;
-        if (!evidence && description.length < 5) return; // Reduced length requirement slightly
+        if (!evidence && description.length < 5) return;
 
         registerCashMovement({
             type: movementType,
@@ -143,8 +175,60 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
         }
     };
 
+    // Derived values using Master Formula
+    const calculateAuditTotals = (m: any) => {
+        if (!m) return {
+            cashSection: { initial: 0, sales: 0, income: 0, expenses: 0, expectedTotal: 0 },
+            digitalSection: { cards: 0, transfers: 0, totalDigital: 0 }
+        };
+
+        // 1. Breakdown
+        const cashSalesGroup = (m.sales_breakdown || []).find((b: any) => b.method === 'CASH');
+        const cardSalesGroup = (m.sales_breakdown || []).filter((b: any) => b.method === 'DEBIT' || b.method === 'CREDIT');
+        const transferSalesGroup = (m.sales_breakdown || []).find((b: any) => b.method === 'TRANSFER');
+
+        const cashSales = cashSalesGroup ? cashSalesGroup.total : 0;
+
+        // Sum cards (Debit + Credit)
+        const cardSales = cardSalesGroup.reduce((sum: number, b: any) => sum + b.total, 0);
+        const transferSales = transferSalesGroup ? transferSalesGroup.total : 0;
+
+        // 2. Cash Movements
+        const initialBase = m.opening_amount || 0;
+        const cashIn = m.manual_movements?.total_in || 0;
+        const cashOut = m.manual_movements?.total_out || 0;
+
+        // 3. MASTER FORMULA (Physical Cash Only)
+        // Base + Sales (Cash) + In - Out
+        const expectedCashInDrawer = initialBase + cashSales + cashIn - cashOut;
+
+        return {
+            cashSection: {
+                initial: initialBase,
+                sales: cashSales,
+                income: cashIn,
+                expenses: cashOut,
+                expectedTotal: expectedCashInDrawer
+            },
+            digitalSection: {
+                cards: cardSales,
+                transfers: transferSales,
+                totalDigital: cardSales + transferSales
+            }
+        };
+    };
+
+    const auditData = calculateAuditTotals(serverMetrics || metrics);
+
     return (
         <>
+            <TransactionListModal
+                isOpen={!!selectedTransactions}
+                onClose={() => setSelectedTransactions(null)}
+                title={selectedTransactions?.title || ''}
+                transactions={selectedTransactions?.list || []}
+            />
+
             <AnimatePresence>
                 <motion.div
                     initial={{ opacity: 0 }}
@@ -264,55 +348,113 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                             {(mode === 'AUDIT' || mode === 'CLOSE') && (
                                 <div className="space-y-6">
                                     {/* Waterfall */}
-                                    <div className="space-y-3 bg-slate-50 p-6 rounded-2xl border border-slate-100 relative overflow-hidden">
+                                    {/* Waterfall & Master Formula Layout */}
+                                    <div className="space-y-4">
                                         {!isAuditVisible && (
-                                            <div className="absolute inset-0 bg-slate-100/80 backdrop-blur-sm flex items-center justify-center z-10">
-                                                <div className="text-center">
-                                                    <Lock className="mx-auto text-slate-400 mb-2" size={32} />
-                                                    <p className="text-slate-500 font-medium">Esperando Autorización de Supervisor...</p>
-                                                </div>
+                                            <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 flex flex-col items-center justify-center py-10">
+                                                <Lock className="text-slate-400 mb-2" size={32} />
+                                                <p className="text-slate-500 font-medium">Esperando Autorización de Supervisor...</p>
                                             </div>
                                         )}
 
-                                        {!metrics ? (
+                                        {(!serverMetrics && isLoadingMetrics && isAuditVisible) && (
                                             <div className="flex flex-col items-center justify-center py-10 text-slate-400">
-                                                <p>Cargando métricas del turno...</p>
+                                                <p className="animate-pulse">Sincronizando con servidor...</p>
                                             </div>
-                                        ) : (
-                                            <>
-                                                <div className="flex justify-between items-center text-slate-600">
-                                                    <span>(+) Ventas Totales</span>
-                                                    <span className="font-medium">${metrics.totalSales.toLocaleString()}</span>
+                                        )}
+
+                                        {isAuditVisible && (!isLoadingMetrics || serverMetrics) && (
+                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                                {/* LEFT: PHYSICAL CASH (The Truth) */}
+                                                <div className="bg-white p-4 rounded-2xl border-2 border-slate-100 shadow-sm relative overflow-hidden">
+                                                    <div className="absolute top-0 right-0 p-2 opacity-10">
+                                                        <DollarSign size={100} />
+                                                    </div>
+                                                    <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-4 border-b pb-2">
+                                                        💵 Efectivo Físico
+                                                    </h3>
+
+                                                    <div className="space-y-3">
+                                                        <div className="flex justify-between items-center text-slate-600 text-sm">
+                                                            <span>(+) Fondo Inicial</span>
+                                                            <span className="font-mono font-bold">${auditData.cashSection.initial.toLocaleString()}</span>
+                                                        </div>
+                                                        <div className="flex justify-between items-center text-slate-800 font-bold text-sm">
+                                                            <span>(+) Ventas Efectivo</span>
+                                                            <span className="font-mono text-green-600">+${auditData.cashSection.sales.toLocaleString()}</span>
+                                                        </div>
+                                                        <div
+                                                            className="flex justify-between items-center text-emerald-600 text-sm cursor-pointer hover:underline"
+                                                            onClick={() => setExpandedSection(expandedSection === 'MANUAL_IN' ? null : 'MANUAL_IN')}
+                                                        >
+                                                            <span>(+) Ingresos Extras</span>
+                                                            <span className="font-mono font-bold">+${auditData.cashSection.income.toLocaleString()}</span>
+                                                        </div>
+                                                        {expandedSection === 'MANUAL_IN' && (
+                                                            <div className="pl-2 text-xs text-slate-400 border-l border-emerald-200">
+                                                                {serverMetrics?.manual_movements.details.filter((m: any) => m.type === 'IN').map((m: any) => (
+                                                                    <div key={m.id} className="flex justify-between">
+                                                                        <span>{m.description}</span>
+                                                                        <span>${m.amount}</span>
+                                                                    </div>
+                                                                ))}
+                                                                {auditData.cashSection.income === 0 && <span>Sin movimientos</span>}
+                                                            </div>
+                                                        )}
+
+                                                        <div
+                                                            className="flex justify-between items-center text-red-500 text-sm cursor-pointer hover:underline"
+                                                            onClick={() => setExpandedSection(expandedSection === 'MANUAL_OUT' ? null : 'MANUAL_OUT')}
+                                                        >
+                                                            <span>(-) Gastos / Retiros</span>
+                                                            <span className="font-mono font-bold">-${auditData.cashSection.expenses.toLocaleString()}</span>
+                                                        </div>
+                                                        {expandedSection === 'MANUAL_OUT' && (
+                                                            <div className="pl-2 text-xs text-slate-400 border-l border-red-200">
+                                                                {serverMetrics?.manual_movements.details.filter((m: any) => m.type === 'OUT').map((m: any) => (
+                                                                    <div key={m.id} className="flex justify-between">
+                                                                        <span>{m.description}</span>
+                                                                        <span>${m.amount}</span>
+                                                                    </div>
+                                                                ))}
+                                                                {auditData.cashSection.expenses === 0 && <span>Sin movimientos</span>}
+                                                            </div>
+                                                        )}
+
+                                                        <div className="h-px bg-slate-200 my-2"></div>
+
+                                                        <div className="flex justify-between items-center bg-slate-800 text-white p-3 rounded-xl shadow-lg">
+                                                            <span className="font-bold text-sm">ESPERADO EN CAJA</span>
+                                                            <span className="font-mono text-xl font-black">${auditData.cashSection.expectedTotal.toLocaleString()}</span>
+                                                        </div>
+                                                    </div>
                                                 </div>
 
-                                                {/* Simplified Metrics Display */}
-                                                <div className="flex justify-between items-center text-slate-500 text-sm">
-                                                    <span>(-) Tarjetas ({metrics.cardCount})</span>
-                                                    <span>-${metrics.cardSales.toLocaleString()}</span>
+                                                {/* RIGHT: DIGITAL / BANK (Informational) */}
+                                                <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100/50">
+                                                    <h3 className="text-xs font-bold text-blue-800 uppercase tracking-widest mb-4 border-b border-blue-100 pb-2">
+                                                        💳 Digital / Bancos
+                                                    </h3>
+                                                    <div className="space-y-3 opacity-80">
+                                                        <div className="flex justify-between items-center text-blue-900 text-sm">
+                                                            <span>Transbank (T. Débito/Crédito)</span>
+                                                            <span className="font-mono font-bold">${auditData.digitalSection.cards.toLocaleString()}</span>
+                                                        </div>
+                                                        <div className="flex justify-between items-center text-blue-900 text-sm">
+                                                            <span>Transferencias</span>
+                                                            <span className="font-mono font-bold">${auditData.digitalSection.transfers.toLocaleString()}</span>
+                                                        </div>
+                                                        <div className="h-px bg-blue-200 my-2"></div>
+                                                        <div className="flex justify-between items-center text-blue-900 font-bold text-sm">
+                                                            <span>Total Digital</span>
+                                                            <span className="font-mono">${auditData.digitalSection.totalDigital.toLocaleString()}</span>
+                                                        </div>
+                                                        <p className="text-[10px] text-blue-400 mt-2 text-center">
+                                                            * Estos montos van directo a la cuenta bancaria.
+                                                        </p>
+                                                    </div>
                                                 </div>
-                                                <div className="flex justify-between items-center text-slate-500 text-sm">
-                                                    <span>(-) Transferencias ({metrics.transferCount})</span>
-                                                    <span>-${metrics.transferSales.toLocaleString()}</span>
-                                                </div>
-
-                                                <div className="h-px bg-slate-200 my-2"></div>
-
-                                                <div className="flex justify-between items-center text-green-600 text-sm">
-                                                    <span>(+) Fondo Inicial</span>
-                                                    <span>+${metrics.initialFund.toLocaleString()}</span>
-                                                </div>
-                                                <div className="flex justify-between items-center text-red-500 text-sm">
-                                                    <span>(-) Gastos / Salidas</span>
-                                                    <span>-${metrics.totalOutflows.toLocaleString()}</span>
-                                                </div>
-
-                                                <div className="h-px bg-slate-200 my-2"></div>
-
-                                                <div className="flex justify-between items-center text-xl font-bold text-slate-800">
-                                                    <span>(=) DEBE HABER EN CAJA</span>
-                                                    <span>${metrics.expectedCash.toLocaleString()}</span>
-                                                </div>
-                                            </>
+                                            </div>
                                         )}
                                     </div>
 
@@ -335,7 +477,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                                 onClick={() => {
                                                     const amount = parseInt(closingAmount);
                                                     if (!isNaN(amount)) {
-                                                        closeShift(amount, 'MANAGER_PIN'); // In real flow, this would be the manager who authorized opening the modal
+                                                        closeShift(amount, 'MANAGER_PIN');
                                                         onClose();
                                                         toast.success('Turno cerrado correctamente');
                                                     }
@@ -348,7 +490,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                         </div>
                                     )}
 
-                                    {/* Export Report Button - Visible when Audit is unlocked */}
+                                    {/* Export Report Button */}
                                     {isAuditVisible && (
                                         <button
                                             onClick={handleExport}
@@ -364,13 +506,13 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                         </div>
                     </motion.div>
                 </motion.div>
-            </AnimatePresence >
+            </AnimatePresence>
 
             <SupervisorOverrideModal
                 isOpen={isSupervisorModalOpen}
                 onClose={() => {
                     setIsSupervisorModalOpen(false);
-                    if (!isAuditVisible) onClose(); // Close main modal if auth cancelled
+                    if (!isAuditVisible) onClose();
                 }}
                 onAuthorize={handleSupervisorAuthorize}
                 actionDescription={mode === 'CLOSE' ? 'Autorizar CIERRE de turno' : 'Autorizar ARQUEO (Ver Totales)'}

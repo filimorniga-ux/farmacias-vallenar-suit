@@ -20,6 +20,7 @@ import QuickFractionModal from './pos/QuickFractionModal';
 import ShiftManagementModal from './pos/ShiftManagementModal';
 import { ShiftHandoverModal } from './pos/ShiftHandoverModal'; // New Import
 import TransactionHistoryModal from './pos/TransactionHistoryModal';
+import QueueWidget from './pos/QueueWidget';
 import CameraScanner from './ui/CameraScanner';
 import { CartItem, InventoryBatch } from '../../domain/types';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -573,6 +574,9 @@ const POSMainScreen: React.FC = () => {
                 flex-col p-4 md:p-6 md:pl-0 gap-4
                 ${mobileView === 'CART' ? 'flex' : 'hidden'}
             `}>
+                {/* Queue Widget (Only Desktop or if explicitly shown, for now Show Always in Col 2) */}
+                <QueueWidget />
+
                 <div className={`flex-1 rounded-3xl shadow-xl border border-slate-200 overflow-hidden flex flex-col h-full transition-colors ${isQuoteMode ? 'bg-amber-50 border-amber-200' : 'bg-white'}`}>
                     {/* Header */}
                     <div className="p-4 md:p-6 border-b border-slate-100 flex flex-col md:flex-row md:justify-between md:items-center bg-slate-50/50 gap-4">
