@@ -270,7 +270,8 @@ export async function getTerminalsByLocation(locationId: string): Promise<{ succ
                         status: row.status,
                         current_cashier_id: row.current_cashier_id,
                         current_cashier_name: 'Unknown (Fallback)',
-                        blind_counts_count: 0
+                        blind_counts_count: 0,
+                        allowed_users: []
                     }))
                 };
             }
