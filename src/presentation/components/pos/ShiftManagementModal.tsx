@@ -1,9 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { usePharmaStore } from '../../store/useStore';
 import { X, User, DollarSign, Monitor, Lock, MapPin, LockKeyhole, ArrowRight, RotateCcw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { openTerminal, getAvailableTerminalsForShift, forceCloseTerminalShift } from '../../../actions/terminals';
+// IMPORTE ACTUALIZADO: Usamos la versión atómica v2
+import { openTerminalAtomic } from '../../../actions/terminals-v2';
+import { getAvailableTerminalsForShift, forceCloseTerminalShift } from '../../../actions/terminals';
+import { useTerminalSession } from '../../../hooks/useTerminalSession'; // Nuevo Hook
 import { Terminal } from '@/domain/types';
 
 interface ShiftManagementModalProps {
@@ -14,6 +17,7 @@ interface ShiftManagementModalProps {
 const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onClose }) => {
     const router = useRouter();
     const { employees, openShift, resumeShift, fetchLocations, locations, terminals, fetchTerminals, user } = usePharmaStore();
+    const { saveSession } = useTerminalSession(); // Hook para persistencia local segura
 
     const [selectedLocation, setSelectedLocation] = useState('');
     const [selectedTerminal, setSelectedTerminal] = useState('');
@@ -23,6 +27,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     const [step, setStep] = useState<'DETAILS' | 'AUTH'>('DETAILS');
     const [openableTerminals, setOpenableTerminals] = useState<Terminal[]>([]);
     const [isForceLoading, setIsForceLoading] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false); // Estado de carga para evitar doble clic
 
     useEffect(() => {
         if (isOpen) {
@@ -219,7 +224,9 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     };
 
     const handleOpenShift = async () => {
-        // Verify Manager PIN
+        if (isSubmitting) return; // Prevención de doble envío en Frontend
+
+        // 1. Validar PIN de Gerente (Seguridad Local)
         const manager = employees.find(e => (e.role === 'MANAGER' || e.role === 'ADMIN') && e.access_pin === managerPin);
 
         if (!manager) {
@@ -227,59 +234,66 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
             return;
         }
 
+        setIsSubmitting(true);
+
         try {
-            // 1. Persist to Backend
-            const result = await openTerminal(selectedTerminal, selectedCashier, parseInt(openingAmount));
+            // 2. LLAMADA ATÓMICA AL BACKEND (v2)
+            // Ya no hay riesgo de "Zombie": O se crea todo o falla todo.
+            const result = await openTerminalAtomic(
+                selectedTerminal,
+                selectedCashier,
+                parseInt(openingAmount)
+            );
 
             if (!result.success) {
-                if (result.error?.includes('already open')) {
-                    // AUTO-RECOVERY LOGIC
-                    const canAutoFix = ['ADMIN', 'MANAGER'].includes(user?.role || '');
-
-                    if (canAutoFix) {
-                        toast.warning('🔄 Detectado bloqueo de sistema. Reparando automáticamente...');
-                        const fixRes = await forceCloseTerminalShift(selectedTerminal, user?.id || 'SYSTEM_AUTOFIX');
-
-                        if (fixRes.success) {
-                            toast.success('✅ Caja sincronizada. Por favor intente abrir nuevamente.');
-                            // Refresh to reflect clean state
-                            fetchTerminals(selectedLocation);
-                            getAvailableTerminalsForShift(selectedLocation).then(res => {
-                                if (res.success && res.data) setOpenableTerminals(res.data as Terminal[]);
-                            });
-                            return;
-                        }
-                    }
-
-                    toast.error('⚠️ Sincronizando estado de caja... Intente nuevamente.');
-                    // Force refresh to show the "Occupied" state and the Force Close button
+                // Manejo de Errores Robustos que vienen del Backend Atómico
+                if (result.error?.includes('ocupado')) {
+                    toast.error('🚫 La terminal fue ocupada por otro usuario hace un instante.');
+                    // Recargar datos para mostrar estado real
                     fetchTerminals(selectedLocation);
-                    getAvailableTerminalsForShift(selectedLocation).then(res => {
-                        if (res.success && res.data) setOpenableTerminals(res.data as Terminal[]);
-                    });
-                    return;
+                } else {
+                    toast.error(`Error al abrir: ${result.error}`);
                 }
-                toast.error('Error al abrir terminal: ' + result.error);
+                setIsSubmitting(false);
                 return;
             }
 
-            // 2. Update Local Store & Context
+            // 3. ÉXITO: Sincronizar Estado Local y Persistencia
+
+            // A. Guardar sesión en localStorage (vía Hook) para validación offline/recarga
+            if (result.sessionId) {
+                const terminalData = terminals.find(t => t.id === selectedTerminal);
+                saveSession({
+                    sessionId: result.sessionId,
+                    terminalId: selectedTerminal,
+                    terminalName: terminalData?.name || 'Terminal',
+                    userId: selectedCashier,
+                    openedAt: Date.now(),
+                    openingAmount: parseInt(openingAmount)
+                });
+            }
+
+            // B. Actualizar Store Global (Zustand) para la UI inmediata
             openShift(parseInt(openingAmount), selectedCashier, manager.id, selectedTerminal, selectedLocation);
 
-            toast.success('Turno abierto exitosamente');
+            toast.success('🚀 Turno abierto correctamente (Sesión Segura)');
             onClose();
 
-            // Reset Form
+            // C. Resetear Formulario
             setStep('DETAILS');
             setManagerPin('');
             setOpeningAmount('');
             setSelectedTerminal('');
             setSelectedCashier('');
-            setSelectedLocation('');
+
+            // D. Redirigir al POS
+            router.push('/pos');
 
         } catch (error) {
             console.error(error);
-            toast.error('Error de comunicación');
+            toast.error('Error crítico de comunicación');
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -569,9 +583,17 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                                 </button>
                                 <button
                                     onClick={handleOpenShift}
-                                    className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl transition-colors shadow-lg shadow-amber-200"
+                                    disabled={isSubmitting}
+                                    className={`flex-1 py-3 ${isSubmitting ? 'bg-slate-400' : 'bg-amber-500 hover:bg-amber-600'} text-white font-bold rounded-xl transition-colors shadow-lg shadow-amber-200 flex justify-center items-center gap-2`}
                                 >
-                                    Autorizar
+                                    {isSubmitting ? (
+                                        <>
+                                            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                            Procesando...
+                                        </>
+                                    ) : (
+                                        'Autorizar Apertura'
+                                    )}
                                 </button>
                             </div>
                         </div>

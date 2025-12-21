@@ -17,7 +17,11 @@
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
     "build:desktop": "electron-builder",
     "checkpoint": "git add . && git commit -m \"Auto Checkpoint $(date)\" && git push",
-    "seed:demo": "tsx src/scripts/seed-demo-vallenar.ts"
+    "seed:demo": "tsx src/scripts/seed-demo-vallenar.ts",
+    "terminals:status": "tsx src/cli/terminals.ts status",
+    "terminals:health": "tsx src/cli/terminals.ts health",
+    "terminals:force-close": "tsx src/cli/terminals.ts force-close",
+    "terminals:cleanup": "tsx src/cli/terminals.ts cleanup"
   },
   "build": {
     "appId": "com.farmaciasvallenar.erp",
@@ -51,6 +55,7 @@
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "commander": "^14.0.2",
     "csv-parse": "^6.1.0",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
