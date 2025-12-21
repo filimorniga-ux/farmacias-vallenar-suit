@@ -2,6 +2,20 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export function middleware(request: NextRequest) {
+    // Leemos la variable de entorno
+    const isMaintenanceMode = process.env.MAINTENANCE_MODE === 'true';
+
+    // Si está activo y el usuario NO está ya en la página de mantenimiento
+    // (Evitamos un bucle infinito de redirecciones)
+    if (isMaintenanceMode && !request.nextUrl.pathname.startsWith('/maintenance')) {
+        return NextResponse.redirect(new URL('/maintenance', request.url));
+    }
+
+    // Si NO está en mantenimiento, pero intenta entrar a /maintenance, lo sacamos de ahí
+    if (!isMaintenanceMode && request.nextUrl.pathname.startsWith('/maintenance')) {
+        return NextResponse.redirect(new URL('/', request.url));
+    }
+
     // Clone the request headers
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set('x-url', request.url);

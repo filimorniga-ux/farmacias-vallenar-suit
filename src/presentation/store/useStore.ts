@@ -136,6 +136,7 @@ interface PharmaState {
     cashMovements: CashMovement[];
 
     openShift: (amount: number, cashierId: string, authorizedBy: string, terminalId: string, locationId: string) => void;
+    resumeShift: (shift: Shift) => void;
     closeShift: (finalAmount: number, authorizedBy: string) => void;
     updateOpeningAmount: (newAmount: number) => void;
     registerCashMovement: (movement: Omit<CashMovement, 'id' | 'timestamp' | 'shift_id' | 'user_id'>) => void;
@@ -174,8 +175,9 @@ interface PharmaState {
     // Queue
     tickets: QueueTicket[];
     currentTicket: QueueTicket | null;
-    generateTicket: (rut?: string, branch_id?: string) => Promise<QueueTicket>;
-    callNextTicket: (counterId: string) => void;
+    generateTicket: (rut?: string, branch_id?: string, type?: string) => Promise<QueueTicket>;
+    callNextTicket: (counterId: string) => Promise<QueueTicket | null>;
+    refreshQueueStatus: () => Promise<void>;
     addTicketToQueue: (ticket: QueueTicket) => void; // Sync helper
 
     // SII (Facturación Electrónica)
@@ -1284,31 +1286,63 @@ export const usePharmaStore = create<PharmaState>()(
             },
             cashMovements: [],
 
-            openShift: (amount, cashierId, authorizedBy, terminalId, locationId) => set((state) => {
-                if (state.currentShift?.status === 'ACTIVE') return state;
+            openShift: async (initialAmount, userId) => {
+                const { openTerminal } = await import('../../actions/terminals');
+                const state = get();
+                if (!state.currentTerminalId) {
+                    import('sonner').then(({ toast }) => toast.error('No hay caja seleccionada'));
+                    return;
+                }
 
-                const newShift: Shift = {
-                    id: `SHIFT-${Date.now()}`,
-                    terminal_id: terminalId,
-                    user_id: cashierId,
-                    authorized_by: authorizedBy,
-                    start_time: Date.now(),
-                    opening_amount: amount,
-                    status: 'ACTIVE'
-                };
+                const res = await openTerminal(state.currentTerminalId, userId, initialAmount);
 
-                // Update terminal status
-                const updatedTerminals = state.terminals.map(t =>
-                    t.id === terminalId ? { ...t, status: 'OPEN' as const } : t
-                );
+                if (res.success && res.data) {
+                    const newShift: Shift = {
+                        id: res.data.id,
+                        terminal_id: res.data.terminal_id,
+                        start_time: res.data.start_time,
+                        opening_amount: Number(res.data.opening_amount),
+                        status: 'ACTIVE',
+                        user_id: res.data.user_id,
+                        authorized_by: res.data.user_id // using user_id as authorized_by for now
+                    };
 
-                return {
-                    currentShift: newShift,
-                    terminals: updatedTerminals,
-                    currentLocationId: locationId,
-                    currentTerminalId: terminalId
-                };
-            }),
+                    const updatedTerminals = state.terminals.map(t =>
+                        t.id === state.currentTerminalId ? { ...t, status: 'OPEN' as const, operator_id: userId } : t
+                    );
+
+                    // Persist Session ID for Concurrency Check
+                    try {
+                        localStorage.setItem('pos_session_id', newShift.id);
+                    } catch (e) {
+                        console.error('Failed to persist session ID', e);
+                    }
+
+                    set({
+                        currentShift: newShift,
+                        terminals: updatedTerminals
+                    });
+                    import('sonner').then(({ toast }) => toast.success('Turno abierto correctamente'));
+                } else {
+                    import('sonner').then(({ toast }) => toast.error('Error al abrir turno: ' + res.error));
+                }
+            },
+
+            resumeShift: (shift) => {
+                // Persist Session ID for Concurrency Check
+                try {
+                    localStorage.setItem('pos_session_id', shift.id);
+                } catch (e) {
+                    console.error('Failed to persist session ID', e);
+                }
+
+                set((state) => ({
+                    currentShift: { ...shift, status: 'ACTIVE' },
+                    terminals: state.terminals.map(t => t.id === shift.terminal_id ? { ...t, status: 'OPEN' as const } : t),
+                    currentTerminalId: shift.terminal_id
+                }));
+                import('sonner').then(({ toast }) => toast.success('Turno reanudado'));
+            },
 
             closeShift: async (finalAmount, authorizedBy) => {
                 const state = get();
@@ -1344,6 +1378,13 @@ export const usePharmaStore = create<PharmaState>()(
                 const updatedTerminals = state.terminals.map(t =>
                     t.id === state.currentShift!.terminal_id ? { ...t, status: 'CLOSED' as const } : t
                 );
+
+                // Remove Session ID
+                try {
+                    localStorage.removeItem('pos_session_id');
+                } catch (e) {
+                    console.error('Failed to remove session ID', e);
+                }
 
                 set({
                     currentShift: null, // Reset current shift
@@ -1770,30 +1811,27 @@ export const usePharmaStore = create<PharmaState>()(
             addTicketToQueue: (ticket: QueueTicket) => set((state) => ({
                 tickets: [...state.tickets, ticket]
             })),
-            generateTicket: async (rut = 'ANON', branch_id = 'SUC-CENTRO') => {
+            generateTicket: async (rut = 'ANON', branch_id = 'SUC-CENTRO', type = 'GENERAL') => {
                 const state = get();
-                const { generateTicket: generateTicketAction } = await import('../../actions/queue');
+                const { createTicket } = await import('../../actions/queue');
 
-                const result = await generateTicketAction({
-                    rut: rut === 'ANON' ? undefined : rut,
-                    serviceType: 'FARMACIA', // Default service type
-                    locationId: branch_id
-                });
+                const result = await createTicket(branch_id, rut === 'ANON' ? '' : rut, type as any);
 
                 if (result.success && result.ticket) {
                     const dbTicket = result.ticket;
                     // Map DB Ticket to Store Ticket
                     let storeStatus: 'WAITING' | 'CALLED' | 'SKIPPED' | 'COMPLETED' = 'WAITING';
-                    if (dbTicket.status === 'SERVED') storeStatus = 'COMPLETED';
-                    if (dbTicket.status === 'CANCELLED') storeStatus = 'SKIPPED';
+                    if (dbTicket.status === 'COMPLETED') storeStatus = 'COMPLETED';
+                    if (dbTicket.status === 'NO_SHOW') storeStatus = 'SKIPPED';
+                    if (dbTicket.status === 'CALLED') storeStatus = 'CALLED';
 
                     const ticket: QueueTicket = {
                         id: dbTicket.id,
-                        number: dbTicket.ticket_number,
+                        number: dbTicket.code, // Changed from ticket_number to code
                         status: storeStatus,
-                        rut: dbTicket.customer_rut || 'ANON',
+                        rut: dbTicket.rut || 'ANON', // Changed from customer_rut
                         timestamp: new Date(dbTicket.created_at).getTime(),
-                        branch_id: dbTicket.location_id
+                        branch_id: dbTicket.branch_id // Changed from location_id
                     };
                     set((state) => ({ tickets: [...state.tickets, ticket] }));
                     return ticket;
@@ -1802,17 +1840,53 @@ export const usePharmaStore = create<PharmaState>()(
                     throw new Error(result.error);
                 }
             },
-            callNextTicket: () => {
+            callNextTicket: async (counterId: string) => {
                 const state = get();
-                const nextTicket = state.tickets.find(t => t.status === 'WAITING');
-                if (!nextTicket) return null;
+                const { getNextTicket } = await import('../../actions/queue');
+                const branchId = state.currentLocationId || 'SUC-CENTRO';
 
-                const updatedTickets = state.tickets.map(t =>
-                    t.id === nextTicket.id ? { ...t, status: 'CALLED' as const } : t
-                );
+                const result = await getNextTicket(branchId, counterId);
 
-                set({ tickets: updatedTickets });
-                return nextTicket;
+                if (result.success && result.ticket) {
+                    const dbTicket = result.ticket;
+                    const ticket: QueueTicket = {
+                        id: dbTicket.id,
+                        number: dbTicket.code,
+                        status: 'CALLED',
+                        rut: dbTicket.rut || 'ANON',
+                        timestamp: new Date(dbTicket.created_at).getTime(),
+                        branch_id: dbTicket.branch_id,
+                        counter: counterId
+                    };
+
+                    set((state) => ({
+                        currentTicket: ticket,
+                        // Update in tickets list if it exists there
+                        tickets: state.tickets.map(t => t.id === ticket.id ? ticket : t)
+                    }));
+                    return ticket;
+                } else {
+                    return null;
+                }
+            },
+            refreshQueueStatus: async () => {
+                const state = get();
+                const { getQueueStatus } = await import('../../actions/queue');
+                if (!state.currentLocationId) return;
+
+                const result = await getQueueStatus(state.currentLocationId);
+                if (result.success && result.allTickets) {
+                    // Map DB tickets to store tickets
+                    const mappedTickets: QueueTicket[] = result.allTickets.map((t: any) => ({
+                        id: t.id,
+                        number: t.code,
+                        status: t.status === 'NO_SHOW' ? 'SKIPPED' : t.status,
+                        rut: t.rut || 'ANON',
+                        timestamp: new Date(t.created_at).getTime(),
+                        branch_id: t.branch_id
+                    }));
+                    set({ tickets: mappedTickets });
+                }
             },
 
             // --- SII ---

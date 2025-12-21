@@ -280,6 +280,10 @@ export interface Terminal {
     blind_counts_count?: number;
     is_active?: boolean;
     deleted_at?: string; // For soft deletes
+    session_id?: string; // Active session ID if OPEN
+    session_start_time?: number;
+    session_opening_amount?: number;
+    session_user_id?: string;
     printer_config?: {
         receipt_printer_id?: string;
         label_printer_id?: string;

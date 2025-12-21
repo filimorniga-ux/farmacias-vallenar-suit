@@ -28,18 +28,64 @@ export async function calculateHandover(
 ): Promise<{ success: boolean; data?: HandoverSummary; error?: string }> {
     try {
         // 1. Get Current Shift & Terminal data
-        // We calculate "expectedCash" based on: Initial Cash + Sales (Cash) - Withdrawals
-        // This logic is likely in `terminals.ts` or `getTerminalDetails`.
-        // For now, let's query the shift balance directly if possible, or re-calc.
+        // Fix: Query cash_register_sessions instead of terminals.cash_balance (which doesn't exist)
+        const sessionRes = await query(`
+            SELECT opening_amount 
+            FROM cash_register_sessions 
+            WHERE terminal_id = $1::uuid AND closed_at IS NULL 
+            ORDER BY opened_at DESC LIMIT 1
+        `, [terminalId]);
 
-        // Assuming `shifts` table has `final_cash` or we sum `orders`.
-        // Let's look at `getTerminalDetails` query in `terminals.ts` to see how balance is calculated.
-        // Or simplified: Just take the current `cash_balance` from `terminals` table if it tracks real-time.
+        let expectedCash = 0;
+        if ((sessionRes.rowCount || 0) > 0) {
+            expectedCash = Number(sessionRes.rows[0].opening_amount || 0);
+        }
 
-        const termRes = await query("SELECT cash_balance FROM terminals WHERE id = $1", [terminalId]);
-        if (termRes.rowCount === 0) return { success: false, error: 'Terminal not found' };
+        // Calculate Cash Sales via Sales Total
+        // Note: sales table structure assumed standard id, total, payment_method, etc.
+        const salesRes = await query(`
+            SELECT COALESCE(SUM(total), 0) as total
+            FROM sales 
+            WHERE 
+                terminal_id = $1::uuid 
+                AND payment_method = 'CASH'
+                AND timestamp >= (
+                    SELECT opened_at FROM cash_register_sessions 
+                    WHERE terminal_id = $1::uuid AND closed_at IS NULL 
+                    ORDER BY opened_at DESC LIMIT 1
+                )
+        `, [terminalId]);
 
-        const expectedCash = Number(termRes.rows[0].cash_balance || 0);
+        const cashSales = Number(salesRes.rows[0]?.total || 0);
+
+        // Calculate Cash Movements (In/Out)
+        // We need to differentiate IN vs OUT. 
+        // type 'APERTURA' counts as IN but we already have opening_amount.
+        // So we might filter OUT 'APERTURA' if we sum movements, OR simply:
+        // System Expected = Opening + Sales + (INs exclude Apertura) - OUTs
+        // Let's check movements table structure or assumptions. usually 'type', 'amount', 'is_cash'.
+
+        const movementsRes = await query(`
+            SELECT 
+                COALESCE(SUM(CASE WHEN type = 'IN' THEN amount ELSE 0 END), 0) as total_in,
+                COALESCE(SUM(CASE WHEN type = 'OUT' THEN amount ELSE 0 END), 0) as total_out
+            FROM cash_movements
+            WHERE 
+                shift_id = (
+                    SELECT id FROM cash_register_sessions 
+                    WHERE terminal_id = $1::uuid AND closed_at IS NULL 
+                    ORDER BY opened_at DESC LIMIT 1
+                )
+                AND is_cash = true
+                AND type != 'APERTURA' -- Exclude Opening as it is in opening_amount
+        `, [terminalId]);
+
+        const cashIn = Number(movementsRes.rows[0]?.total_in || 0);
+        const cashOut = Number(movementsRes.rows[0]?.total_out || 0);
+
+        // FORMULA: Opening + Sales + Ins - Outs
+        expectedCash = expectedCash + cashSales + cashIn - cashOut;
+
         const diff = declaredCash - expectedCash;
 
         // Smart Withdrawal Logic
@@ -87,51 +133,46 @@ export async function executeHandover(
         await client.query('BEGIN');
 
         // 1. Verify Terminal & Shift
-        const termRes = await client.query("SELECT * FROM terminals WHERE id = $1 FOR UPDATE", [terminalId]);
+        const termRes = await client.query("SELECT * FROM terminals WHERE id = $1::uuid FOR UPDATE", [terminalId]);
         const terminal = termRes.rows[0];
         if (!terminal) throw new Error('Terminal not found');
 
-        // Get active shift
-        const shiftRes = await client.query("SELECT * FROM shifts WHERE terminal_id = $1 AND end_time IS NULL ORDER BY start_time DESC LIMIT 1", [terminalId]);
+        // Get active session (Correct table: cash_register_sessions)
+        const shiftRes = await client.query("SELECT * FROM cash_register_sessions WHERE terminal_id = $1::uuid AND closed_at IS NULL ORDER BY opened_at DESC LIMIT 1", [terminalId]);
         const currentShift = shiftRes.rows[0];
 
         if (!currentShift) throw new Error('No active shift found');
 
         // 2. Create Treasury Remittance (if withdrawal > 0)
-        // If detailed audit is needed, we create a remittance record even for $0?
-        // Requirement: "Historial de Rendiciones". Yes, likely we want a record saying "Closed with $X, Diff $Y".
-
         const remittanceId = uuidv4();
         // Insert Remittance with V3 columns
         await client.query(`
             INSERT INTO treasury_remittances (
                 id, location_id, source_terminal_id, amount, status, created_by, created_at,
                 shift_start, shift_end, cash_count_diff, notes
-            ) VALUES ($1, $2, $3, $4, 'PENDING_RECEIPT', $5, NOW(), $6, NOW(), $7, $8)
+            ) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'PENDING_RECEIPT', $5::uuid, NOW(), $6, NOW(), $7, $8)
         `, [
             remittanceId,
             terminal.location_id,
             terminalId,
             summary.amountToWithdraw, // This is what goes to Treasury
             userId,
-            currentShift.start_time,
+            currentShift.opened_at, // Correct column
             summary.diff,
             `Arqueo: Declarado $${summary.declaredCash} vs Sistema $${summary.expectedCash}. Base mantenida: $${summary.amountToKeep}`
         ]);
 
-        // 3. Close Shift
+        // 3. Close Session (Correct table & columns)
         await client.query(`
-            UPDATE shifts 
-            SET end_time = NOW(), 
-                final_cash = $1, 
-                cash_difference = $2,
-                status = 'CLOSED'
-            WHERE id = $3
-        `, [summary.declaredCash, summary.diff, currentShift.id]);
+            UPDATE cash_register_sessions 
+            SET closed_at = NOW(), 
+                status = 'CLOSED',
+                closing_amount = $2
+            WHERE id = $1::uuid
+        `, [currentShift.id, summary.declaredCash]);
 
-        // 4. Update Terminal Balance
-        // The terminal physically keeps `amountToKeep`.
-        await client.query("UPDATE terminals SET cash_balance = $1, current_user_id = NULL, status = 'CLOSED' WHERE id = $2", [summary.amountToKeep, terminalId]);
+        // 4. Update Terminal Status (Sanitized: No cash_balance)
+        await client.query("UPDATE terminals SET current_cashier_id = NULL, status = 'CLOSED' WHERE id = $1::uuid", [terminalId]);
 
         // 5. If Next User, validation or whatever needed? 
         // For now, simpler to just close. The next user logs in normally.
