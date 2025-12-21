@@ -1,72 +1,40 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-export function middleware(request: NextRequest) {
-    // Leemos la variable de entorno
+export function middleware(req: NextRequest) {
     const isMaintenanceMode = process.env.MAINTENANCE_MODE === 'true';
 
-    // Si está activo y el usuario NO está ya en la página de mantenimiento
-    // (Evitamos un bucle infinito de redirecciones)
-    if (isMaintenanceMode && !request.nextUrl.pathname.startsWith('/maintenance')) {
-        return NextResponse.redirect(new URL('/maintenance', request.url));
+    // 1. Si está activo el modo mantenimiento y NO estamos ya en la página
+    if (isMaintenanceMode && !req.nextUrl.pathname.startsWith('/maintenance')) {
+        return NextResponse.redirect(new URL('/maintenance', req.url));
     }
 
-    // Si NO está en mantenimiento, pero intenta entrar a /maintenance, lo sacamos de ahí
-    if (!isMaintenanceMode && request.nextUrl.pathname.startsWith('/maintenance')) {
-        return NextResponse.redirect(new URL('/', request.url));
+    // 2. Si NO está activo, pero intentan entrar manualmente a la página
+    if (!isMaintenanceMode && req.nextUrl.pathname.startsWith('/maintenance')) {
+        return NextResponse.redirect(new URL('/', req.url));
     }
 
-    // Clone the request headers
-    const requestHeaders = new Headers(request.headers);
-    requestHeaders.set('x-url', request.url);
+    // --- PRESERVED SECURITY HEADERS (Critical for Camera/Scanner) ---
+    const requestHeaders = new Headers(req.headers);
+    requestHeaders.set('x-url', req.url);
 
-    // Create Response
     const response = NextResponse.next({
         request: {
             headers: requestHeaders,
         },
     });
 
-    // 🔒 Security Headers
-    const cspHeader = `
-        default-src 'self';
-        script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net;
-        style-src 'self' 'unsafe-inline';
-        img-src 'self' blob: data: https://*; 
-        font-src 'self';
-        connect-src 'self' https://*; -- ALLOW EXTERNAL API
-    `;
-    // Replace newlines with spaces
-    const contentSecurityPolicyHeaderValue = cspHeader
-        .replace(/\s{2,}/g, ' ')
-        .trim();
-
-    // response.headers.set('Content-Security-Policy', contentSecurityPolicyHeaderValue); // Disabled for now to avoid breaking UI (unsafe-eval is needed for some libs)
-
-    // X-Frame-Options: DENY (Clickjacking)
+    // Security Headers
     response.headers.set('X-Frame-Options', 'DENY');
-
-    // X-Content-Type-Options: nosniff
     response.headers.set('X-Content-Type-Options', 'nosniff');
-
-    // Referrer-Policy
     response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-
-    // Permissions-Policy (Camera needed for Scanner)
+    // Essential for Barcode Scanner in POS
     response.headers.set('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
 
     return response;
 }
 
 export const config = {
-    matcher: [
-        /*
-         * Match all request paths except for the ones starting with:
-         * - api (API routes)
-         * - _next/static (static files)
-         * - _next/image (image optimization files)
-         * - favicon.ico (favicon file)
-         */
-        '/((?!api|_next/static|_next/image|favicon.ico|manifest.json|.*\\.png|.*\\.jpg|.*\\.svg).*)',
-    ],
+    // Matcher negativo para excluir api y estáticos
+    matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
 };
