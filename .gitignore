@@ -32,3 +32,10 @@ release/
 *.zip
 .vercel
 .env*.local
+
+# Environment variables (SECURITY: Never commit these!)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
