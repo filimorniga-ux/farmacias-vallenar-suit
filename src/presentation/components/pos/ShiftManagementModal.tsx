@@ -226,26 +226,38 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     const handleOpenShift = async () => {
         if (isSubmitting) return; // Prevención de doble envío en Frontend
 
+        console.log('🔐 [DEBUG] Validating PIN...');
+        console.log('🔐 [DEBUG] Manager PIN entered:', managerPin);
+        console.log('🔐 [DEBUG] Employees:', employees.map(e => ({ name: e.name, role: e.role, pin: e.access_pin })));
+
         // 1. Validar PIN de Gerente (Seguridad Local)
         const manager = employees.find(e => (e.role === 'MANAGER' || e.role === 'ADMIN') && e.access_pin === managerPin);
 
+        console.log('🔐 [DEBUG] Manager found:', manager);
+
         if (!manager) {
             toast.error('PIN de Autorización inválido');
+            console.error('❌ [DEBUG] No manager found with this PIN');
             return;
         }
 
         setIsSubmitting(true);
+        console.log('✅ [DEBUG] Manager validated. Starting atomic open...');
+        console.log('📊 [DEBUG] Terminal:', selectedTerminal, 'Cashier:', selectedCashier, 'Amount:', openingAmount);
 
         try {
             // 2. LLAMADA ATÓMICA AL BACKEND (v2)
-            // Ya no hay riesgo de "Zombie": O se crea todo o falla todo.
+            console.log('⚡ [DEBUG] Calling openTerminalAtomic...');
             const result = await openTerminalAtomic(
                 selectedTerminal,
                 selectedCashier,
                 parseInt(openingAmount)
             );
 
+            console.log('📡 [DEBUG] Backend response:', result);
+
             if (!result.success) {
+                console.error('❌ [DEBUG] Backend returned error:', result.error);
                 // Manejo de Errores Robustos que vienen del Backend Atómico
                 if (result.error?.includes('ocupado')) {
                     toast.error('🚫 La terminal fue ocupada por otro usuario hace un instante.');
@@ -258,11 +270,14 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                 return;
             }
 
+            console.log('✅ [DEBUG] Terminal opened successfully. Session ID:', result.sessionId);
+
             // 3. ÉXITO: Sincronizar Estado Local y Persistencia
 
             // A. Guardar sesión en localStorage (vía Hook) para validación offline/recarga
             if (result.sessionId) {
                 const terminalData = terminals.find(t => t.id === selectedTerminal);
+                console.log('💾 [DEBUG] Saving session to localStorage...');
                 saveSession({
                     sessionId: result.sessionId,
                     terminalId: selectedTerminal,
@@ -274,9 +289,12 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
             }
 
             // B. Actualizar Store Global (Zustand) para la UI inmediata
+            console.log('🔄 [DEBUG] Updating Zustand store...');
             openShift(parseInt(openingAmount), selectedCashier, manager.id, selectedTerminal, selectedLocation);
 
             toast.success('🚀 Turno abierto correctamente (Sesión Segura)');
+
+            console.log('🚪 [DEBUG] Closing modal and redirecting to POS...');
             onClose();
 
             // C. Resetear Formulario
@@ -290,7 +308,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
             router.push('/pos');
 
         } catch (error) {
-            console.error(error);
+            console.error('💥 [DEBUG] CRITICAL ERROR in handleOpenShift:', error);
             toast.error('Error crítico de comunicación');
         } finally {
             setIsSubmitting(false);
