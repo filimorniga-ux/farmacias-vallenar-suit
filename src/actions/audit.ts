@@ -48,3 +48,49 @@ export async function getAuditLogs(filters?: {
         return [];
     }
 }
+
+export async function getRecentAuditLogs(limit = 50) {
+    try {
+        // Hacemos JOIN para obtener el nombre del usuario, o mostramos 'SISTEMA / BOT' si es null/bot
+        const result = await query(`
+            SELECT 
+                a.id,
+                a.accion as action,
+                a.detalle as details,
+                a.fecha as created_at,
+                a.usuario as user_id,
+                COALESCE(u.name, 'SISTEMA / BOT') as user_name,
+                u.role as user_role
+            FROM audit_logs a
+            LEFT JOIN users u ON a.usuario = u.id::text
+            ORDER BY a.fecha DESC
+            LIMIT $1
+        `, [limit]);
+
+        return { success: true, data: result.rows };
+    } catch (error) {
+        console.error('Error fetching audit logs:', error);
+        return { success: false, error: 'No se pudo cargar el historial de seguridad' };
+    }
+}
+
+/**
+ * Log a sensitive action to the audit table.
+ * @param usuario ID or Name of the user performing the action
+ * @param accion Short code for the action (e.g., 'FORCE_CLOSE')
+ * @param detalle Human readable details
+ * @param ip Optional IP address
+ */
+export async function logAction(usuario: string, accion: string, detalle: string, ip?: string) {
+    try {
+        await query(`
+            INSERT INTO audit_logs (usuario, accion, detalle, ip, fecha)
+            VALUES ($1, $2, $3, $4, NOW())
+        `, [usuario, accion, detalle, ip || 'UNKNOWN']);
+        return { success: true };
+    } catch (error) {
+        console.error('Error logging audit action:', error);
+        // We generally don't want audit failure to block the main action, but it should be noted.
+        return { success: false, error: 'Audit Log Failed' };
+    }
+}

@@ -351,7 +351,7 @@ export async function getAvailableTerminalsForShift(locationId: string) {
         await ensureTerminalColumns();
         const result = await query(`
             SELECT * FROM terminals 
-            WHERE location_id = $1::uuid 
+            WHERE location_id = $1 
               AND (is_active = TRUE OR is_active IS NULL)
               AND (deleted_at IS NULL)
               AND status != 'DELETED'
@@ -375,9 +375,18 @@ export async function getAvailableTerminalsForShift(locationId: string) {
  * Forces a terminal shift to close.
  * Used for administrative overrides when a terminal is stuck/zombie.
  */
-export async function forceCloseTerminalShift(terminalId: string, userId: string) {
+export async function forceCloseTerminalShift(terminalId: string, userId: string, customReason?: string) {
     try {
-        // 1. Find the open session
+        // 1. Audit Log (Non-blocking)
+        try {
+            const { logAction } = await import('./audit');
+            const reason = customReason || `Intento de Cierre Forzado de Terminal ${terminalId}`;
+            await logAction(userId, 'FORCE_CLOSE', reason);
+        } catch (e) {
+            console.warn('⚠️ Audit log failed (non-critical):', e);
+        }
+
+        // 2. Find the open session
         const sessionRes = await query(`
             SELECT id 
             FROM cash_register_sessions 
@@ -387,17 +396,18 @@ export async function forceCloseTerminalShift(terminalId: string, userId: string
         if (sessionRes.rows.length > 0) {
             const sessionId = sessionRes.rows[0].id;
 
-            // 2. Close the Session
+            // 3. Close the Session
+            const closingNote = customReason || `Cierre Forzado por Admin ${userId}`;
             await query(`
                 UPDATE cash_register_sessions
                 SET closed_at = NOW(), 
                     status = 'CLOSED_FORCE', 
                     notes = $2
                 WHERE id = $1
-            `, [sessionId, `Cierre Forzado por Admin ${userId}`]);
+            `, [sessionId, closingNote]);
         }
 
-        // 3. Reset Terminal Status (Atomic Reset)
+        // 4. Reset Terminal Status (Atomic Reset)
         await query(`
             UPDATE terminals 
             SET status = 'CLOSED', 
@@ -405,10 +415,19 @@ export async function forceCloseTerminalShift(terminalId: string, userId: string
             WHERE id = $1
         `, [terminalId]);
 
+        // 5. Audit Log (Success - Non-blocking)
+        try {
+            const { logAction } = await import('./audit');
+            await logAction(userId, 'FORCE_CLOSE_SUCCESS', `Terminal ${terminalId} liberada exitosamente`);
+        } catch (e) {
+            console.warn('⚠️ Audit log failed (non-critical):', e);
+        }
+
         // revalidatePath('/');
         return { success: true };
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error forcing terminal close:', error);
+
         return { success: false, error: 'Failed to force close terminal' };
     }
 }

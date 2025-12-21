@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { EmployeeProfile } from '../../domain/types';
+import SystemIncidentsBanner from '../components/dashboard/SystemIncidentsBanner';
 
 const DashboardPage: React.FC = () => {
     const navigate = useNavigate();
@@ -32,12 +33,28 @@ const DashboardPage: React.FC = () => {
         window.addEventListener('online', updateOnlineStatus);
         window.addEventListener('offline', updateOnlineStatus);
         setIsOnline(navigator.onLine);
+
+        // --- LAZY TRIGGER: GC & HEALTH CHECK ---
+        // Only run for Admins/Managers to save resources
+        if (user?.role === 'ADMIN' || user?.role === 'MANAGER') {
+            import('../../actions/maintenance').then(({ autoCloseGhostSessions }) => {
+                autoCloseGhostSessions()
+                    .then(res => {
+                        if (res.success && res.count && res.count > 0) {
+                            // Optional: Notify user (as per future roadmap)
+                            console.log(`🧹 GC Limpió ${res.count} sesiones.`);
+                        }
+                    })
+                    .catch(e => console.error('GC Error:', e));
+            });
+        }
+
         return () => {
             autoBackupService.stop();
             window.removeEventListener('online', updateOnlineStatus);
             window.removeEventListener('offline', updateOnlineStatus);
         };
-    }, []);
+    }, [user?.role]); // Added user dependency to re-run on login
 
     // --- SERVER SIDE DATA ---
     const [serverMetrics, setServerMetrics] = useState<any>(null);
@@ -278,6 +295,11 @@ const DashboardPage: React.FC = () => {
             </header>
 
             <main className="p-6 space-y-8 max-w-md mx-auto md:max-w-4xl">
+
+                {/* 0. CRITICAL ALERTS */}
+                <div className="md:col-span-full">
+                    <SystemIncidentsBanner />
+                </div>
 
                 {/* 1. FINANCIAL PULSE */}
                 {(dashboardData as any).isLoading ? (

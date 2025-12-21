@@ -3,6 +3,7 @@
 import { query } from '@/lib/db';
 import { CashMovement, Expense } from '@/domain/types';
 import { revalidatePath } from 'next/cache';
+import { isValidUUID } from '@/lib/utils';
 
 /**
  * Creates a generic cash movement (Withdrawal, Opening, Closing, Extra Income)
@@ -155,11 +156,7 @@ export async function getCashMovements(terminalId?: string, limit = 50) {
 }
 
 // Helpers
-function isValidUUID(id?: string | null) {
-    if (!id) return false;
-    const regex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    return regex.test(id);
-}
+// Helper removed (use shared in @/lib/utils)
 
 function mapDbTypeToDomain(dbType: string): any {
     // Deprecated by inline map
