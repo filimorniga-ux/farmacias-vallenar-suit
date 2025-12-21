@@ -223,6 +223,7 @@ export async function getTerminalStatus(terminalId: string) {
 
 export async function getTerminalsByLocation(locationId: string): Promise<{ success: boolean; data?: Terminal[]; error?: string }> {
     try {
+        console.log(`🔍 [Server Action] Fetching terminals for LOC: "${locationId}"`);
         // Detailed Telemetry Query
         const result = await query(`
             SELECT 
@@ -246,7 +247,34 @@ export async function getTerminalsByLocation(locationId: string): Promise<{ succ
             ORDER BY t.name ASC
         `, [locationId]);
 
+        console.log(`✅ [Server Action] Terminals Found: ${result.rows.length}`);
+
+        // Fallback or Empty Handling
         if (result.rows.length === 0) {
+            console.warn('⚠️ [Server Action] No terminals found with main query. Attempting simplified query...');
+            const simpleRes = await query(`
+                SELECT id, name, location_id, status, current_cashier_id 
+                FROM terminals 
+                WHERE location_id = $1 AND deleted_at IS NULL
+            `, [locationId]);
+            console.log(`ℹ️ [Server Action] Simplified Query Found: ${simpleRes.rows.length}`);
+
+            if (simpleRes.rows.length > 0) {
+                // If simple works, return basic data (mapping will miss session info but basic terminal shows up)
+                return {
+                    success: true,
+                    data: simpleRes.rows.map((row: any) => ({
+                        id: row.id,
+                        name: row.name,
+                        location_id: row.location_id,
+                        status: row.status,
+                        current_cashier_id: row.current_cashier_id,
+                        current_cashier_name: 'Unknown (Fallback)',
+                        blind_counts_count: 0
+                    }))
+                };
+            }
+
             return { success: true, data: [] };
         }
 
@@ -268,7 +296,7 @@ export async function getTerminalsByLocation(locationId: string): Promise<{ succ
 
         return { success: true, data: terminals };
     } catch (error: any) {
-        console.error('Error fetching terminals with telemetry:', error);
+        console.error('❌ [Server Action] Error fetching terminals:', error);
         return { success: false, error: 'Failed to fetch terminals' };
     }
 }

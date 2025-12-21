@@ -176,14 +176,14 @@ export const TigerDataService = {
             const { createSale } = await import('../../actions/sales');
             const result = await createSale(enrichedSale);
 
-            if (result.success && result.transactionId) {
+            if (result.success && 'transactionId' in result) {
                 console.log(`✅ [Tiger Data] Sale saved to DB: ${result.transactionId}`);
                 // Update local memory for immediate UI feedback (Optimistic or just sync)
                 inMemoryStorage.sales.push(enrichedSale);
                 return { success: true, transactionId: result.transactionId };
             } else {
                 // If server action returned failure but didn't throw (handled error)
-                return { success: false, transactionId: '', error: result.error || 'Server action failed' };
+                return { success: false, transactionId: '', error: (result as any).error || 'Server action failed' };
             }
         } catch (error) {
             console.error('❌ [Tiger Data] DB Save failed:', error);
