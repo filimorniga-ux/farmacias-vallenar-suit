@@ -41,8 +41,8 @@ CREATE INDEX IF NOT EXISTS idx_users_is_active ON users(is_active) WHERE is_acti
 --     CHECK (access_pin IS NOT NULL OR access_pin_hash IS NOT NULL);
 
 -- 5. Registrar migración
-INSERT INTO schema_migrations (version, name, applied_at)
-VALUES ('007', 'security_pin_hash', NOW())
+INSERT INTO schema_migrations (version, description, checksum)
+VALUES ('007', 'security_pin_hash - bcrypt PIN hashing', 'sec007')
 ON CONFLICT (version) DO NOTHING;
 
 -- ============================================================================
@@ -65,4 +65,5 @@ ON CONFLICT (version) DO NOTHING;
 -- ALTER TABLE users DROP COLUMN IF EXISTS last_login_at;
 -- ALTER TABLE users DROP COLUMN IF EXISTS last_login_ip;
 -- DELETE FROM schema_migrations WHERE version = '007';
+-- (La tabla usa: version, description, checksum)
 -- ============================================================================
