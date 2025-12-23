@@ -93,13 +93,13 @@ export async function createBatch(batchData: Partial<InventoryBatch> & { userId:
     } catch (error: any) {
         console.error('❌ Failed to create batch:', error);
 
-        // Auto-fix schema if missing columns
+        // FIX: Remove dangerous auto-DDL. Schema should be managed via migrations.
         if (error.code === '42703') { // Undefined column
-            // Try to add stock_min if missing
-            await query(`ALTER TABLE inventory_batches ADD COLUMN IF NOT EXISTS stock_min INTEGER DEFAULT 0;`);
-            await query(`ALTER TABLE inventory_batches ADD COLUMN IF NOT EXISTS stock_max INTEGER DEFAULT 0;`);
-            // Retry mechanism could be added here
-            return { success: false, error: 'Database schema updated. Please try again.' };
+            console.error('❌ Schema error: Missing column. Ensure migrations are up to date.');
+            return { 
+                success: false, 
+                error: 'Error de configuración del sistema. Contacte soporte técnico.' 
+            };
         }
 
         return { success: false, error: error.message };
@@ -120,6 +120,10 @@ export async function getRecentMovements(locationId?: string, limit = 100) {
             params.push(locationId);
         }
 
+        // FIX: Parameterize LIMIT to prevent SQL injection
+        const validLimit = Math.min(Math.max(Number(limit) || 100, 1), 1000);
+        params.push(validLimit);
+        
         const sql = `
             SELECT 
                 sm.id::text as id,
@@ -137,7 +141,7 @@ export async function getRecentMovements(locationId?: string, limit = 100) {
             LEFT JOIN locations l ON sm.location_id::text = l.id::text
             ${whereClause}
             ORDER BY sm.timestamp DESC
-            LIMIT ${limit}
+            LIMIT $${params.length}
         `;
 
         const res = await query(sql, params);
