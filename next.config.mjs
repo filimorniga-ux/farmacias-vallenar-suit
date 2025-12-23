@@ -15,6 +15,9 @@ const nextConfig = {
         } : false,
     },
 
+    // Fix for Pino/ThreadStream bundling issues in Turbopack
+    serverExternalPackages: ['pino', 'thread-stream', 'pino-pretty'],
+
     // Headers de seguridad
     async headers() {
         return [

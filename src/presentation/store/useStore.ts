@@ -1235,7 +1235,7 @@ export const usePharmaStore = create<PharmaState>()(
                 }
             },
             forceCloseTerminal: async (id) => {
-                const { closeTerminal } = await import('../../actions/terminals');
+                const { closeTerminalAtomic } = await import('../../actions/terminals-v2');
                 const currentUser = get().user;
 
                 // Optimistic Update
@@ -1244,8 +1244,8 @@ export const usePharmaStore = create<PharmaState>()(
                 }));
 
                 try {
-                    // Force close with 0 cash and admin comment
-                    const res = await closeTerminal(id, currentUser?.id || 'ADMIN_FORCE', 0, 'Cierre Administrativo Forzado');
+                    // Force close with 0 cash and admin comment using ATOMIC Implementation
+                    const res = await closeTerminalAtomic(id, currentUser?.id || 'ADMIN_FORCE', 0, 'Cierre Administrativo Forzado');
 
                     if (!res.success) {
                         import('sonner').then(({ toast }) => toast.error('Error al forzar cierre: ' + res.error));
