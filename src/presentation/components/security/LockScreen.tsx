@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react'; // Added React import
 import { usePharmaStore } from '../../store/useStore';
-import { authenticateUser } from '@/actions/auth';
+import { authenticateUserSecure } from '@/actions/auth-v2';
 import { Lock, AlertTriangle, Loader2 } from 'lucide-react';
 
 interface LockScreenProps {
@@ -32,8 +32,8 @@ export default function LockScreen({ isLocked, onUnlock }: LockScreenProps) {
         setError('');
 
         try {
-            // Validate PIN against current user
-            const result = await authenticateUser(user.id, pin);
+            // Validate PIN against current user (using secure bcrypt version)
+            const result = await authenticateUserSecure(user.id, pin);
 
             if (result.success) {
                 onUnlock();

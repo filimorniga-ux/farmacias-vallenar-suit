@@ -88,9 +88,10 @@ export async function logAuditEvent(input: AuditEventInput): Promise<{ success: 
         let userAgent = input.userAgent;
         
         try {
-            const headersList = headers();
-            ipAddress = ipAddress || headersList.get('x-forwarded-for')?.split(',')[0] || headersList.get('x-real-ip') || null;
-            userAgent = userAgent || headersList.get('user-agent') || null;
+            // Next.js 15+: headers() returns a Promise
+            const headersList = await headers();
+            ipAddress = ipAddress || headersList.get('x-forwarded-for')?.split(',')[0] || headersList.get('x-real-ip') || undefined;
+            userAgent = userAgent || headersList.get('user-agent') || undefined;
         } catch {
             // headers() might fail in some contexts (e.g., direct DB scripts)
         }

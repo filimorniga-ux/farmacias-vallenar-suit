@@ -187,7 +187,8 @@ export async function auditLog(
         let requestId = crypto.randomUUID();
 
         try {
-            const headersList = headers();
+            // Next.js 15+: headers() returns a Promise
+            const headersList = await headers();
             ipAddress = headersList.get('x-forwarded-for') ||
                         headersList.get('x-real-ip') ||
                         'UNKNOWN';

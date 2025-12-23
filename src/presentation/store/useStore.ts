@@ -247,14 +247,15 @@ export const usePharmaStore = create<PharmaState>()(
             login: async (userId, pin, locationId) => {
                 let authenticatedUser: EmployeeProfile | null = null;
 
-                // 1. Online Attempt (Secure Server Action)
+                // 1. Online Attempt (Secure Server Action with bcrypt)
                 try {
-                    // Dynamic import of Server Action
-                    const { authenticateUser } = await import('../../actions/auth');
-                    const result = await authenticateUser(userId, pin, locationId);
+                    // Dynamic import of Server Action (using secure v2 with bcrypt)
+                    const { authenticateUserSecure } = await import('../../actions/auth-v2');
+                    const result = await authenticateUserSecure(userId, pin, locationId);
 
                     if (result.success && result.user) {
-                        authenticatedUser = result.user;
+                        // Cast to EmployeeProfile - auth-v2 returns compatible user data
+                        authenticatedUser = result.user as EmployeeProfile;
                     } else if (result.error && result.error.includes('Bloqueado')) {
                         // Propagate Blocking Error
                         import('sonner').then(({ toast }) => toast.error(result.error));

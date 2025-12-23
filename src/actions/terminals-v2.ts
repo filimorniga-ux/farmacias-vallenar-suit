@@ -191,7 +191,7 @@ export async function openTerminalAtomic(
             RETURNING id
         `, [userId]);
 
-        if (ghostCleanup.rowCount > 0) {
+        if (ghostCleanup.rowCount && ghostCleanup.rowCount > 0) {
             logger.info({ closedSessions: ghostCleanup.rowCount }, '🧹 [Atomic v2.1] Cleaned ghost sessions');
         }
 
@@ -773,7 +773,7 @@ export async function forceCloseTerminalAtomic(
                 user_name: oldSession.user_name,
                 opened_at: oldSession.opened_at,
                 opening_amount: oldSession.opening_amount
-            } : null,
+            } : undefined,
             newValues: { 
                 status: 'CLOSED_FORCE',
                 terminal_name: terminal.name
