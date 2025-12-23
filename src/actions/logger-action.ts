@@ -1,7 +1,7 @@
 'use server';
 
-import { logAction as logToDb } from '@/lib/logger';
+import { logger } from '@/lib/logger';
 
 export async function logActionServer(usuario: string, accion: string, detalle: string) {
-    await logToDb(usuario, accion, detalle);
+    logger.info({ usuario, accion, detalle }, 'User Action Logged');
 }

@@ -66,11 +66,13 @@ export async function incrementRateLimit(identifier: string) {
 
         const res = await query('SELECT attempt_count FROM login_attempts WHERE identifier = $1', [identifier]);
         if ((res.rowCount || 0) > 0 && res.rows[0].attempt_count > MAX_ATTEMPTS) {
+            // FIX: Validate duration to prevent SQL injection and use parameterized interval
+            const validatedDuration = Math.min(Math.max(BLOCK_DURATION_MINUTES, 1), 1440); // 1 min to 24 hours
             await query(`
                 UPDATE login_attempts 
-                SET blocked_until = NOW() + INTERVAL '${BLOCK_DURATION_MINUTES} minutes'
+                SET blocked_until = NOW() + make_interval(mins => $2)
                 WHERE identifier = $1
-            `, [identifier]);
+            `, [identifier, validatedDuration]);
         }
     } catch (error) {
         console.error('Rate Limit Increment Failed:', error);
@@ -88,7 +90,14 @@ export async function clearRateLimit(identifier: string) {
 export async function logAuditAction(userId: string | null, action: string, details: any) {
     try {
         const headerStore = await headers();
-        let ip = headerStore.get('x-forwarded-for') || headerStore.get('x-real-ip') || 'unknown';
+        // FIX: Properly parse x-forwarded-for (can contain multiple IPs)
+        const xForwardedFor = headerStore.get('x-forwarded-for');
+        let ip = 'unknown';
+        if (xForwardedFor) {
+            ip = xForwardedFor.split(',')[0].trim();
+        } else {
+            ip = headerStore.get('x-real-ip') || 'unknown';
+        }
         const sanitizedDetails = JSON.stringify(details);
 
         await query(`
@@ -130,7 +139,13 @@ export async function getAuditLogs(page = 1, limit = 50, filters?: { userId?: st
             queryStr += ` WHERE ${whereConditions.join(' AND ')}`;
         }
 
-        queryStr += ` ORDER BY al.timestamp DESC LIMIT ${limit} OFFSET ${(page - 1) * limit}`;
+        // FIX: Parameterize LIMIT and OFFSET to prevent SQL injection
+        const validLimit = Math.min(Math.max(Number(limit) || 50, 1), 500);
+        const validPage = Math.max(Number(page) || 1, 1);
+        const offset = (validPage - 1) * validLimit;
+        
+        params.push(validLimit, offset);
+        queryStr += ` ORDER BY al.timestamp DESC LIMIT $${params.length - 1} OFFSET $${params.length}`;
         const res = await query(queryStr, params);
         return { success: true, data: res.rows };
     } catch (error: any) {
@@ -191,8 +206,29 @@ export async function verifySession(userId: string, clientTokenVersion: number, 
 /**
  * 🔴 Revoke Session (Remote Logout)
  */
+/**
+ * @deprecated Use revokeSessionSecure from auth-v2.ts instead
+ * This version lacks permission verification
+ */
 export async function revokeSession(targetUserId: string, adminUserId: string) {
     try {
+        // FIX: Verify admin permissions before revoking
+        const adminCheck = await query('SELECT role FROM users WHERE id = $1', [adminUserId]);
+        if (adminCheck.rowCount === 0) {
+            return { success: false, error: 'Administrador no encontrado' };
+        }
+        
+        const adminRole = (adminCheck.rows[0].role || '').toUpperCase();
+        const allowedRoles = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL'];
+        
+        if (!allowedRoles.includes(adminRole)) {
+            await logAuditAction(adminUserId, 'REVOKE_SESSION_DENIED', { 
+                target_user: targetUserId,
+                reason: 'Insufficient permissions'
+            });
+            return { success: false, error: 'Sin permisos para revocar sesiones' };
+        }
+
         // Increment token_version -> Invalidates all current client tokens
         await query('UPDATE users SET token_version = COALESCE(token_version, 1) + 1 WHERE id = $1', [targetUserId]);
 
