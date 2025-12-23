@@ -10,6 +10,19 @@ export default defineConfig({
         alias: {
             '@': path.resolve(__dirname, './src'),
         },
+        exclude: ['**/node_modules/**', '**/dist/**', 'tests/e2e/**'],
+        coverage: {
+            provider: 'v8',
+            reporter: ['text', 'html'],
+            exclude: [
+                'node_modules/',
+                'dist/',
+                '.next/',
+                '**/*.d.ts',
+                '**/*.config.*',
+                'tests/**',
+            ],
+        },
     },
     resolve: {
         alias: {
