@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export function middleware(req: NextRequest) {
-    const isMaintenanceMode = process.env.MAINTENANCE_MODE === 'true';
+    // Permitir acceso en Staging (Preview) independiente de la variable de entorno
+    const isPreview = process.env.VERCEL_ENV === 'preview';
+    const isMaintenanceMode = process.env.MAINTENANCE_MODE === 'true' && !isPreview;
 
     // 1. Si está activo el modo mantenimiento y NO estamos ya en la página
     if (isMaintenanceMode && !req.nextUrl.pathname.startsWith('/maintenance')) {
