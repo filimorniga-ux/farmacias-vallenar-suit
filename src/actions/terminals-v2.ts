@@ -217,7 +217,6 @@ export async function closeTerminalAtomic(
     }
 }
 
-// Re-exports for compatibility
-export { forceCloseTerminalShift, getAvailableTerminalsForShift } from './terminals';
+
 
 
