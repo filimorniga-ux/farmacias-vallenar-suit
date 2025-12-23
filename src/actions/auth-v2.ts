@@ -232,7 +232,7 @@ export async function authenticateUserSecure(
     const validated = AuthenticateSchema.safeParse({ userId, pin, locationId });
     if (!validated.success) {
         await auditLog(userId, 'LOGIN_INVALID_INPUT', { 
-            error: validated.error.errors[0]?.message 
+            error: validated.error.issues[0]?.message 
         }, ipAddress);
         return { success: false, error: 'Datos de autenticación inválidos' };
     }
@@ -376,7 +376,7 @@ export async function setUserPinSecure(
     // Validate inputs
     const validated = SetPinSchema.safeParse({ userId, newPin, adminId });
     if (!validated.success) {
-        return { success: false, error: validated.error.errors[0]?.message || 'Datos inválidos' };
+        return { success: false, error: validated.error.issues[0]?.message || 'Datos inválidos' };
     }
 
     try {

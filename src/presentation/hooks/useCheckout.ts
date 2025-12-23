@@ -16,7 +16,7 @@ import { shouldGenerateDTE } from '../../domain/logic/sii_dte';
 import { printSaleTicket } from '../utils/print-utils';
 import { Customer, CartItem } from '../../domain/types';
 
-export type PaymentMethod = 'CASH' | 'DEBIT' | 'CREDIT' | 'TRANSFER' | 'CHECK';
+export type PaymentMethod = 'CASH' | 'DEBIT' | 'CREDIT' | 'TRANSFER';
 
 export interface CheckoutState {
     isProcessing: boolean;
@@ -46,6 +46,7 @@ export function useCheckout(options: UseCheckoutOptions = {}) {
         processSale,
         redeemPoints,
         calculateDiscountValue,
+        user, // Current seller
     } = usePharmaStore();
 
     const { currentLocation } = useLocationStore();
@@ -133,6 +134,8 @@ export function useCheckout(options: UseCheckoutOptions = {}) {
                 total: finalTotal,
                 payment_method: paymentMethod,
                 customer: currentCustomer || undefined,
+                seller_id: user?.id || 'UNKNOWN',
+                seller_name: user?.name || 'Vendedor',
                 transfer_id: paymentMethod === 'TRANSFER' ? (transferId || 'SIN_ID_PENDIENTE') : undefined,
                 dte_status: dteResult.status,
                 dte_folio: dteFolio,
@@ -155,7 +158,8 @@ export function useCheckout(options: UseCheckoutOptions = {}) {
             // Auto-print if enabled
             if (autoPrint) {
                 try {
-                    await printSaleTicket(saleToPrint, currentLocation?.config, hardware);
+                    // Cast to any for print compatibility - print-utils handles missing fields gracefully
+                    await printSaleTicket(saleToPrint as any, currentLocation?.config, hardware);
                 } catch (printError) {
                     console.error('Print error:', printError);
                     // Don't fail the sale if print fails

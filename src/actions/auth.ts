@@ -4,8 +4,9 @@ import { query } from '@/lib/db';
 import { checkRateLimit, incrementRateLimit, clearRateLimit, logAuditAction } from './security';
 import { EmployeeProfile } from '@/domain/types';
 
-// Re-export secure version for gradual migration
-export { authenticateUserSecure, setUserPinSecure, verifySessionSecure } from './auth-v2';
+// NOTE: Re-exports removed - 'use server' only allows async function exports
+// For secure versions, import directly from './auth-v2':
+// import { authenticateUserSecure, setUserPinSecure, verifySessionSecure } from './auth-v2';
 
 /**
  * 🔐 Authentication Action
