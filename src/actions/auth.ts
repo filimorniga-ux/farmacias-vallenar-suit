@@ -4,10 +4,22 @@ import { query } from '@/lib/db';
 import { checkRateLimit, incrementRateLimit, clearRateLimit, logAuditAction } from './security';
 import { EmployeeProfile } from '@/domain/types';
 
+// Re-export secure version for gradual migration
+export { authenticateUserSecure, setUserPinSecure, verifySessionSecure } from './auth-v2';
+
 /**
- * 🔐 Secure Authentication Action
+ * 🔐 Authentication Action
+ * 
+ * @deprecated Use authenticateUserSecure from auth-v2.ts instead.
+ * This version compares PIN in plaintext which is a security risk.
+ * 
+ * MIGRATION STEPS:
+ * 1. Run migration: npm run migrate:pins
+ * 2. Update imports to use auth-v2.ts
+ * 3. Remove this file after all references updated
  */
 export async function authenticateUser(userId: string, pin: string, locationId?: string): Promise<{ success: boolean; user?: EmployeeProfile; error?: string }> {
+    console.warn('[DEPRECATED] authenticateUser() is deprecated. Use authenticateUserSecure() from auth-v2.ts');
     try {
         // 1. Rate Limiting Check
         // Use UserID or combined IP? Using UserID for PIN brute force protection is better.
