@@ -1,5 +1,32 @@
 'use server';
 
+/**
+ * @deprecated ESTE ARCHIVO ESTÁ DEPRECADO
+ * 
+ * ⚠️ ADVERTENCIA: Las funciones openTerminal() y closeTerminal() en este archivo
+ * tienen vulnerabilidades conocidas:
+ * 
+ * 1. NO usan transacciones reales (pueden generar estados inconsistentes)
+ * 2. NO tienen bloqueo pesimista (race conditions posibles)
+ * 3. closeTerminal() NO cierra la sesión correctamente
+ * 
+ * ✅ USAR EN SU LUGAR: src/actions/terminals-v2.ts
+ * - openTerminalAtomic()
+ * - closeTerminalAtomic()
+ * - forceCloseTerminalAtomic()
+ * 
+ * Este archivo se mantiene SOLO para funciones de lectura:
+ * - getTerminalsByLocation()
+ * - getAvailableTerminalsForShift()
+ * - getTerminalStatus()
+ * - createTerminal()
+ * - updateTerminal()
+ * - deleteTerminal()
+ * 
+ * @see src/actions/terminals-v2.ts para operaciones seguras
+ * @version DEPRECATED since 2024-12-23
+ */
+
 import { query } from '@/lib/db';
 import { Terminal } from '@/domain/types';
 import { revalidatePath } from 'next/cache';
