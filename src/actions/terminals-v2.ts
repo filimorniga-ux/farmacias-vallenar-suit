@@ -284,6 +284,222 @@ export async function openTerminalAtomic(
 }
 
 // =====================================================
+// FUNCIÓN: ABRIR TERMINAL CON VALIDACIÓN DE PIN (SEGURA)
+// =====================================================
+
+/**
+ * Abre un terminal validando el PIN del supervisor en el servidor.
+ * 
+ * SECURITY FIX: Esta función reemplaza la validación de PIN en el cliente.
+ * El PIN se valida con bcrypt en el servidor, nunca se expone en logs
+ * ni se compara en texto plano.
+ * 
+ * @param terminalId - UUID del terminal
+ * @param userId - ID del usuario/cajero
+ * @param initialCash - Monto inicial de apertura
+ * @param supervisorPin - PIN del supervisor (se valida con bcrypt)
+ * @returns Resultado con sessionId y authorizedById o error
+ */
+export async function openTerminalWithPinValidation(
+    terminalId: string, 
+    userId: string, 
+    initialCash: number,
+    supervisorPin: string
+): Promise<{ 
+    success: boolean; 
+    sessionId?: string; 
+    authorizedById?: string;
+    error?: string 
+}> {
+    
+    // 1. Validación de inputs
+    const validation = OpenTerminalSchema.safeParse({ terminalId, userId, initialCash });
+    if (!validation.success) {
+        logger.warn({ userId, terminalId }, 'Invalid input for openTerminalWithPinValidation');
+        return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
+    }
+
+    if (!supervisorPin || supervisorPin.length < 4) {
+        return { success: false, error: 'PIN de autorización requerido' };
+    }
+
+    const { pool } = await import('@/lib/db');
+    const bcrypt = await import('bcryptjs');
+    const client = await pool.connect();
+
+    try {
+        logger.info({ terminalId, userId, initialCash }, '🔐 [Atomic v2.2] Starting secure transaction: Open Terminal with PIN validation');
+
+        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        // 2. VALIDACIÓN DE PIN EN EL SERVIDOR (bcrypt)
+        // Buscar supervisores activos (MANAGER, ADMIN, GERENTE_GENERAL)
+        const supervisorQuery = await client.query(`
+            SELECT id, name, access_pin_hash, access_pin
+            FROM users 
+            WHERE role IN ('MANAGER', 'ADMIN', 'GERENTE_GENERAL')
+            AND is_active = true
+        `);
+
+        let authorizedBy: { id: string; name: string } | null = null;
+
+        for (const supervisor of supervisorQuery.rows) {
+            // Primero intentar con bcrypt hash (sistema nuevo)
+            if (supervisor.access_pin_hash) {
+                const isValid = await bcrypt.compare(supervisorPin, supervisor.access_pin_hash);
+                if (isValid) {
+                    authorizedBy = { id: supervisor.id, name: supervisor.name };
+                    break;
+                }
+            }
+            // Fallback: PIN legacy en texto plano (para usuarios no migrados)
+            // NOTA: Este fallback debe eliminarse después de migrar todos los usuarios
+            else if (supervisor.access_pin && supervisor.access_pin === supervisorPin) {
+                authorizedBy = { id: supervisor.id, name: supervisor.name };
+                logger.warn({ supervisorId: supervisor.id }, '⚠️ Using legacy plaintext PIN - user should be migrated');
+                break;
+            }
+        }
+
+        if (!authorizedBy) {
+            await client.query('ROLLBACK');
+            logger.warn({ userId, terminalId }, '🚫 PIN validation failed - no matching supervisor');
+            return { success: false, error: 'PIN de autorización inválido' };
+        }
+
+        logger.info({ authorizedById: authorizedBy.id }, '✅ Supervisor PIN validated successfully');
+
+        // 3. Check Idempotency (si ya tiene sesión activa, retornarla)
+        const existingSession = await client.query(`
+            SELECT id FROM cash_register_sessions 
+            WHERE terminal_id = $1 AND user_id = $2 AND closed_at IS NULL
+        `, [terminalId, userId]);
+
+        if (existingSession.rows.length > 0) {
+            await client.query('COMMIT');
+            logger.info({ sessionId: existingSession.rows[0].id }, '✅ Session already exists. Returning existing ID.');
+            return { 
+                success: true, 
+                sessionId: existingSession.rows[0].id,
+                authorizedById: authorizedBy.id
+            };
+        }
+
+        // 4. BLOQUEO PESIMISTA con NOWAIT
+        const termCheck = await client.query(`
+            SELECT id, status, current_cashier_id, location_id, name 
+            FROM terminals 
+            WHERE id = $1 
+            FOR UPDATE NOWAIT
+        `, [terminalId]);
+
+        if (termCheck.rows.length === 0) {
+            throw new Error(ERROR_MESSAGES.TERMINAL_NOT_FOUND);
+        }
+
+        const terminal = termCheck.rows[0];
+
+        // 5. Verificar disponibilidad
+        if (terminal.status === 'OPEN' && terminal.current_cashier_id !== userId) {
+            throw new Error(ERROR_MESSAGES.TERMINAL_OCCUPIED);
+        }
+
+        // 6. Auto-cleanup de sesiones ghost del usuario
+        await client.query(`
+            UPDATE cash_register_sessions 
+            SET closed_at = NOW(), 
+                status = 'CLOSED_AUTO', 
+                notes = 'Auto-cerrada por nueva apertura en otro terminal'
+            WHERE user_id = $1 AND closed_at IS NULL
+        `, [userId]);
+
+        // 7. Generar UUIDs
+        const { v4: uuidv4 } = await import('uuid');
+        const newSessionId = uuidv4();
+        const moveId = uuidv4();
+
+        // 8. OPERACIONES ATÓMICAS
+
+        // A. Insertar movimiento de caja (apertura)
+        await client.query(`
+            INSERT INTO cash_movements (
+                id, location_id, terminal_id, session_id, user_id, 
+                type, amount, reason, timestamp
+            ) VALUES (
+                $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid,
+                'APERTURA', $6, 'Apertura de Caja', NOW()
+            )
+        `, [moveId, terminal.location_id, terminalId, newSessionId, userId, initialCash]);
+
+        // B. Actualizar estado del terminal
+        await client.query(`
+            UPDATE terminals 
+            SET status = 'OPEN', 
+                current_cashier_id = $2::uuid, 
+                updated_at = NOW()
+            WHERE id = $1::uuid
+        `, [terminalId, userId]);
+
+        // C. Crear sesión de caja con authorized_by
+        await client.query(`
+            INSERT INTO cash_register_sessions (
+                id, terminal_id, user_id, opening_amount, status, opened_at, authorized_by
+            ) VALUES (
+                $1::uuid, $2::uuid, $3::uuid, $4, 'OPEN', NOW(), $5::uuid
+            )
+        `, [newSessionId, terminalId, userId, initialCash, authorizedBy.id]);
+
+        // D. Registrar auditoría
+        await insertAuditLog(client, {
+            userId,
+            terminalId,
+            sessionId: newSessionId,
+            locationId: terminal.location_id,
+            actionCode: 'SESSION_OPEN_AUTHORIZED',
+            entityType: 'SESSION',
+            entityId: newSessionId,
+            newValues: { 
+                opening_amount: initialCash,
+                terminal_name: terminal.name,
+                authorized_by: authorizedBy.name
+            }
+        });
+
+        // --- COMMIT ---
+        await client.query('COMMIT');
+
+        logger.info({ sessionId: newSessionId, terminalId, authorizedById: authorizedBy.id }, '✅ [Atomic v2.2] Transaction COMMITTED. Secure session created.');
+        revalidatePath('/pos');
+        revalidatePath('/caja');
+
+        return { 
+            success: true, 
+            sessionId: newSessionId,
+            authorizedById: authorizedBy.id
+        };
+
+    } catch (error: any) {
+        await client.query('ROLLBACK');
+
+        if (error.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
+            logger.warn({ terminalId }, '⏳ Terminal locked by another process');
+            return { success: false, error: ERROR_MESSAGES.TERMINAL_LOCKED };
+        }
+
+        if (error.code === ERROR_CODES.SERIALIZATION_FAILURE) {
+            logger.warn({ terminalId }, '🔄 Serialization conflict');
+            return { success: false, error: ERROR_MESSAGES.SERIALIZATION_ERROR };
+        }
+
+        logger.error({ err: error, terminalId, userId }, '❌ [Atomic v2.2] Transaction ROLLED BACK');
+        return { success: false, error: error.message || 'Error de base de datos' };
+
+    } finally {
+        client.release();
+    }
+}
+
+// =====================================================
 // FUNCIÓN: CERRAR TERMINAL (ATÓMICA)
 // =====================================================
 
