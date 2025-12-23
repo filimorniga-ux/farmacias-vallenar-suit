@@ -583,6 +583,101 @@ export async function verifySessionSecure(
 }
 
 // ============================================================================
+// SUPERVISOR PIN VALIDATION
+// ============================================================================
+
+/**
+ * 🔐 Validate Supervisor PIN for Authorization
+ * 
+ * @description Validates a supervisor's PIN without revealing user existence.
+ * Used for operations that require manager/admin authorization.
+ * 
+ * @param pin - 4-8 digit PIN to validate
+ * @param action - Action being authorized (for audit logging)
+ * @returns Result with supervisor ID and name if valid
+ */
+export async function validateSupervisorPin(
+    pin: string,
+    action: string = 'SUPERVISOR_AUTH'
+): Promise<{
+    success: boolean;
+    supervisorId?: string;
+    supervisorName?: string;
+    error?: string;
+}> {
+    // Validate PIN format
+    const pinSchema = z.string()
+        .min(4, 'PIN debe tener al menos 4 dígitos')
+        .max(8, 'PIN no puede exceder 8 dígitos')
+        .regex(/^\d+$/, 'PIN debe contener solo números');
+    
+    const validated = pinSchema.safeParse(pin);
+    if (!validated.success) {
+        return { success: false, error: 'Formato de PIN inválido' };
+    }
+
+    try {
+        // Fetch all supervisors (MANAGER, ADMIN, GERENTE_GENERAL)
+        const supervisors = await query(`
+            SELECT id, name, access_pin, access_pin_hash, role
+            FROM users 
+            WHERE role IN ('MANAGER', 'ADMIN', 'GERENTE_GENERAL')
+            AND is_active = true
+        `);
+
+        if (supervisors.rowCount === 0) {
+            return { success: false, error: 'No hay supervisores configurados' };
+        }
+
+        // Try to match PIN with any supervisor
+        for (const supervisor of supervisors.rows) {
+            let pinValid = false;
+
+            if (supervisor.access_pin_hash) {
+                // Secure: bcrypt comparison
+                const bcrypt = await import('bcryptjs');
+                pinValid = await bcrypt.compare(pin, supervisor.access_pin_hash);
+            } else if (supervisor.access_pin) {
+                // Legacy: timing-safe plaintext comparison
+                const crypto = await import('crypto');
+                const inputBuffer = Buffer.from(pin);
+                const storedBuffer = Buffer.from(supervisor.access_pin);
+                
+                if (inputBuffer.length === storedBuffer.length) {
+                    pinValid = crypto.timingSafeEqual(inputBuffer, storedBuffer);
+                }
+            }
+
+            if (pinValid) {
+                // Audit successful validation
+                await auditLog(supervisor.id, action, {
+                    authorized: true,
+                    method: supervisor.access_pin_hash ? 'bcrypt' : 'legacy'
+                });
+
+                return {
+                    success: true,
+                    supervisorId: supervisor.id,
+                    supervisorName: supervisor.name
+                };
+            }
+        }
+
+        // No match found
+        await auditLog('SYSTEM', 'SUPERVISOR_PIN_FAILED', {
+            action,
+            reason: 'Invalid PIN'
+        });
+
+        return { success: false, error: 'PIN de autorización inválido' };
+
+    } catch (error) {
+        console.error('[AUTH-V2] Supervisor PIN validation error:', error);
+        return { success: false, error: 'Error validando PIN' };
+    }
+}
+
+// ============================================================================
 // EXPORTS FOR BACKWARDS COMPATIBILITY
 // ============================================================================
 

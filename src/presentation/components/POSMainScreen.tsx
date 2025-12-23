@@ -88,6 +88,9 @@ const POSMainScreen: React.FC = () => {
     // Quote Mode
     const [isQuoteMode, setIsQuoteMode] = useState(false);
 
+    // SECURITY FIX: Protection against double-click on checkout
+    const [isCheckoutProcessing, setIsCheckoutProcessing] = useState(false);
+
     // Auto-Print Preference (Persisted)
     const [autoPrint, setAutoPrint] = useState(() => {
         if (typeof window !== 'undefined') {
@@ -310,6 +313,10 @@ const POSMainScreen: React.FC = () => {
     };
 
     const handleCheckout = async () => {
+        // SECURITY FIX: Prevent double-click duplicate sales
+        if (isCheckoutProcessing) {
+            return;
+        }
         if (cart.length === 0) return;
         if (!currentShift || currentShift.status === 'CLOSED') {
             toast.error('Debe abrir caja antes de vender.');
@@ -318,6 +325,9 @@ const POSMainScreen: React.FC = () => {
         if (paymentMethod === 'TRANSFER' && !transferId) {
             // Optional ID logic: allow empty, will be marked as PENDING
         }
+
+        // Set processing state immediately
+        setIsCheckoutProcessing(true);
 
         // Determine DTE Status based on Settings
         let dteResult = { shouldGenerate: false, status: 'FISCALIZED_BY_VOUCHER' as any };
@@ -363,6 +373,7 @@ const POSMainScreen: React.FC = () => {
 
             if (!success) {
                 toast.error('Error al procesar la venta. Intente nuevamente.');
+                setIsCheckoutProcessing(false);
                 return;
             }
 
@@ -384,8 +395,10 @@ const POSMainScreen: React.FC = () => {
                 toast.success('¡Venta Exitosa! Fiscalizada por Voucher.', { duration: 3000 });
             }
         } catch (err) {
-            console.error(err);
+            console.error('Checkout error:', err);
             toast.error('Error inesperado al finalizar venta');
+        } finally {
+            setIsCheckoutProcessing(false);
         }
     };
 
@@ -1185,9 +1198,23 @@ flex - col p - 4 md: p - 6 md: pl - 0 gap - 4
 
                             <button
                                 onClick={handleCheckout}
-                                className="w-full py-4 bg-cyan-600 text-white font-bold rounded-xl hover:bg-cyan-700 transition shadow-lg shadow-cyan-200 flex items-center justify-center gap-2"
+                                disabled={isCheckoutProcessing}
+                                className={`w-full py-4 text-white font-bold rounded-xl transition shadow-lg flex items-center justify-center gap-2 ${
+                                    isCheckoutProcessing 
+                                        ? 'bg-slate-400 cursor-not-allowed' 
+                                        : 'bg-cyan-600 hover:bg-cyan-700 shadow-cyan-200'
+                                }`}
                             >
-                                <DollarSign size={20} /> CONFIRMAR PAGO
+                                {isCheckoutProcessing ? (
+                                    <>
+                                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                        PROCESANDO...
+                                    </>
+                                ) : (
+                                    <>
+                                        <DollarSign size={20} /> CONFIRMAR PAGO
+                                    </>
+                                )}
                             </button>
                         </div>
                     </div>

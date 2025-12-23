@@ -4,7 +4,7 @@ import { X, User, DollarSign, Monitor, Lock, MapPin, LockKeyhole, ArrowRight, Ro
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 // IMPORTE ACTUALIZADO: Usamos la versión atómica v2
-import { openTerminalAtomic } from '../../../actions/terminals-v2';
+import { openTerminalAtomic, openTerminalWithPinValidation } from '../../../actions/terminals-v2';
 import { getAvailableTerminalsForShift, forceCloseTerminalShift } from '../../../actions/terminals';
 import { useTerminalSession } from '../../../hooks/useTerminalSession'; // Nuevo Hook
 import { Terminal } from '@/domain/types';
@@ -226,43 +226,34 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     const handleOpenShift = async () => {
         if (isSubmitting) return; // Prevención de doble envío en Frontend
 
-        console.log('🔐 [DEBUG] Validating PIN...');
-        console.log('🔐 [DEBUG] Manager PIN entered:', managerPin);
-        console.log('🔐 [DEBUG] Employees:', employees.map(e => ({ name: e.name, role: e.role, pin: e.access_pin })));
+        // SECURITY FIX: No más logs con datos sensibles
+        // La validación del PIN ahora se hace en el servidor
 
-        // 1. Validar PIN de Gerente (Seguridad Local)
-        const manager = employees.find(e => (e.role === 'MANAGER' || e.role === 'ADMIN') && e.access_pin === managerPin);
-
-        console.log('🔐 [DEBUG] Manager found:', manager);
-
-        if (!manager) {
-            toast.error('PIN de Autorización inválido');
-            console.error('❌ [DEBUG] No manager found with this PIN');
+        if (!managerPin || managerPin.length < 4) {
+            toast.error('Ingrese un PIN válido');
             return;
         }
 
         setIsSubmitting(true);
-        console.log('✅ [DEBUG] Manager validated. Starting atomic open...');
-        console.log('📊 [DEBUG] Terminal:', selectedTerminal, 'Cashier:', selectedCashier, 'Amount:', openingAmount);
 
         try {
-            // 2. LLAMADA ATÓMICA AL BACKEND (v2)
-            console.log('⚡ [DEBUG] Calling openTerminalAtomic...');
-            const result = await openTerminalAtomic(
+            // SECURITY FIX: Validación de PIN en el servidor (no en cliente)
+            // La función openTerminalWithPinValidation valida el PIN con bcrypt en el backend
+            const result = await openTerminalWithPinValidation(
                 selectedTerminal,
                 selectedCashier,
-                parseInt(openingAmount)
+                parseInt(openingAmount),
+                managerPin  // PIN enviado al servidor para validación segura
             );
 
-            console.log('📡 [DEBUG] Backend response:', result);
-
             if (!result.success) {
-                console.error('❌ [DEBUG] Backend returned error:', result.error);
                 // Manejo de Errores Robustos que vienen del Backend Atómico
                 if (result.error?.includes('ocupado')) {
-                    toast.error('🚫 La terminal fue ocupada por otro usuario hace un instante.');
+                    toast.error('La terminal fue ocupada por otro usuario hace un instante.');
                     // Recargar datos para mostrar estado real
                     fetchTerminals(selectedLocation);
+                } else if (result.error?.includes('PIN') || result.error?.includes('autorización')) {
+                    toast.error('PIN de autorización inválido');
                 } else {
                     toast.error(`Error al abrir: ${result.error}`);
                 }
@@ -270,14 +261,11 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                 return;
             }
 
-            console.log('✅ [DEBUG] Terminal opened successfully. Session ID:', result.sessionId);
-
-            // 3. ÉXITO: Sincronizar Estado Local y Persistencia
+            // ÉXITO: Sincronizar Estado Local y Persistencia
 
             // A. Guardar sesión en localStorage (vía Hook) para validación offline/recarga
             if (result.sessionId) {
                 const terminalData = terminals.find(t => t.id === selectedTerminal);
-                console.log('💾 [DEBUG] Saving session to localStorage...');
                 saveSession({
                     sessionId: result.sessionId,
                     terminalId: selectedTerminal,
@@ -289,12 +277,16 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
             }
 
             // B. Actualizar Store Global (Zustand) para la UI inmediata
-            console.log('🔄 [DEBUG] Updating Zustand store...');
-            openShift(parseInt(openingAmount), selectedCashier, manager.id, selectedTerminal, selectedLocation);
+            // Usamos el authorizedById retornado por el servidor (validado con bcrypt)
+            openShift(
+                parseInt(openingAmount), 
+                selectedCashier, 
+                result.authorizedById || 'SYSTEM', 
+                selectedTerminal, 
+                selectedLocation
+            );
 
-            toast.success('🚀 Turno abierto correctamente (Sesión Segura)');
-
-            console.log('🚪 [DEBUG] Closing modal and redirecting to POS...');
+            toast.success('Turno abierto correctamente');
             onClose();
 
             // C. Resetear Formulario
@@ -308,7 +300,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
             router.push('/pos');
 
         } catch (error) {
-            console.error('💥 [DEBUG] CRITICAL ERROR in handleOpenShift:', error);
+            console.error('Error en apertura de turno:', error);
             toast.error('Error crítico de comunicación');
         } finally {
             setIsSubmitting(false);
