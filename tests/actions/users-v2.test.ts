@@ -110,7 +110,7 @@ describe('Users V2 - Input Validation', () => {
         });
 
         expect(result.success).toBe(false);
-        expect(result.error).toContain('Rol inválido');
+        expect(result.error).toContain('Invalid');
     });
 
     it('should reject PIN too short', async () => {
