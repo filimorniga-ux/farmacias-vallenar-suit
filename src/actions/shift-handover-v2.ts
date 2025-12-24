@@ -92,9 +92,25 @@ async function validateUserPin(
     client: any,
     userId: string,
     pin: string
-): Promise<{ valid: boolean; user?: { id: string; name: string; role: string } }> {
+): Promise<{ valid: boolean; user?: { id: string; name: string; role: string }; error?: string }> {
     try {
+        // Rate limiting import
+        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
         const bcrypt = await import('bcryptjs');
+
+        // Verificar rate limit ANTES de consultar usuario
+        const rateCheck = checkRateLimit(userId);
+        if (!rateCheck.allowed) {
+            logger.warn({
+                userId,
+                blockedUntil: rateCheck.blockedUntil
+            }, '🚫 [Handover] Usuario bloqueado por rate limit');
+
+            return {
+                valid: false,
+                error: rateCheck.reason || 'Usuario temporalmente bloqueado'
+            };
+        }
 
         const userRes = await client.query(`
             SELECT id, name, role, access_pin_hash, access_pin
@@ -103,7 +119,7 @@ async function validateUserPin(
         `, [userId]);
 
         if (userRes.rows.length === 0) {
-            return { valid: false };
+            return { valid: false, error: 'Usuario no encontrado' };
         }
 
         const user = userRes.rows[0];
@@ -112,25 +128,34 @@ async function validateUserPin(
         if (user.access_pin_hash) {
             const isValid = await bcrypt.compare(pin, user.access_pin_hash);
             if (isValid) {
+                // PIN correcto - resetear intentos
+                resetAttempts(userId);
                 return {
                     valid: true,
                     user: { id: user.id, name: user.name, role: user.role }
                 };
+            } else {
+                // PIN incorrecto - registrar intento fallido
+                recordFailedAttempt(userId);
+                return { valid: false, error: 'PIN incorrecto' };
             }
         }
         // Fallback: PIN legacy
         else if (user.access_pin && user.access_pin === pin) {
             logger.warn({ userId: user.id }, '⚠️ Handover: Using legacy plaintext PIN - user should be migrated');
+            resetAttempts(userId);
             return {
                 valid: true,
                 user: { id: user.id, name: user.name, role: user.role }
             };
         }
 
-        return { valid: false };
+        // PIN incorrecto - registrar intento fallido
+        recordFailedAttempt(userId);
+        return { valid: false, error: 'PIN incorrecto' };
     } catch (error) {
         logger.error({ error }, 'Error validating user PIN');
-        return { valid: false };
+        return { valid: false, error: 'Error validando PIN' };
     }
 }
 

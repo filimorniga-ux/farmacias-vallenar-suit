@@ -100,10 +100,12 @@ async function validateAuthorizationPin(
     client: any,
     pin: string,
     requiredRoles: readonly string[] = AUTHORIZED_ROLES
-): Promise<{ valid: boolean; authorizedBy?: { id: string; name: string; role: string } }> {
+): Promise<{ valid: boolean; authorizedBy?: { id: string; name: string; role: string }; error?: string }> {
     try {
+        // Rate limiting import
+        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
         const bcrypt = await import('bcryptjs');
-        
+
         // Buscar usuarios con roles autorizados
         const usersRes = await client.query(`
             SELECT id, name, role, access_pin_hash, access_pin
@@ -113,30 +115,53 @@ async function validateAuthorizationPin(
         `, [requiredRoles]);
 
         for (const user of usersRes.rows) {
+            // Verificar rate limit ANTES de comparar PIN
+            const rateCheck = checkRateLimit(user.id);
+            if (!rateCheck.allowed) {
+                logger.warn({
+                    userId: user.id,
+                    blockedUntil: rateCheck.blockedUntil
+                }, '🚫 [Treasury] Usuario bloqueado por rate limit');
+
+                return {
+                    valid: false,
+                    error: rateCheck.reason || 'Usuario temporalmente bloqueado'
+                };
+            }
+
             // Primero intentar con bcrypt hash
             if (user.access_pin_hash) {
                 const isValid = await bcrypt.compare(pin, user.access_pin_hash);
                 if (isValid) {
-                    return { 
-                        valid: true, 
+                    // PIN correcto - resetear intentos
+                    resetAttempts(user.id);
+                    return {
+                        valid: true,
                         authorizedBy: { id: user.id, name: user.name, role: user.role }
                     };
+                } else {
+                    // PIN incorrecto - registrar intento fallido
+                    recordFailedAttempt(user.id);
                 }
             }
             // Fallback: PIN legacy (para usuarios no migrados)
             else if (user.access_pin && user.access_pin === pin) {
                 logger.warn({ userId: user.id }, '⚠️ Treasury: Using legacy plaintext PIN - user should be migrated');
-                return { 
-                    valid: true, 
+                resetAttempts(user.id);
+                return {
+                    valid: true,
                     authorizedBy: { id: user.id, name: user.name, role: user.role }
                 };
+            } else {
+                // PIN incorrecto - registrar intento fallido
+                recordFailedAttempt(user.id);
             }
         }
 
-        return { valid: false };
+        return { valid: false, error: 'PIN de autorización inválido' };
     } catch (error) {
         logger.error({ error }, 'Error validating authorization PIN');
-        return { valid: false };
+        return { valid: false, error: 'Error validando PIN' };
     }
 }
 
@@ -217,7 +242,7 @@ export async function transferFundsSecure(params: {
     userId: string;
     authorizationPin?: string;
 }): Promise<{ success: boolean; transferId?: string; error?: string }> {
-    
+
     // 1. Validación de entrada
     const validation = TransferFundsSchema.safeParse(params);
     if (!validation.success) {
@@ -257,8 +282,8 @@ export async function transferFundsSecure(params: {
         }
 
         // 4. Bloquear cuentas con FOR UPDATE NOWAIT (orden consistente para evitar deadlocks)
-        const [firstId, secondId] = fromAccountId < toAccountId 
-            ? [fromAccountId, toAccountId] 
+        const [firstId, secondId] = fromAccountId < toAccountId
+            ? [fromAccountId, toAccountId]
             : [toAccountId, fromAccountId];
 
         const accountsRes = await client.query(`
@@ -383,7 +408,7 @@ export async function depositToBankSecure(params: {
     authorizationPin: string;
     bankAccountId?: string;
 }): Promise<{ success: boolean; depositId?: string; error?: string }> {
-    
+
     // 1. Validación
     const validation = DepositToBankSchema.safeParse(params);
     if (!validation.success) {
@@ -523,7 +548,7 @@ export async function confirmRemittanceSecure(params: {
     managerId: string;
     managerPin: string;
 }): Promise<{ success: boolean; error?: string }> {
-    
+
     // 1. Validación
     const validation = ConfirmRemittanceSchema.safeParse(params);
     if (!validation.success) {
@@ -617,8 +642,8 @@ export async function confirmRemittanceSecure(params: {
             entityId: remittanceId,
             amount: Number(remittance.amount),
             oldValues: { status: 'PENDING_RECEIPT', safe_balance: Number(safe.balance) },
-            newValues: { 
-                status: 'RECEIVED', 
+            newValues: {
+                status: 'RECEIVED',
                 safe_balance: Number(safe.balance) + Number(remittance.amount),
                 confirmed_by: authResult.authorizedBy?.name
             },
@@ -659,7 +684,7 @@ export async function createCashMovementSecure(params: {
     reason: string;
     authorizationPin?: string;
 }): Promise<{ success: boolean; movementId?: string; error?: string }> {
-    
+
     // 1. Validación
     const validation = CashMovementSchema.safeParse(params);
     if (!validation.success) {
@@ -671,9 +696,9 @@ export async function createCashMovementSecure(params: {
     // 2. Verificar si requiere autorización (retiros > threshold)
     const requiresAuthorization = type === 'WITHDRAWAL' && amount > AUTHORIZATION_THRESHOLDS.WITHDRAWAL;
     if (requiresAuthorization && !authorizationPin) {
-        return { 
-            success: false, 
-            error: `Retiros mayores a $${AUTHORIZATION_THRESHOLDS.WITHDRAWAL.toLocaleString()} requieren autorización de gerente` 
+        return {
+            success: false,
+            error: `Retiros mayores a $${AUTHORIZATION_THRESHOLDS.WITHDRAWAL.toLocaleString()} requieren autorización de gerente`
         };
     }
 
@@ -711,7 +736,7 @@ export async function createCashMovementSecure(params: {
 
         // 5. Crear movimiento
         const movementId = uuidv4();
-        
+
         await client.query(`
             INSERT INTO cash_movements (
                 id, location_id, terminal_id, session_id, user_id,
@@ -721,13 +746,13 @@ export async function createCashMovementSecure(params: {
                 $6, $7, $8, true, NOW(), $9::uuid
             )
         `, [
-            movementId, 
+            movementId,
             sessionId, // location_id holds session_id per legacy schema
             terminalId,
             sessionId,
-            userId, 
-            type, 
-            amount, 
+            userId,
+            type,
+            amount,
             reason,
             authorizedBy?.id || null
         ]);
@@ -740,8 +765,8 @@ export async function createCashMovementSecure(params: {
             entityType: 'CASH_MOVEMENT',
             entityId: movementId,
             amount,
-            newValues: { 
-                type, 
+            newValues: {
+                type,
                 reason,
                 terminal_id: terminalId,
                 authorized_by: authorizedBy?.name
@@ -782,7 +807,7 @@ export async function getTransactionHistory(
     accountId: string,
     options: { limit?: number; offset?: number; startDate?: Date; endDate?: Date } = {}
 ): Promise<{ success: boolean; data?: any[]; total?: number; error?: string }> {
-    
+
     if (!z.string().uuid().safeParse(accountId).success) {
         return { success: false, error: 'ID de cuenta inválido' };
     }
