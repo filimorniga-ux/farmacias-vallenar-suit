@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { usePharmaStore } from '../../store/useStore';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, DollarSign, Camera, AlertTriangle, CheckCircle, TrendingDown, TrendingUp, Lock, ChevronDown, ChevronUp, Download } from 'lucide-react';
+import { X, DollarSign, Camera, AlertTriangle, CheckCircle, TrendingDown, TrendingUp, Lock, ChevronDown, ChevronUp, Download, ShieldCheck } from 'lucide-react';
 import { CashMovementReason } from '../../../domain/types';
 import { SupervisorOverrideModal } from '../security/SupervisorOverrideModal';
 import { toast } from 'sonner';
 import { generateCashReport } from '../../../actions/cash-export';
 import { getShiftMetrics as getServerShiftMetrics, ShiftMetricsDetailed } from '../../../actions/cash-management';
 import { TransactionListModal } from './TransactionListModal';
+// Treasury V2 - Operaciones seguras con bcrypt PIN, RBAC, y auditoría
+import { createCashMovementSecure } from '../../../actions/treasury-v2';
 
 interface CashManagementModalProps {
     isOpen: boolean;
@@ -144,25 +146,85 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
         }
     };
 
-    const handleRegisterMovement = () => {
+    // State for secure V2 operations
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [showPinInput, setShowPinInput] = useState(false);
+    const [authPin, setAuthPin] = useState('');
+
+    // Amount threshold for PIN requirement (from treasury-v2)
+    const WITHDRAWAL_THRESHOLD = 100000;
+
+    const handleRegisterMovement = async () => {
         const numAmount = parseInt(amount);
         if (isNaN(numAmount) || numAmount <= 0) return;
         if (!evidence && description.length < 5) return;
 
-        registerCashMovement({
-            type: movementType,
-            amount: numAmount,
-            reason: reason,
-            description: description,
-            evidence_url: evidence || undefined,
-            is_cash: true
-        });
+        // Check if we need PIN for large withdrawals
+        const requiresPin = movementType === 'OUT' && numAmount > WITHDRAWAL_THRESHOLD;
+        if (requiresPin && !authPin) {
+            setShowPinInput(true);
+            toast.info(`Retiros > $${WITHDRAWAL_THRESHOLD.toLocaleString()} requieren PIN de gerente`);
+            return;
+        }
 
-        setAmount('');
-        setDescription('');
-        setEvidence(null);
-        toast.success(`Movimiento de ${movementType === 'IN' ? 'INGRESO' : 'SALIDA'} registrado`);
-        onClose();
+        setIsSubmitting(true);
+
+        try {
+            // Use treasury-v2 secure function if we have session data
+            if (currentShift?.terminal_id && currentShift?.id) {
+                const treasuryType = movementType === 'OUT' 
+                    ? (reason === 'WITHDRAWAL' ? 'WITHDRAWAL' : 'EXPENSE')
+                    : 'EXTRA_INCOME';
+
+                const result = await createCashMovementSecure({
+                    terminalId: currentShift.terminal_id,
+                    sessionId: currentShift.id,
+                    userId: user?.id || 'SYSTEM',
+                    type: treasuryType,
+                    amount: numAmount,
+                    reason: `${reason}: ${description}`,
+                    authorizationPin: authPin || undefined
+                });
+
+                if (!result.success) {
+                    toast.error(result.error || 'Error en operación segura');
+                    setIsSubmitting(false);
+                    return;
+                }
+
+                toast.success(
+                    <div className="flex items-center gap-2">
+                        <ShieldCheck size={16} className="text-emerald-500" />
+                        Movimiento registrado (v2 Seguro)
+                    </div>
+                );
+            } else {
+                // Fallback to legacy for non-terminal contexts
+                registerCashMovement({
+                    type: movementType,
+                    amount: numAmount,
+                    reason: reason,
+                    description: description,
+                    evidence_url: evidence || undefined,
+                    is_cash: true
+                });
+                toast.success(`Movimiento de ${movementType === 'IN' ? 'INGRESO' : 'SALIDA'} registrado`);
+            }
+
+            // Reset state
+            setAmount('');
+            setDescription('');
+            setEvidence(null);
+            setAuthPin('');
+            setShowPinInput(false);
+            onClose();
+
+        } catch (error) {
+            console.error('Error en movimiento de caja:', error);
+            toast.error('Error procesando movimiento');
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     if (!isOpen) return null;
@@ -333,14 +395,53 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                         />
                                     </div>
 
+                                    {/* PIN Input for large withdrawals */}
+                                    {showPinInput && (
+                                        <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl mb-4 animate-in slide-in-from-top-2">
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <Lock size={18} className="text-amber-600" />
+                                                <span className="font-bold text-amber-800 text-sm">Autorización Requerida</span>
+                                            </div>
+                                            <p className="text-xs text-amber-700 mb-3">
+                                                Retiros mayores a ${WITHDRAWAL_THRESHOLD.toLocaleString()} requieren PIN de gerente
+                                            </p>
+                                            <input
+                                                type="password"
+                                                maxLength={4}
+                                                value={authPin}
+                                                onChange={(e) => setAuthPin(e.target.value)}
+                                                placeholder="PIN de Gerente"
+                                                className="w-full p-3 text-center text-xl tracking-[0.5em] font-mono bg-white border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
+                                                autoFocus
+                                            />
+                                        </div>
+                                    )}
+
                                     <button
                                         onClick={handleRegisterMovement}
-                                        disabled={!amount || (!evidence && description.length < 5)}
-                                        className={`w-full text-white py-4 rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2 ${movementType === 'IN' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}
+                                        disabled={!amount || (!evidence && description.length < 5) || isSubmitting}
+                                        className={`w-full text-white py-4 rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${movementType === 'IN' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}
                                     >
-                                        {movementType === 'IN' ? <TrendingUp size={20} /> : <TrendingDown size={20} />}
-                                        {movementType === 'IN' ? 'Registrar Ingreso' : 'Registrar Salida'}
+                                        {isSubmitting ? (
+                                            <>
+                                                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                Procesando...
+                                            </>
+                                        ) : (
+                                            <>
+                                                {movementType === 'IN' ? <TrendingUp size={20} /> : <TrendingDown size={20} />}
+                                                {movementType === 'IN' ? 'Registrar Ingreso' : 'Registrar Salida'}
+                                                {currentShift?.terminal_id && <ShieldCheck size={14} className="ml-1 opacity-70" />}
+                                            </>
+                                        )}
                                     </button>
+
+                                    {/* Security badge */}
+                                    {currentShift?.terminal_id && (
+                                        <p className="text-[10px] text-center text-slate-400 mt-2 flex items-center justify-center gap-1">
+                                            <ShieldCheck size={10} /> Operación con auditoría v2
+                                        </p>
+                                    )}
                                 </div>
                             )}
 
