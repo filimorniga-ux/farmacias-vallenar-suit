@@ -28,7 +28,7 @@ test.describe('Inventory V2 - Smoke Tests', () => {
         await page.waitForTimeout(500);
 
         // Click en "Ajustar Stock"
-        await page.click('button:has-text("Ajustar")').first();
+        await page.locator('button:has-text("Ajustar")').first().click();
 
         // Ingresar ajuste de 50 unidades (bajo el umbral)
         await page.fill('input[name="quantity"]', '50');
@@ -52,7 +52,7 @@ test.describe('Inventory V2 - Smoke Tests', () => {
         await page.waitForTimeout(500);
 
         // Click en "Ajustar Stock"
-        await page.click('button:has-text("Ajustar")').first();
+        await page.locator('button:has-text("Ajustar")').first().click();
 
         // Ingresar ajuste de 150 unidades (sobre el umbral)
         await page.fill('input[name="quantity"]', '150');
@@ -107,7 +107,7 @@ test.describe('Inventory V2 - Smoke Tests', () => {
         await page.fill('input[placeholder*="Buscar"]', 'Paracetamol');
         await page.waitForTimeout(500);
 
-        await page.click('button:has-text("Ajustar")').first();
+        await page.locator('button:has-text("Ajustar")').first().click();
 
         // Ajuste > 100
         await page.fill('input[name="quantity"]', '200');
