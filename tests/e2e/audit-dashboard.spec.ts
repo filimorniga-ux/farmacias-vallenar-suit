@@ -153,7 +153,7 @@ test.describe('Audit Dashboard - Smoke Tests', () => {
         await page.waitForLoadState('networkidle');
 
         // Click en icono de "Ver detalles" del primer evento
-        await page.click('button[title="Ver detalles"]').first();
+        await page.locator('button[title="Ver detalles"]').first().click();
 
         // Debería abrir modal de detalle
         await expect(page.locator('text=/Detalle del Evento/i')).toBeVisible();
