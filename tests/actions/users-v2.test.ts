@@ -32,7 +32,12 @@ vi.mock('bcryptjs', () => ({
 }));
 
 vi.mock('@/lib/rate-limiter', () => ({
-    checkRateLimit: vi.fn(() => ({ allowed: true })),
+    checkRateLimit: vi.fn(() => ({
+        allowed: true,
+        remainingAttempts: 5,
+        blockedUntil: null,
+        reason: null
+    })),
     recordFailedAttempt: vi.fn(),
     resetAttempts: vi.fn()
 }));
@@ -323,6 +328,8 @@ describe('Users V2 - PIN Security', () => {
         const rateLimiter = await import('@/lib/rate-limiter');
         vi.mocked(rateLimiter.checkRateLimit).mockReturnValueOnce({
             allowed: false,
+            remainingAttempts: 0,
+            blockedUntil: new Date(Date.now() + 15 * 60 * 1000),
             reason: 'Demasiados intentos'
         });
 
