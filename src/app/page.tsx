@@ -1,4 +1,5 @@
 // Force Rebuild
+export const dynamic = 'force-dynamic';
 import ClientApp from '../components/ClientApp';
 import { cookies } from 'next/headers';
 
