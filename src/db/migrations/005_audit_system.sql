@@ -171,10 +171,17 @@ ON audit_log(location_id)
 WHERE location_id IS NOT NULL;
 
 -- Índice para acciones críticas (alertas y reportes)
+-- NOTA: No se puede usar subquery en índice parcial, usamos lista explícita
 CREATE INDEX IF NOT EXISTS idx_audit_log_critical 
 ON audit_log(created_at DESC, action_code) 
 WHERE action_code IN (
-    SELECT code FROM audit_action_catalog WHERE severity IN ('HIGH', 'CRITICAL')
+    'SALE_VOID', 'SALE_REFUND', 'PRICE_CHANGE', 'STOCK_ADJUST', 
+    'TREASURY_TRANSFER', 'SESSION_FORCE_CLOSE', 'SESSION_AUTO_CLOSE',
+    'RECONCILIATION', 'RECONCILIATION_JUSTIFY', 'USER_LOGIN_FAILED',
+    'USER_LOCKED', 'USER_UNLOCKED', 'PASSWORD_RESET', 'PERMISSION_CHANGE',
+    'ROLE_CHANGE', 'CONFIG_CHANGE', 'TERMINAL_DELETE', 'LOCATION_CREATE',
+    'DTE_VOID', 'DTE_CREDIT_NOTE', 'CAF_LOAD', 'SII_CONFIG_CHANGE',
+    'REPORT_EXPORT', 'DATA_EXPORT_BULK'
 );
 
 -- Índice para verificación de integridad
