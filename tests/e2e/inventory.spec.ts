@@ -82,10 +82,11 @@ test.describe('Inventory V2 - Smoke Tests', () => {
         await page.waitForTimeout(500);
 
         // Click en "Transferir"
-        await page.click('button:has-text("Transferir")').first();
+        await page.locator('button:has-text("Transferir")').first().click();
 
-        // Seleccionar ubicación destino
-        await page.selectOption('select[name="toLocation"]', { label: /Farmacia Central/i });
+        // Seleccionar ubicación destino (usar índice)
+        await page.selectOption('select[name="toLocation"]', { index: 1 });
+
 
         // Ingresar cantidad
         await page.fill('input[name="quantity"]', '25');
