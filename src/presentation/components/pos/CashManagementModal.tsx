@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { usePharmaStore } from '../../store/useStore';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, DollarSign, Camera, AlertTriangle, CheckCircle, TrendingDown, TrendingUp, Lock, ChevronDown, ChevronUp, Download, ShieldCheck } from 'lucide-react';
+import { X, DollarSign, Camera, AlertTriangle, CheckCircle, TrendingDown, TrendingUp, Lock, ChevronDown, ChevronUp, Download, ShieldCheck, RefreshCw } from 'lucide-react';
 import { CashMovementReason } from '../../../domain/types';
 import { SupervisorOverrideModal } from '../security/SupervisorOverrideModal';
 import { toast } from 'sonner';
@@ -10,6 +10,8 @@ import { getShiftMetrics as getServerShiftMetrics, ShiftMetricsDetailed } from '
 import { TransactionListModal } from './TransactionListModal';
 // Treasury V2 - Operaciones seguras con bcrypt PIN, RBAC, y auditoría
 import { createCashMovementSecure } from '../../../actions/treasury-v2';
+// Retry utility for SERIALIZABLE transaction conflicts
+import { withServerActionRetry } from '../../../lib/retry';
 
 interface CashManagementModalProps {
     isOpen: boolean;
@@ -150,6 +152,9 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showPinInput, setShowPinInput] = useState(false);
     const [authPin, setAuthPin] = useState('');
+    // Retry state for concurrency conflicts
+    const [retryAttempt, setRetryAttempt] = useState(0);
+    const [isRetrying, setIsRetrying] = useState(false);
 
     // Amount threshold for PIN requirement (from treasury-v2)
     const WITHDRAWAL_THRESHOLD = 100000;
@@ -168,6 +173,8 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
         }
 
         setIsSubmitting(true);
+        setRetryAttempt(0);
+        setIsRetrying(false);
 
         try {
             // Use treasury-v2 secure function if we have session data
@@ -176,15 +183,36 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                     ? (reason === 'WITHDRAWAL' ? 'WITHDRAWAL' : 'EXPENSE')
                     : 'EXTRA_INCOME';
 
-                const result = await createCashMovementSecure({
-                    terminalId: currentShift.terminal_id,
-                    sessionId: currentShift.id,
-                    userId: user?.id || 'SYSTEM',
-                    type: treasuryType,
-                    amount: numAmount,
-                    reason: `${reason}: ${description}`,
-                    authorizationPin: authPin || undefined
-                });
+                // Use retry wrapper for SERIALIZABLE transaction conflicts
+                const result = await withServerActionRetry(
+                    () => createCashMovementSecure({
+                        terminalId: currentShift.terminal_id!,
+                        sessionId: currentShift.id,
+                        userId: user?.id || 'SYSTEM',
+                        type: treasuryType,
+                        amount: numAmount,
+                        reason: `${reason}: ${description}`,
+                        authorizationPin: authPin || undefined
+                    }),
+                    {
+                        maxAttempts: 3,
+                        baseDelay: 300,
+                        onRetry: (attempt, error) => {
+                            setRetryAttempt(attempt);
+                            setIsRetrying(true);
+                            console.log(`[CashManagement] Retry ${attempt + 1}/3:`, error);
+                            toast.info(
+                                <div className="flex items-center gap-2">
+                                    <RefreshCw size={14} className="animate-spin" />
+                                    Reintentando... ({attempt + 1}/3)
+                                </div>,
+                                { duration: 1500 }
+                            );
+                        }
+                    }
+                );
+
+                setIsRetrying(false);
 
                 if (!result.success) {
                     toast.error(result.error || 'Error en operación segura');
@@ -192,12 +220,23 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                     return;
                 }
 
-                toast.success(
-                    <div className="flex items-center gap-2">
-                        <ShieldCheck size={16} className="text-emerald-500" />
-                        Movimiento registrado (v2 Seguro)
-                    </div>
-                );
+                // Show success with retry info if applicable
+                const retryInfo = (result as any)._retryInfo;
+                if (retryInfo && retryInfo.attempts > 1) {
+                    toast.success(
+                        <div className="flex items-center gap-2">
+                            <ShieldCheck size={16} className="text-emerald-500" />
+                            Movimiento registrado después de {retryInfo.attempts} intentos
+                        </div>
+                    );
+                } else {
+                    toast.success(
+                        <div className="flex items-center gap-2">
+                            <ShieldCheck size={16} className="text-emerald-500" />
+                            Movimiento registrado (v2 Seguro)
+                        </div>
+                    );
+                }
             } else {
                 // Fallback to legacy for non-terminal contexts
                 registerCashMovement({
@@ -424,8 +463,15 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                     >
                                         {isSubmitting ? (
                                             <>
-                                                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                                Procesando...
+                                                {isRetrying ? (
+                                                    <RefreshCw size={20} className="animate-spin" />
+                                                ) : (
+                                                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                )}
+                                                {isRetrying 
+                                                    ? `Reintentando... (${retryAttempt + 1}/3)` 
+                                                    : 'Procesando...'
+                                                }
                                             </>
                                         ) : (
                                             <>
