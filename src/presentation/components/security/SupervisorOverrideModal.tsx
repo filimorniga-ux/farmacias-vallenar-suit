@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShieldAlert, Lock, X, CheckCircle, AlertTriangle } from 'lucide-react';
+import { ShieldAlert, Lock, X, CheckCircle, AlertTriangle, ShieldCheck, Loader2 } from 'lucide-react';
 import { usePharmaStore } from '../../store/useStore';
 import { canOverride } from '../../../domain/security/roles';
+// SECURITY FIX: Server-side PIN validation with bcrypt
+import { validateSupervisorPin } from '../../../actions/auth-v2';
 
 interface SupervisorOverrideModalProps {
     isOpen: boolean;
@@ -19,33 +21,50 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
 }) => {
     const [pin, setPin] = useState('');
     const [error, setError] = useState<string | null>(null);
+    const [isVerifying, setIsVerifying] = useState(false);
     const { employees } = usePharmaStore();
 
-    const handleVerify = (e: React.FormEvent) => {
+    const handleVerify = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
 
-        const supervisor = employees.find(emp => emp.access_pin === pin);
-        console.log('🔐 [SupervisorOverride] Verifying PIN:', { pinEntered: pin, foundSupervisor: supervisor?.name, role: supervisor?.role });
-
-        if (!supervisor) {
-            setError('PIN inválido. Intente nuevamente.');
-            setPin('');
+        if (pin.length < 4) {
+            setError('Ingrese un PIN válido de 4 dígitos');
             return;
         }
 
-        // Strict Check: Only MANAGER or ADMIN
-        if (supervisor.role !== 'MANAGER' && supervisor.role !== 'ADMIN') {
-            setError(`El usuario ${supervisor.name} (${supervisor.role}) NO tiene privilegios de Alta Jerarquía.`);
-            setPin('');
-            return;
-        }
+        setIsVerifying(true);
 
-        // Success
-        console.log('✅ [SupervisorOverride] Authorized by:', supervisor.name);
-        onAuthorize(supervisor.id);
-        setPin('');
-        // onClose(); // Removed to prevent race condition with parent state update
+        try {
+            // SECURITY FIX: Server-side validation with bcrypt (no plaintext PIN comparison)
+            const result = await validateSupervisorPin(pin, actionDescription);
+
+            if (!result.success) {
+                setError(result.error || 'PIN inválido. Intente nuevamente.');
+                setPin('');
+                setIsVerifying(false);
+                return;
+            }
+
+            // Server already verifies role (MANAGER, ADMIN, GERENTE_GENERAL)
+            if (!result.supervisorId) {
+                setError('Error de validación. Intente nuevamente.');
+                setPin('');
+                setIsVerifying(false);
+                return;
+            }
+
+            // Success - server validated with bcrypt
+            console.log('✅ [SupervisorOverride] Authorized by:', result.supervisorName, '(bcrypt validated)');
+            onAuthorize(result.supervisorId);
+            setPin('');
+            // onClose(); // Removed to prevent race condition with parent state update
+        } catch (error) {
+            console.error('Error validating supervisor PIN:', error);
+            setError('Error de conexión. Intente nuevamente.');
+        } finally {
+            setIsVerifying(false);
+        }
     };
 
     if (!isOpen) return null;
@@ -112,18 +131,34 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
                                 <button
                                     type="button"
                                     onClick={onClose}
-                                    className="flex-1 py-3 px-4 border border-slate-300 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-colors"
+                                    disabled={isVerifying}
+                                    className="flex-1 py-3 px-4 border border-slate-300 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-colors disabled:opacity-50"
                                 >
                                     Cancelar
                                 </button>
                                 <button
                                     type="submit"
-                                    disabled={pin.length < 4}
-                                    className="flex-1 py-3 px-4 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-red-200"
+                                    disabled={pin.length < 4 || isVerifying}
+                                    className="flex-1 py-3 px-4 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-red-200 flex items-center justify-center gap-2"
                                 >
-                                    Autorizar
+                                    {isVerifying ? (
+                                        <>
+                                            <Loader2 size={18} className="animate-spin" />
+                                            Verificando...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <ShieldCheck size={18} />
+                                            Autorizar
+                                        </>
+                                    )}
                                 </button>
                             </div>
+
+                            {/* Security badge */}
+                            <p className="text-[10px] text-center text-slate-400 mt-4 flex items-center justify-center gap-1">
+                                <ShieldCheck size={10} /> Validación segura con cifrado bcrypt
+                            </p>
                         </form>
                     </div>
                 </motion.div>
