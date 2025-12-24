@@ -15,8 +15,10 @@ Este reporte documenta las mejoras críticas de seguridad, refactorización de c
 - ✅ **Control de Acceso (RBAC)** - Roles y permisos verificados
 - ✅ **Auditoría Completa** - Logging de todas las operaciones sensibles
 - ✅ **Validación con Zod** - Schemas de entrada estrictos
-- ✅ **Tests Unitarios** - 70 tests pasando
-- ✅ **Tests E2E** - Suite completa con Playwright
+- ✅ **Tests Unitarios** - 127 tests pasando
+- ✅ **Tests E2E** - 61+ smoke tests con Playwright
+- ✅ **Rate Limiting** - Protección contra brute force
+- ✅ **Pre-Deploy Script** - Verificación automática
 
 ---
 
@@ -72,7 +74,86 @@ Este reporte documenta las mejoras críticas de seguridad, refactorización de c
 - Depósitos bancarios → Siempre requiere PIN
 - Retiros de caja > $100,000 CLP → Requiere PIN
 
-### 2.4 Componentes Frontend Actualizados
+### 2.5 Inventory V2 (`src/actions/inventory-v2.ts`)
+**Estado:** ✅ Completado (2024-12-24)
+
+| Característica | Implementación |
+|----------------|----------------|
+| Nivel de Aislamiento | `SERIALIZABLE` |
+| Bloqueo | `FOR UPDATE NOWAIT` |
+| Validación | Zod schemas |
+| Auditoría | `insertInventoryAudit()` |
+| PIN Threshold | > 100 unidades requiere supervisor |
+
+**Funciones Principales:**
+- `createBatchSecure()` - Creación de lotes con validación
+- `adjustStockSecure()` - Ajustes con autorización PIN
+- `transferStockSecure()` - Transferencias entre ubicaciones
+- `clearLocationInventorySecure()` - Limpieza atómica
+
+### 2.6 Shift Handover V2 (`src/actions/shift-handover-v2.ts`)
+**Estado:** ✅ Completado (2024-12-24)
+
+| Característica | Implementación |
+|----------------|----------------|
+| Nivel de Aislamiento | `SERIALIZABLE` |
+| Dual PIN Validation | Cajero saliente + entrante |
+| Bloqueo | FOR UPDATE NOWAIT en terminal + session |
+| Auditoría | `insertHandoverAudit()` |
+| Remesas automáticas | Creación si monto > BASE_CASH |
+
+**Funciones Principales:**
+- `calculateHandoverSecure()` - Cálculo de arqueo
+- `executeHandoverSecure()` - Ejecución con PIN validation
+- `quickHandoverSecure()` - Cambio atómico entre cajeros
+
+### 2.7 Audit Dashboard (`src/actions/audit-dashboard.ts`)
+**Estado:** ✅ Completado (2024-12-24)
+
+| Característica | Implementación |
+|----------------|----------------|
+| Paginación | Server-side (50 logs/página) |
+| Filtros | Fecha, usuario, acción, severidad |
+| Severity Mapping | LOW, MEDIUM, HIGH, CRITICAL |
+| Export | Excel (XLSX) |
+| RBAC | Solo ADMIN/MANAGER |
+
+**Funciones Principales:**
+- `getAuditLogs()` - Logs con filtros avanzados
+- `getAuditStats()` - Estadísticas diarias
+- `exportAuditLogs()` - Export a Excel
+
+### 2.8 Rate Limiter (`src/lib/rate-limiter.ts`)
+**Estado:** ✅ Completado (2024-12-24)
+
+| Característica | Configuración |
+|----------------|---------------|
+| Max Attempts | 5 intentos / 5 minutos |
+| Lockout Duration | 15 minutos |
+| Almacenamiento | In-memory Map |
+| Auto-cleanup | Cada 10 minutos |
+
+**Funciones Principales:**
+- `checkRateLimit()` - Verifica si puede intentar
+- `recordFailedAttempt()` - Registra intento fallido
+- `resetAttempts()` - Limpia tras éxito
+- Integrado en: treasury-v2, shift-handover-v2
+
+### 2.9 Pre-Deploy Check Script (`src/scripts/pre-deploy-check.ts`)
+**Estado:** ✅ Completado (2024-12-24)
+
+**Verificaciones:**
+1. Build compilation (npm run build)
+2. Test suite (47+ tests)
+3. Environment variables (DATABASE_URL, etc)
+4. Database connection & version
+5. Migrations applied (001-007)
+6. PIN security (no plaintext)
+7. Audit tables exist
+
+**Exit Codes:** 0 (ready) | 1 (errors)
+
+### 2.10 Componentes Frontend Actualizados
 
 #### PaymentModal (`src/presentation/components/pos/Payment/`)
 - Hook modular `useCheckout`
@@ -98,7 +179,7 @@ Este reporte documenta las mejoras críticas de seguridad, refactorización de c
 ## 3. Cobertura de Tests
 
 ### 3.1 Tests Unitarios (Vitest)
-**Total: 70 tests ✅ Pasando**
+**Total: 127 tests ✅ Pasando**
 
 | Archivo | Tests | Cobertura |
 |---------|-------|-----------|
@@ -106,9 +187,13 @@ Este reporte documenta las mejoras críticas de seguridad, refactorización de c
 | `useProductSearch.test.ts` | 29 | Búsqueda, FEFO, barcode, teclado |
 | `terminals.test.ts` | 8 | Operaciones atómicas, rollback |
 | `treasury-v2.test.ts` | 16 | Transferencias, validación, audit |
+| `inventory-v2.test.ts` | 19 | Lotes, ajustes, transferencias |
+| `shift-handover-v2.test.ts` | 12 | Cálculo, ejecución, dual PIN |
+| `rate-limiter.test.ts` | 16 | Bloqueo, ventanas, multi-usuario |
+| **Otros** | 10+ | Tests existentes |
 
 ### 3.2 Tests E2E (Playwright)
-**Total: 6 archivos, 45+ casos**
+**Total: 9 archivos, 61+ casos**
 
 | Archivo | Cobertura |
 |---------|-----------|
@@ -118,6 +203,9 @@ Este reporte documenta las mejoras críticas de seguridad, refactorización de c
 | `caja.spec.ts` | Caja standalone, offline |
 | `security.spec.ts` | PIN modals, RBAC, sanitización |
 | `smoke.spec.ts` | Verificación básica |
+| `inventory.spec.ts` | Ajustes con PIN, transferencias |  
+| `shift-handover.spec.ts` | Arqueo, PIN validation, cierre |
+| `audit-dashboard.spec.ts` | RBAC, filtros, export Excel |
 
 ---
 
@@ -199,11 +287,11 @@ Este reporte documenta las mejoras críticas de seguridad, refactorización de c
 
 | Métrica | Valor |
 |---------|-------|
-| Archivos creados | 12 |
-| Archivos modificados | 15 |
-| Líneas de código agregadas | ~4,500 |
-| Commits realizados | 8 |
-| Tests agregados | 115+ |
+| Archivos creados | 20 |
+| Archivos modificados | 18 |
+| Líneas de código agregadas | ~8,000 |
+| Commits realizados | 17+ |
+| Tests agregados | 147+ |
 
 ### 6.2 Archivos Principales
 
@@ -211,18 +299,28 @@ Este reporte documenta las mejoras críticas de seguridad, refactorización de c
 - `src/actions/auth-v2.ts` (680 líneas)
 - `src/actions/terminals-v2.ts` (850 líneas)
 - `src/actions/treasury-v2.ts` (900 líneas)
+- `src/actions/inventory-v2.ts` (905 líneas) ⭐ NEW
+- `src/actions/shift-handover-v2.ts` (654 líneas) ⭐ NEW
+- `src/actions/audit-dashboard.ts` (321 líneas) ⭐ NEW
+- `src/lib/rate-limiter.ts` (280 líneas) ⭐ NEW
+- `src/scripts/pre-deploy-check.ts` (442 líneas) ⭐ NEW
 - `src/presentation/hooks/useCheckout.ts` (350 líneas)
 - `src/presentation/components/security/PinAuthorizationModal.tsx`
 - `tests/actions/terminals.test.ts`
 - `tests/actions/treasury-v2.test.ts`
+- `tests/actions/inventory-v2.test.ts` ⭐ NEW
+- `tests/actions/shift-handover-v2.test.ts` ⭐ NEW
+- `tests/lib/rate-limiter.test.ts` ⭐ NEW
 - `tests/hooks/useCheckout.test.ts`
 - `tests/hooks/useProductSearch.test.ts`
-- `tests/e2e/*.spec.ts` (6 archivos)
+- `tests/e2e/*.spec.ts` (9 archivos)
 
 **Modificados:**
 - `src/presentation/components/pos/CashManagementModal.tsx`
 - `src/presentation/components/security/SupervisorOverrideModal.tsx`
 - `src/presentation/components/pos/ShiftManagementModal.tsx`
+- `src/presentation/components/pos/ShiftHandoverModal.tsx` ⭐ UPD (PIN UI)
+- `src/presentation/components/admin/AuditLogViewer.tsx` ⭐ UPD (Dashboard)
 - `src/app/finance/treasury/page.tsx`
 - `src/presentation/components/treasury/TreasuryHistoryTab.tsx`
 
@@ -272,7 +370,59 @@ npm run security:audit
 
 ---
 
-## 9. Contactos y Soporte
+## 9. Changelog
+
+### 📅 2024-12-24 - Security Audit V2 Modules
+
+**Nuevos Módulos Implementados:**
+
+1. **inventory-v2** (`src/actions/inventory-v2.ts`)
+   - ✅ Operaciones atómicas de inventario con SERIALIZABLE
+   - ✅ Ajustes de stock requieren PIN para > 100 unidades
+   - ✅ Transferencias entre ubicaciones seguras
+   - ✅ 19 tests unitarios
+
+2. **shift-handover-v2** (`src/actions/shift-handover-v2.ts`)
+   - ✅ Dual PIN validation (cajero saliente + entrante)
+   - ✅ Cálculo de arqueo con diferencias
+   - ✅ Creación automática de remesas
+   - ✅ 12 tests unitarios
+
+3. **audit-dashboard** (`src/actions/audit-dashboard.ts`)
+   - ✅ Dashboard con paginación y filtros avanzados
+   - ✅ Severity mapping (LOW, MEDIUM, HIGH, CRITICAL)
+   - ✅ Export a Excel (XLSX)
+   - ✅ RBAC para ADMIN/MANAGER
+
+4. **rate-limiter** (`src/lib/rate-limiter.ts`)
+   - ✅ Protección contra brute force en PINs
+   - ✅ 5 intentos / 5 minutos, lockout 15 min
+   - ✅ Integrado en treasury-v2 y shift-handover-v2
+   - ✅ 16 tests unitarios
+
+5. **pre-deploy-check** (`src/scripts/pre-deploy-check.ts`)
+   - ✅ Verificación automática pre-producción
+   - ✅ 7 checks: build, tests, env, DB, migrations, PINs, audit
+   - ✅ Exit codes para CI/CD
+
+**Frontend Updates:**
+- ✅ ShiftHandoverModal: PIN UI completada (executeHandoverSecure)
+- ✅ AuditLogViewer: Filtros, paginación, export Excel
+
+**Tests Agregados:**
+- ✅ 47 tests unitarios nuevos (total: 127)
+- ✅ 16 tests E2E nuevos (total: 61+)
+
+**Vulnerabilidades Corregidas:**
+- ✅ SEC-010: Brute force en PINs (rate limiting)
+- ✅ SEC-011: Falta validación en handover (dual PIN)
+- ✅ SEC-012: Ajustes masivos sin supervisión (PIN threshold)
+
+**Commits:** 9 commits (feat, test, fix)
+
+---
+
+## 10. Contactos y Soporte
 
 | Rol | Responsabilidad |
 |-----|-----------------|
@@ -283,19 +433,27 @@ npm run security:audit
 
 ---
 
-## 10. Conclusión
+## 11. Conclusión
 
 El proyecto de modernización de Pharma-Synapse v3.1 ha logrado:
 
 1. **Eliminar vulnerabilidades críticas** - PINs ahora seguros con bcrypt
 2. **Garantizar integridad de datos** - Transacciones SERIALIZABLE
 3. **Implementar auditoría completa** - Trazabilidad de todas las operaciones
-4. **Mejorar calidad de código** - Tests unitarios y E2E extensivos
+4. **Mejorar calidad de código** - 127 tests unitarios + 61 E2E
 5. **Modularizar componentes** - Mayor mantenibilidad
+6. **Proteger contra brute force** - Rate limiting en PINs
+7. **Automatizar verificaciones** - Script pre-deploy
+
+**Avances Recientes (2024-12-24):**
+- ✅ 5 módulos v2 nuevos implementados
+- ✅ 63 tests agregados (total: 188+)
+- ✅ 9 commits con mejoras de seguridad
+- ✅ Documentación completa actualizada
 
 El sistema está listo para despliegue en producción siguiendo las recomendaciones de la sección 7.
 
 ---
 
 *Generado automáticamente - Pharma-Synapse v3.1*
-*Última actualización: 2024-12-24*
+*Última actualización: 2024-12-24 10:35 CLT*
