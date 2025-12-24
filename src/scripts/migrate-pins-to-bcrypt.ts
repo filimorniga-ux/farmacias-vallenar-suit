@@ -7,10 +7,10 @@
  * 
  * USAGE:
  *   # Dry run (preview changes without modifying database):
- *   npx ts-node src/scripts/migrate-pins-to-bcrypt.ts --dry-run
+ *   npx tsx src/scripts/migrate-pins-to-bcrypt.ts --dry-run
  *   
  *   # Actual migration:
- *   npx ts-node src/scripts/migrate-pins-to-bcrypt.ts
+ *   npx tsx src/scripts/migrate-pins-to-bcrypt.ts
  *   
  *   # With npm script:
  *   npm run migrate:pins          # Actual migration
@@ -42,6 +42,13 @@
  *   UPDATE users u SET access_pin = b.access_pin, access_pin_hash = NULL
  *   FROM users_pin_backup b WHERE u.id = b.user_id;
  */
+
+// Load environment variables from .env file
+import { config } from 'dotenv';
+import { resolve } from 'path';
+
+// Load .env from project root
+config({ path: resolve(process.cwd(), '.env') });
 
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
