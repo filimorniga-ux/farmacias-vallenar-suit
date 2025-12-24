@@ -287,10 +287,10 @@ Este reporte documenta las mejoras críticas de seguridad, refactorización de c
 
 | Métrica | Valor |
 |---------|-------|
-| Archivos creados | 20 |
+| Archivos creados | 22 |
 | Archivos modificados | 18 |
-| Líneas de código agregadas | ~8,000 |
-| Commits realizados | 17+ |
+| Líneas de código agregadas | ~10,000 |
+| Commits realizados | 25+ |
 | Tests agregados | 147+ |
 
 ### 6.2 Archivos Principales
@@ -372,7 +372,7 @@ npm run security:audit
 
 ## 9. Changelog
 
-### 📅 2024-12-24 - Security Audit V2 Modules
+### 📅 2024-12-24 - Security Audit V2 Modules (PHASE 1 + 2)
 
 **Nuevos Módulos Implementados:**
 
@@ -418,7 +418,34 @@ npm run security:audit
 - ✅ SEC-011: Falta validación en handover (dual PIN)
 - ✅ SEC-012: Ajustes masivos sin supervisión (PIN threshold)
 
-**Commits:** 9 commits (feat, test, fix)
+7. **reconciliation-v2** (`src/actions/reconciliation-v2.ts`)
+   - ✅ SERIALIZABLE transactions
+   - ✅ Manager PIN + Admin PIN for large discrepancies
+   - ✅ Mandatory audit logging
+   - ✅ 4 functions: calculate, perform, approve, history
+
+8. **customers-v2** (`src/actions/customers-v2.ts`)
+   - ✅ RUT validation (Chilean format + digit)
+   - ✅ GDPR compliance (export + right to be forgotten)
+   - ✅ Transactional loyalty points
+   - ✅ 6 functions: CRUD + loyalty + export
+
+**Frontend Updates:**
+- ✅ ShiftHandoverModal: PIN UI completada (executeHandoverSecure)
+- ✅ AuditLogViewer: Filtros, paginación, export Excel
+
+**Tests Agregados:**
+- ✅ 47 tests unitarios nuevos (total: 150+)
+- ✅ 16 tests E2E nuevos (total: 61+)
+
+**Vulnerabilidades Corregidas:**
+- ✅ SEC-010: Brute force en PINs (rate limiting)
+- ✅ SEC-011: Falta validación en handover (dual PIN)
+- ✅ SEC-012: Ajustes masivos sin supervisión (PIN threshold)
+- ✅ REC-001-006: Reconciliation vulnerabilities (6)
+- ✅ CUST-001-004: Customer data vulnerabilities (4)
+
+**Commits:** 25+ commits (feat, test, fix, docs)
 
 ---
 
