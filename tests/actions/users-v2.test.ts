@@ -543,7 +543,7 @@ describe('Users V2 - Additional Cases', () => {
             rowCount: 2
         } as any);
 
-        const result = await usersV2.getUsersSecure({});
+        const result = await usersV2.getUsersSecure({ page: 1, pageSize: 50 });
 
         expect(result.success).toBe(true);
         expect(result.data?.users).toHaveLength(2);
