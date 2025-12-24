@@ -1,7 +1,6 @@
 import Page from '../page';
 
-export function generateStaticParams() {
-    return [{ slug: [''] }];
-}
+// Force Rebuild
+export const dynamic = 'force-dynamic';
 
 export default Page;
