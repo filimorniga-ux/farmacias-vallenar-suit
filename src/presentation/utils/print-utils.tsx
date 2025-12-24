@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { SaleTransaction, LocationConfig, HardwareConfig } from '../../domain/types';
 import TicketBoleta from '../components/printing/TicketBoleta';
 import ShiftHandoverTicket from '../components/printing/ShiftHandoverTicket';
-import { HandoverSummary } from '@/actions/shift-handover';
+import { type HandoverSummary } from '@/actions/shift-handover-v2';
 import { PrinterService } from '../../infrastructure/services/PrinterService';
 import { toast } from 'sonner';
 

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { calculateHandover, executeHandover, HandoverSummary } from '@/actions/shift-handover';
+import { calculateHandoverSecure, type HandoverSummary } from '@/actions/shift-handover-v2';
+import { executeHandover } from '@/actions/shift-handover'; // TODO: Migrate to executeHandoverSecure (requires PIN input UI)
 import { toast } from 'sonner';
 import { Loader2, ArrowRight, CheckCircle, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { usePharmaStore } from '@/presentation/store/useStore';
@@ -32,7 +33,7 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
         }
 
         setStep('PROCESSING');
-        const res = await calculateHandover(currentTerminalId, amount);
+        const res = await calculateHandoverSecure(currentTerminalId, amount);
 
         if (res.success && res.data) {
             setSummary(res.data);
@@ -48,6 +49,9 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
         if (!currentTerminalId || !summary || !user) return;
 
         setStep('PROCESSING');
+        // Note: executeHandoverSecure requires additional parameters (PIN, expected/declared amounts)
+        // For now, keeping legacy call - full migration requires UI changes to collect userPin
+        // TODO: Add PIN input field before migrating to executeHandoverSecure
         const res = await executeHandover(currentTerminalId, summary, user.id);
 
         if (res.success) {
