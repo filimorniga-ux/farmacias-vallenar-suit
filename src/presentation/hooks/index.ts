@@ -14,6 +14,10 @@ export type { PaymentMethod, CheckoutState, CheckoutResult, UseCheckoutOptions }
 export { useProductSearch } from './useProductSearch';
 export type { UseProductSearchOptions } from './useProductSearch';
 
+// Retry hook for concurrency handling
+export { useRetry, getRetryStatusMessage } from './useRetry';
+export type { UseRetryState, UseRetryOptions, UseRetryReturn, RetryStatusProps } from './useRetry';
+
 // Re-export existing hooks from src/hooks for convenience
 export { usePOSKeyboard } from '../../hooks/usePOSKeyboard';
 export { useTerminalSession } from '../../hooks/useTerminalSession';

@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShieldAlert, Lock, X, CheckCircle, AlertTriangle, ShieldCheck, Loader2 } from 'lucide-react';
+import { ShieldAlert, Lock, X, CheckCircle, AlertTriangle, ShieldCheck, Loader2, RefreshCw, Wifi } from 'lucide-react';
 import { usePharmaStore } from '../../store/useStore';
 import { canOverride } from '../../../domain/security/roles';
 // SECURITY FIX: Server-side PIN validation with bcrypt
 import { validateSupervisorPin } from '../../../actions/auth-v2';
+// Retry utility for network issues
+import { withServerActionRetry } from '../../../lib/retry';
 
 interface SupervisorOverrideModalProps {
     isOpen: boolean;
@@ -22,7 +24,21 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
     const [pin, setPin] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [isVerifying, setIsVerifying] = useState(false);
+    const [verifyTime, setVerifyTime] = useState(0);
+    const [retryCount, setRetryCount] = useState(0);
     const { employees } = usePharmaStore();
+    
+    // Track verification time for slow network feedback
+    useEffect(() => {
+        let interval: NodeJS.Timeout;
+        if (isVerifying) {
+            setVerifyTime(0);
+            interval = setInterval(() => {
+                setVerifyTime(t => t + 1);
+            }, 1000);
+        }
+        return () => clearInterval(interval);
+    }, [isVerifying]);
 
     const handleVerify = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -34,10 +50,21 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
         }
 
         setIsVerifying(true);
+        setRetryCount(0);
 
         try {
-            // SECURITY FIX: Server-side validation with bcrypt (no plaintext PIN comparison)
-            const result = await validateSupervisorPin(pin, actionDescription);
+            // SECURITY FIX: Server-side validation with bcrypt + retry for network issues
+            const result = await withServerActionRetry(
+                () => validateSupervisorPin(pin, actionDescription),
+                {
+                    maxAttempts: 3,
+                    baseDelay: 500,
+                    onRetry: (attempt) => {
+                        setRetryCount(attempt);
+                        console.log(`[SupervisorOverride] Retry ${attempt + 1}/3`);
+                    }
+                }
+            );
 
             if (!result.success) {
                 setError(result.error || 'PIN inválido. Intente nuevamente.');
@@ -55,7 +82,12 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
             }
 
             // Success - server validated with bcrypt
-            console.log('✅ [SupervisorOverride] Authorized by:', result.supervisorName, '(bcrypt validated)');
+            const retryInfo = (result as any)._retryInfo;
+            if (retryInfo && retryInfo.attempts > 1) {
+                console.log(`✅ [SupervisorOverride] Authorized after ${retryInfo.attempts} attempts`);
+            } else {
+                console.log('✅ [SupervisorOverride] Authorized by:', result.supervisorName, '(bcrypt validated)');
+            }
             onAuthorize(result.supervisorId);
             setPin('');
             // onClose(); // Removed to prevent race condition with parent state update
@@ -64,6 +96,7 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
             setError('Error de conexión. Intente nuevamente.');
         } finally {
             setIsVerifying(false);
+            setRetryCount(0);
         }
     };
 
@@ -143,8 +176,17 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
                                 >
                                     {isVerifying ? (
                                         <>
-                                            <Loader2 size={18} className="animate-spin" />
-                                            Verificando...
+                                            {retryCount > 0 ? (
+                                                <RefreshCw size={18} className="animate-spin" />
+                                            ) : (
+                                                <Loader2 size={18} className="animate-spin" />
+                                            )}
+                                            {retryCount > 0 
+                                                ? `Reintentando (${retryCount + 1}/3)...`
+                                                : verifyTime >= 3 
+                                                    ? 'Conectando...' 
+                                                    : 'Verificando...'
+                                            }
                                         </>
                                     ) : (
                                         <>
@@ -154,6 +196,18 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
                                     )}
                                 </button>
                             </div>
+
+                            {/* Slow network warning */}
+                            {isVerifying && verifyTime >= 3 && (
+                                <motion.div
+                                    initial={{ opacity: 0, y: -5 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    className="text-amber-600 text-xs font-medium text-center bg-amber-50 p-2 rounded-lg flex items-center justify-center gap-2"
+                                >
+                                    <Wifi size={14} className="animate-pulse" />
+                                    Red lenta. Por favor espere...
+                                </motion.div>
+                            )}
 
                             {/* Security badge */}
                             <p className="text-[10px] text-center text-slate-400 mt-4 flex items-center justify-center gap-1">
