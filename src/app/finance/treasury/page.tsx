@@ -1,16 +1,43 @@
 'use client';
 
+/**
+ * Treasury Page - Secure Financial Operations
+ * 
+ * Integrado con treasury-v2 para operaciones seguras:
+ * - Transferencias con autorización por umbral
+ * - Confirmación de remesas con PIN de gerente
+ * - Auditoría completa de operaciones
+ * 
+ * @version 2.0.0
+ */
+
 import React, { useState, useEffect } from 'react';
 import { usePharmaStore } from '@/presentation/store/useStore';
-import { getFinancialAccounts, getTreasuryTransactions, transferFunds, getPendingRemittances, confirmRemittance, FinancialAccount, TreasuryTransaction, Remittance } from '@/actions/treasury';
+import { 
+    getFinancialAccounts, 
+    getTreasuryTransactions, 
+    getPendingRemittances, 
+    FinancialAccount, 
+    TreasuryTransaction, 
+    Remittance 
+} from '@/actions/treasury';
+import { 
+    transferFundsSecure, 
+    confirmRemittanceSecure,
+    AUTHORIZATION_THRESHOLDS 
+} from '@/actions/treasury-v2';
 import { toast } from 'sonner';
-import { Landmark, Briefcase, DollarSign, ArrowRight, ArrowDownLeft, ArrowUpRight, History, CheckCircle, Package, LayoutDashboard, FileText } from 'lucide-react';
+import { 
+    Landmark, Briefcase, DollarSign, ArrowRight, ArrowUpRight, 
+    History, CheckCircle, Package, LayoutDashboard, FileText,
+    ShieldCheck, AlertTriangle
+} from 'lucide-react';
 import { TreasuryHistoryTab } from '@/presentation/components/treasury/TreasuryHistoryTab';
+import { PinAuthorizationModal } from '@/presentation/components/security/PinAuthorizationModal';
 
 
 export default function TreasuryPage() {
     const { user, locations } = usePharmaStore();
-
 
     const [accounts, setAccounts] = useState<FinancialAccount[]>([]);
     const [transactions, setTransactions] = useState<TreasuryTransaction[]>([]);
@@ -18,11 +45,26 @@ export default function TreasuryPage() {
     const [loading, setLoading] = useState(true);
     const [selectedAccount, setSelectedAccount] = useState<FinancialAccount | null>(null);
 
-    // Deposit/Transfer Modal State
+    // Transfer Modal State
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const [transferAmount, setTransferAmount] = useState('');
     const [transferNote, setTransferNote] = useState('');
     const [targetAccountId, setTargetAccountId] = useState('');
+    const [isTransferring, setIsTransferring] = useState(false);
+
+    // PIN Authorization Modal State
+    const [isPinModalOpen, setIsPinModalOpen] = useState(false);
+    const [pinModalConfig, setPinModalConfig] = useState<{
+        title: string;
+        description: string;
+        operationType: string;
+        amount: number;
+        onConfirm: (pin: string) => Promise<void>;
+    } | null>(null);
+    const [pinError, setPinError] = useState('');
+    const [isPinLoading, setIsPinLoading] = useState(false);
+
+    // Tab State
     const [activeTab, setActiveTab] = useState<'SUMMARY' | 'HISTORY'>('SUMMARY');
 
     // Load Data
@@ -36,11 +78,10 @@ export default function TreasuryPage() {
             if (accRes.success && accRes.data) {
                 setAccounts(accRes.data);
 
-                // Select Safe by default or first account
+                // Select Safe by default
                 const safe = accRes.data.find(a => a.type === 'SAFE');
                 if (safe) {
                     setSelectedAccount(safe);
-                    // Fetch Transactions for Safe
                     fetchTransactions(safe.id);
                 }
             }
@@ -64,11 +105,16 @@ export default function TreasuryPage() {
 
     useEffect(() => {
         loadTreasuryData();
-    }, [user?.assigned_location_id]); // Reload if location changes (unlikely for user but possible)
+    }, [user?.assigned_location_id]);
 
-    const handleTransfer = async () => {
+    // =====================================================
+    // SECURE TRANSFER HANDLER (v2)
+    // =====================================================
+    const handleTransfer = async (authorizationPin?: string) => {
         if (!selectedAccount || selectedAccount.type !== 'SAFE') return;
-        if (!transferAmount || isNaN(Number(transferAmount)) || Number(transferAmount) <= 0) {
+        
+        const amount = Number(transferAmount);
+        if (!transferAmount || isNaN(amount) || amount <= 0) {
             toast.error('Monto inválido');
             return;
         }
@@ -77,44 +123,135 @@ export default function TreasuryPage() {
             return;
         }
 
-        const targetAccount = accounts.find(a => a.id === targetAccountId);
-        const description = `Traspaso a ${targetAccount?.name || 'Cuenta'} - ${transferNote || 'Sin nota'}`;
+        // Check if authorization is required
+        const requiresAuth = amount > AUTHORIZATION_THRESHOLDS.TRANSFER;
+        
+        if (requiresAuth && !authorizationPin) {
+            // Open PIN modal
+            const targetAccount = accounts.find(a => a.id === targetAccountId);
+            setPinModalConfig({
+                title: 'Autorización Requerida',
+                description: `Las transferencias mayores a $${AUTHORIZATION_THRESHOLDS.TRANSFER.toLocaleString('es-CL')} requieren autorización de un supervisor.`,
+                operationType: `Transferencia a ${targetAccount?.name || 'Cuenta destino'}`,
+                amount: amount,
+                onConfirm: async (pin: string) => {
+                    await executeTransfer(pin);
+                }
+            });
+            setPinError('');
+            setIsPinModalOpen(true);
+            return;
+        }
 
-        toast.promise(transferFunds(selectedAccount.id, targetAccountId, Number(transferAmount), description, user?.id || 'sys'), {
-            loading: 'Procesando transferencia...',
-            success: () => {
+        await executeTransfer(authorizationPin);
+    };
+
+    const executeTransfer = async (authorizationPin?: string) => {
+        setIsTransferring(true);
+        setIsPinLoading(true);
+
+        try {
+            const targetAccount = accounts.find(a => a.id === targetAccountId);
+            const description = `Traspaso a ${targetAccount?.name || 'Cuenta'} - ${transferNote || 'Sin nota'}`;
+
+            const result = await transferFundsSecure({
+                fromAccountId: selectedAccount!.id,
+                toAccountId: targetAccountId,
+                amount: Number(transferAmount),
+                description,
+                userId: user?.id || 'sys',
+                authorizationPin
+            });
+
+            if (result.success) {
+                toast.success('✅ Transferencia registrada correctamente', {
+                    description: result.transferId ? `ID: ${result.transferId.slice(0, 8)}...` : undefined
+                });
                 setIsTransferModalOpen(false);
+                setIsPinModalOpen(false);
                 setTransferAmount('');
                 setTransferNote('');
                 setTargetAccountId('');
-                loadTreasuryData(); // Refresh all
-                return 'Transferencia registrada correctamente';
-            },
-            error: (err: any) => err.message || 'Error en transferencia'
-        });
+                loadTreasuryData();
+            } else {
+                if (result.error?.includes('PIN') || result.error?.includes('inválido')) {
+                    setPinError(result.error);
+                    throw new Error(result.error);
+                }
+                toast.error(result.error || 'Error en transferencia');
+            }
+        } catch (error: any) {
+            if (!error.message?.includes('PIN')) {
+                toast.error(error.message || 'Error procesando transferencia');
+            }
+            throw error;
+        } finally {
+            setIsTransferring(false);
+            setIsPinLoading(false);
+        }
     };
 
+    // =====================================================
+    // SECURE REMITTANCE CONFIRMATION (v2)
+    // =====================================================
     const handleConfirmRemittance = async (remittanceId: string, amount: number) => {
-        toast.promise(confirmRemittance(remittanceId, user?.id || 'sys'), {
-            loading: 'Verificando recepción de efectivo...',
-            success: () => {
-                loadTreasuryData();
-                return `Se ingresaron $${amount.toLocaleString('es-CL')} a Caja Fuerte`;
-            },
-            error: 'Error al confirmar recepción'
+        // Always requires PIN for remittance confirmation
+        setPinModalConfig({
+            title: 'Confirmar Recepción de Remesa',
+            description: 'Ingrese su PIN de supervisor para confirmar que recibió el efectivo.',
+            operationType: 'Confirmación de Remesa',
+            amount: amount,
+            onConfirm: async (pin: string) => {
+                await executeRemittanceConfirmation(remittanceId, amount, pin);
+            }
         });
+        setPinError('');
+        setIsPinModalOpen(true);
     };
+
+    const executeRemittanceConfirmation = async (remittanceId: string, amount: number, managerPin: string) => {
+        setIsPinLoading(true);
+
+        try {
+            const result = await confirmRemittanceSecure({
+                remittanceId,
+                managerId: user?.id || 'sys',
+                managerPin
+            });
+
+            if (result.success) {
+                toast.success(`✅ Remesa confirmada`, {
+                    description: `$${amount.toLocaleString('es-CL')} ingresados a Caja Fuerte`
+                });
+                setIsPinModalOpen(false);
+                loadTreasuryData();
+            } else {
+                if (result.error?.includes('PIN') || result.error?.includes('inválido') || result.error?.includes('corresponde')) {
+                    setPinError(result.error);
+                    throw new Error(result.error);
+                }
+                toast.error(result.error || 'Error al confirmar remesa');
+                setIsPinModalOpen(false);
+            }
+        } catch (error: any) {
+            if (!error.message?.includes('PIN') && !error.message?.includes('corresponde')) {
+                toast.error(error.message || 'Error confirmando remesa');
+                setIsPinModalOpen(false);
+            }
+            throw error;
+        } finally {
+            setIsPinLoading(false);
+        }
+    };
+
+    // =====================================================
+    // RENDER
+    // =====================================================
 
     if (!user) return <div className="p-8 text-center text-slate-500">Cargando perfil...</div>;
 
-    // Security Check
-    // if (user.role !== 'MANAGER' && user.role !== 'ADMIN') {
-    //     return <div className="p-8 text-center text-red-500 font-bold">⛔ Acceso Restringido: Solo Gerentes.</div>;
-    // }
-
     const safeAccount = accounts.find(a => a.type === 'SAFE');
     const bankAccount = accounts.find(a => a.type === 'BANK');
-
     const currentLocationName = locations.find(l => l.id === user.assigned_location_id)?.name || 'Sucursal desconocida';
 
     return (
@@ -126,6 +263,10 @@ export default function TreasuryPage() {
                     <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
                         <Briefcase className="text-slate-900" size={32} />
                         Tesorería
+                        <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full font-medium">
+                            <ShieldCheck className="inline w-3 h-3 mr-1" />
+                            v2 Seguro
+                        </span>
                     </h1>
                     <p className="text-slate-500 mt-1 flex items-center gap-1">
                         <Landmark size={14} /> Gestión de Efectivo - <span className="font-semibold text-slate-700">{currentLocationName}</span>
@@ -141,6 +282,17 @@ export default function TreasuryPage() {
                 </div>
             </div>
 
+            {/* Security Notice */}
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+                <ShieldCheck className="text-blue-600 flex-shrink-0 mt-0.5" size={20} />
+                <div className="text-sm text-blue-800">
+                    <p className="font-medium">Operaciones Seguras Activadas</p>
+                    <p className="text-blue-600">
+                        Transferencias mayores a ${AUTHORIZATION_THRESHOLDS.TRANSFER.toLocaleString('es-CL')} y confirmación de remesas requieren PIN de supervisor.
+                    </p>
+                </div>
+            </div>
+
             {/* Tab Navigation */}
             <div className="flex gap-2 border-b border-gray-200 pb-1">
                 <button
@@ -148,7 +300,7 @@ export default function TreasuryPage() {
                     className={`flex items-center gap-2 px-4 py-2 font-bold text-sm rounded-t-lg border-b-2 transition-colors ${activeTab === 'SUMMARY'
                         ? 'border-slate-900 text-slate-900 bg-slate-50'
                         : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-gray-50'
-                        }`}
+                    }`}
                 >
                     <LayoutDashboard size={16} /> Resumen
                 </button>
@@ -157,7 +309,7 @@ export default function TreasuryPage() {
                     className={`flex items-center gap-2 px-4 py-2 font-bold text-sm rounded-t-lg border-b-2 transition-colors ${activeTab === 'HISTORY'
                         ? 'border-slate-900 text-slate-900 bg-slate-50'
                         : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-gray-50'
-                        }`}
+                    }`}
                 >
                     <FileText size={16} /> Historial de Rendiciones
                 </button>
@@ -169,9 +321,12 @@ export default function TreasuryPage() {
 
                     {/* Pending Remittances Section */}
                     {remittances.length > 0 && (
-                        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 animate-pulse-once">
+                        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6">
                             <h3 className="text-lg font-bold text-amber-900 flex items-center gap-2 mb-4">
                                 <Package className="text-amber-600" /> Remesas Pendientes de Recepción
+                                <span className="text-xs bg-amber-200 text-amber-800 px-2 py-1 rounded-full">
+                                    Requiere PIN
+                                </span>
                             </h3>
                             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                                 {remittances.map((rem) => (
@@ -182,7 +337,7 @@ export default function TreasuryPage() {
                                                 ${Number(rem.amount).toLocaleString('es-CL')}
                                             </p>
                                             <p className="text-xs text-slate-400 mt-2">
-                                                Creado por: {rem.created_by.slice(0, 8)}... {/* Ideally Name */}
+                                                Creado por: {rem.created_by.slice(0, 8)}...
                                             </p>
                                             <p className="text-xs text-slate-400">
                                                 {new Date(rem.created_at).toLocaleString('es-CL')}
@@ -229,7 +384,7 @@ export default function TreasuryPage() {
                             </div>
                         </div>
 
-                        {/* Bank Card (Optional/Future) */}
+                        {/* Bank Card */}
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 relative overflow-hidden">
                             <div className="flex items-center gap-3 mb-2">
                                 <div className="p-2 bg-blue-50 rounded-lg"><Landmark size={20} className="text-blue-600" /></div>
@@ -284,12 +439,12 @@ export default function TreasuryPage() {
                                                 </td>
                                                 <td className="px-6 py-4 text-center">
                                                     <span className={`px-2 py-1 rounded-full text-xs font-bold ${tx.type === 'IN' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
-                                                        }`}>
+                                                    }`}>
                                                         {tx.type === 'IN' ? 'INGRESO' : 'EGRESO'}
                                                     </span>
                                                 </td>
                                                 <td className={`px-6 py-4 text-right font-mono font-bold ${tx.type === 'IN' ? 'text-emerald-600' : 'text-slate-800'
-                                                    }`}>
+                                                }`}>
                                                     {tx.type === 'IN' ? '+' : '-'}${Number(tx.amount).toLocaleString('es-CL')}
                                                 </td>
                                             </tr>
@@ -323,9 +478,18 @@ export default function TreasuryPage() {
                                         <Briefcase className="text-amber-300" size={32} />
                                     </div>
 
+                                    {/* Authorization Warning */}
+                                    {Number(transferAmount) > AUTHORIZATION_THRESHOLDS.TRANSFER && (
+                                        <div className="bg-amber-100 border border-amber-300 rounded-lg p-3 flex items-start gap-2">
+                                            <AlertTriangle className="text-amber-600 flex-shrink-0 mt-0.5" size={18} />
+                                            <div className="text-sm text-amber-800">
+                                                <p className="font-medium">Requiere Autorización</p>
+                                                <p className="text-amber-700">Este monto necesita PIN de supervisor.</p>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     <div className="space-y-4">
-                                        {/* DEBUG: Verificar cuentas cargadas */}
-                                        {(() => { console.log('Cuentas cargadas:', accounts); return null; })()}
                                         <div>
                                             <label className="block text-sm font-bold text-slate-700 mb-2">Destino de los Fondos</label>
                                             <select
@@ -337,13 +501,12 @@ export default function TreasuryPage() {
                                                 {accounts
                                                     .filter(a => a.is_active && a.id !== selectedAccount?.id)
                                                     .map(acc => {
-                                                        let icon = '💰';
                                                         let typeLabel = '';
                                                         switch (acc.type) {
-                                                            case 'BANK': icon = '🏦'; typeLabel = 'Banco'; break;
-                                                            case 'PETTY_CASH': icon = '🐷'; typeLabel = 'Caja Chica'; break;
-                                                            case 'EQUITY': icon = '💼'; typeLabel = 'Patrimonio'; break;
-                                                            case 'SAFE': icon = '🔐'; typeLabel = 'Caja'; break;
+                                                            case 'BANK': typeLabel = 'Banco'; break;
+                                                            case 'PETTY_CASH': typeLabel = 'Caja Chica'; break;
+                                                            case 'EQUITY': typeLabel = 'Patrimonio'; break;
+                                                            case 'SAFE': typeLabel = 'Caja'; break;
                                                             default: typeLabel = 'Cuenta';
                                                         }
                                                         return (
@@ -382,11 +545,20 @@ export default function TreasuryPage() {
                                     </div>
 
                                     <button
-                                        onClick={handleTransfer}
-                                        disabled={!transferAmount || !targetAccountId}
+                                        onClick={() => handleTransfer()}
+                                        disabled={!transferAmount || !targetAccountId || isTransferring}
                                         className="w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl shadow-lg shadow-slate-900/10 active:scale-[0.98] transition-all flex justify-center items-center gap-2"
                                     >
-                                        Confirmar Salida <ArrowRight size={18} />
+                                        {isTransferring ? (
+                                            <>
+                                                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                                Procesando...
+                                            </>
+                                        ) : (
+                                            <>
+                                                Confirmar Salida <ArrowRight size={18} />
+                                            </>
+                                        )}
                                     </button>
                                 </div>
                             </div>
@@ -399,6 +571,24 @@ export default function TreasuryPage() {
             {/* History View */}
             {activeTab === 'HISTORY' && <TreasuryHistoryTab />}
 
-        </div >
+            {/* PIN Authorization Modal */}
+            {pinModalConfig && (
+                <PinAuthorizationModal
+                    isOpen={isPinModalOpen}
+                    onClose={() => {
+                        setIsPinModalOpen(false);
+                        setPinError('');
+                    }}
+                    onConfirm={pinModalConfig.onConfirm}
+                    title={pinModalConfig.title}
+                    description={pinModalConfig.description}
+                    operationType={pinModalConfig.operationType}
+                    amount={pinModalConfig.amount}
+                    isLoading={isPinLoading}
+                    error={pinError}
+                />
+            )}
+
+        </div>
     );
 }
