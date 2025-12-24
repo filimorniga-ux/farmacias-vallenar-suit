@@ -1,5 +1,5 @@
 import React from 'react';
-import { HandoverSummary } from '@/actions/shift-handover';
+import { type HandoverSummary } from '@/actions/shift-handover-v2';
 import { ShieldCheck } from 'lucide-react';
 
 interface ShiftHandoverTicketProps {
