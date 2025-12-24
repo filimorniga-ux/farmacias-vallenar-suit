@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { calculateHandoverSecure, type HandoverSummary } from '@/actions/shift-handover-v2';
-import { executeHandover } from '@/actions/shift-handover'; // TODO: Migrate to executeHandoverSecure (requires PIN input UI)
+import { calculateHandoverSecure, executeHandoverSecure, type HandoverSummary } from '@/actions/shift-handover-v2';
 import { toast } from 'sonner';
 import { Loader2, ArrowRight, CheckCircle, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { usePharmaStore } from '@/presentation/store/useStore';
@@ -21,6 +20,7 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
     const [declaredAmount, setDeclaredAmount] = useState<string>('');
     const [summary, setSummary] = useState<HandoverSummary | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [userPin, setUserPin] = useState<string>('');
 
     // Step 1: Calculate
     const handleCalculate = async () => {
@@ -48,11 +48,23 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
     const handleConfirm = async () => {
         if (!currentTerminalId || !summary || !user) return;
 
+        // Validar PIN antes de ejecutar
+        if (!userPin || userPin.length < 4) {
+            toast.error('Debe ingresar su PIN de 4 dígitos para confirmar');
+            return;
+        }
+
         setStep('PROCESSING');
-        // Note: executeHandoverSecure requires additional parameters (PIN, expected/declared amounts)
-        // For now, keeping legacy call - full migration requires UI changes to collect userPin
-        // TODO: Add PIN input field before migrating to executeHandoverSecure
-        const res = await executeHandover(currentTerminalId, summary, user.id);
+        const res = await executeHandoverSecure({
+            terminalId: currentTerminalId,
+            declaredCash: summary.declaredCash,
+            expectedCash: summary.expectedCash,
+            amountToWithdraw: summary.amountToWithdraw,
+            amountToKeep: summary.amountToKeep,
+            userId: user.id,
+            userPin: userPin,
+            notes: `Cierre de turno por ${user.name}`,
+        });
 
         if (res.success) {
             toast.success('Turno cerrado correctamente');
@@ -200,15 +212,38 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
                                 </div>
                             </div>
 
+                            {/* PIN de Confirmación */}
+                            <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl">
+                                <label className="block text-sm font-bold text-amber-800 mb-2">
+                                    🔐 Confirme su PIN para autorizar
+                                </label>
+                                <input
+                                    type="password"
+                                    inputMode="numeric"
+                                    maxLength={4}
+                                    placeholder="••••"
+                                    value={userPin}
+                                    onChange={(e) => setUserPin(e.target.value.replace(/\D/g, ''))}
+                                    className="w-full text-2xl font-mono font-bold p-3 border-2 border-amber-300 rounded-lg focus:ring-4 focus:ring-amber-200 outline-none text-center tracking-widest"
+                                />
+                                <p className="text-xs text-amber-600 mt-2">
+                                    ⚠️ Esta operación requiere su PIN personal para registrar la autorización.
+                                </p>
+                            </div>
+
                             <button
                                 onClick={handleConfirm}
-                                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-900/20 active:scale-95"
+                                disabled={!userPin || userPin.length !== 4}
+                                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-900/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <CheckCircle size={20} /> Confirmar Cierre y Entrega
                             </button>
 
                             <button
-                                onClick={() => setStep('COUNT')}
+                                onClick={() => {
+                                    setStep('COUNT');
+                                    setUserPin(''); // Limpiar PIN al volver
+                                }}
                                 className="w-full py-2 text-gray-500 text-sm hover:text-gray-800 underline"
                             >
                                 Volver a Contar
