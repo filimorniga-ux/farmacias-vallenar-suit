@@ -580,9 +580,8 @@ describe('Users V2 - Additional Cases', () => {
     });
 });
 
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
+// Import for mocking - must be at module level
+import * as dbModule from '@/lib/db';
 
 function createMockClient(queryResults: any[] = []) {
     let callIndex = 0;
@@ -605,8 +604,8 @@ function createMockClient(queryResults: any[] = []) {
         release: vi.fn()
     };
 
-    const mockPool = require('@/lib/db').pool;
-    vi.mocked(mockPool.connect).mockResolvedValue(mockClient as any);
+    vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
 
     return mockClient;
 }
+

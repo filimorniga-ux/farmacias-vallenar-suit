@@ -5,10 +5,11 @@ import path from 'path';
 export default defineConfig({
     plugins: [react()],
     test: {
-        environment: 'node', // Default to node for actions, override to jsdom per file if needed
+        environment: 'node',
         globals: true,
         alias: {
             '@': path.resolve(__dirname, './src'),
+            'server-only': path.resolve(__dirname, './tests/__mocks__/server-only.ts'),
         },
         exclude: ['**/node_modules/**', '**/dist/**', 'tests/e2e/**'],
         coverage: {
@@ -27,6 +28,8 @@ export default defineConfig({
     resolve: {
         alias: {
             '@': path.resolve(__dirname, './src'),
+            'server-only': path.resolve(__dirname, './tests/__mocks__/server-only.ts'),
         },
     },
 });
+
