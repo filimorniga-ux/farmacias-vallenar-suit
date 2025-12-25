@@ -2,12 +2,19 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { generateRestockSuggestion, createPurchaseOrderFromSuggestion, RestockSuggestion } from '@/actions/procurement';
-import { getSuppliersList } from '@/actions/suppliers';
-import { Calculator, ShoppingCart, Loader2, AlertTriangle, CheckCircle, TrendingUp } from 'lucide-react';
+import { generateRestockSuggestionSecure, createPurchaseOrderSecure, approvePurchaseOrderSecure } from '@/actions/procurement-v2';
+import { getSuppliersListSecure } from '@/actions/suppliers-v2';
+import { usePharmaStore } from '@/presentation/store/useStore';
+import { PinModal } from '@/components/shared/PinModal';
+import { Calculator, ShoppingCart, Loader2, AlertTriangle, CheckCircle, TrendingUp, Shield, Lock } from 'lucide-react';
+import { toast } from 'sonner';
+
+const MANAGER_THRESHOLD = 500000;
+const GERENTE_THRESHOLD = 1000000;
 
 export default function SmartOrderPage() {
     const router = useRouter();
+    const { user } = usePharmaStore();
 
     // filters
     const [supplierId, setSupplierId] = useState('');
@@ -17,31 +24,41 @@ export default function SmartOrderPage() {
 
     // data
     const [loading, setLoading] = useState(false);
-    const [suggestions, setSuggestions] = useState<RestockSuggestion[]>([]);
+    const [suggestions, setSuggestions] = useState<any[]>([]);
     const [editableQuantities, setEditableQuantities] = useState<Record<string, number>>({});
 
     // creating
     const [creatingOrder, setCreatingOrder] = useState(false);
+    const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
+    const [showPinModal, setShowPinModal] = useState(false);
 
     useEffect(() => {
-        getSuppliersList().then(setSuppliers);
+        loadSuppliers();
     }, []);
+
+    const loadSuppliers = async () => {
+        const res = await getSuppliersListSecure();
+        if (res.success && res.data) {
+            setSuppliers(res.data);
+        }
+    };
 
     const handleCalculate = async () => {
         if (!supplierId) return;
         setLoading(true);
-        setSuggestions([]); // clear prev
+        setSuggestions([]);
 
         try {
-            const res = await generateRestockSuggestion(supplierId, daysToCover, analysisWindow);
+            const res = await generateRestockSuggestionSecure(supplierId, daysToCover, analysisWindow);
             if (res.success && res.data) {
                 setSuggestions(res.data);
-                // Initialize editables
                 const initial: Record<string, number> = {};
-                res.data.forEach(item => {
+                res.data.forEach((item: any) => {
                     initial[item.product_id] = item.suggested_quantity;
                 });
                 setEditableQuantities(initial);
+            } else {
+                toast.error(res.error || 'Error generando sugerencias');
             }
         } finally {
             setLoading(false);
@@ -54,41 +71,72 @@ export default function SmartOrderPage() {
     };
 
     const handleCreateOrder = async () => {
-        if (!supplierId || suggestions.length === 0) return;
-        if (!confirm('¿Generar Orden de Compra con las cantidades definidas?')) return;
+        if (!supplierId || suggestions.length === 0 || !user?.id) return;
+
+        const itemsToOrder = suggestions
+            .map(s => ({
+                productId: s.product_id,
+                productName: s.product_name,
+                sku: s.sku,
+                quantity: editableQuantities[s.product_id] || 0,
+                unitCost: s.unit_cost
+            }))
+            .filter(i => i.quantity > 0);
+
+        if (itemsToOrder.length === 0) {
+            toast.error('No hay items con cantidad mayor a 0');
+            return;
+        }
 
         setCreatingOrder(true);
         try {
-            // Filter non-zero
-            const itemsToOrder = suggestions
-                .map(s => ({
-                    product_id: s.product_id,
-                    product_name: s.product_name,
-                    quantity: editableQuantities[s.product_id] || 0,
-                    cost: s.unit_cost
-                }))
-                .filter(i => i.quantity > 0);
+            const res = await createPurchaseOrderSecure({
+                supplierId,
+                items: itemsToOrder,
+                userId: user.id,
+                notes: `Generado automáticamente - ${daysToCover} días cobertura`
+            });
 
-            if (itemsToOrder.length === 0) {
-                alert('No hay items con cantidad mayor a 0');
-                return;
-            }
+            if (res.success && res.data) {
+                const { orderId, total, requiresApproval } = res.data;
 
-            const res = await createPurchaseOrderFromSuggestion(supplierId, itemsToOrder);
-            if (res.success && res.orderId) {
-                // Redirect
-                // Assuming standard path /logistica/ordenes/[id] or similar. 
-                // Let's try redirect to a "Success" or the list if specific page doesn't exist yet.
-                // Assuming /supply/purchase-orders/[id] based on earlier context? Or just /
-                alert(`Orden #${res.orderId.slice(0, 8)} creada exitosamente (Borrador).`);
+                if (requiresApproval) {
+                    setPendingOrderId(orderId);
+                    setShowPinModal(true);
+                    toast.info(`Orden #${orderId.slice(0, 8)} creada. Requiere aprobación (total: $${total.toLocaleString('es-CL')})`);
+                } else {
+                    toast.success(`Orden #${orderId.slice(0, 8)} creada exitosamente`);
+                    // Reset
+                    setSuggestions([]);
+                    setEditableQuantities({});
+                }
             } else {
-                alert('Error creando orden: ' + res.error);
+                toast.error(res.error || 'Error creando orden');
             }
-        } catch (e) {
-            console.error(e);
-            alert('Error inesperado');
+        } catch (e: any) {
+            toast.error(e.message || 'Error inesperado');
         } finally {
             setCreatingOrder(false);
+        }
+    };
+
+    const handleApproveOrder = async (pin: string): Promise<boolean> => {
+        if (!pendingOrderId) return false;
+
+        const res = await approvePurchaseOrderSecure({
+            orderId: pendingOrderId,
+            approverPin: pin,
+            notes: `Aprobación automática - Smart Order - ${new Date().toISOString()}`
+        });
+
+        if (res.success) {
+            toast.success('Orden aprobada exitosamente');
+            setPendingOrderId(null);
+            setSuggestions([]);
+            setEditableQuantities({});
+            return true;
+        } else {
+            throw new Error(res.error || 'Error aprobando orden');
         }
     };
 
@@ -99,15 +147,29 @@ export default function SmartOrderPage() {
 
     const itemsCount = suggestions.filter(s => (editableQuantities[s.product_id] || 0) > 0).length;
 
+    // Determine required role for approval
+    const getRequiredRole = () => {
+        if (totalEstimated >= GERENTE_THRESHOLD) return 'GERENTE_GENERAL';
+        if (totalEstimated >= MANAGER_THRESHOLD) return 'MANAGER';
+        return null;
+    };
+
+    const requiredRole = getRequiredRole();
+
     return (
         <div className="p-6 max-w-7xl mx-auto space-y-6">
+            {/* Header */}
             <div className="flex justify-between items-center">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
                         <Calculator className="text-purple-600" />
                         Pedido Inteligente (Smart Order)
                     </h1>
-                    <p className="text-slate-500">Genera propuestas de compra basadas en MRP (Material Requirements Planning).</p>
+                    <p className="text-slate-500">Genera propuestas de compra basadas en MRP con aprobación segura.</p>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-100 px-3 py-2 rounded-lg">
+                    <Shield size={14} className="text-emerald-600" />
+                    <span>Módulo V2 - Seguridad Mejorada</span>
                 </div>
             </div>
 
@@ -178,13 +240,12 @@ export default function SmartOrderPage() {
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {suggestions.map((item) => {
-                                    const isCritical = item.current_stock < (item.daily_velocity * 3); // Critical if < 3 days stock
+                                    const isCritical = item.current_stock < (item.daily_velocity * 3);
                                     return (
                                         <tr key={item.product_id} className="hover:bg-slate-50 transition-colors">
                                             <td className="p-4">
                                                 <div className="font-medium text-slate-900">{item.product_name}</div>
                                                 <div className="text-xs text-slate-500">SKU: {item.sku}</div>
-                                                {item.supplier_sku && <div className="text-[10px] text-slate-400">Prov SKU: {item.supplier_sku}</div>}
                                             </td>
                                             <td className="p-4 text-center">
                                                 <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-bold ${isCritical ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
@@ -220,13 +281,21 @@ export default function SmartOrderPage() {
 
                     {/* Footer */}
                     <div className="p-6 bg-slate-50 border-t border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4">
-                        <div className="text-slate-600">
-                            Resumen: <span className="font-bold text-slate-900">{itemsCount} items</span> seleccionados
+                        <div className="text-slate-600 flex items-center gap-4">
+                            <span><span className="font-bold text-slate-900">{itemsCount} items</span> seleccionados</span>
+                            {requiredRole && (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-bold">
+                                    <Lock size={12} />
+                                    Requiere PIN de {requiredRole}
+                                </span>
+                            )}
                         </div>
                         <div className="flex items-center gap-6">
                             <div className="text-right">
                                 <div className="text-xs text-slate-500">Total Estimado</div>
-                                <div className="text-2xl font-bold text-slate-900">${totalEstimated.toLocaleString('es-CL')}</div>
+                                <div className={`text-2xl font-bold ${requiredRole ? 'text-amber-600' : 'text-slate-900'}`}>
+                                    ${totalEstimated.toLocaleString('es-CL')}
+                                </div>
                             </div>
                             <button
                                 onClick={handleCreateOrder}
@@ -248,6 +317,19 @@ export default function SmartOrderPage() {
                     <p>No se encontraron sugerencias para este proveedor con los parámetros actuales.</p>
                 </div>
             )}
+
+            {/* PIN Modal */}
+            <PinModal
+                isOpen={showPinModal}
+                onClose={() => {
+                    setShowPinModal(false);
+                    setPendingOrderId(null);
+                }}
+                onSubmit={handleApproveOrder}
+                title="Aprobar Orden de Compra"
+                description={`Esta orden por $${totalEstimated.toLocaleString('es-CL')} CLP requiere aprobación del nivel gerencial.`}
+                requiredRole={requiredRole || undefined}
+            />
         </div>
     );
 }
