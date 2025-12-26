@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Edit2, UserPlus, Loader2, Shield, User, Trash2, Power, AlertTriangle } from 'lucide-react';
-import { getUsers, toggleUserStatus, deleteUser } from '../../../actions/users';
+import { getUsersSecure, deactivateUserSecure } from '../../../actions/users-v2';
 import { EmployeeProfile } from '../../../domain/types';
 import { usePharmaStore } from '../../store/useStore';
 import { toast } from 'sonner';
@@ -16,46 +16,56 @@ export const UsersList: React.FC<UsersListProps> = ({ onEdit, onCreate }) => {
     const [isLoading, setIsLoading] = useState(true);
 
     const handleToggleStatus = async (user: EmployeeProfile) => {
+        const reason = prompt('Ingrese razón del cambio de estado:');
+        if (!reason) return;
+
         const newStatus = user.status !== 'ACTIVE';
 
         // Optimistic update
         setUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: newStatus ? 'ACTIVE' : 'TERMINATED' } : u));
 
-        const res = await toggleUserStatus(user.id, newStatus);
-
-        if (res.success) {
-            toast.success(`Usuario ${newStatus ? 'activado' : 'desactivado'} correcamente`);
+        // V2: Solo deactivar, no toggle
+        if (!newStatus) {
+            const res = await deactivateUserSecure({ userId: user.id, reason });
+            if (res.success) {
+                toast.success('Usuario desactivado correctamente');
+            } else {
+                setUsers(prev => prev.map(u => u.id === user.id ? user : u));
+                toast.error(res.error || 'Error al cambiar estado');
+            }
         } else {
-            // Revert
+            toast.info('Para reactivar usuarios, contacte a un administrador');
             setUsers(prev => prev.map(u => u.id === user.id ? user : u));
-            toast.error(res.error || 'Error al cambiar estado');
         }
     };
 
     const handleDelete = async (targetUser: EmployeeProfile) => {
-        if (!confirm(`¿Estás seguro de eliminar a ${targetUser.name}? Esta acción no se puede deshacer.`)) return;
+        const reason = prompt('Ingrese razón de la desactivación:');
+        if (!reason) return;
 
         if (targetUser.id === currentUser?.id) {
             toast.error("No puedes eliminarte a ti mismo.");
             return;
         }
 
-        const res = await deleteUser(targetUser.id);
+        // V2: Usar deactivate en lugar de delete
+        const res = await deactivateUserSecure({ userId: targetUser.id, reason });
 
         if (res.success) {
             setUsers(prev => prev.filter(u => u.id !== targetUser.id));
-            toast.success('Usuario eliminado permanentemente');
+            toast.success('Usuario desactivado');
         } else {
-            toast.error(res.error || 'Error al eliminar');
+            toast.error(res.error || 'Error al desactivar');
         }
     };
 
     const loadUsers = async () => {
         setIsLoading(true);
         try {
-            const result = await getUsers();
+            // V2: Nuevo formato de llamada
+            const result = await getUsersSecure({ page: 1, pageSize: 100 });
             if (result.success && result.data) {
-                setUsers(result.data);
+                setUsers(result.data.users as any);
             } else {
                 console.error('Error loading users:', result.error);
                 toast.error(`Error: ${result.error || 'No se pudieron cargar los usuarios'}`);
@@ -129,8 +139,8 @@ export const UsersList: React.FC<UsersListProps> = ({ onEdit, onCreate }) => {
                                     <button
                                         onClick={() => handleToggleStatus(user)}
                                         className={`px-3 py-1 rounded-full text-xs font-bold transition-all hover:scale-105 ${user.status === 'ACTIVE'
-                                                ? 'bg-green-100 text-green-700 hover:bg-red-100 hover:text-red-700'
-                                                : 'bg-slate-200 text-slate-500 hover:bg-green-100 hover:text-green-700'
+                                            ? 'bg-green-100 text-green-700 hover:bg-red-100 hover:text-red-700'
+                                            : 'bg-slate-200 text-slate-500 hover:bg-green-100 hover:text-green-700'
                                             }`}
                                         title={user.status === 'ACTIVE' ? "Click para DESACTIVAR" : "Click para ACTIVAR"}
                                     >
