@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useLocationStore } from '../store/useLocationStore';
 import { usePharmaStore } from '../store/useStore';
-import { createLocation } from '@/actions/locations';
-import { updateUser } from '@/actions/users';
+// V2: Secure functions
+import { createLocationSecure } from '@/actions/locations-v2';
+import { updateUserSecure } from '@/actions/users-v2';
 import { MapPin, Warehouse, Store, Plus, Tablet, QrCode, Settings, CheckCircle, Users, Shield, ArrowRightLeft, Monitor } from 'lucide-react';
 import { Location, EmployeeProfile } from '../../domain/types';
 import LocationEditModal from '../components/settings/LocationEditModal';
@@ -28,8 +29,10 @@ const NetworkPage = () => {
         if (!newLocation.name || !newLocation.address) return;
 
         try {
-            const res = await createLocation({
-                ...newLocation,
+            // V2: createLocationSecure
+            const res = await createLocationSecure({
+                name: newLocation.name,
+                address: newLocation.address,
                 type: newLocation.type as any
             });
 
@@ -55,15 +58,11 @@ const NetworkPage = () => {
         if (!currentLocation && targetLocationId) return;
 
         try {
-            // Optimistic Update (Store) - Not implemented in store yet, so we rely on fetch
-            // Call Backend
-            // We need to pass full object to updateUser? No, it takes Partial.
-            const res = await updateUser(employee.id, {
-                // Pass full object to prevent overwriting with nulls in backend
-                ...employee,
-                assigned_location_id: targetLocationId || undefined // undefined might not work if logic expects string or null.
-            } as any);
-
+            // V2: updateUserSecure con assigned_location_id
+            const res = await updateUserSecure({
+                userId: employee.id,
+                assigned_location_id: targetLocationId || undefined
+            });
 
             if (res.success) {
                 toast.success('Personal reasignado');

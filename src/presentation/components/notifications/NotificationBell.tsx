@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, Check, ExternalLink } from 'lucide-react';
 import { usePharmaStore } from '@/presentation/store/useStore';
-import { getUserNotifications, markAsRead, Notification } from '@/actions/notifications';
+// V2: Funciones seguras con sesión
+import { getMyNotifications, markAsReadSecure } from '@/actions/notifications-v2';
 import { useRouter } from 'next/navigation';
 
 interface NotificationBellProps {
@@ -12,12 +13,13 @@ const NotificationBell: React.FC<NotificationBellProps> = () => {
     const { user } = usePharmaStore();
     const router = useRouter();
     const [isOpen, setIsOpen] = useState(false);
-    const [notifications, setNotifications] = useState<Notification[]>([]);
+    const [notifications, setNotifications] = useState<any[]>([]);
     const [unreadCount, setUnreadCount] = useState(0);
 
     const loadNotifications = async () => {
         if (!user?.id) return;
-        const res = await getUserNotifications(user.id);
+        // V2: getMyNotifications usa sesión de headers
+        const res = await getMyNotifications();
         if (res.success && res.data) {
             setNotifications(res.data);
             setUnreadCount(res.unreadCount || 0);
@@ -36,7 +38,8 @@ const NotificationBell: React.FC<NotificationBellProps> = () => {
         setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
         setUnreadCount(prev => Math.max(0, prev - 1));
 
-        await markAsRead(id);
+        // V2: markAsReadSecure
+        await markAsReadSecure(id);
         if (link) {
             setIsOpen(false);
             router.push(link);
