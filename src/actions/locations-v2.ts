@@ -897,3 +897,14 @@ export async function getLocationsSecure(
         return { success: false, error: 'Error obteniendo ubicaciones' };
     }
 }
+
+/**
+ * 🏭 Get Warehouses Only (Filter by type = WAREHOUSE)
+ */
+export async function getWarehousesSecure(): Promise<{ success: boolean; data?: Location[]; error?: string }> {
+    const result = await getLocationsSecure();
+    if (!result.success) return result;
+    const warehouses = result.data?.filter(loc => loc.type === 'WAREHOUSE') || [];
+    return { success: true, data: warehouses };
+}
+

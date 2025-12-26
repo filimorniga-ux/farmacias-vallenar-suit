@@ -3,10 +3,10 @@ import { usePharmaStore } from '../../store/useStore';
 import { X, User, DollarSign, Monitor, Lock, MapPin, LockKeyhole, ArrowRight, RotateCcw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-// IMPORTE ACTUALIZADO: Usamos la versión atómica v2
-import { openTerminalAtomic, openTerminalWithPinValidation } from '../../../actions/terminals-v2';
-import { getAvailableTerminalsForShift, forceCloseTerminalShift } from '../../../actions/terminals';
-import { useTerminalSession } from '../../../hooks/useTerminalSession'; // Nuevo Hook
+// V2: Funciones atómicas seguras
+import { openTerminalAtomic, openTerminalWithPinValidation, forceCloseTerminalAtomic, getTerminalStatusAtomic } from '../../../actions/terminals-v2';
+import { getAvailableTerminalsForShift } from '../../../actions/terminals';
+import { useTerminalSession } from '../../../hooks/useTerminalSession';
 import { Terminal } from '@/domain/types';
 
 interface ShiftManagementModalProps {
@@ -114,7 +114,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                     for (const ghost of ghosts) {
                         try {
                             console.log(`🔧 Auto-healing terminal ${ghost.name} (${ghost.id})...`);
-                            await forceCloseTerminalShift(ghost.id, 'SYSTEM_AUTOHEAL');
+                            await forceCloseTerminalAtomic(ghost.id, 'SYSTEM_AUTOHEAL', 'Auto-healing ghost session');
                         } catch (e) {
                             console.error('Failed to auto-heal', ghost.id, e);
                         }
@@ -142,7 +142,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
         setIsForceLoading(true);
         try {
             const currentUserId = user?.id || 'SYSTEM_FORCE';
-            const res = await forceCloseTerminalShift(selectedTerminal, currentUserId);
+            const res = await forceCloseTerminalAtomic(selectedTerminal, currentUserId, 'Cierre forzado por usuario');
             if (res.success) {
                 toast.success('Terminal liberada exitosamente');
                 // Refresh list
@@ -279,10 +279,10 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
             // B. Actualizar Store Global (Zustand) para la UI inmediata
             // Usamos el authorizedById retornado por el servidor (validado con bcrypt)
             openShift(
-                parseInt(openingAmount), 
-                selectedCashier, 
-                result.authorizedById || 'SYSTEM', 
-                selectedTerminal, 
+                parseInt(openingAmount),
+                selectedCashier,
+                result.authorizedById || 'SYSTEM',
+                selectedTerminal,
                 selectedLocation
             );
 

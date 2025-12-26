@@ -3,7 +3,7 @@ import { usePharmaStore } from '../../../presentation/store/useStore';
 import { useLocationStore } from '../../../presentation/store/useLocationStore';
 import { useSettingsStore } from '../../../presentation/store/useSettingsStore';
 import { X, Search, Calendar, Printer, Eye, Lock, FileText, Download, User, RotateCcw } from 'lucide-react';
-import { exportSalesHistory } from '../../../actions/pos-export';
+import { exportSalesHistorySecure } from '../../../actions/pos-export-v2';
 import { toast } from 'sonner';
 import { printSaleTicket } from '../../utils/print-utils';
 import { SaleTransaction } from '../../../domain/types';
@@ -68,17 +68,17 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
             const startDateISO = new Date(startDate).toISOString();
             const endDateISO = new Date(endDate).toISOString();
 
-            const result = await exportSalesHistory({
+            // V2: RBAC automático, firma simplificada
+            const result = await exportSalesHistorySecure({
                 startDate: startDateISO,
                 endDate: endDateISO,
                 locationId: user?.role === 'MANAGER' || user?.role === 'ADMIN' ? undefined : user?.assigned_location_id,
-                requestingUserRole: user?.role || 'CASHIER'
             });
 
-            if (result.success && result.fileData) {
+            if (result.success && result.data) {
                 const link = document.createElement('a');
-                link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${result.fileData}`;
-                link.download = result.fileName || 'reporte_ventas.xlsx';
+                link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${result.data}`;
+                link.download = result.filename || 'reporte_ventas.xlsx';
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);

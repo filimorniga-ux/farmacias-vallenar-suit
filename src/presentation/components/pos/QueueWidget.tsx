@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { usePharmaStore } from '../../store/useStore';
 import { Users, Megaphone, Bell } from 'lucide-react';
-import { getQueueStatus } from '../../../actions/queue';
+import { getQueueStatusSecure } from '../../../actions/queue-v2';
 import { toast } from 'sonner';
 
 const QueueWidget: React.FC = () => {
@@ -11,10 +11,10 @@ const QueueWidget: React.FC = () => {
 
     const fetchStatus = async () => {
         if (!currentLocationId) return;
-        const result = await getQueueStatus(currentLocationId);
-        if (result.success) {
+        const result = await getQueueStatusSecure(currentLocationId);
+        if (result.success && result.data) {
             setStatus({
-                waiting: (result as any).waitingCount || 0
+                waiting: result.data.waitingCount || 0
             });
         }
     };

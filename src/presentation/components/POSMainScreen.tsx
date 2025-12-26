@@ -8,7 +8,7 @@ import {
     Scissors, TrendingDown, FileText, User, Minus, Trash2, CornerDownLeft
 } from 'lucide-react';
 import { MobileScanner } from '../../components/shared/MobileScanner';
-import { scanProduct } from '../../actions/scan';
+import { scanProductSecure } from '../../actions/scan-v2';
 import ClinicalSidebar from './clinical/ClinicalSidebar';
 import { ClinicalAgent } from '../../domain/logic/clinicalAgent';
 import ClientPanel from './pos/ClientPanel';
@@ -127,7 +127,7 @@ const POSMainScreen: React.FC = () => {
         // User requested DB Index usage.
         if (navigator.vibrate) navigator.vibrate(200);
 
-        const result = await scanProduct(decodedText, currentLocation?.id || '');
+        const result = await scanProductSecure(decodedText, currentLocation?.id || '');
 
         if (result.success && result.data) {
             // 3. Find full object in local memory to ensure we have all POS Required fields (prices, tax, etc)

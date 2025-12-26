@@ -5,7 +5,7 @@ import { X, DollarSign, Camera, AlertTriangle, CheckCircle, TrendingDown, Trendi
 import { CashMovementReason } from '../../../domain/types';
 import { SupervisorOverrideModal } from '../security/SupervisorOverrideModal';
 import { toast } from 'sonner';
-import { generateCashReport } from '../../../actions/cash-export';
+import { generateCashReportSecure } from '../../../actions/cash-export-v2';
 import { getShiftMetrics as getServerShiftMetrics, ShiftMetricsDetailed } from '../../../actions/cash-management';
 import { TransactionListModal } from './TransactionListModal';
 // Treasury V2 - Operaciones seguras con bcrypt PIN, RBAC, y auditoría
@@ -119,20 +119,18 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
             const start = currentShift.start_time;
             const end = Date.now();
 
-            const result = await generateCashReport({
+            // V2: Firma simplificada, RBAC automático via headers
+            const result = await generateCashReportSecure({
                 startDate: new Date(start).toISOString(),
                 endDate: new Date(end).toISOString(),
                 locationId: user?.assigned_location_id,
                 terminalId: currentShift.terminal_id,
-                requestingUserRole: user?.role || 'CASHIER',
-                requestingUserLocationId: user?.assigned_location_id,
-                shiftMetrics: serverMetrics || undefined // Pass the metrics here
             });
 
-            if (result.success && result.fileData) {
+            if (result.success && result.data) {
                 const link = document.createElement('a');
-                link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${result.fileData}`;
-                link.download = result.fileName || `cierre_caja_${currentShift.id}.xlsx`;
+                link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${result.data}`;
+                link.download = result.filename || `cierre_caja_${currentShift.id}.xlsx`;
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
@@ -179,7 +177,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
         try {
             // Use treasury-v2 secure function if we have session data
             if (currentShift?.terminal_id && currentShift?.id) {
-                const treasuryType = movementType === 'OUT' 
+                const treasuryType = movementType === 'OUT'
                     ? (reason === 'WITHDRAWAL' ? 'WITHDRAWAL' : 'EXPENSE')
                     : 'EXTRA_INCOME';
 
@@ -468,8 +466,8 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                                 ) : (
                                                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                                                 )}
-                                                {isRetrying 
-                                                    ? `Reintentando... (${retryAttempt + 1}/3)` 
+                                                {isRetrying
+                                                    ? `Reintentando... (${retryAttempt + 1}/3)`
                                                     : 'Procesando...'
                                                 }
                                             </>
