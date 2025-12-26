@@ -958,6 +958,161 @@ export async function getCashMovementHistory(
 }
 
 // ============================================================================
+// SHIFT METRICS
+// ============================================================================
+
+/**
+ * Interface para métricas detalladas del turno
+ */
+export interface ShiftMetricsDetailed {
+    sessionId: string;
+    terminalId: string;
+    cashierName: string;
+    openedAt: Date;
+    openingAmount: number;
+    currentCash: number;
+    cashSales: number;
+    cardSales: number;
+    transferSales: number;
+    otherSales: number;
+    totalSales: number;
+    transactionCount: number;
+    adjustments: { type: string; amount: number }[];
+    lastCount?: { amount: number; difference: number; timestamp: Date };
+}
+
+/**
+ * 📈 Get Shift Metrics (Detailed)
+ * Obtiene métricas detalladas del turno actual para un terminal
+ */
+export async function getShiftMetricsSecure(
+    terminalId: string
+): Promise<{ success: boolean; data?: ShiftMetricsDetailed; error?: string }> {
+    if (!UUIDSchema.safeParse(terminalId).success) {
+        return { success: false, error: 'ID de terminal inválido' };
+    }
+
+    try {
+        const { headers } = await import('next/headers');
+        const headersList = await headers();
+        const userId = headersList.get('x-user-id');
+
+        if (!userId) {
+            return { success: false, error: 'No autenticado' };
+        }
+
+        const { query } = await import('@/lib/db');
+
+        // Get active session
+        const sessionRes = await query(`
+            SELECT 
+                crs.id, crs.terminal_id, crs.opening_amount, crs.opened_at,
+                u.name as cashier_name
+            FROM cash_register_sessions crs
+            JOIN users u ON crs.user_id = u.id
+            WHERE crs.terminal_id = $1 AND crs.closed_at IS NULL
+        `, [terminalId]);
+
+        if (sessionRes.rows.length === 0) {
+            return { success: false, error: 'No hay sesión activa' };
+        }
+
+        const session = sessionRes.rows[0];
+        const openingAmount = Number(session.opening_amount);
+
+        // Get sales by payment method
+        const salesRes = await query(`
+            SELECT 
+                payment_method,
+                COUNT(*) as count,
+                COALESCE(SUM(total), 0) as total
+            FROM sales 
+            WHERE terminal_id = $1 
+            AND status != 'VOIDED'
+            AND timestamp >= $2
+            GROUP BY payment_method
+        `, [terminalId, session.opened_at]);
+
+        let cashSales = 0, cardSales = 0, transferSales = 0, otherSales = 0;
+        let transactionCount = 0;
+
+        for (const row of salesRes.rows) {
+            const total = Number(row.total);
+            const count = parseInt(row.count);
+            transactionCount += count;
+
+            switch (row.payment_method) {
+                case 'CASH': cashSales = total; break;
+                case 'CARD': case 'CREDIT': case 'DEBIT': cardSales += total; break;
+                case 'TRANSFER': transferSales = total; break;
+                default: otherSales += total;
+            }
+        }
+
+        // Get cash movements/adjustments
+        const movementsRes = await query(`
+            SELECT type, COALESCE(SUM(amount), 0) as total
+            FROM cash_movements
+            WHERE session_id = $1 AND type NOT IN ('OPENING')
+            GROUP BY type
+        `, [session.id]);
+
+        const adjustments = movementsRes.rows.map(r => ({
+            type: r.type,
+            amount: Number(r.total)
+        }));
+
+        // Calculate current cash
+        const cashIn = adjustments
+            .filter(a => ['EXTRA_INCOME'].includes(a.type))
+            .reduce((sum, a) => sum + a.amount, 0);
+        const cashOut = adjustments
+            .filter(a => ['WITHDRAWAL', 'EXPENSE'].includes(a.type))
+            .reduce((sum, a) => sum + a.amount, 0);
+        const currentCash = openingAmount + cashSales + cashIn - cashOut;
+
+        // Get last count
+        const countRes = await query(`
+            SELECT counted_amount, difference, created_at
+            FROM cash_counts
+            WHERE session_id = $1
+            ORDER BY created_at DESC
+            LIMIT 1
+        `, [session.id]);
+
+        const lastCount = countRes.rows.length > 0 ? {
+            amount: Number(countRes.rows[0].counted_amount),
+            difference: Number(countRes.rows[0].difference),
+            timestamp: countRes.rows[0].created_at,
+        } : undefined;
+
+        return {
+            success: true,
+            data: {
+                sessionId: session.id,
+                terminalId,
+                cashierName: session.cashier_name,
+                openedAt: session.opened_at,
+                openingAmount,
+                currentCash,
+                cashSales,
+                cardSales,
+                transferSales,
+                otherSales,
+                totalSales: cashSales + cardSales + transferSales + otherSales,
+                transactionCount,
+                adjustments,
+                lastCount,
+            }
+        };
+
+    } catch (error: any) {
+        logger.error({ error }, '[Cash] Get shift metrics error');
+        return { success: false, error: 'Error obteniendo métricas del turno' };
+    }
+}
+
+// ============================================================================
 // EXPORTS
 // ============================================================================
 

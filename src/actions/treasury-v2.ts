@@ -920,6 +920,99 @@ export async function getFinancialSummary(locationId: string): Promise<{
 }
 
 // =====================================================
+// REMITTANCE HISTORY SEGURO
+// =====================================================
+
+/**
+ * Interface para items del historial de remesas
+ */
+export interface RemittanceHistoryItem {
+    id: string;
+    location_id: string;
+    location_name: string;
+    terminal_id: string;
+    terminal_name: string;
+    cashier_name: string;
+    amount: number;
+    cash_count_diff: number;
+    status: 'PENDING' | 'RECEIVED' | 'DEPOSITED';
+    receiver_name?: string;
+    notes?: string;
+    created_at: string;
+}
+
+/**
+ * 📜 Obtiene historial de remesas con RBAC
+ */
+export async function getRemittanceHistorySecure(
+    params?: { startDate?: string; endDate?: string; locationId?: string }
+): Promise<{ success: boolean; data?: RemittanceHistoryItem[]; error?: string }> {
+    const { headers } = await import('next/headers');
+    const headersList = await headers();
+    const userId = headersList.get('x-user-id');
+    const userRole = headersList.get('x-user-role');
+
+    if (!userId) {
+        return { success: false, error: 'No autenticado' };
+    }
+
+    // RBAC: MANAGER_ROLES
+    const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'];
+    if (!MANAGER_ROLES.includes(userRole || '')) {
+        return { success: false, error: 'Acceso denegado' };
+    }
+
+    try {
+        let sql = `
+            SELECT 
+                r.id, r.location_id, l.name as location_name,
+                r.terminal_id, t.name as terminal_name,
+                u.name as cashier_name,
+                r.amount, r.cash_count_diff, r.status,
+                rec.name as receiver_name, r.notes, r.created_at
+            FROM remittances r
+            JOIN locations l ON r.location_id = l.id
+            LEFT JOIN terminals t ON r.terminal_id = t.id
+            LEFT JOIN users u ON r.cashier_id = u.id
+            LEFT JOIN users rec ON r.received_by = rec.id
+            WHERE 1=1
+        `;
+        const sqlParams: any[] = [];
+
+        if (params?.locationId) {
+            sqlParams.push(params.locationId);
+            sql += ` AND r.location_id = $${sqlParams.length}`;
+        }
+
+        if (params?.startDate) {
+            sqlParams.push(params.startDate);
+            sql += ` AND r.created_at >= $${sqlParams.length}::timestamp`;
+        }
+
+        if (params?.endDate) {
+            sqlParams.push(params.endDate);
+            sql += ` AND r.created_at <= $${sqlParams.length}::timestamp`;
+        }
+
+        sql += ` ORDER BY r.created_at DESC LIMIT 100`;
+
+        const result = await query(sql, sqlParams);
+
+        // Auditar acceso
+        await query(`
+            INSERT INTO audit_log (user_id, action_code, entity_type, new_values, created_at)
+            VALUES ($1, 'REMITTANCE_HISTORY_VIEWED', 'TREASURY', $2::jsonb, NOW())
+        `, [userId, JSON.stringify({ params, count: result.rows.length })]);
+
+        return { success: true, data: result.rows };
+
+    } catch (error: any) {
+        logger.error({ error }, '[Treasury] getRemittanceHistorySecure error');
+        return { success: false, error: 'Error obteniendo historial de remesas' };
+    }
+}
+
+// =====================================================
 // EXPORTS
 // =====================================================
 

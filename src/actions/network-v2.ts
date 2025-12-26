@@ -545,3 +545,75 @@ export async function deactivateLocationSecure(
         client.release();
     }
 }
+
+// ============================================================================
+// UPDATE LOCATION CONFIG
+// ============================================================================
+
+/**
+ * ⚙️ Actualizar Configuración de Ubicación (ADMIN)
+ * Permite actualizar solo la config JSON de la ubicación
+ */
+export async function updateLocationConfigSecure(
+    locationId: string,
+    config: Record<string, any>
+): Promise<{ success: boolean; error?: string }> {
+    if (!UUIDSchema.safeParse(locationId).success) {
+        return { success: false, error: 'ID de ubicación inválido' };
+    }
+
+    const session = await getSession();
+    if (!session) {
+        return { success: false, error: 'No autenticado' };
+    }
+
+    const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL', 'MANAGER'];
+    if (!ADMIN_ROLES.includes(session.role)) {
+        return { success: false, error: 'Requiere permisos de administrador' };
+    }
+
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        // Verificar existencia
+        const locRes = await client.query(
+            'SELECT id, config FROM locations WHERE id = $1 FOR UPDATE NOWAIT',
+            [locationId]
+        );
+
+        if (locRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'Ubicación no encontrada' };
+        }
+
+        const oldConfig = locRes.rows[0].config;
+
+        // Actualizar config
+        await client.query(`
+            UPDATE locations 
+            SET config = $2, updated_at = NOW()
+            WHERE id = $1
+        `, [locationId, JSON.stringify(config)]);
+
+        // Auditar
+        await client.query(`
+            INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, new_values, created_at)
+            VALUES ($1, 'LOCATION_CONFIG_UPDATED', 'LOCATION', $2, $3::jsonb, $4::jsonb, NOW())
+        `, [session.userId, locationId, JSON.stringify({ config: oldConfig }), JSON.stringify({ config })]);
+
+        await client.query('COMMIT');
+
+        logger.info({ locationId }, '⚙️ [Network] Location config updated');
+        revalidatePath('/settings');
+        return { success: true };
+
+    } catch (error: any) {
+        await client.query('ROLLBACK');
+        logger.error({ error }, '[Network] Update config error');
+        return { success: false, error: 'Error actualizando configuración' };
+    } finally {
+        client.release();
+    }
+}
