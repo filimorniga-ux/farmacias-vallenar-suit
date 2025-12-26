@@ -501,3 +501,257 @@ export async function getPayrollPreviewSecure(
         client.release();
     }
 }
+
+// ============================================================================
+// FINANCIAL SUMMARY
+// ============================================================================
+
+/**
+ * Financial Summary Interface
+ */
+export interface FinancialSummary {
+    total_sales: number;
+    total_payroll: number;
+    total_social_security: number;
+    total_operational_expenses: number;
+    net_income: number;
+}
+
+/**
+ * Stock Movement Detail Interface
+ */
+export interface StockMovementDetail {
+    id: string;
+    timestamp: Date;
+    type: string;
+    product: string;
+    quantity: number;
+    user: string;
+    reason: string;
+    location_context?: string;
+}
+
+/**
+ * 📊 Resumen Financiero Detallado (MANAGER+)
+ */
+export async function getDetailedFinancialSummarySecure(
+    startDate: string,
+    endDate: string
+): Promise<{ success: boolean; data?: FinancialSummary; error?: string }> {
+    const session = await getSession();
+    if (!session) {
+        return { success: false, error: 'No autenticado' };
+    }
+
+    if (!MANAGER_ROLES.includes(session.role)) {
+        return { success: false, error: 'Acceso denegado. Requiere permisos de manager.' };
+    }
+
+    try {
+        const endDateObj = endDate ? new Date(endDate) : new Date();
+        endDateObj.setHours(23, 59, 59, 999);
+        const startDateObj = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+        const params = [startDateObj.toISOString(), endDateObj.toISOString()];
+
+        // 1. Sales
+        const salesRes = await query(`
+            SELECT SUM(total_amount) as total 
+            FROM sales 
+            WHERE timestamp >= $1::timestamp AND timestamp <= $2::timestamp
+        `, params);
+        const totalSales = Number(salesRes.rows[0]?.total) || 0;
+
+        // 2. Expenses (Categorized by LIKE on reason)
+        const expensesRes = await query(`
+            SELECT reason, amount 
+            FROM cash_movements 
+            WHERE timestamp >= $1::timestamp AND timestamp <= $2::timestamp 
+            AND type = 'OUT'
+        `, params);
+
+        let payroll = 0;
+        let socialSecurity = 0;
+        let operational = 0;
+
+        expensesRes.rows.forEach((row: any) => {
+            const r = (row.reason || '').toUpperCase();
+            const amt = Number(row.amount) || 0;
+
+            if (r.includes('PAYROLL') || r.includes('NOMINA') || r.includes('SUELDO')) {
+                payroll += amt;
+            } else if (r.includes('SOCIAL_SECURITY') || r.includes('LEYES SOCIALES') || r.includes('PREVISION')) {
+                socialSecurity += amt;
+            } else {
+                operational += amt;
+            }
+        });
+
+        const data: FinancialSummary = {
+            total_sales: totalSales,
+            total_payroll: payroll,
+            total_social_security: socialSecurity,
+            total_operational_expenses: operational,
+            net_income: totalSales - (payroll + socialSecurity + operational)
+        };
+
+        // Auditar acceso
+        await auditReportAccess(session.userId, 'FINANCIAL_SUMMARY', { startDate, endDate });
+
+        logger.info({ userId: session.userId }, '📊 [Reports] Financial summary accessed');
+        return { success: true, data };
+
+    } catch (error: any) {
+        logger.error({ error }, '[Reports] Financial summary error');
+        return { success: false, error: 'Error obteniendo resumen financiero' };
+    }
+}
+
+// ============================================================================
+// LOGISTICS KPIs
+// ============================================================================
+
+/**
+ * 📦 KPIs Logísticos (MANAGER+)
+ */
+export async function getLogisticsKPIsSecure(
+    startDate: string,
+    endDate: string,
+    warehouseId?: string
+): Promise<{ success: boolean; data?: LogisticsKPIs; error?: string }> {
+    const session = await getSession();
+    if (!session) {
+        return { success: false, error: 'No autenticado' };
+    }
+
+    if (!MANAGER_ROLES.includes(session.role)) {
+        return { success: false, error: 'Acceso denegado. Requiere permisos de manager.' };
+    }
+
+    try {
+        const endDateObj = endDate ? new Date(endDate) : new Date();
+        endDateObj.setHours(23, 59, 59, 999);
+        const startDateObj = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+        const params: any[] = [startDateObj.toISOString(), endDateObj.toISOString()];
+        let locFilter = "";
+
+        if (warehouseId) {
+            locFilter = "AND location_id::text = $3";
+            params.push(warehouseId);
+        }
+
+        const sql = `
+            SELECT 
+                COUNT(*) FILTER (WHERE movement_type IN ('PURCHASE_RECEIPT', 'TRANSFER_IN', 'RETURN')) as total_in,
+                COUNT(*) FILTER (WHERE movement_type IN ('TRANSFER_OUT', 'DISPATCH', 'ADJUSTMENT_NEG')) as total_out,
+                MAX(timestamp) as last_movement
+            FROM stock_movements
+            WHERE timestamp >= $1::timestamp AND timestamp <= $2::timestamp
+            ${locFilter}
+        `;
+
+        const res = await query(sql, params);
+        const row = res.rows[0];
+
+        const data: LogisticsKPIs = {
+            total_in: Number(row?.total_in) || 0,
+            total_out: Number(row?.total_out) || 0,
+            last_movement: row?.last_movement ? new Date(row.last_movement).toLocaleString('es-CL') : 'Sin movimiento'
+        };
+
+        // Auditar acceso
+        await auditReportAccess(session.userId, 'LOGISTICS_KPIS', { startDate, endDate, warehouseId });
+
+        logger.info({ userId: session.userId }, '📦 [Reports] Logistics KPIs accessed');
+        return { success: true, data };
+
+    } catch (error: any) {
+        logger.error({ error }, '[Reports] Logistics KPIs error');
+        return { success: false, error: 'Error obteniendo KPIs logísticos' };
+    }
+}
+
+// ============================================================================
+// STOCK MOVEMENTS DETAIL
+// ============================================================================
+
+/**
+ * 🕵️ Detalle de Movimientos de Stock (MANAGER+)
+ */
+export async function getStockMovementsDetailSecure(
+    type: 'IN' | 'OUT' | 'ALL',
+    startDate: string,
+    endDate: string,
+    warehouseId?: string
+): Promise<{ success: boolean; data?: StockMovementDetail[]; error?: string }> {
+    const session = await getSession();
+    if (!session) {
+        return { success: false, error: 'No autenticado' };
+    }
+
+    if (!MANAGER_ROLES.includes(session.role)) {
+        return { success: false, error: 'Acceso denegado. Requiere permisos de manager.' };
+    }
+
+    try {
+        const endDateObj = endDate ? new Date(endDate) : new Date();
+        endDateObj.setHours(23, 59, 59, 999);
+        const startDateObj = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+        const params: any[] = [startDateObj.toISOString(), endDateObj.toISOString()];
+        let queryStr = `
+            SELECT 
+                sm.id,
+                sm.timestamp,
+                sm.movement_type,
+                sm.quantity,
+                sm.product_name,
+                sm.sku,
+                u.name as user_name,
+                sm.notes as reason
+            FROM stock_movements sm
+            LEFT JOIN users u ON sm.user_id::text = u.id::text
+            WHERE sm.timestamp >= $1::timestamp AND sm.timestamp <= $2::timestamp
+        `;
+
+        // Filter by Type
+        if (type === 'IN') {
+            queryStr += ` AND sm.movement_type IN ('PURCHASE_RECEIPT', 'TRANSFER_IN', 'RETURN', 'ADJUSTMENT_POS')`;
+        } else if (type === 'OUT') {
+            queryStr += ` AND sm.movement_type IN ('TRANSFER_OUT', 'DISPATCH', 'ADJUSTMENT_NEG', 'LOSS', 'SALE')`;
+        }
+
+        // Filter by Warehouse
+        if (warehouseId) {
+            queryStr += ` AND sm.location_id::text = $3`;
+            params.push(warehouseId);
+        }
+
+        queryStr += ` ORDER BY sm.timestamp DESC LIMIT 100`;
+
+        const res = await query(queryStr, params);
+
+        const data: StockMovementDetail[] = res.rows.map((row: any) => ({
+            id: row.id,
+            timestamp: row.timestamp,
+            type: row.movement_type,
+            product: row.product_name || row.sku,
+            quantity: Math.abs(Number(row.quantity)),
+            user: row.user_name || 'Sistema',
+            reason: row.reason || '-',
+            location_context: row.reason
+        }));
+
+        // Auditar acceso
+        await auditReportAccess(session.userId, 'STOCK_MOVEMENTS', { type, startDate, endDate, warehouseId });
+
+        logger.info({ userId: session.userId, count: data.length }, '🕵️ [Reports] Stock movements accessed');
+        return { success: true, data };
+
+    } catch (error: any) {
+        logger.error({ error }, '[Reports] Stock movements error');
+        return { success: false, error: 'Error obteniendo movimientos de stock' };
+    }
+}
+

@@ -17,7 +17,7 @@ import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { toast } from 'sonner';
 import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
-import { scanProduct } from '../../actions/scan';
+import { scanProductSecure } from '../../actions/scan-v2';
 import { InventoryBatch } from '../../domain/types';
 
 export interface UseProductSearchOptions {
@@ -58,10 +58,10 @@ export function useProductSearch(options: UseProductSearchOptions = {}) {
 
     // Find best batch for a code (FEFO)
     const findBestBatch = useCallback((code: string): InventoryBatch | undefined => {
-        const matches = inventory.filter(p => 
+        const matches = inventory.filter(p =>
             p.sku === code || p.id === code || p.barcode === code
         );
-        
+
         if (matches.length === 0) return undefined;
 
         // Filter available stock, fall back to all if none available
@@ -89,7 +89,7 @@ export function useProductSearch(options: UseProductSearchOptions = {}) {
         if (navigator.vibrate) navigator.vibrate(200);
 
         // Server-side scan for indexed lookup
-        const result = await scanProduct(decodedText, currentLocation?.id || '');
+        const result = await scanProductSecure(decodedText, currentLocation?.id || '');
 
         if (result.success && result.data) {
             // Find full object in local memory
@@ -134,7 +134,7 @@ export function useProductSearch(options: UseProductSearchOptions = {}) {
     const selectProduct = useCallback((index?: number) => {
         const targetIndex = index ?? selectedIndex;
         const product = filteredInventory[targetIndex];
-        
+
         if (product) {
             addToCart(product, 1);
             setSearchTerm('');
@@ -164,12 +164,12 @@ export function useProductSearch(options: UseProductSearchOptions = {}) {
             }
         } else if (e.key === 'ArrowDown') {
             e.preventDefault();
-            setSelectedIndex(prev => 
+            setSelectedIndex(prev =>
                 (prev + 1) % Math.max(1, filteredInventory.length)
             );
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
-            setSelectedIndex(prev => 
+            setSelectedIndex(prev =>
                 (prev - 1 + filteredInventory.length) % Math.max(1, filteredInventory.length)
             );
         } else if (e.key === 'Escape') {
@@ -215,7 +215,7 @@ export function useProductSearch(options: UseProductSearchOptions = {}) {
 function playBeep() {
     try {
         const audio = new Audio('/beep.mp3');
-        audio.play().catch(() => {});
+        audio.play().catch(() => { });
     } catch {
         // Ignore audio errors
     }
