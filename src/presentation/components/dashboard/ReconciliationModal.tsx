@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { DollarSign, AlertTriangle, CheckCircle, FileText, Calculator } from 'lucide-react';
 import { toast } from 'sonner';
-import { reconcileSession } from '@/actions/reconciliation';
+import { performReconciliationSecure } from '@/actions/reconciliation-v2';
 
 interface Props {
     isOpen: boolean;
@@ -29,25 +29,28 @@ export const ReconciliationModal: React.FC<Props> = ({ isOpen, onClose, incident
             return;
         }
 
+        // V2: Requiere PIN de manager
+        const managerPin = prompt('Ingrese su PIN de gerente para autorizar la conciliación:');
+        if (!managerPin) return;
+
         setIsSubmitting(true);
-        const result = await reconcileSession({
+        const result = await performReconciliationSecure({
             sessionId: incident.id,
             realClosingAmount: parseInt(realAmount),
             managerNotes: notes,
-            managerId: managerId
+            managerPin: managerPin
         });
 
         setIsSubmitting(false);
 
-        if (result.success) {
-            const diff = result.difference || 0;
+        if (result.success && result.data) {
+            const diff = result.data.difference || 0;
             const status = diff === 0 ? 'perfecto' : (diff > 0 ? `sobrante de $${diff}` : `faltante de $${diff}`);
             toast.success(`Conciliación exitosa. Resultado: ${status}`);
             onClose();
-            // Aquí podríamos disparar una recarga del dashboard
             window.location.reload();
         } else {
-            toast.error(result.error);
+            toast.error(result.error || 'Error en la conciliación');
         }
     };
 
