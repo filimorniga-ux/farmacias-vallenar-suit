@@ -17,7 +17,7 @@ import { headers } from 'next/headers';
 import { checkRateLimit } from '@/lib/rate-limiter';
 import { unstable_cache } from 'next/cache';
 
-interface PublicLocation {
+export interface PublicLocation {
     id: string;
     name: string;
     address: string;

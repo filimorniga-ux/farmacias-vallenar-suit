@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Store, MapPin, ArrowRight, Loader2, Warehouse } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { getPublicLocations, PublicLocation } from '../../actions/public-network';
+import { getPublicLocationsSecure, PublicLocation } from '../../actions/public-network-v2';
 
 const ContextSelectionPage: React.FC = () => {
     const navigate = useNavigate();
@@ -14,7 +14,7 @@ const ContextSelectionPage: React.FC = () => {
     useEffect(() => {
         const load = async () => {
             setIsLoading(true);
-            const res = await getPublicLocations();
+            const res = await getPublicLocationsSecure();
             if (res.success && res.data) {
                 setPublicLocations(res.data);
             }
