@@ -129,11 +129,11 @@ async function insertAuditLog(
  * }
  */
 export async function openTerminalAtomic(
-    terminalId: string, 
-    userId: string, 
+    terminalId: string,
+    userId: string,
     initialCash: number
 ): Promise<{ success: boolean; sessionId?: string; error?: string }> {
-    
+
     // 1. Validación rápida (fail-fast)
     const validation = OpenTerminalSchema.safeParse({ terminalId, userId, initialCash });
     if (!validation.success) {
@@ -240,7 +240,7 @@ export async function openTerminalAtomic(
             actionCode: 'SESSION_OPEN',
             entityType: 'SESSION',
             entityId: newSessionId,
-            newValues: { 
+            newValues: {
                 opening_amount: initialCash,
                 terminal_name: terminal.name
             }
@@ -301,17 +301,17 @@ export async function openTerminalAtomic(
  * @returns Resultado con sessionId y authorizedById o error
  */
 export async function openTerminalWithPinValidation(
-    terminalId: string, 
-    userId: string, 
+    terminalId: string,
+    userId: string,
     initialCash: number,
     supervisorPin: string
-): Promise<{ 
-    success: boolean; 
-    sessionId?: string; 
+): Promise<{
+    success: boolean;
+    sessionId?: string;
     authorizedById?: string;
-    error?: string 
+    error?: string
 }> {
-    
+
     // 1. Validación de inputs
     const validation = OpenTerminalSchema.safeParse({ terminalId, userId, initialCash });
     if (!validation.success) {
@@ -378,8 +378,8 @@ export async function openTerminalWithPinValidation(
         if (existingSession.rows.length > 0) {
             await client.query('COMMIT');
             logger.info({ sessionId: existingSession.rows[0].id }, '✅ Session already exists. Returning existing ID.');
-            return { 
-                success: true, 
+            return {
+                success: true,
                 sessionId: existingSession.rows[0].id,
                 authorizedById: authorizedBy.id
             };
@@ -458,7 +458,7 @@ export async function openTerminalWithPinValidation(
             actionCode: 'SESSION_OPEN_AUTHORIZED',
             entityType: 'SESSION',
             entityId: newSessionId,
-            newValues: { 
+            newValues: {
                 opening_amount: initialCash,
                 terminal_name: terminal.name,
                 authorized_by: authorizedBy.name
@@ -472,8 +472,8 @@ export async function openTerminalWithPinValidation(
         revalidatePath('/pos');
         revalidatePath('/caja');
 
-        return { 
-            success: true, 
+        return {
+            success: true,
             sessionId: newSessionId,
             authorizedById: authorizedBy.id
         };
@@ -522,8 +522,8 @@ export async function closeTerminalAtomic(
 ): Promise<{ success: boolean; error?: string }> {
 
     // Validación
-    const validation = CloseTerminalSchema.safeParse({ 
-        terminalId, userId, finalCash, comments, withdrawalAmount 
+    const validation = CloseTerminalSchema.safeParse({
+        terminalId, userId, finalCash, comments, withdrawalAmount
     });
     if (!validation.success) {
         logger.warn({ error: validation.error.format() }, 'Invalid input for closeTerminalAtomic');
@@ -593,12 +593,12 @@ export async function closeTerminalAtomic(
                 'CIERRE', $6, $7, NOW()
             )
         `, [
-            moveId, 
-            terminal.location_id, 
-            terminalId, 
-            sessionId, 
-            userId, 
-            finalCash, 
+            moveId,
+            terminal.location_id,
+            terminalId,
+            sessionId,
+            userId,
+            finalCash,
             `Cierre de Caja: ${comments}`
         ]);
 
@@ -635,11 +635,11 @@ export async function closeTerminalAtomic(
             actionCode: 'SESSION_CLOSE',
             entityType: 'SESSION',
             entityId: sessionId || terminalId,
-            oldValues: { 
+            oldValues: {
                 status: 'OPEN',
                 opening_amount: openingAmount
             },
-            newValues: { 
+            newValues: {
                 status: 'CLOSED',
                 closing_amount: finalCash,
                 withdrawal_amount: withdrawalAmount,
@@ -745,7 +745,7 @@ export async function forceCloseTerminalAtomic(
                 WHERE id = $1
             `, [oldSession.id, `[CIERRE FORZADO] ${justification}`]);
 
-            logger.info({ sessionId: oldSession.id, originalUser: oldSession.user_name }, 
+            logger.info({ sessionId: oldSession.id, originalUser: oldSession.user_name },
                 '⚠️ [Atomic v2.1] Session force-closed');
         }
 
@@ -774,7 +774,7 @@ export async function forceCloseTerminalAtomic(
                 opened_at: oldSession.opened_at,
                 opening_amount: oldSession.opening_amount
             } : undefined,
-            newValues: { 
+            newValues: {
                 status: 'CLOSED_FORCE',
                 terminal_name: terminal.name
             },
@@ -839,6 +839,69 @@ export async function getTerminalStatusAtomic(terminalId: string) {
     } catch (error: any) {
         logger.error({ err: error, terminalId }, 'Error getting terminal status');
         return { success: false, error: error.message };
+    }
+}
+
+// =====================================================
+// FUNCIÓN: LISTAR TERMINALES POR UBICACIÓN (SEGURA)
+// =====================================================
+
+/**
+ * Obtiene lista de terminales por ubicación con RBAC.
+ * 
+ * @param locationId - UUID de la ubicación (opcional, si no se pasa retorna todos)
+ * @returns Lista de terminales
+ */
+export async function getTerminalsByLocationSecure(locationId?: string): Promise<{
+    success: boolean;
+    data?: any[];
+    error?: string;
+}> {
+    try {
+        // Importar headers para sesión
+        const { headers } = await import('next/headers');
+        const headersList = await headers();
+        const userRole = headersList.get('x-user-role');
+        const userId = headersList.get('x-user-id');
+
+        if (!userId) {
+            return { success: false, error: 'No autenticado' };
+        }
+
+        // RBAC: MANAGER_ROLES pueden ver terminales
+        const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'];
+        if (!MANAGER_ROLES.includes(userRole || '')) {
+            return { success: false, error: 'Acceso denegado: requiere rol de gerente' };
+        }
+
+        let sql = `
+            SELECT 
+                t.id, t.name, t.location_id, t.status, t.type,
+                t.current_session_id, t.cash_balance, t.printer_config,
+                l.name as location_name,
+                u.name as current_user_name
+            FROM terminals t
+            LEFT JOIN locations l ON t.location_id = l.id
+            LEFT JOIN terminal_sessions ts ON t.current_session_id = ts.id
+            LEFT JOIN users u ON ts.user_id = u.id
+            WHERE t.status != 'DELETED'
+        `;
+        const params: any[] = [];
+
+        if (locationId) {
+            sql += ` AND t.location_id = $1`;
+            params.push(locationId);
+        }
+
+        sql += ` ORDER BY l.name, t.name`;
+
+        const result = await query(sql, params);
+
+        return { success: true, data: result.rows };
+
+    } catch (error: any) {
+        logger.error({ error, locationId }, '[TerminalsV2] getTerminalsByLocationSecure error');
+        return { success: false, error: error.message || 'Error obteniendo terminales' };
     }
 }
 
