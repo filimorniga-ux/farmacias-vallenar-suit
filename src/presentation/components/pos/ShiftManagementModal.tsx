@@ -4,8 +4,7 @@ import { X, User, DollarSign, Monitor, Lock, MapPin, LockKeyhole, ArrowRight, Ro
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 // V2: Funciones atómicas seguras
-import { openTerminalAtomic, openTerminalWithPinValidation, forceCloseTerminalAtomic, getTerminalStatusAtomic } from '../../../actions/terminals-v2';
-import { getAvailableTerminalsForShift } from '../../../actions/terminals';
+import { openTerminalAtomic, openTerminalWithPinValidation, forceCloseTerminalAtomic, getTerminalStatusAtomic, getTerminalsByLocationSecure } from '../../../actions/terminals-v2';
 import { useTerminalSession } from '../../../hooks/useTerminalSession';
 import { Terminal } from '@/domain/types';
 
@@ -58,10 +57,12 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
 
     useEffect(() => {
         if (selectedLocation) {
-            // 1. Fetch truly available terminals from server (Active, Not Deleted, No Open Session) for Validation
-            getAvailableTerminalsForShift(selectedLocation).then(res => {
+            // V2: getTerminalsByLocationSecure para obtener terminales disponibles
+            getTerminalsByLocationSecure(selectedLocation).then((res) => {
                 if (res.success && res.data) {
-                    setOpenableTerminals(res.data as Terminal[]);
+                    // Filtrar solo terminales disponibles (no en uso)
+                    const available = res.data.filter((t: any) => t.status !== 'OPEN');
+                    setOpenableTerminals(available as Terminal[]);
                 } else {
                     setOpenableTerminals([]);
                     toast.error('Error cargando estado de terminales');
@@ -123,8 +124,11 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                     toast.success('✅ Sistema optimizado: Sesiones fantasmas cerradas.');
                     // Refresh data
                     fetchTerminals(selectedLocation);
-                    getAvailableTerminalsForShift(selectedLocation).then(res => {
-                        if (res.success && res.data) setOpenableTerminals(res.data as Terminal[]);
+                    getTerminalsByLocationSecure(selectedLocation).then((res) => {
+                        if (res.success && res.data) {
+                            const available = res.data.filter((t: any) => t.status !== 'OPEN');
+                            setOpenableTerminals(available as Terminal[]);
+                        }
                     });
                 }
             }
@@ -145,10 +149,11 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
             const res = await forceCloseTerminalAtomic(selectedTerminal, currentUserId, 'Cierre forzado por usuario');
             if (res.success) {
                 toast.success('Terminal liberada exitosamente');
-                // Refresh list
-                const refreshed = await getAvailableTerminalsForShift(selectedLocation);
+                // Refresh list - V2
+                const refreshed = await getTerminalsByLocationSecure(selectedLocation);
                 if (refreshed.success && refreshed.data) {
-                    setOpenableTerminals(refreshed.data as Terminal[]);
+                    const available = refreshed.data.filter((t: any) => t.status !== 'OPEN');
+                    setOpenableTerminals(available as Terminal[]);
                 }
                 // Also refresh main lists
                 fetchTerminals(selectedLocation);

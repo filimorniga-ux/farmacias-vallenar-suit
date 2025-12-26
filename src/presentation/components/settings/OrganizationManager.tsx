@@ -3,10 +3,9 @@
 import React, { useState, useEffect } from 'react';
 import { Location, Terminal, EmployeeProfile } from '@/domain/types';
 import { MapPin, Warehouse, Monitor, Users, Plus, X, ChevronRight, Printer, UserPlus, CheckCircle, User, Clock, FileText, Edit2, Trash2 } from 'lucide-react';
-import { createLocationSecure, createTerminalSecure, assignEmployeeSecure, getOrganizationStructureSecure } from '@/actions/network-v2';
-import { getTerminalsByLocation } from '@/actions/terminals';
+import { createLocationSecure, createTerminalSecure, assignEmployeeSecure, getOrganizationStructureSecure, updateLocationConfigSecure } from '@/actions/network-v2';
+import { getTerminalsByLocationSecure } from '@/actions/terminals-v2';
 import { getUsersSecure } from '@/actions/users-v2';
-import { updateLocationConfig } from '@/actions/network';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import LocationEditModal from './LocationEditModal';
@@ -217,7 +216,7 @@ function LocationDetailDrawer({ location, allLocations, onClose }: { location: L
             setLoading(true);
             try {
                 if (activeTab === 'TERMINALS') {
-                    const res = await getTerminalsByLocation(location.id);
+                    const res = await getTerminalsByLocationSecure(location.id);
                     if (res.success && res.data) setTerminals(res.data);
                 }
                 if (activeTab === 'STAFF') {
@@ -232,14 +231,13 @@ function LocationDetailDrawer({ location, allLocations, onClose }: { location: L
     }, [location.id, activeTab]);
 
     const handleUpdateConfig = async (warehouseId: string) => {
-        toast.promise(updateLocationConfig(location.id, warehouseId), {
-            loading: 'Actualizando configuración...',
-            success: () => {
-                window.location.reload();
-                return 'Bodega asignada correctamente';
-            },
-            error: 'Error al actualizar'
-        });
+        const result = await updateLocationConfigSecure(location.id, { default_warehouse_id: warehouseId });
+        if (result.success) {
+            toast.success('Bodega asignada correctamente');
+            window.location.reload();
+        } else {
+            toast.error(result.error || 'Error al actualizar');
+        }
     };
 
     return (
