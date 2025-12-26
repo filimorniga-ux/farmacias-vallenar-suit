@@ -6,7 +6,8 @@ import { CashMovementReason } from '../../../domain/types';
 import { SupervisorOverrideModal } from '../security/SupervisorOverrideModal';
 import { toast } from 'sonner';
 import { generateCashReportSecure } from '../../../actions/cash-export-v2';
-import { getShiftMetrics as getServerShiftMetrics, ShiftMetricsDetailed } from '../../../actions/cash-management';
+// V2: Métricas seguras
+import { getShiftMetricsSecure, ShiftMetricsDetailed } from '../../../actions/cash-management-v2';
 import { TransactionListModal } from './TransactionListModal';
 // Treasury V2 - Operaciones seguras con bcrypt PIN, RBAC, y auditoría
 import { createCashMovementSecure } from '../../../actions/treasury-v2';
@@ -87,10 +88,11 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
             }
 
             setIsLoadingMetrics(true);
-            getServerShiftMetrics(currentShift.terminal_id).then(res => {
+            // V2: getShiftMetricsSecure
+            getShiftMetricsSecure(currentShift.terminal_id).then((res) => {
                 if (res.success && res.data) {
                     console.log('📊 [CashManagement] Server Metrics loaded:', res.data);
-                    setServerMetrics(res.data);
+                    setServerMetrics(res.data as any); // Cast para compatibilidad con campos legacy
                 } else {
                     toast.error('Error sincronizando métricas de servidor');
                 }
@@ -537,9 +539,10 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                                         </div>
                                                         {expandedSection === 'MANUAL_IN' && (
                                                             <div className="pl-2 text-xs text-slate-400 border-l border-emerald-200">
-                                                                {serverMetrics?.manual_movements.details.filter((m: any) => m.type === 'IN').map((m: any) => (
-                                                                    <div key={m.id} className="flex justify-between">
-                                                                        <span>{m.description}</span>
+                                                                {/* V2: Usar adjustments en vez de manual_movements */}
+                                                                {(serverMetrics as any)?.adjustments?.filter((m: any) => m.type === 'EXTRA_INCOME').map((m: any, idx: number) => (
+                                                                    <div key={idx} className="flex justify-between">
+                                                                        <span>{m.type}</span>
                                                                         <span>${m.amount}</span>
                                                                     </div>
                                                                 ))}
@@ -556,9 +559,10 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                                         </div>
                                                         {expandedSection === 'MANUAL_OUT' && (
                                                             <div className="pl-2 text-xs text-slate-400 border-l border-red-200">
-                                                                {serverMetrics?.manual_movements.details.filter((m: any) => m.type === 'OUT').map((m: any) => (
-                                                                    <div key={m.id} className="flex justify-between">
-                                                                        <span>{m.description}</span>
+                                                                {/* V2: Usar adjustments en vez de manual_movements */}
+                                                                {(serverMetrics as any)?.adjustments?.filter((m: any) => ['WITHDRAWAL', 'EXPENSE'].includes(m.type)).map((m: any, idx: number) => (
+                                                                    <div key={idx} className="flex justify-between">
+                                                                        <span>{m.type}</span>
                                                                         <span>${m.amount}</span>
                                                                     </div>
                                                                 ))}

@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { Location, EmployeeProfile } from '@/domain/types';
-import { updateLocationDetails } from '@/actions/network';
-import { deactivateLocationSecure } from '@/actions/locations-v2';
+// V2: Funciones seguras
+import { updateLocationSecure, deactivateLocationSecure } from '@/actions/locations-v2';
 import { getUsersSecure } from '@/actions/users-v2';
 import { X, Save, Trash2, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
@@ -44,7 +44,13 @@ export default function LocationEditModal({ location, onClose, onUpdate }: Locat
         e.preventDefault();
         setIsLoading(true);
         try {
-            const res = await updateLocationDetails(location.id, form);
+            // V2: updateLocationSecure usa locationId + campos opcionales
+            const res = await updateLocationSecure({
+                locationId: location.id,
+                name: form.name,
+                address: form.address,
+                config: { phone: form.phone, email: form.email, manager_id: form.manager_id }
+            });
             if (res.success) {
                 toast.success('Sucursal actualizada correctamente');
                 onUpdate();
