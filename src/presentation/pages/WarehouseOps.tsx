@@ -5,8 +5,7 @@ import { useLocationStore } from '../store/useLocationStore';
 import { Shipment, PurchaseOrder } from '../../domain/types';
 // V2: Funciones seguras
 import { getRecentMovementsSecure } from '../../actions/inventory-v2';
-import { exportStockMovementsSecure } from '../../actions/inventory-export-v2';
-import { exportPurchaseOrders } from '../../actions/inventory-export'; // No hay V2 aún
+import { exportStockMovementsSecure, exportPurchaseOrdersSecure } from '../../actions/inventory-export-v2';
 import UnifiedReception from '../components/warehouse/UnifiedReception';
 import DocumentViewerModal from '../components/warehouse/DocumentViewerModal';
 import ScanReceptionModal from '../components/warehouse/ScanReceptionModal';
@@ -259,15 +258,14 @@ export const WarehouseOps = () => {
 
             let result;
             if (activeTab === 'SUPPLIER_ORDERS') {
-                // Legacy: exportPurchaseOrders
-                const legacyParams = {
+                // V2: exportPurchaseOrdersSecure
+                const v2Params = {
                     startDate,
                     endDate,
                     locationId: currentLocationId,
-                    locationName: currentLocation?.name || 'Bodega Actual',
-                    creatorName: user?.name
+                    limit: 5000
                 };
-                result = await exportPurchaseOrders(legacyParams);
+                result = await exportPurchaseOrdersSecure(v2Params);
             } else {
                 // V2: exportStockMovementsSecure
                 const v2Params = {
