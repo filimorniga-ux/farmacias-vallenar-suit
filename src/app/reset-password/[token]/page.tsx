@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react'; // Removed useEffect since we don't validate on load strictly, action handles it.
-import { resetPassword } from '@/actions/auth-recovery';
+import { resetPasswordSecure } from '@/actions/auth-recovery-v2';
 import { toast } from 'sonner';
 import { ArrowLeft, Lock, Loader2, CheckCircle } from 'lucide-react';
 import Link from 'next/link';
@@ -33,7 +33,7 @@ export default function ResetPasswordPage() {
         setIsLoading(true);
 
         try {
-            const res = await resetPassword(token, password);
+            const res = await resetPasswordSecure(token, password);
             if (res.success) {
                 setIsSuccess(true);
                 toast.success(res.message);

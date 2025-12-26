@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { forgotPassword } from '@/actions/auth-recovery';
+import { forgotPasswordSecure } from '@/actions/auth-recovery-v2';
 import { toast } from 'sonner';
 import { ArrowLeft, Mail, Loader2, KeyRound } from 'lucide-react';
 import Link from 'next/link';
@@ -16,7 +16,7 @@ export default function ForgotPasswordPage() {
         setIsLoading(true);
 
         try {
-            const res = await forgotPassword(email);
+            const res = await forgotPasswordSecure(email);
             if (res.success) {
                 setIsSent(true);
                 toast.success(res.message);

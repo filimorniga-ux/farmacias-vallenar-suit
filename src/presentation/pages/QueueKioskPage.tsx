@@ -4,9 +4,9 @@ import { Ticket, User, ArrowRight, Settings, Printer, UserPlus, X } from 'lucide
 import { motion, AnimatePresence } from 'framer-motion';
 import { PrinterService } from '../../domain/services/PrinterService';
 import { toast } from 'sonner';
-import { exportQueueReport } from '../../actions/queue-export';
-import { getLocations } from '../../actions/get-locations';
-import { createTicket } from '../../actions/queue';
+import { exportQueueReportSecure } from '../../actions/queue-export-v2';
+import { getLocationsSecure } from '../../actions/get-locations-v2';
+import { createTicketSecure } from '../../actions/queue-v2';
 
 const QueueKioskPage: React.FC = () => {
     const { printerConfig } = usePharmaStore();
@@ -39,14 +39,14 @@ const QueueKioskPage: React.FC = () => {
         if (storedBranch && storedBranch.length > 30) {
             setBranchId(storedBranch);
             setStep('WELCOME');
-            // Fetch name for printing
-            getLocations().then(res => {
+            // Fetch name for printing (V2)
+            getLocationsSecure().then((res: any) => {
                 if (res.success) setLocations(res.locations || []);
             });
         } else {
             localStorage.removeItem('kiosk_branch_id'); // Clear invalid legacy
             setStep('SETUP');
-            getLocations().then(res => {
+            getLocationsSecure().then((res: any) => {
                 if (res.success) {
                     setLocations(res.locations || []);
                 }
@@ -156,7 +156,13 @@ const QueueKioskPage: React.FC = () => {
 
     const generateFinalTicket = async (finalRut: string, finalName?: string) => {
         try {
-            const res = await createTicket(branchId, finalRut, ticketType, finalName);
+            // V2: Usa createTicketSecure con nuevo formato
+            const res = await createTicketSecure({
+                branchId: branchId,
+                rut: finalRut,
+                type: ticketType,
+                name: finalName
+            });
 
             if (res.success && res.ticket) {
                 setTicket(res.ticket);
