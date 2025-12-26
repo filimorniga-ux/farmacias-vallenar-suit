@@ -446,3 +446,121 @@ export async function exportPurchaseOrdersSecure(
         return { success: false, error: 'Error exportando pedidos' };
     }
 }
+
+// ============================================================================
+// EXPORT INVENTORY REPORT (SNAPSHOT)
+// ============================================================================
+
+const InventoryReportSchema = z.object({
+    locationId: UUIDSchema.optional(),
+    warehouseId: UUIDSchema.optional(),
+    type: z.enum(['kardex', 'seed']).default('seed'),
+});
+
+/**
+ * 📊 Exportar Snapshot de Inventario (MANAGER+)
+ * Genera un reporte Excel con el inventario actual por sucursal/bodega
+ */
+export async function exportInventoryReportSecure(
+    params: z.infer<typeof InventoryReportSchema>
+): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
+    const session = await getSession();
+    if (!session) {
+        return { success: false, error: 'No autenticado' };
+    }
+
+    if (!MANAGER_ROLES.includes(session.role)) {
+        return { success: false, error: 'Solo managers pueden exportar inventario' };
+    }
+
+    const validated = InventoryReportSchema.safeParse(params);
+    if (!validated.success) {
+        return { success: false, error: validated.error.issues[0]?.message };
+    }
+
+    const { warehouseId, type } = validated.data;
+
+    // RBAC: Forzar ubicación para no-admin
+    let locationId = params.locationId;
+    if (!ADMIN_ROLES.includes(session.role) && session.locationId) {
+        locationId = session.locationId;
+    }
+
+    try {
+        const sqlParams: any[] = [];
+        let whereClause = 'WHERE ib.quantity_real > 0';
+
+        if (locationId && locationId !== 'ALL') {
+            whereClause += ` AND l.id = $${sqlParams.length + 1}`;
+            sqlParams.push(locationId);
+        }
+
+        if (warehouseId && warehouseId !== 'ALL') {
+            whereClause += ` AND w.id = $${sqlParams.length + 1}`;
+            sqlParams.push(warehouseId);
+        }
+
+        const sql = `
+            SELECT 
+                p.sku, p.name as product_name, p.category,
+                ib.lot_number, ib.expiry_date, ib.quantity_real as stock,
+                ib.unit_cost, ib.sale_price,
+                w.name as warehouse_name, l.name as location_name
+            FROM inventory_batches ib
+            JOIN products p ON ib.product_id::text = p.id::text
+            JOIN warehouses w ON ib.warehouse_id = w.id
+            JOIN locations l ON w.location_id = l.id
+            ${whereClause}
+            ORDER BY l.name, w.name, p.name ASC
+        `;
+
+        const res = await query(sql, sqlParams);
+
+        const data = res.rows.map((row: any) => ({
+            location: row.location_name,
+            warehouse: row.warehouse_name,
+            sku: row.sku,
+            product: row.product_name,
+            category: row.category || '-',
+            lot: row.lot_number || '-',
+            expiry: row.expiry_date ? new Date(row.expiry_date).toLocaleDateString('es-CL') : '-',
+            stock: Number(row.stock),
+            cost: Number(row.unit_cost || 0),
+            price: Number(row.sale_price || 0),
+        }));
+
+        const excel = new ExcelService();
+        const buffer = await excel.generateReport({
+            title: 'REPORTE DE INVENTARIO (MULTI-SUCURSAL)',
+            subtitle: `Generado: ${new Date().toLocaleDateString('es-CL')}`,
+            sheetName: 'Inventario',
+            creator: session.userName,
+            columns: [
+                { header: 'Sucursal', key: 'location', width: 20 },
+                { header: 'Bodega', key: 'warehouse', width: 20 },
+                { header: 'SKU', key: 'sku', width: 15 },
+                { header: 'Producto', key: 'product', width: 35 },
+                { header: 'Categoría', key: 'category', width: 15 },
+                { header: 'Lote', key: 'lot', width: 12 },
+                { header: 'Vencimiento', key: 'expiry', width: 12 },
+                { header: 'Stock', key: 'stock', width: 10 },
+                { header: 'Costo', key: 'cost', width: 12, style: { numFmt: '"$"#,##0' } },
+                { header: 'Precio Venta', key: 'price', width: 12, style: { numFmt: '"$"#,##0' } },
+            ],
+            data,
+        });
+
+        await auditExport(session.userId, 'INVENTORY_SNAPSHOT', { locationId, warehouseId, type, rows: res.rowCount });
+
+        logger.info({ userId: session.userId, rows: res.rowCount }, '📊 [Export] Inventory report exported');
+        return {
+            success: true,
+            data: buffer.toString('base64'),
+            filename: `Inventario_${new Date().toISOString().split('T')[0]}.xlsx`,
+        };
+
+    } catch (error: any) {
+        logger.error({ error }, '[Export] Inventory report error');
+        return { success: false, error: 'Error exportando inventario' };
+    }
+}

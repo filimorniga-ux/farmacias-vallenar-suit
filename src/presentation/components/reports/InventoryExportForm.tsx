@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { exportInventoryReport } from '@/actions/inventory-export'; // Legacy, sin V2 secure
 // V2: Funciones seguras
 import { getLocationsSecure, getWarehousesSecure } from '@/actions/locations-v2';
+import { exportInventoryReportSecure } from '@/actions/inventory-export-v2';
 import { usePharmaStore } from '@/presentation/store/useStore';
 
 export function InventoryExportForm() {
@@ -48,14 +48,11 @@ export function InventoryExportForm() {
     const handleExport = async () => {
         setLoading(true);
         try {
-            const result = await exportInventoryReport({
-                startDate,
-                endDate,
-                locationId: isManagerial ? selectedLocation : currentLocationId, // User choice OR forced
+            // V2: exportInventoryReportSecure
+            const result = await exportInventoryReportSecure({
+                locationId: isManagerial ? selectedLocation : currentLocationId,
                 warehouseId: selectedWarehouse || undefined,
                 type: reportType,
-                requestingUserRole: user?.role || 'CASHIER',
-                requestingUserLocationId: currentLocationId
             });
 
             if (result.success && result.data) {
