@@ -1,0 +1,373 @@
+'use server';
+
+/**
+ * ============================================================================
+ * AUDIT-DASHBOARD-V2: Dashboard de Auditoría Seguro
+ * Pharma-Synapse v3.1 - Security Hardened
+ * ============================================================================
+ * 
+ * CORRECCIONES:
+ * - Usa session headers en lugar de cookies vulnerables
+ * - Rate limit 30/min por usuario
+ * - PIN ADMIN para exports masivos (>1000)
+ * - Meta-auditoría: registra quién accede al audit log
+ * - Límite máximo de export 5000
+ */
+
+import { query } from '@/lib/db';
+import { z } from 'zod';
+import { headers } from 'next/headers';
+import { logger } from '@/lib/logger';
+import bcrypt from 'bcryptjs';
+import { checkRateLimit } from '@/lib/rate-limiter';
+
+// ============================================================================
+// SCHEMAS
+// ============================================================================
+
+const GetAuditLogsSchema = z.object({
+    page: z.number().int().min(1).default(1),
+    limit: z.number().int().min(1).max(100).default(25),
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
+    userId: z.string().optional(),
+    actionCode: z.string().optional(),
+    severity: z.enum(['ALL', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).optional(),
+    searchTerm: z.string().max(100).optional(),
+    entityType: z.string().optional(),
+});
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+const AUDIT_VIEWER_ROLES = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL'];
+const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
+
+const ACTION_SEVERITY_MAP: Record<string, 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'> = {
+    'FORCE_CLOSE': 'CRITICAL', 'INVENTORY_CLEARED': 'CRITICAL', 'PASSWORD_RESET': 'CRITICAL',
+    'ROLE_CHANGED': 'CRITICAL', 'USER_DEACTIVATED': 'CRITICAL',
+    'TREASURY_TRANSFER': 'HIGH', 'BANK_DEPOSIT': 'HIGH', 'VOID_SALE': 'HIGH',
+    'REFUND': 'HIGH', 'SHIFT_HANDOVER': 'HIGH', 'SESSION_CLOSE': 'HIGH',
+    'STOCK_ADJUSTED': 'MEDIUM', 'STOCK_TRANSFERRED': 'MEDIUM', 'SALE_CREATED': 'MEDIUM',
+    'LOGIN': 'LOW', 'LOGOUT': 'LOW', 'SESSION_START': 'LOW',
+};
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+async function getSession(): Promise<{ userId: string; role: string; userName?: string } | null> {
+    try {
+        const headersList = await headers();
+        const userId = headersList.get('x-user-id');
+        const role = headersList.get('x-user-role');
+        const userName = headersList.get('x-user-name');
+        if (!userId || !role) return null;
+        return { userId, role, userName: userName || undefined };
+    } catch { return null; }
+}
+
+function getSeverity(actionCode: string): 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' {
+    return ACTION_SEVERITY_MAP[actionCode] || 'LOW';
+}
+
+async function metaAudit(userId: string, action: string, details: any): Promise<void> {
+    try {
+        await query(`
+            INSERT INTO audit_log (user_id, action_code, entity_type, new_values, created_at)
+            VALUES ($1, $2, 'AUDIT_LOG', $3::jsonb, NOW())
+        `, [userId, action, JSON.stringify(details)]);
+    } catch { }
+}
+
+// ============================================================================
+// INTERFACES
+// ============================================================================
+
+interface AuditLogEntry {
+    id: string;
+    timestamp: string;
+    userId: string;
+    userName: string;
+    userRole: string;
+    locationId: string | null;
+    locationName: string | null;
+    actionCode: string;
+    entityType: string;
+    entityId: string;
+    oldValues: Record<string, any> | null;
+    newValues: Record<string, any> | null;
+    justification: string | null;
+    severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+    ipAddress: string | null;
+}
+
+// ============================================================================
+// GET AUDIT LOGS
+// ============================================================================
+
+/**
+ * 📊 Obtener Logs de Auditoría (con rate limit y meta-auditoría)
+ */
+export async function getAuditLogsSecure(params: z.infer<typeof GetAuditLogsSchema>): Promise<{
+    success: boolean;
+    data?: AuditLogEntry[];
+    total?: number;
+    page?: number;
+    totalPages?: number;
+    error?: string;
+}> {
+    const session = await getSession();
+    if (!session) return { success: false, error: 'No autenticado' };
+
+    if (!AUDIT_VIEWER_ROLES.includes(session.role)) {
+        return { success: false, error: 'No tiene permisos para ver auditoría' };
+    }
+
+    // Rate limit
+    const rl = checkRateLimit(`audit:${session.userId}`);
+    if (!rl.allowed) {
+        return { success: false, error: 'Demasiadas consultas. Espere un momento.' };
+    }
+
+    const validation = GetAuditLogsSchema.safeParse(params);
+    if (!validation.success) {
+        return { success: false, error: validation.error.issues[0]?.message };
+    }
+
+    const { page, limit, startDate, endDate, userId, actionCode, severity, searchTerm, entityType } = validation.data;
+
+    try {
+        let whereConditions: string[] = [];
+        let queryParams: any[] = [];
+        let paramIndex = 1;
+
+        if (startDate) { whereConditions.push(`al.created_at >= $${paramIndex}::timestamp`); queryParams.push(startDate); paramIndex++; }
+        if (endDate) { whereConditions.push(`al.created_at <= $${paramIndex}::timestamp`); queryParams.push(endDate); paramIndex++; }
+        if (userId) { whereConditions.push(`al.user_id::text = $${paramIndex}`); queryParams.push(userId); paramIndex++; }
+        if (actionCode) { whereConditions.push(`al.action_code = $${paramIndex}`); queryParams.push(actionCode); paramIndex++; }
+        if (entityType) { whereConditions.push(`al.entity_type = $${paramIndex}`); queryParams.push(entityType); paramIndex++; }
+        if (searchTerm) {
+            whereConditions.push(`(al.action_code ILIKE $${paramIndex} OR al.justification ILIKE $${paramIndex} OR u.name ILIKE $${paramIndex})`);
+            queryParams.push(`%${searchTerm}%`);
+            paramIndex++;
+        }
+        if (severity && severity !== 'ALL') {
+            const severityActions = Object.entries(ACTION_SEVERITY_MAP).filter(([_, sev]) => sev === severity).map(([action]) => action);
+            if (severityActions.length > 0) {
+                whereConditions.push(`al.action_code = ANY($${paramIndex}::text[])`);
+                queryParams.push(severityActions);
+                paramIndex++;
+            }
+        }
+
+        const whereClause = whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : '';
+
+        // Count
+        const countRes = await query(`SELECT COUNT(*) as total FROM audit_log al LEFT JOIN users u ON al.user_id::text = u.id::text ${whereClause}`, queryParams);
+        const total = Number(countRes.rows[0]?.total || 0);
+
+        // Data
+        const offset = (page - 1) * limit;
+        queryParams.push(limit, offset);
+
+        const dataSql = `
+            SELECT al.id::text, al.created_at as timestamp, al.user_id::text, COALESCE(u.name, 'Sistema') as user_name,
+                   COALESCE(u.role, 'SYSTEM') as user_role, al.location_id::text, COALESCE(l.name, '-') as location_name,
+                   al.action_code, COALESCE(al.entity_type, '-') as entity_type, COALESCE(al.entity_id, '-') as entity_id,
+                   al.old_values, al.new_values, al.justification, al.ip_address
+            FROM audit_log al
+            LEFT JOIN users u ON al.user_id::text = u.id::text
+            LEFT JOIN locations l ON al.location_id::text = l.id::text
+            ${whereClause}
+            ORDER BY al.created_at DESC
+            LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+        `;
+
+        const dataRes = await query(dataSql, queryParams);
+
+        const logs: AuditLogEntry[] = dataRes.rows.map((row: any) => ({
+            id: row.id,
+            timestamp: row.timestamp,
+            userId: row.user_id,
+            userName: row.user_name,
+            userRole: row.user_role,
+            locationId: row.location_id,
+            locationName: row.location_name,
+            actionCode: row.action_code,
+            entityType: row.entity_type,
+            entityId: row.entity_id,
+            oldValues: row.old_values,
+            newValues: row.new_values,
+            justification: row.justification,
+            severity: getSeverity(row.action_code),
+            ipAddress: row.ip_address,
+        }));
+
+        // Meta-auditoría
+        await metaAudit(session.userId, 'AUDIT_LOG_VIEW', { page, filters: params });
+
+        return { success: true, data: logs, total, page, totalPages: Math.ceil(total / limit) };
+
+    } catch (error: any) {
+        logger.error({ error }, '[Audit] Get logs error');
+        return { success: false, error: 'Error obteniendo logs' };
+    }
+}
+
+// ============================================================================
+// GET ACTION TYPES
+// ============================================================================
+
+export async function getAuditActionTypesSecure(): Promise<{ success: boolean; data?: string[]; error?: string }> {
+    const session = await getSession();
+    if (!session || !AUDIT_VIEWER_ROLES.includes(session.role)) {
+        return { success: false, error: 'Acceso denegado' };
+    }
+
+    try {
+        const res = await query(`SELECT DISTINCT action_code FROM audit_log WHERE action_code IS NOT NULL ORDER BY action_code`);
+        return { success: true, data: res.rows.map((r: any) => r.action_code) };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+// ============================================================================
+// GET USERS
+// ============================================================================
+
+export async function getAuditUsersSecure(): Promise<{ success: boolean; data?: Array<{ id: string; name: string }>; error?: string }> {
+    const session = await getSession();
+    if (!session || !AUDIT_VIEWER_ROLES.includes(session.role)) {
+        return { success: false, error: 'Acceso denegado' };
+    }
+
+    try {
+        const res = await query(`SELECT DISTINCT u.id::text, u.name FROM audit_log al JOIN users u ON al.user_id::text = u.id::text ORDER BY u.name`);
+        return { success: true, data: res.rows };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+// ============================================================================
+// GET STATS
+// ============================================================================
+
+export async function getAuditStatsSecure(): Promise<{
+    success: boolean;
+    data?: { totalToday: number; criticalToday: number; topActions: Array<{ action: string; count: number }>; topUsers: Array<{ name: string; count: number }> };
+    error?: string;
+}> {
+    const session = await getSession();
+    if (!session || !AUDIT_VIEWER_ROLES.includes(session.role)) {
+        return { success: false, error: 'Acceso denegado' };
+    }
+
+    try {
+        const todayRes = await query(`SELECT COUNT(*) as total FROM audit_log WHERE created_at >= CURRENT_DATE`);
+        const criticalActions = Object.entries(ACTION_SEVERITY_MAP).filter(([_, sev]) => sev === 'CRITICAL').map(([action]) => action);
+        const criticalRes = await query(`SELECT COUNT(*) as total FROM audit_log WHERE created_at >= CURRENT_DATE AND action_code = ANY($1::text[])`, [criticalActions]);
+        const topActionsRes = await query(`SELECT action_code as action, COUNT(*) as count FROM audit_log WHERE created_at >= CURRENT_DATE - INTERVAL '7 days' GROUP BY action_code ORDER BY count DESC LIMIT 5`);
+        const topUsersRes = await query(`SELECT u.name, COUNT(*) as count FROM audit_log al JOIN users u ON al.user_id::text = u.id::text WHERE al.created_at >= CURRENT_DATE - INTERVAL '7 days' GROUP BY u.name ORDER BY count DESC LIMIT 5`);
+
+        return {
+            success: true,
+            data: {
+                totalToday: Number(todayRes.rows[0]?.total || 0),
+                criticalToday: Number(criticalRes.rows[0]?.total || 0),
+                topActions: topActionsRes.rows.map((r: any) => ({ action: r.action, count: Number(r.count) })),
+                topUsers: topUsersRes.rows.map((r: any) => ({ name: r.name, count: Number(r.count) })),
+            },
+        };
+    } catch (error: any) {
+        logger.error({ error }, '[Audit] Stats error');
+        return { success: false, error: error.message };
+    }
+}
+
+// ============================================================================
+// EXPORT LOGS (PIN ADMIN para >1000)
+// ============================================================================
+
+/**
+ * 📤 Exportar Logs (PIN ADMIN requerido para >1000 registros)
+ */
+export async function exportAuditLogsSecure(
+    params: { startDate?: string; endDate?: string; actionCode?: string; userId?: string },
+    adminPin?: string
+): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    const session = await getSession();
+    if (!session || !AUDIT_VIEWER_ROLES.includes(session.role)) {
+        return { success: false, error: 'Acceso denegado' };
+    }
+
+    try {
+        let whereConditions: string[] = [];
+        let queryParams: any[] = [];
+        let paramIndex = 1;
+
+        if (params.startDate) { whereConditions.push(`al.created_at >= $${paramIndex}::timestamp`); queryParams.push(params.startDate); paramIndex++; }
+        if (params.endDate) { whereConditions.push(`al.created_at <= $${paramIndex}::timestamp`); queryParams.push(params.endDate); paramIndex++; }
+        if (params.actionCode) { whereConditions.push(`al.action_code = $${paramIndex}`); queryParams.push(params.actionCode); paramIndex++; }
+        if (params.userId) { whereConditions.push(`al.user_id::text = $${paramIndex}`); queryParams.push(params.userId); paramIndex++; }
+
+        const whereClause = whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : '';
+
+        // Contar primero
+        const countRes = await query(`SELECT COUNT(*) as total FROM audit_log al ${whereClause}`, queryParams);
+        const total = Number(countRes.rows[0]?.total || 0);
+
+        // Si más de 1000, requiere PIN ADMIN
+        if (total > 1000) {
+            if (!ADMIN_ROLES.includes(session.role)) {
+                return { success: false, error: 'Solo ADMIN puede exportar más de 1000 registros' };
+            }
+            if (!adminPin) {
+                return { success: false, error: 'Se requiere PIN de administrador para exportar más de 1000 registros' };
+            }
+
+            // Validar PIN
+            const adminRes = await query(`SELECT access_pin FROM users WHERE id = $1`, [session.userId]);
+            if (!adminRes.rows[0]?.access_pin) {
+                return { success: false, error: 'PIN no configurado' };
+            }
+            const validPin = await bcrypt.compare(adminPin, adminRes.rows[0].access_pin);
+            if (!validPin) {
+                return { success: false, error: 'PIN incorrecto' };
+            }
+        }
+
+        // Límite máximo 5000
+        const res = await query(`
+            SELECT al.created_at as "Fecha", COALESCE(u.name, 'Sistema') as "Usuario", COALESCE(u.role, 'SYSTEM') as "Rol",
+                   COALESCE(l.name, '-') as "Sucursal", al.action_code as "Acción", COALESCE(al.entity_type, '-') as "Tipo",
+                   COALESCE(al.justification, '-') as "Justificación"
+            FROM audit_log al
+            LEFT JOIN users u ON al.user_id::text = u.id::text
+            LEFT JOIN locations l ON al.location_id::text = l.id::text
+            ${whereClause}
+            ORDER BY al.created_at DESC
+            LIMIT 5000
+        `, queryParams);
+
+        const data = res.rows.map((row: any) => ({
+            ...row,
+            'Fecha': new Date(row['Fecha']).toLocaleString('es-CL'),
+        }));
+
+        // Meta-auditoría
+        await metaAudit(session.userId, 'AUDIT_LOG_EXPORT', { rows: data.length, filters: params });
+
+        logger.info({ userId: session.userId, rows: data.length }, '📤 [Audit] Export');
+        return { success: true, data };
+
+    } catch (error: any) {
+        logger.error({ error }, '[Audit] Export error');
+        return { success: false, error: error.message };
+    }
+}
+
+export { ACTION_SEVERITY_MAP, AUDIT_VIEWER_ROLES };
