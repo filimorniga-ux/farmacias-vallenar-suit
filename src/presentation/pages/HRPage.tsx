@@ -6,7 +6,7 @@ import { EmployeeProfile } from '../../domain/types';
 import AttendanceManager from './hr/AttendanceManager';
 import { EmployeeModal } from '../components/hr/EmployeeModal';
 import { toast } from 'sonner';
-import { getUsers, createUser, updateUser } from '../../actions/users';
+import { getUsersSecure, createUserSecure, updateUserSecure } from '../../actions/users-v2';
 
 const HRPage = () => {
     const { user } = usePharmaStore(); // Mantenemos user logueado del store por ahora
@@ -26,9 +26,9 @@ const HRPage = () => {
 
     const loadUsers = async () => {
         setIsLoading(true);
-        const result = await getUsers();
+        const result = await getUsersSecure({ page: 1, pageSize: 100 });
         if (result.success && result.data) {
-            setDbEmployees(result.data);
+            setDbEmployees(result.data.users as any);
         } else {
             toast.error(result.error || 'Error al cargar empleados');
         }
@@ -61,11 +61,12 @@ const HRPage = () => {
             // Crear
             // Remover ID temporal si es necesario o dejar que el backend lo ignore
             const { id, ...dataToCreate } = updatedEmployee;
-            result = await createUser(dataToCreate);
+            // V2: Crear usuario con nuevo formato
+            result = await createUserSecure(dataToCreate as any);
         } else {
-            // Actualizar
+            // V2: Actualizar usuario
             console.log('🔄 Actualizando usuario ID:', updatedEmployee.id);
-            result = await updateUser(updatedEmployee.id, updatedEmployee);
+            result = await updateUserSecure({ userId: updatedEmployee.id, ...updatedEmployee } as any);
         }
 
         if (result.success && result.data) {

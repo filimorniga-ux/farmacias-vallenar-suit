@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { usePharmaStore } from '../store/useStore';
 import { AdvancedExportModal } from '../components/common/AdvancedExportModal';
-import { generateCustomerReport } from '../../actions/customer-export';
+import { generateCustomerReportSecure } from '../../actions/customer-export-v2';
 import { Download, Search, User, MessageCircle, Star, Calendar, Plus, Edit, Trash2, History, X, Save, AlertTriangle } from 'lucide-react';
 import { Customer, SaleTransaction } from '../../domain/types';
 import { toast } from 'sonner';
@@ -27,11 +27,16 @@ const ClientsPage: React.FC = () => {
     const handleExport = async (startDate: Date, endDate: Date, selectedIds?: string[]) => {
         setIsExporting(true);
         try {
-            const result = await generateCustomerReport(startDate, endDate, selectedIds);
-            if (result.success && result.base64) {
+            // V2: Nuevo formato de parámetros
+            const result = await generateCustomerReportSecure({
+                startDate: startDate.toISOString(),
+                endDate: endDate.toISOString(),
+                customerIds: selectedIds
+            });
+            if (result.success && result.data) {
                 const link = document.createElement('a');
-                link.href = `data: application / vnd.openxmlformats - officedocument.spreadsheetml.sheet; base64, ${result.base64} `;
-                link.download = `Reporte_Clientes_${startDate.toISOString().split('T')[0]}_${endDate.toISOString().split('T')[0]}.xlsx`;
+                link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${result.data}`;
+                link.download = result.filename || `Reporte_Clientes_${startDate.toISOString().split('T')[0]}_${endDate.toISOString().split('T')[0]}.xlsx`;
                 link.click();
                 toast.success('Reporte descargado exitosamente');
                 setIsExportModalOpen(false);
