@@ -5,7 +5,8 @@ import TicketBoleta from '../../../components/printing/TicketBoleta';
 import { LocationConfig } from '../../../../domain/types';
 import { Save, Printer, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
-import { updateLocation as updateLocationAction } from '../../../../actions/locations';
+// V2: Función segura con RBAC
+import { updateLocationSecure } from '../../../../actions/locations-v2';
 
 const TicketDesigner: React.FC = () => {
     const { currentLocation, updateLocation, locations } = useLocationStore();
@@ -54,8 +55,11 @@ const TicketDesigner: React.FC = () => {
         // Optimistic Update
         updateLocation(currentLocation.id, { config: newConfig });
 
-        // Backend Persistence
-        const result = await updateLocationAction(currentLocation.id, { config: newConfig });
+        // V2: Backend Persistence con firma de objeto
+        const result = await updateLocationSecure({
+            locationId: currentLocation.id,
+            config: newConfig
+        });
 
         if (result.success) {
             toast.success('Diseño de ticket guardado y sincronizado');
