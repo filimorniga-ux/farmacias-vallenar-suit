@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Clock, AlertTriangle, UserCheck, Calendar } from 'lucide-react';
 import { DateRange } from '../bi/TimeFilter';
-import { getAttendanceReport, getAttendanceKPIs, AttendanceDailySummary, AttendanceKPIs } from '../../../actions/attendance-report';
+import { getAttendanceReportSecure, getAttendanceKPIsSecure } from '../../../actions/attendance-report-v2';
 import { toast } from 'sonner';
 
 interface HRReportTabProps {
@@ -11,25 +11,31 @@ interface HRReportTabProps {
 
 export const HRReportTab: React.FC<HRReportTabProps> = ({ dateRange, locationId }) => {
     const [loading, setLoading] = useState(false);
-    const [data, setData] = useState<AttendanceDailySummary[]>([]);
-    const [kpis, setKpis] = useState<AttendanceKPIs | null>(null);
+    const [data, setData] = useState<any[]>([]);
+    const [kpis, setKpis] = useState<{ present_today: number; total_staff: number; late_arrivals_month: number; total_overtime_hours: number } | null>(null);
     const [roleFilter, setRoleFilter] = useState<string>('ALL');
 
     useEffect(() => {
         const fetchHRData = async () => {
             setLoading(true);
             try {
-                const [reportData, kpiData] = await Promise.all([
-                    getAttendanceReport(
-                        dateRange.from.toISOString(),
-                        dateRange.to.toISOString(),
+                // V2: Usamos firmas de objeto seguras
+                const [reportResult, kpiResult] = await Promise.all([
+                    getAttendanceReportSecure({
+                        startDate: dateRange.from.toISOString(),
+                        endDate: dateRange.to.toISOString(),
                         locationId,
-                        roleFilter
-                    ),
-                    getAttendanceKPIs(locationId)
+                        role: roleFilter !== 'ALL' ? roleFilter : undefined
+                    }),
+                    getAttendanceKPIsSecure(locationId)
                 ]);
-                setData(reportData);
-                setKpis(kpiData);
+
+                if (reportResult.success && reportResult.data) {
+                    setData(reportResult.data);
+                }
+                if (kpiResult.success && kpiResult.data) {
+                    setKpis(kpiResult.data);
+                }
             } catch (error) {
                 console.error(error);
                 toast.error('Error cargando datos de asistencia');
