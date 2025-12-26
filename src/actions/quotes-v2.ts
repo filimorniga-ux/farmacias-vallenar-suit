@@ -992,8 +992,5 @@ export async function getQuoteHistory(
     }
 }
 
-// ============================================================================
-// EXPORTS
-// ============================================================================
-
-export { DISCOUNT_THRESHOLDS };
+// NOTE: DISCOUNT_THRESHOLDS es constante interna
+// Next.js 16 use server solo permite async functions

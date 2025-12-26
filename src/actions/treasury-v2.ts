@@ -1161,11 +1161,5 @@ export async function getPendingRemittancesSecure(
     }
 }
 
-// =====================================================
-// EXPORTS
-// =====================================================
-
-export {
-    AUTHORIZATION_THRESHOLDS,
-    AUTHORIZED_ROLES
-};
+// NOTE: AUTHORIZATION_THRESHOLDS y AUTHORIZED_ROLES son constantes internas
+// Next.js 16 "use server" solo permite exportar async functions

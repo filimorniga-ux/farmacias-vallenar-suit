@@ -370,4 +370,5 @@ export async function exportAuditLogsSecure(
     }
 }
 
-export { ACTION_SEVERITY_MAP, AUDIT_VIEWER_ROLES };
+// NOTE: ACTION_SEVERITY_MAP, AUDIT_VIEWER_ROLES son constantes internas
+// Next.js 16 use server solo permite async functions
