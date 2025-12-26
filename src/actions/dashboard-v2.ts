@@ -39,7 +39,7 @@ const MetricsParamsSchema = z.object({
 // TYPES
 // ============================================================================
 
-interface FinancialMetrics {
+export interface FinancialMetrics {
     summary: {
         total_sales: number;
         total_income_other: number;

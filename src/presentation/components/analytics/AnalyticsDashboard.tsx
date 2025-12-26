@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { Location, Terminal } from '@/domain/types';
-import { getFinancialMetrics, FinancialMetrics } from '@/actions/dashboard';
-import { getTerminalsByLocation } from '@/actions/terminals';
+import { getFinancialMetricsSecure, FinancialMetrics } from '@/actions/dashboard-v2';
+import { getOrganizationStructureSecure } from '@/actions/network-v2';
 import { TrendingUp, DollarSign, CreditCard, ArrowDownCircle, ArrowUpCircle, Filter } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -29,12 +29,18 @@ export default function AnalyticsDashboard({ initialLocations }: Props) {
     const [metrics, setMetrics] = useState<FinancialMetrics | null>(null);
     const [loading, setLoading] = useState(false);
 
-    // Fetch Terminals when Location Changes
+    // V2: Obtener terminales desde estructura organizacional
     useEffect(() => {
         if (selectedLocationId) {
-            getTerminalsByLocation(selectedLocationId).then(res => {
-                if (res.success && res.data) setTerminals(res.data);
-                else setTerminals([]);
+            getOrganizationStructureSecure().then(res => {
+                if (res.success && res.data) {
+                    const locationTerminals = res.data.terminals.filter(
+                        (t: any) => t.location_id === selectedLocationId
+                    );
+                    setTerminals(locationTerminals as Terminal[]);
+                } else {
+                    setTerminals([]);
+                }
             });
             setSelectedTerminalId('');
         } else {
@@ -48,19 +54,22 @@ export default function AnalyticsDashboard({ initialLocations }: Props) {
         const fetchMetrics = async () => {
             setLoading(true);
             try {
-                // Construct Date Objects (Start of day / End of day)
+                // Construct Date Objects
                 const fromDate = new Date(dateRange.from);
                 fromDate.setHours(0, 0, 0, 0);
 
                 const toDate = new Date(dateRange.to);
                 toDate.setHours(23, 59, 59, 999);
 
-                const data = await getFinancialMetrics(
-                    { from: fromDate, to: toDate },
-                    selectedLocationId || undefined,
-                    selectedTerminalId || undefined
-                );
-                setMetrics(data);
+                // V2: Nuevo formato de parámetros
+                const res = await getFinancialMetricsSecure({
+                    dateRange: { from: fromDate, to: toDate },
+                    locationId: selectedLocationId || undefined,
+                    terminalId: selectedTerminalId || undefined
+                });
+                if (res.success && res.data) {
+                    setMetrics(res.data);
+                }
             } finally {
                 setLoading(false);
             }

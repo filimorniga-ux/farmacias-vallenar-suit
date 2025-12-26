@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { ShieldAlert, ArrowRight, CheckCircle } from 'lucide-react';
-import { getRecentSystemIncidents } from '@/actions/maintenance';
+import { getRecentSystemIncidentsSecure } from '@/actions/maintenance-v2';
 import { usePharmaStore } from '../../store/useStore'; // Para obtener el ID del gerente actual
 import { ReconciliationModal } from './ReconciliationModal'; // Importamos el nuevo modal
 
@@ -16,7 +16,7 @@ export default function SystemIncidentsBanner() {
     const [isModalOpen, setIsModalOpen] = useState(false);
 
     const fetchIncidents = () => {
-        getRecentSystemIncidents().then(res => {
+        getRecentSystemIncidentsSecure().then((res: { success: boolean; data?: any[] }) => {
             if (res.success && res.data) {
                 setIncidents(res.data);
             }
