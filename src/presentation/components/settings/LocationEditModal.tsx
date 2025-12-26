@@ -3,8 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { Location, EmployeeProfile } from '@/domain/types';
 import { updateLocationDetails } from '@/actions/network';
-import { deleteLocation } from '@/actions/locations';
-import { getUsers } from '@/actions/users';
+import { deactivateLocationSecure } from '@/actions/locations-v2';
+import { getUsersSecure } from '@/actions/users-v2';
 import { X, Save, Trash2, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -30,12 +30,12 @@ export default function LocationEditModal({ location, onClose, onUpdate }: Locat
     });
 
     useEffect(() => {
-        // Load Potential Managers
-        getUsers().then(res => {
+        // Load Potential Managers using V2
+        getUsersSecure({ page: 1, pageSize: 100, role: undefined }).then(res => {
             if (res.success && res.data) {
                 // Filter only Managers or Admins
-                const admins = res.data.filter(u => u.role === 'MANAGER' || u.role === 'ADMIN' || u.role === 'GERENTE_GENERAL');
-                setManagers(admins);
+                const admins = res.data.users.filter((u: any) => u.role === 'MANAGER' || u.role === 'ADMIN' || u.role === 'GERENTE_GENERAL');
+                setManagers(admins as any);
             }
         });
     }, []);
@@ -60,34 +60,23 @@ export default function LocationEditModal({ location, onClose, onUpdate }: Locat
     };
 
     const handleDelete = async () => {
-        if (!confirm('PELIGRO: ¿Estás seguro de ELIMINAR permanentemente esta sucursal? Si tiene datos históricos, la operación será bloqueada por seguridad.')) return;
+        const reason = prompt('Ingrese la razón de desactivación (mínimo 10 caracteres):');
+        if (!reason || reason.length < 10) {
+            toast.error('Razón inválida (mínimo 10 caracteres)');
+            return;
+        }
+
+        if (!confirm('PELIGRO: ¿Estás seguro de DESACTIVAR esta sucursal?')) return;
 
         setIsLoading(true);
         try {
-            const res = await deleteLocation(location.id);
+            const res = await deactivateLocationSecure(location.id, reason);
             if (res.success) {
-                toast.success('Sucursal eliminada permanentemente');
-                onUpdate(); // Should fetch list again
+                toast.success('Sucursal desactivada correctamente');
+                onUpdate();
                 onClose();
             } else {
-                // Smart Fallback: Suggest Deactivation
-                if (res.error && res.error.includes('No se puede eliminar')) {
-                    const shouldDeactivate = confirm(`${res.error}\n\n¿Deseas DESACTIVARLA en su lugar? Esto la ocultará de los selectores pero mantendrá la integridad de datos.`);
-
-                    if (shouldDeactivate) {
-                        const updateRes = await updateLocationDetails(location.id, { ...form, is_active: false });
-                        if (updateRes.success) {
-                            toast.success('Sucursal desactivada (marcada como cerrada)');
-                            onUpdate();
-                            onClose();
-                            return;
-                        } else {
-                            toast.error('Error al desactivar: ' + updateRes.error);
-                        }
-                    }
-                } else {
-                    toast.error(res.error || 'No se pudo eliminar');
-                }
+                toast.error(res.error || 'No se pudo desactivar');
             }
         } catch (e) {
             toast.error('Error de conexión');

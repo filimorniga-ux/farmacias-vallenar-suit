@@ -3,15 +3,15 @@
 import React, { useState, useEffect } from 'react';
 import { Location, Terminal, EmployeeProfile } from '@/domain/types';
 import { MapPin, Warehouse, Monitor, Users, Plus, X, ChevronRight, Printer, UserPlus, CheckCircle, User, Clock, FileText, Edit2, Trash2 } from 'lucide-react';
-import { createLocation, createWarehouse, createTerminal, assignEmployeeToLocation } from '@/actions/network';
+import { createLocationSecure, createTerminalSecure, assignEmployeeSecure, getOrganizationStructureSecure } from '@/actions/network-v2';
 import { getTerminalsByLocation } from '@/actions/terminals';
-import { getUsers } from '@/actions/users';
+import { getUsersSecure } from '@/actions/users-v2';
+import { updateLocationConfig } from '@/actions/network';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import LocationEditModal from './LocationEditModal';
-import { updateLocationConfig } from '@/actions/network';
 import { AlertTriangle, Settings, AlertCircle, ShoppingBag, UserCheck } from 'lucide-react';
-import { getLocationHealth } from '@/actions/network-stats';
+import { getLocationHealthSecure } from '@/actions/network-stats-v2';
 
 export default function OrganizationManager() {
     // --- State ---
@@ -50,28 +50,33 @@ export default function OrganizationManager() {
         const name = formData.get('name') as string;
         const address = formData.get('address') as string;
 
+        // V2 requiere PIN de admin para crear ubicaciones
+        const adminPin = prompt('Ingrese PIN de administrador:');
+        if (!adminPin) {
+            toast.error('PIN requerido');
+            return;
+        }
+
         try {
             if (activeView === 'STORES') {
-                const res = await createLocation({ name, address });
+                const res = await createLocationSecure({ name, address, type: 'STORE' }, adminPin);
                 if (res.success) {
                     toast.success('Sucursal creada');
                     setIsCreateModalOpen(false);
-                    loadData(); // Reload local state
+                    loadData();
                     router.refresh();
                 } else {
-                    toast.error('Error al crear sucursal');
+                    toast.error(res.error || 'Error al crear sucursal');
                 }
             } else {
-                const hqId = locations.find(l => l.type === 'HQ')?.id;
-                const res = await createWarehouse(name, hqId);
-
+                const res = await createLocationSecure({ name, address: 'Bodega', type: 'WAREHOUSE' }, adminPin);
                 if (res.success) {
                     toast.success('Bodega creada');
                     setIsCreateModalOpen(false);
-                    loadData(); // Reload local state
+                    loadData();
                     router.refresh();
                 } else {
-                    toast.error('Error al crear bodega');
+                    toast.error(res.error || 'Error al crear bodega');
                 }
             }
         } catch (error) {
@@ -216,8 +221,8 @@ function LocationDetailDrawer({ location, allLocations, onClose }: { location: L
                     if (res.success && res.data) setTerminals(res.data);
                 }
                 if (activeTab === 'STAFF') {
-                    const res = await getUsers({ locationId: location.id });
-                    if (res.success && res.data) setAllUsers(res.data);
+                    const res = await getUsersSecure({ locationId: location.id, page: 1, pageSize: 100 });
+                    if (res.success && res.data) setAllUsers(res.data.users as any);
                 }
             } finally {
                 setLoading(false);
@@ -230,7 +235,6 @@ function LocationDetailDrawer({ location, allLocations, onClose }: { location: L
         toast.promise(updateLocationConfig(location.id, warehouseId), {
             loading: 'Actualizando configuración...',
             success: () => {
-                // In a real app we might update local state, but reload ensures consistency here
                 window.location.reload();
                 return 'Bodega asignada correctamente';
             },
@@ -307,13 +311,14 @@ function LocationDetailDrawer({ location, allLocations, onClose }: { location: L
                     <div className="space-y-4">
                         <CreateButton label="Nuevo Terminal" onClick={() => {
                             const name = prompt("Nombre de la Caja (Ej: Caja 2):");
-                            if (name) {
-                                toast.promise(createTerminal({ name, location_id: location.id }), {
-                                    loading: 'Creando...',
-                                    success: () => { window.location.reload(); return 'Terminal creado'; },
-                                    error: 'Error'
-                                });
-                            }
+                            if (!name) return;
+                            const adminPin = prompt('Ingrese PIN de administrador:');
+                            if (!adminPin) return;
+                            toast.promise(createTerminalSecure({ name, locationId: location.id }, adminPin), {
+                                loading: 'Creando...',
+                                success: (res: any) => { if (!res.success) throw new Error(res.error); window.location.reload(); return 'Terminal creado'; },
+                                error: (err: any) => err.message || 'Error'
+                            });
                         }} />
                         {loading && <p className="text-center text-slate-400 py-4">Cargando...</p>}
                         {!loading && terminals.length === 0 && <EmptyState text="No hay terminales activos." />}
@@ -451,15 +456,18 @@ function LocationDetailDrawer({ location, allLocations, onClose }: { location: L
                                     </div>
                                     {!isAssignedHere && (
                                         <button
-                                            onClick={() => {
-                                                toast.promise(assignEmployeeToLocation(user.id, location.id), {
+                                            onClick={async () => {
+                                                const adminPin = prompt('Ingrese PIN de administrador:');
+                                                if (!adminPin) return;
+                                                toast.promise(assignEmployeeSecure(user.id, location.id, adminPin), {
                                                     loading: 'Asignando...',
-                                                    success: () => {
+                                                    success: (res: any) => {
+                                                        if (!res.success) throw new Error(res.error);
                                                         setAllUsers(prev => prev.map(p => p.id === user.id ? { ...p, assigned_location_id: location.id } : p));
                                                         setIsAssignModalOpen(false);
                                                         return 'Asignado correctamente';
                                                     },
-                                                    error: 'Error al asignar'
+                                                    error: (err: any) => err.message || 'Error al asignar'
                                                 });
                                             }}
                                             className="px-3 py-1 bg-slate-900 text-white rounded text-sm hover:bg-slate-700"
@@ -500,8 +508,8 @@ function LocationCard({
     const [loadingStats, setLoadingStats] = useState(true);
 
     useEffect(() => {
-        getLocationHealth(location.id).then(res => {
-            setStats(res);
+        getLocationHealthSecure(location.id).then(res => {
+            if (res.success && res.data) setStats(res.data);
             setLoadingStats(false);
         });
     }, [location.id]);
