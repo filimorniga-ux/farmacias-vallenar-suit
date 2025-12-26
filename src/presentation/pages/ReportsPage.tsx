@@ -5,8 +5,10 @@ import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Cart
 import { TrendingUp, DollarSign, FileText, Package, Users, Download, AlertTriangle, CheckCircle, RefreshCw, ArrowDown, ArrowUp, Clock, X } from 'lucide-react';
 import { toast } from 'sonner';
 
-// Backend Actions
-import { getCashFlowLedger, getTaxSummary, getInventoryValuation, getPayrollPreview, getDetailedFinancialSummary, getLogisticsKPIs, getStockMovementsDetail, CashFlowEntry, TaxSummary, InventoryValuation, PayrollPreview, LogisticsKPIs } from '../../actions/reports-detail';
+// V2 Backend Actions (donde disponible)
+import { getCashFlowLedgerSecure, getTaxSummarySecure, getInventoryValuationSecure, CashFlowEntry, TaxSummary, InventoryValuation, PayrollPreview, LogisticsKPIs } from '../../actions/reports-detail-v2';
+// Legacy: funciones que aún no tienen V2
+import { getDetailedFinancialSummary, getLogisticsKPIs, getStockMovementsDetail, getPayrollPreview } from '../../actions/reports-detail';
 import { exportFinanceReport, ReportType } from '../../actions/finance-export';
 import { HRReportTab } from '../components/reports/HRReportTab';
 
@@ -62,24 +64,24 @@ const ReportsPage: React.FC = () => {
         setLoading(true);
         try {
             if (activeTab === 'cash') {
-                const [data, summaryData] = await Promise.all([
-                    getCashFlowLedger(dateRange.from.toISOString(), dateRange.to.toISOString()),
+                const [res, summaryData] = await Promise.all([
+                    getCashFlowLedgerSecure({ startDate: dateRange.from.toISOString(), endDate: dateRange.to.toISOString() }),
                     getDetailedFinancialSummary(dateRange.from.toISOString(), dateRange.to.toISOString())
                 ]);
-                setCashLedger(data);
+                if (res.success && res.data) setCashLedger(res.data);
                 setSummary(summaryData);
             } else if (activeTab === 'tax') {
                 // Format YYYY-MM
                 const monthStr = `${dateRange.from.getFullYear()}-${(dateRange.from.getMonth() + 1).toString().padStart(2, '0')}`;
-                const data = await getTaxSummary(monthStr);
-                setTaxData(data);
+                const res = await getTaxSummarySecure(monthStr);
+                if (res.success && res.data) setTaxData(res.data);
             } else if (activeTab === 'logistics') {
                 const whId = currentWarehouseId || currentLocationId || ''; // Fallback
-                const [valData, kpiData] = await Promise.all([
-                    getInventoryValuation(whId),
+                const [res, kpiData] = await Promise.all([
+                    getInventoryValuationSecure(whId),
                     getLogisticsKPIs(dateRange.from.toISOString(), dateRange.to.toISOString(), whId)
                 ]);
-                setLogisticsData(valData);
+                if (res.success && res.data) setLogisticsData(res.data as InventoryValuation);
                 setLogisticsKPIs(kpiData);
             } else if (activeTab === 'hr') {
                 const data = await getPayrollPreview();
