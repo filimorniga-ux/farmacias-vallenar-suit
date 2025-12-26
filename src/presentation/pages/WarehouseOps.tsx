@@ -3,8 +3,10 @@ import { Package, Truck, ArrowRight, CheckCircle, Search, Filter, Calendar, Cloc
 import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
 import { Shipment, PurchaseOrder } from '../../domain/types';
-import { getRecentMovements } from '../../actions/inventory';
-import { exportStockMovements, exportPurchaseOrders } from '../../actions/inventory-export';
+// V2: Funciones seguras
+import { getRecentMovementsSecure } from '../../actions/inventory-v2';
+import { exportStockMovementsSecure } from '../../actions/inventory-export-v2';
+import { exportPurchaseOrders } from '../../actions/inventory-export'; // No hay V2 aún
 import UnifiedReception from '../components/warehouse/UnifiedReception';
 import DocumentViewerModal from '../components/warehouse/DocumentViewerModal';
 import ScanReceptionModal from '../components/warehouse/ScanReceptionModal';
@@ -48,9 +50,12 @@ export const WarehouseOps = () => {
     React.useEffect(() => {
         if (activeTab === 'MOVEMENTS' && currentLocationId) {
             setLoadingMovements(true);
-            getRecentMovements(currentLocationId)
-                .then(data => setMovements(data))
-                .catch(err => console.error("Failed to fetch movements:", err))
+            // V2: getRecentMovementsSecure retorna { success, data }
+            getRecentMovementsSecure(currentLocationId)
+                .then((res: { success: boolean; data?: any[] }) => {
+                    if (res.success && res.data) setMovements(res.data);
+                })
+                .catch((err: Error) => console.error("Failed to fetch movements:", err))
                 .finally(() => setLoadingMovements(false));
         }
     }, [activeTab, currentLocationId]);
@@ -244,19 +249,34 @@ export const WarehouseOps = () => {
                 ? new Date(dateRange.end).toISOString()
                 : new Date().toISOString();
 
+            // V2: exportStockMovementsSecure requiere limit
             const params = {
                 startDate,
                 endDate,
                 locationId: currentLocationId,
-                locationName: currentLocation?.name || 'Bodega Actual',
-                creatorName: user?.name
+                limit: 5000 // V2 requiere limit
             };
 
             let result;
             if (activeTab === 'SUPPLIER_ORDERS') {
-                result = await exportPurchaseOrders(params);
+                // Legacy: exportPurchaseOrders
+                const legacyParams = {
+                    startDate,
+                    endDate,
+                    locationId: currentLocationId,
+                    locationName: currentLocation?.name || 'Bodega Actual',
+                    creatorName: user?.name
+                };
+                result = await exportPurchaseOrders(legacyParams);
             } else {
-                result = await exportStockMovements(params);
+                // V2: exportStockMovementsSecure
+                const v2Params = {
+                    startDate,
+                    endDate,
+                    locationId: currentLocationId,
+                    limit: 5000
+                };
+                result = await exportStockMovementsSecure(v2Params);
             }
 
             if (result && result.success && result.data) {

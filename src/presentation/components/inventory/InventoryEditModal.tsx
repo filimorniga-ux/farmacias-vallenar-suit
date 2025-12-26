@@ -3,7 +3,8 @@ import { X, Save, Thermometer, AlertTriangle, Tag, Package, DollarSign, Activity
 import { InventoryBatch } from '../../../domain/types';
 import { usePharmaStore } from '../../store/useStore';
 import { toast } from 'sonner';
-import { createBatch } from '../../../actions/inventory';
+// V2: Funciones seguras
+import { createBatchSecure } from '../../../actions/inventory-v2';
 
 interface InventoryEditModalProps {
     isOpen: boolean;
@@ -75,8 +76,22 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
                 stock_min: formData.stock_min || 0,
                 stock_max: formData.stock_max || 1000
             };
-
-            const result = await createBatch({ ...newBatchData, userId: user?.id || 'SYSTEM' });
+            // V2: createBatchSecure con firma diferente
+            const result = await createBatchSecure({
+                productId: newBatchData.id,
+                sku: newBatchData.sku,
+                name: newBatchData.name,
+                locationId: newBatchData.location_id,
+                warehouseId: newBatchData.warehouse_id,
+                quantity: 0,
+                expiryDate: newBatchData.expiry_date ? new Date(newBatchData.expiry_date) : undefined,
+                lotNumber: newBatchData.lot_number,
+                unitCost: newBatchData.cost_price,
+                salePrice: newBatchData.price,
+                stockMin: newBatchData.stock_min,
+                stockMax: newBatchData.stock_max,
+                userId: user?.id || 'SYSTEM'
+            });
 
             if (result.success && result.batchId) {
                 // Update Local Store
