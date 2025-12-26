@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { getActiveSessions, revokeSession, ActiveSession } from '@/actions/security';
+import { getActiveSessionsSecure, forceLogoutSecure, ActiveSession } from '@/actions/security-v2';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { toast } from 'sonner';
 import { User, Globe, Clock, Power, RefreshCw } from 'lucide-react';
@@ -20,7 +20,7 @@ export function ActiveSessionsTable() {
 
     const loadSessions = async () => {
         setLoading(true);
-        const res = await getActiveSessions();
+        const res = await getActiveSessionsSecure();
         if (res.success && res.data) {
             setSessions(res.data);
         }
@@ -28,10 +28,13 @@ export function ActiveSessionsTable() {
     };
 
     const handleRevoke = async (targetUserId: string, targetName: string) => {
-        if (!confirm(`¿Estás seguro de cerrar la sesión de ${targetName}?`)) return;
+        const adminPin = prompt(`Ingrese su PIN para cerrar la sesión de ${targetName}:`);
+        if (!adminPin) return;
+
+        const reason = 'Sesión cerrada remotamente por administrador';
 
         const toastId = toast.loading('Cerrando sesión remota...');
-        const res = await revokeSession(targetUserId, user?.id || 'admin');
+        const res = await forceLogoutSecure(targetUserId, adminPin, reason);
 
         if (res.success) {
             toast.success('Sesión revocada exitosamente', { id: toastId });
@@ -110,13 +113,13 @@ export function ActiveSessionsTable() {
                                     </td>
                                     <td className="p-4">
                                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${session.status === 'ONLINE'
-                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                                                : session.status === 'AWAY'
-                                                    ? 'bg-amber-50 text-amber-700 border-amber-100'
-                                                    : 'bg-slate-50 text-slate-500 border-slate-100'
+                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                            : session.status === 'AWAY'
+                                                ? 'bg-amber-50 text-amber-700 border-amber-100'
+                                                : 'bg-slate-50 text-slate-500 border-slate-100'
                                             }`}>
                                             <span className={`w-2 h-2 rounded-full ${session.status === 'ONLINE' ? 'bg-emerald-500 animate-pulse' :
-                                                    session.status === 'AWAY' ? 'bg-amber-500' : 'bg-slate-400'
+                                                session.status === 'AWAY' ? 'bg-amber-500' : 'bg-slate-400'
                                                 }`} />
                                             {session.status === 'ONLINE' ? 'En Línea' : session.status === 'AWAY' ? 'Ausente' : 'Desconectado'}
                                         </span>

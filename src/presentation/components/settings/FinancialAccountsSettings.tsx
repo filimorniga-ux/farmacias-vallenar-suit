@@ -1,14 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import {
-    getFinancialAccounts,
-    createFinancialAccount,
-    updateFinancialAccount,
-    toggleAccountStatus,
-    FinancialAccount
-} from '../../../actions/financial-accounts';
-import { getLocationsWithTerminals } from '../../../actions/network';
+    getFinancialAccountsSecure,
+    createFinancialAccountSecure,
+    updateFinancialAccountSecure,
+    toggleAccountStatusSecure,
+} from '../../../actions/financial-accounts-v2';
+import { getOrganizationStructureSecure } from '../../../actions/network-v2';
 import { Plus, Edit2, Archive, CheckCircle, Wallet, Building, CircleDollarSign, Coins } from 'lucide-react';
 import { toast } from 'sonner';
+
+interface FinancialAccount {
+    id: string;
+    name: string;
+    type: string;
+    location_id: string | null;
+    balance: number;
+    is_active: boolean;
+}
 
 export const FinancialAccountsSettings: React.FC = () => {
     const [accounts, setAccounts] = useState<FinancialAccount[]>([]);
@@ -31,15 +39,15 @@ export const FinancialAccountsSettings: React.FC = () => {
     const loadData = async () => {
         setIsLoading(true);
         const [accRes, locRes] = await Promise.all([
-            getFinancialAccounts(),
-            getLocationsWithTerminals()
+            getFinancialAccountsSecure(),
+            getOrganizationStructureSecure()
         ]);
 
         if (accRes.success && accRes.data) {
             setAccounts(accRes.data as FinancialAccount[]);
         }
-        if (locRes.success && locRes.locations) {
-            setLocations(locRes.locations);
+        if (locRes.success && locRes.data) {
+            setLocations(locRes.data.locations.map((l: any) => ({ id: l.id, name: l.name })));
         }
         setIsLoading(false);
     };
@@ -47,18 +55,23 @@ export const FinancialAccountsSettings: React.FC = () => {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
+        const pin = prompt('Ingrese PIN de administrador:');
+        if (!pin) return;
+
         let res;
         if (editingAccount) {
-            res = await updateFinancialAccount(editingAccount.id, {
+            res = await updateFinancialAccountSecure({
+                accountId: editingAccount.id,
                 name: formData.name,
-                location_id: formData.location_id || null
-            });
+                locationId: formData.location_id || null
+            }, pin);
         } else {
-            res = await createFinancialAccount({
+            res = await createFinancialAccountSecure({
                 name: formData.name,
-                type: formData.type,
-                location_id: formData.location_id || null
-            });
+                type: formData.type as any,
+                locationId: formData.location_id || undefined,
+                initialBalance: 0
+            }, pin);
         }
 
         if (res.success) {
@@ -83,12 +96,15 @@ export const FinancialAccountsSettings: React.FC = () => {
     };
 
     const handleToggleStatus = async (id: string, currentStatus: boolean) => {
-        const res = await toggleAccountStatus(id, !currentStatus);
+        const pin = prompt('Ingrese PIN de administrador:');
+        if (!pin) return;
+
+        const res = await toggleAccountStatusSecure(id, !currentStatus, pin);
         if (res.success) {
             toast.success(currentStatus ? 'Cuenta archivada' : 'Cuenta reactivada');
             loadData();
         } else {
-            toast.error('Error al cambiar estado');
+            toast.error(res.error || 'Error al cambiar estado');
         }
     };
 

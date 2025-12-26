@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { Search, AlertTriangle, CheckSquare, XSquare, Loader2, Database } from 'lucide-react';
 import { toast } from 'sonner';
-import { findDuplicateBatches } from '@/actions/inventory-diagnostics';
+import { findDuplicateBatchesSecure } from '@/actions/inventory-diagnostics-v2';
 
 interface DuplicateParams {
     groupBy: {
@@ -27,7 +27,7 @@ export default function InventoryDuplicates() {
     const handleSearch = async () => {
         setIsLoading(true);
         try {
-            const res = await findDuplicateBatches(params);
+            const res = await findDuplicateBatchesSecure(params);
             if (res.success) {
                 const data = res.data || [];
                 setResults(data);

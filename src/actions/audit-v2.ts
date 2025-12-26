@@ -22,28 +22,28 @@ export interface AuditEventInput {
     actionCategory: 'CASH' | 'SALE' | 'INVENTORY' | 'AUTH' | 'CONFIG' | 'ADMIN' | 'SYSTEM' | 'REPORT';
     actionType: string;
     actionStatus?: 'SUCCESS' | 'FAILED' | 'BLOCKED' | 'PENDING';
-    
+
     // Actor
     userId?: string;
     impersonatedBy?: string;
-    
+
     // Contexto de ubicación
     locationId?: string;
     terminalId?: string;
     sessionId?: string;
-    
+
     // Recurso afectado
     resourceType?: string;
     resourceId?: string;
-    
+
     // Datos del cambio
     oldValues?: Record<string, any>;
     newValues?: Record<string, any>;
     deltaAmount?: number;
-    
+
     // Flags
     requiresManagerReview?: boolean;
-    
+
     // Metadata (auto-populated si no se provee)
     ipAddress?: string;
     userAgent?: string;
@@ -86,7 +86,7 @@ export async function logAuditEvent(input: AuditEventInput): Promise<{ success: 
         // Auto-populate metadata from request headers if available
         let ipAddress = input.ipAddress;
         let userAgent = input.userAgent;
-        
+
         try {
             // Next.js 15+: headers() returns a Promise
             const headersList = await headers();
@@ -148,20 +148,20 @@ export async function logAuditEvent(input: AuditEventInput): Promise<{ success: 
             input.correlationId || null
         ]);
 
-        return { 
-            success: true, 
-            eventId: result.rows[0]?.event_id 
+        return {
+            success: true,
+            eventId: result.rows[0]?.event_id
         };
 
     } catch (error: any) {
         console.error('❌ [Audit-V2] Error logging event:', error.message);
-        
+
         // Fallback a tabla legacy si la nueva no existe
         if (error.code === '42P01') { // relation does not exist
             console.warn('⚠️ [Audit-V2] New table not found, falling back to legacy audit_logs');
             return await fallbackToLegacyAudit(input);
         }
-        
+
         return { success: false, error: error.message };
     }
 }
@@ -395,16 +395,16 @@ export async function reviewAuditEvent(
 /**
  * Genera un ID de correlación para agrupar eventos relacionados
  */
-export function generateCorrelationId(): string {
+export async function generateCorrelationId(): Promise<string> {
     return `CORR-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 }
 
 /**
  * Wrapper para crear un contexto de auditoría que se reutiliza
  */
-export function createAuditContext(baseContext: Partial<AuditEventInput>) {
-    const correlationId = generateCorrelationId();
-    
+export async function createAuditContext(baseContext: Partial<AuditEventInput>) {
+    const correlationId = await generateCorrelationId();
+
     return {
         correlationId,
         log: async (event: Partial<AuditEventInput>) => {
@@ -426,9 +426,9 @@ export function createAuditContext(baseContext: Partial<AuditEventInput>) {
  * @deprecated Usar logAuditEvent en su lugar
  */
 export async function logAction(
-    usuario: string, 
-    accion: string, 
-    detalle: string, 
+    usuario: string,
+    accion: string,
+    detalle: string,
     ip?: string
 ): Promise<{ success: boolean; error?: string }> {
     return logAuditEvent({

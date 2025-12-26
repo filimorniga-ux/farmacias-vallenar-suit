@@ -2,9 +2,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { Save, Mail, Building } from 'lucide-react';
-import { getGlobalSetting, updateGlobalSetting } from '../../../actions/settings';
+import { getPrivateSettingSecure, updateSettingSecure } from '../../../actions/settings-v2';
 import { usePharmaStore } from '../../store/useStore';
-// Use dynamic import for toast to avoid issues if sonner isn't set up perfectly in all contexts, or just standard import
 import { toast } from 'sonner';
 
 export const GeneralSettings: React.FC = () => {
@@ -17,8 +16,9 @@ export const GeneralSettings: React.FC = () => {
         const fetchSettings = async () => {
             setLoading(true);
             try {
-                const email = await getGlobalSetting('ADMIN_EMAIL');
-                if (email) setAdminEmail(email);
+                // V2: Nuevo formato
+                const res = await getPrivateSettingSecure('ADMIN_EMAIL');
+                if (res.success && res.value) setAdminEmail(res.value);
             } catch (error) {
                 console.error('Failed to load settings', error);
                 toast.error('Error al cargar configuración');
@@ -33,11 +33,12 @@ export const GeneralSettings: React.FC = () => {
         if (!user) return;
         setSaving(true);
         try {
-            const res = await updateGlobalSetting('ADMIN_EMAIL', adminEmail, user.id);
+            // V2: Nuevo formato (sin userId, usa sesión server-side)
+            const res = await updateSettingSecure('ADMIN_EMAIL', adminEmail);
             if (res.success) {
-                toast.success(res.message);
+                toast.success('Configuración guardada');
             } else {
-                toast.error(res.message);
+                toast.error(res.error || 'Error al guardar');
             }
         } catch (error) {
             console.error(error);

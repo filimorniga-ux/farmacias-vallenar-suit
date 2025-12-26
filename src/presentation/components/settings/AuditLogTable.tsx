@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Filter, Calendar, Download, RefreshCw, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
-import { getAuditLogs } from '@/actions/audit';
+import { getAuditEvents } from '@/actions/audit-v2';
 import { toast } from 'sonner';
 
 interface AuditLog {
@@ -29,15 +29,27 @@ export const AuditLogTable: React.FC = () => {
     const fetchLogs = async () => {
         setLoading(true);
         try {
-            const data = await getAuditLogs({
-                usuario: userFilter,
-                accion: actionFilter,
+            // V2: Nuevo formato de llamada
+            const res = await getAuditEvents({
+                userId: userFilter || undefined,
+                actionType: actionFilter || undefined,
                 startDate: dateFilter.start,
                 endDate: dateFilter.end,
-                limit: 100 // Page size sorta
+                limit: 100
             });
-            // Adapt DB types if needed (Postgres returns Date objects usually, but server actions serialize)
-            setLogs(data as any[]);
+            if (res.success && res.data) {
+                // Mapear formato V2 a formato esperado por UI
+                setLogs(res.data.map((e: any) => ({
+                    id: e.id,
+                    usuario: e.userId || 'Sistema',
+                    accion: e.actionType || e.actionCategory || 'N/A',
+                    detalle: JSON.stringify(e.newValues || {}),
+                    fecha: e.createdAt,
+                    ip: e.ipAddress
+                })));
+            } else {
+                toast.error(res.error || 'Error cargando registros');
+            }
         } catch (error) {
             toast.error('Error cargando registros de auditoría');
         } finally {
@@ -163,8 +175,8 @@ export const AuditLogTable: React.FC = () => {
                                         </td>
                                         <td className="p-4">
                                             <span className={`px-2 py-1 rounded-lg text-xs font-bold ${log.accion.includes('DELETE') || log.accion.includes('VOID') ? 'bg-red-100 text-red-700' :
-                                                    log.accion.includes('UPDATE') ? 'bg-amber-100 text-amber-700' :
-                                                        'bg-blue-100 text-blue-700'
+                                                log.accion.includes('UPDATE') ? 'bg-amber-100 text-amber-700' :
+                                                    'bg-blue-100 text-blue-700'
                                                 }`}>
                                                 {log.accion}
                                             </span>
