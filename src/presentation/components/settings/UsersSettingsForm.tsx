@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Save, Loader2, Info, X } from 'lucide-react';
-import { createUser, updateUser } from '../../../actions/users';
+import { createUserSecure, updateUserSecure } from '../../../actions/users-v2';
 import { toast } from 'sonner';
 import { Role, JobTitle, EmployeeProfile } from '../../../domain/types';
 import { formatRut } from '../../../lib/utils';
@@ -44,16 +44,20 @@ export const UsersSettingsForm: React.FC<UsersSettingsFormProps> = ({ initialDat
 
         let result;
         if (initialData?.id) {
-            // Update
-            result = await updateUser(initialData.id, {
-                ...formData,
-                status: initialData.status
+            // V2: Update con userId + data (access_pin se cambia por separado con resetPinSecure)
+            result = await updateUserSecure({
+                userId: initialData.id,
+                name: formData.name,
+                job_title: formData.job_title
             });
         } else {
-            // Create
-            result = await createUser({
-                ...formData,
-                status: 'ACTIVE',
+            // V2: Create
+            result = await createUserSecure({
+                name: formData.name,
+                rut: formData.rut,
+                role: formData.role as 'MANAGER' | 'ADMIN' | 'QF' | 'CASHIER' | 'GERENTE_GENERAL' | 'DRIVER',
+                job_title: formData.job_title,
+                access_pin: formData.access_pin
             });
         }
 
