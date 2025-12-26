@@ -34,7 +34,7 @@ const DateRangeSchema = z.object({
 // TYPES
 // ============================================================================
 
-interface CashFlowEntry {
+export interface CashFlowEntry {
     id: string;
     timestamp: number;
     description: string;
@@ -42,6 +42,41 @@ interface CashFlowEntry {
     amount_in: number;
     amount_out: number;
     user_name?: string;
+}
+
+export interface TaxSummary {
+    period: string;
+    total_net_sales: number;
+    total_vat_debit: number;
+    total_net_purchases: number;
+    total_vat_credit: number;
+    estimated_tax_payment: number;
+}
+
+export interface InventoryValuation {
+    warehouse_id: string;
+    total_items: number;
+    total_cost_value: number;
+    total_sales_value: number;
+    potential_gross_margin: number;
+    top_products: { name: string; sku?: string; quantity: number; cost_value: number; sales_value: number }[];
+}
+
+export interface PayrollPreview {
+    employee_id: string;
+    rut: string;
+    name: string;
+    job_title: string;
+    base_salary: number;
+    deductions: { afp: number; health: number; tax: number };
+    bonuses: number;
+    total_liquid: number;
+}
+
+export interface LogisticsKPIs {
+    total_in: number;
+    total_out: number;
+    last_movement?: string;
 }
 
 // ============================================================================
