@@ -1,12 +1,13 @@
 
 import React from 'react';
-import { getLocations } from '@/actions/locations';
+// V2: Funciones seguras
+import { getLocationsSecure } from '@/actions/locations-v2';
 import AnalyticsDashboard from '@/presentation/components/analytics/AnalyticsDashboard';
 
 import { SyncStatusBadge } from '@/presentation/components/ui/SyncStatusBadge';
 
 export default async function AnalyticsPage() {
-    const locationsRes = await getLocations();
+    const locationsRes = await getLocationsSecure();
     const locations = locationsRes.success && locationsRes.data ? locationsRes.data.filter((l: any) => l.type === 'STORE' || l.type === 'HQ') : [];
 
     return (

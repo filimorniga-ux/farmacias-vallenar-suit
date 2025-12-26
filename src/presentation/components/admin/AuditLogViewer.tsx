@@ -16,14 +16,31 @@ import {
     ChevronLeft, ChevronRight, Download, Filter, X,
     AlertCircle, Info, AlertOctagon, Eye
 } from 'lucide-react';
+// V2: Funciones seguras
 import {
-    getAuditLogs,
-    getAuditActionTypes,
-    getAuditStats,
-    exportAuditLogs,
-    type AuditLogEntry
-} from '@/actions/audit-dashboard';
+    getAuditLogsSecure,
+    getAuditActionTypesSecure,
+    getAuditStatsSecure,
+    exportAuditLogsSecure
+} from '@/actions/audit-dashboard-v2';
 import * as XLSX from 'xlsx';
+
+// Tipo local para logs de auditoría (compatible con V2)
+interface AuditLogEntry {
+    id: string;
+    timestamp: string;
+    userId: string;
+    userName: string;
+    userRole: string;
+    actionCode: string;
+    severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+    entityType: string;
+    entityId: string;
+    justification?: string | null;
+    locationName?: string | null;
+    oldValues?: Record<string, any> | null;
+    newValues?: Record<string, any> | null;
+}
 
 // =====================================================
 // CONSTANTES Y TIPOS
@@ -124,7 +141,7 @@ export function AuditLogViewer() {
         setLoading(true);
         setError(null);
 
-        const res = await getAuditLogs({
+        const res = await getAuditLogsSecure({
             page,
             limit,
             searchTerm: searchTerm || undefined,
@@ -151,10 +168,10 @@ export function AuditLogViewer() {
 
     useEffect(() => {
         // Cargar tipos de acción y estadísticas
-        getAuditActionTypes().then(res => {
+        getAuditActionTypesSecure().then((res: any) => {
             if (res.success && res.data) setActionTypes(res.data);
         });
-        getAuditStats().then(res => {
+        getAuditStatsSecure().then((res: any) => {
             if (res.success && res.data) setStats(res.data);
         });
     }, []);
@@ -167,7 +184,7 @@ export function AuditLogViewer() {
     // Exportar a Excel
     const handleExport = async () => {
         setExporting(true);
-        const res = await exportAuditLogs({
+        const res = await exportAuditLogsSecure({
             startDate: startDate || undefined,
             endDate: endDate || undefined,
             actionCode: actionFilter || undefined,
