@@ -1112,8 +1112,5 @@ export async function getShiftMetricsSecure(
     }
 }
 
-// ============================================================================
-// EXPORTS
-// ============================================================================
-
-export { ADJUSTMENT_THRESHOLDS };
+// NOTE: ADJUSTMENT_THRESHOLDS es constante interna
+// Next.js 16 use server solo permite async functions

@@ -672,7 +672,4 @@ export async function quickHandoverSecure(params: {
 }
 
 // =====================================================
-// EXPORTS
-// =====================================================
-
-export { BASE_CASH };
+// NOTE: BASE_CASH es constante interna - Next.js 16 use server solo permite async functions

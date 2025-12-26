@@ -13,14 +13,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { usePharmaStore } from '@/presentation/store/useStore';
-// V2: Todas las funciones ahora de treasury-v2 (seguras)
+// V2: Funciones seguras de treasury-v2
 import {
     transferFundsSecure,
     confirmRemittanceSecure,
     getFinancialAccountsSecure,
     getTreasuryTransactionsSecure,
     getPendingRemittancesSecure,
-    AUTHORIZATION_THRESHOLDS
 } from '@/actions/treasury-v2';
 // Types solo de treasury legacy
 import type { FinancialAccount, TreasuryTransaction, Remittance } from '@/actions/treasury';
@@ -32,6 +31,13 @@ import {
 } from 'lucide-react';
 import { TreasuryHistoryTab } from '@/presentation/components/treasury/TreasuryHistoryTab';
 import { PinAuthorizationModal } from '@/presentation/components/security/PinAuthorizationModal';
+
+// Constante local (no se puede importar de use server)
+const AUTHORIZATION_THRESHOLDS = {
+    TRANSFER: 500000,
+    DEPOSIT: 1000000,
+    WITHDRAWAL: 100000,
+} as const;
 
 
 export default function TreasuryPage() {

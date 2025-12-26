@@ -829,8 +829,5 @@ export async function getActiveSessionsSecure(): Promise<{
     }
 }
 
-// ============================================================================
-// EXPORTS
-// ============================================================================
-
-export { LOCK_THRESHOLDS, SECURITY_ACTIONS };
+// NOTE: LOCK_THRESHOLDS, SECURITY_ACTIONS son constantes internas
+// Next.js 16 use server solo permite async functions
