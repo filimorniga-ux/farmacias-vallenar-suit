@@ -948,11 +948,5 @@ export async function getRecentMovementsSecure(
     }
 }
 
-// =====================================================
-// EXPORTS
-// =====================================================
-
-export {
-    AUTHORIZATION_THRESHOLDS,
-    AUTHORIZED_ROLES
-};
+// NOTE: AUTHORIZATION_THRESHOLDS y AUTHORIZED_ROLES no se exportan
+// porque Next.js 16 "use server" solo permite exportar async functions
