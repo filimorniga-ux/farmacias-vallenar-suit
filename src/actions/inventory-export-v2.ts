@@ -350,3 +350,99 @@ export async function exportKardexSecure(
         return { success: false, error: 'Error exportando kardex' };
     }
 }
+
+// ============================================================================
+// EXPORT PURCHASE ORDERS
+// ============================================================================
+
+/**
+ * 🛒 Exportar Pedidos a Proveedor (MANAGER+)
+ */
+export async function exportPurchaseOrdersSecure(
+    params: z.infer<typeof ExportParamsSchema>
+): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
+    const session = await getSession();
+    if (!session) {
+        return { success: false, error: 'No autenticado' };
+    }
+
+    if (!MANAGER_ROLES.includes(session.role)) {
+        return { success: false, error: 'Solo managers pueden exportar pedidos' };
+    }
+
+    const validated = ExportParamsSchema.safeParse(params);
+    if (!validated.success) {
+        return { success: false, error: validated.error.issues[0]?.message };
+    }
+
+    const { startDate, endDate, limit } = validated.data;
+
+    // Forzar ubicación para no-admin
+    let locationId = params.locationId;
+    if (!ADMIN_ROLES.includes(session.role) && session.locationId) {
+        locationId = session.locationId;
+    }
+
+    try {
+        const sqlParams: any[] = [startDate, endDate];
+        let whereClause = 'WHERE po.created_at >= $1::timestamp AND po.created_at <= $2::timestamp';
+
+        if (locationId) {
+            whereClause += ` AND po.destination_location_id = $3::uuid`;
+            sqlParams.push(locationId);
+        }
+
+        const sql = `
+            SELECT 
+                po.id, po.supplier_id, po.status, po.total_estimated,
+                po.created_at, po.destination_location_id, l.name as location_name
+            FROM purchase_orders po
+            LEFT JOIN locations l ON po.destination_location_id::text = l.id::text
+            ${whereClause}
+            ORDER BY po.created_at DESC
+            LIMIT $${sqlParams.length + 1}
+        `;
+        sqlParams.push(limit);
+
+        const res = await query(sql, sqlParams);
+
+        const data = res.rows.map((row: any) => ({
+            id: row.id,
+            date: new Date(row.created_at).toLocaleDateString('es-CL'),
+            supplier: row.supplier_id,
+            status: row.status,
+            total: Number(row.total_estimated),
+            destination: row.location_name || row.destination_location_id,
+        }));
+
+        const excel = new ExcelService();
+        const buffer = await excel.generateReport({
+            title: 'Reporte de Pedidos a Proveedor',
+            subtitle: `Período: ${new Date(startDate).toLocaleDateString()} - ${new Date(endDate).toLocaleDateString()}`,
+            sheetName: 'Pedidos',
+            creator: session.userName,
+            columns: [
+                { header: 'ID Pedido', key: 'id', width: 20 },
+                { header: 'Fecha', key: 'date', width: 12 },
+                { header: 'Proveedor', key: 'supplier', width: 25 },
+                { header: 'Estado', key: 'status', width: 15 },
+                { header: 'Destino', key: 'destination', width: 20 },
+                { header: 'Monto Estimado', key: 'total', width: 15, style: { numFmt: '"$"#,##0' } },
+            ],
+            data,
+        });
+
+        await auditExport(session.userId, 'PURCHASE_ORDERS', { startDate, endDate, locationId, rows: res.rowCount });
+
+        logger.info({ userId: session.userId, rows: res.rowCount }, '🛒 [Export] Purchase orders exported');
+        return {
+            success: true,
+            data: buffer.toString('base64'),
+            filename: `Pedidos_${startDate.split('T')[0]}.xlsx`,
+        };
+
+    } catch (error: any) {
+        logger.error({ error }, '[Export] Purchase orders error');
+        return { success: false, error: 'Error exportando pedidos' };
+    }
+}

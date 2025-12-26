@@ -13,22 +13,20 @@
 
 import React, { useState, useEffect } from 'react';
 import { usePharmaStore } from '@/presentation/store/useStore';
-import { 
-    getFinancialAccounts, 
-    getTreasuryTransactions, 
-    getPendingRemittances, 
-    FinancialAccount, 
-    TreasuryTransaction, 
-    Remittance 
-} from '@/actions/treasury';
-import { 
-    transferFundsSecure, 
+// V2: Todas las funciones ahora de treasury-v2 (seguras)
+import {
+    transferFundsSecure,
     confirmRemittanceSecure,
-    AUTHORIZATION_THRESHOLDS 
+    getFinancialAccountsSecure,
+    getTreasuryTransactionsSecure,
+    getPendingRemittancesSecure,
+    AUTHORIZATION_THRESHOLDS
 } from '@/actions/treasury-v2';
+// Types solo de treasury legacy
+import type { FinancialAccount, TreasuryTransaction, Remittance } from '@/actions/treasury';
 import { toast } from 'sonner';
-import { 
-    Landmark, Briefcase, DollarSign, ArrowRight, ArrowUpRight, 
+import {
+    Landmark, Briefcase, DollarSign, ArrowRight, ArrowUpRight,
     History, CheckCircle, Package, LayoutDashboard, FileText,
     ShieldCheck, AlertTriangle
 } from 'lucide-react';
@@ -73,21 +71,21 @@ export default function TreasuryPage() {
 
         setLoading(true);
         try {
-            // 1. Get Accounts
-            const accRes = await getFinancialAccounts(user.assigned_location_id);
+            // V2: getFinancialAccountsSecure
+            const accRes = await getFinancialAccountsSecure(user.assigned_location_id);
             if (accRes.success && accRes.data) {
                 setAccounts(accRes.data);
 
                 // Select Safe by default
-                const safe = accRes.data.find(a => a.type === 'SAFE');
+                const safe = accRes.data.find((a: FinancialAccount) => a.type === 'SAFE');
                 if (safe) {
                     setSelectedAccount(safe);
                     fetchTransactions(safe.id);
                 }
             }
 
-            // 2. Get Pending Remittances
-            const remRes = await getPendingRemittances(user.assigned_location_id);
+            // V2: getPendingRemittancesSecure
+            const remRes = await getPendingRemittancesSecure(user.assigned_location_id);
             if (remRes.success && remRes.data) setRemittances(remRes.data);
 
         } catch (error) {
@@ -99,7 +97,8 @@ export default function TreasuryPage() {
     };
 
     const fetchTransactions = async (accountId: string) => {
-        const txRes = await getTreasuryTransactions(accountId);
+        // V2: getTreasuryTransactionsSecure
+        const txRes = await getTreasuryTransactionsSecure(accountId);
         if (txRes.success && txRes.data) setTransactions(txRes.data);
     };
 
@@ -112,7 +111,7 @@ export default function TreasuryPage() {
     // =====================================================
     const handleTransfer = async (authorizationPin?: string) => {
         if (!selectedAccount || selectedAccount.type !== 'SAFE') return;
-        
+
         const amount = Number(transferAmount);
         if (!transferAmount || isNaN(amount) || amount <= 0) {
             toast.error('Monto inválido');
@@ -125,7 +124,7 @@ export default function TreasuryPage() {
 
         // Check if authorization is required
         const requiresAuth = amount > AUTHORIZATION_THRESHOLDS.TRANSFER;
-        
+
         if (requiresAuth && !authorizationPin) {
             // Open PIN modal
             const targetAccount = accounts.find(a => a.id === targetAccountId);
@@ -300,7 +299,7 @@ export default function TreasuryPage() {
                     className={`flex items-center gap-2 px-4 py-2 font-bold text-sm rounded-t-lg border-b-2 transition-colors ${activeTab === 'SUMMARY'
                         ? 'border-slate-900 text-slate-900 bg-slate-50'
                         : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-gray-50'
-                    }`}
+                        }`}
                 >
                     <LayoutDashboard size={16} /> Resumen
                 </button>
@@ -309,7 +308,7 @@ export default function TreasuryPage() {
                     className={`flex items-center gap-2 px-4 py-2 font-bold text-sm rounded-t-lg border-b-2 transition-colors ${activeTab === 'HISTORY'
                         ? 'border-slate-900 text-slate-900 bg-slate-50'
                         : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-gray-50'
-                    }`}
+                        }`}
                 >
                     <FileText size={16} /> Historial de Rendiciones
                 </button>
@@ -439,12 +438,12 @@ export default function TreasuryPage() {
                                                 </td>
                                                 <td className="px-6 py-4 text-center">
                                                     <span className={`px-2 py-1 rounded-full text-xs font-bold ${tx.type === 'IN' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
-                                                    }`}>
+                                                        }`}>
                                                         {tx.type === 'IN' ? 'INGRESO' : 'EGRESO'}
                                                     </span>
                                                 </td>
                                                 <td className={`px-6 py-4 text-right font-mono font-bold ${tx.type === 'IN' ? 'text-emerald-600' : 'text-slate-800'
-                                                }`}>
+                                                    }`}>
                                                     {tx.type === 'IN' ? '+' : '-'}${Number(tx.amount).toLocaleString('es-CL')}
                                                 </td>
                                             </tr>

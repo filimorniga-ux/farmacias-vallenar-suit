@@ -82,6 +82,9 @@ const ERROR_MESSAGES = {
 // Roles que pueden autorizar operaciones financieras sensibles
 const AUTHORIZED_ROLES = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'TESORERO'] as const;
 
+// Roles con acceso a todas las ubicaciones
+const MANAGER_ROLES = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'QF'] as const;
+
 // Montos que requieren autorización de gerente
 const AUTHORIZATION_THRESHOLDS = {
     TRANSFER: 500000,      // Transferencias > $500,000
@@ -92,6 +95,36 @@ const AUTHORIZATION_THRESHOLDS = {
 // =====================================================
 // HELPERS
 // =====================================================
+
+/**
+ * Helper para obtener sesión del usuario actual
+ * @returns Datos de sesión o null si no autenticado
+ */
+async function getSession(): Promise<{ userId: string; role: string; locationId?: string } | null> {
+    try {
+        // Importación dinámica para evitar problemas de ciclos
+        const { cookies } = await import('next/headers');
+        const cookieStore = await cookies();
+        const sessionToken = cookieStore.get('session_token')?.value;
+
+        if (!sessionToken) return null;
+
+        // Buscar sesión activa en DB
+        const res = await query(
+            `SELECT u.id as "userId", u.role, u.assigned_location_id as "locationId"
+             FROM sessions s
+             JOIN users u ON s.user_id = u.id
+             WHERE s.token = $1 AND s.expires_at > NOW()`,
+            [sessionToken]
+        );
+
+        if (res.rows.length === 0) return null;
+        return res.rows[0];
+    } catch (error) {
+        logger.error({ error }, '[Treasury] getSession error');
+        return null;
+    }
+}
 
 /**
  * Valida PIN de un usuario autorizado usando bcrypt
@@ -1009,6 +1042,122 @@ export async function getRemittanceHistorySecure(
     } catch (error: any) {
         logger.error({ error }, '[Treasury] getRemittanceHistorySecure error');
         return { success: false, error: 'Error obteniendo historial de remesas' };
+    }
+}
+
+// =====================================================
+// CONSULTAS SEGURAS ADICIONALES
+// =====================================================
+
+/**
+ * 💰 Obtiene cuentas financieras de una sucursal con RBAC
+ */
+export async function getFinancialAccountsSecure(
+    locationId: string
+): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    try {
+        // Validación de sesión
+        const session = await getSession();
+        if (!session) {
+            return { success: false, error: 'No autorizado' };
+        }
+
+        // RBAC: Solo gerentes pueden ver todas las ubicaciones
+        // Cajeros/vendedores solo ven su ubicación
+        const effectiveLocationId = MANAGER_ROLES.includes(session.role as any)
+            ? locationId
+            : session.locationId || locationId;
+
+        const res = await query(
+            `SELECT id, location_id, name, type, balance, is_active 
+             FROM financial_accounts 
+             WHERE (location_id = $1 OR location_id IS NULL) 
+             ORDER BY type DESC`,
+            [effectiveLocationId]
+        );
+
+        logger.info({ locationId: effectiveLocationId, count: res.rows.length }, '[Treasury] getFinancialAccountsSecure');
+        return { success: true, data: res.rows };
+
+    } catch (error) {
+        logger.error({ error }, '[Treasury] getFinancialAccountsSecure error');
+        return { success: false, error: 'Error obteniendo cuentas financieras' };
+    }
+}
+
+/**
+ * 📋 Obtiene transacciones de una cuenta con RBAC
+ */
+export async function getTreasuryTransactionsSecure(
+    accountId: string,
+    limit: number = 50
+): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    try {
+        // Validación de sesión
+        const session = await getSession();
+        if (!session) {
+            return { success: false, error: 'No autorizado' };
+        }
+
+        // Validar UUID
+        const uuidParse = UUIDSchema.safeParse(accountId);
+        if (!uuidParse.success) {
+            return { success: false, error: 'ID de cuenta inválido' };
+        }
+
+        // Limitar a máximo 200
+        const safeLimit = Math.min(Math.max(limit, 1), 200);
+
+        const res = await query(
+            `SELECT id, account_id, amount, type, description, created_at, created_by
+             FROM treasury_transactions 
+             WHERE account_id = $1 
+             ORDER BY created_at DESC 
+             LIMIT $2`,
+            [accountId, safeLimit]
+        );
+
+        logger.info({ accountId, count: res.rows.length }, '[Treasury] getTreasuryTransactionsSecure');
+        return { success: true, data: res.rows };
+
+    } catch (error) {
+        logger.error({ error }, '[Treasury] getTreasuryTransactionsSecure error');
+        return { success: false, error: 'Error obteniendo transacciones' };
+    }
+}
+
+/**
+ * 📦 Obtiene remesas pendientes de una sucursal con RBAC
+ */
+export async function getPendingRemittancesSecure(
+    locationId: string
+): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    try {
+        // Validación de sesión
+        const session = await getSession();
+        if (!session) {
+            return { success: false, error: 'No autorizado' };
+        }
+
+        // RBAC: Solo gerentes pueden ver todas las ubicaciones
+        const effectiveLocationId = MANAGER_ROLES.includes(session.role as any)
+            ? locationId
+            : session.locationId || locationId;
+
+        const res = await query(
+            `SELECT id, location_id, source_terminal_id, amount, status, created_at, created_by
+             FROM treasury_remittances 
+             WHERE location_id = $1 AND status = 'PENDING_RECEIPT' 
+             ORDER BY created_at ASC`,
+            [effectiveLocationId]
+        );
+
+        logger.info({ locationId: effectiveLocationId, count: res.rows.length }, '[Treasury] getPendingRemittancesSecure');
+        return { success: true, data: res.rows };
+
+    } catch (error) {
+        logger.error({ error }, '[Treasury] getPendingRemittancesSecure error');
+        return { success: false, error: 'Error obteniendo remesas pendientes' };
     }
 }
 
