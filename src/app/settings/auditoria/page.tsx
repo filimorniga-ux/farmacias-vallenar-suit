@@ -18,8 +18,8 @@ import { query } from '@/lib/db'; // We can't use this in client component direc
 // Let's create `src/actions/audit.ts` first? Or just put it here if I can.
 // I'll create a separate action file for cleanliness.
 
-// Import server action
-import { getAuditLogs } from '../../../actions/audit';
+// V2: Import server action
+import { getAuditLogsSecure } from '../../../actions/audit-dashboard-v2';
 
 export default function AuditoriaPage() {
     const [logs, setLogs] = useState<any[]>([]);
@@ -33,8 +33,11 @@ export default function AuditoriaPage() {
     const loadLogs = async () => {
         setLoading(true);
         try {
-            const data = await getAuditLogs();
-            setLogs(data);
+            // V2: getAuditLogsSecure retorna { success, data, error }
+            const result = await getAuditLogsSecure({ page: 1, limit: 100 });
+            if (result.success && result.data) {
+                setLogs(result.data || []);
+            }
         } catch (error) {
             console.error('Error loading logs:', error);
         } finally {

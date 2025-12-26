@@ -1,11 +1,14 @@
-import { getShiftStatus } from '@/actions/operations';
+// V2: Funciones seguras
+import { getShiftStatusSecure } from '@/actions/operations-v2';
 import { MapPin, Clock, Phone } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60; // Revalidate every minute
 
 export default async function PantallaPage() {
-    const isShiftOpen = await getShiftStatus();
+    // V2: getShiftStatusSecure requiere locationId, usa isOpen
+    const result = await getShiftStatusSecure('default');
+    const isShiftOpen = result.success && result.isOpen;
 
     return (
         <div className="min-h-screen bg-slate-900 text-white flex flex-col">

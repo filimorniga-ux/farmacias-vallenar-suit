@@ -4,7 +4,8 @@ import { EmployeeProfile, AttendanceLog, AttendanceStatus } from '../../../domai
 import { Clock, Calendar, Search, FileText, Download, AlertCircle, CheckCircle, Coffee, ArrowRight, Edit, Eye } from 'lucide-react';
 import { toast } from 'sonner';
 import { PrinterService } from '../../../infrastructure/services/PrinterService';
-import { exportAttendanceReport } from '@/actions/attendance-export';
+// V2: Funciones seguras
+import { exportAttendanceSecure } from '@/actions/finance-export-v2';
 
 interface AttendanceManagerProps {
     viewMode?: 'LIVE' | 'HISTORY';
@@ -94,13 +95,11 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ viewMode = 'LIVE'
         }
 
         const toastId = toast.loading('Generando Excel...');
-        const result = await exportAttendanceReport({
-            startDate: startDate.toISOString(),
-            endDate: new Date().toISOString(),
-            userRole: user?.role || 'MANAGER',
-            locationName: 'Sucursal Actual', // Context
-            creatorName: user?.name,
-            locationId: undefined // Can pass if available in store
+        // V2: exportAttendanceSecure
+        const result = await exportAttendanceSecure({
+            startDate: startDate.toISOString().split('T')[0],
+            endDate: new Date().toISOString().split('T')[0],
+            locationId: undefined
         });
 
         if (result.success && result.data) {

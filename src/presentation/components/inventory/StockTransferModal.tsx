@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeftRight, Package, Truck, AlertTriangle, Box } from 'lucide-react';
 import { usePharmaStore } from '../../store/useStore';
-import { getWarehouses } from '@/actions/inventory-export';
+// V2: Funciones seguras
+import { getWarehousesSecure } from '@/actions/locations-v2';
 import { InventoryBatch } from '@/domain/types';
 import { toast } from 'sonner';
 
@@ -38,9 +39,12 @@ const StockTransferModal: React.FC<StockTransferModalProps> = ({ isOpen, onClose
             // `executeTransfer` is atomic/instant. Best for Intra-Branch.
             // So we fetch warehouses for `currentLocationId`.
             if (currentLocationId) {
-                getWarehouses(currentLocationId).then(whs => {
-                    // Exclude current origin warehouse
-                    setTargetWarehouses(whs.filter(w => w.id !== currentWarehouseId));
+                // V2: getWarehousesSecure
+                getWarehousesSecure().then((res) => {
+                    if (res.success && res.data) {
+                        // Exclude current origin warehouse
+                        setTargetWarehouses(res.data.filter((w: any) => w.id !== currentWarehouseId));
+                    }
                 });
             }
         }
