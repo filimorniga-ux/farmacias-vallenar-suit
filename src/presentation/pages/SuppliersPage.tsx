@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 import AddSupplierModal from '../components/suppliers/AddSupplierModal';
 import { toast } from 'sonner';
 import { AdvancedExportModal } from '../components/common/AdvancedExportModal';
-import { generateSupplierReport } from '../../actions/supplier-export';
+import { generateSupplierReportSecure } from '../../actions/supplier-export-v2';
 import { Supplier } from '../../domain/types';
 
 export const SuppliersPage = () => {
@@ -28,11 +28,16 @@ export const SuppliersPage = () => {
     const handleExport = async (startDate: Date, endDate: Date, selectedIds?: string[]) => {
         setIsExporting(true);
         try {
-            const result = await generateSupplierReport(startDate, endDate, selectedIds);
-            if (result.success && result.base64) {
+            // V2: Nuevo formato de parámetros
+            const result = await generateSupplierReportSecure({
+                startDate: startDate.toISOString(),
+                endDate: endDate.toISOString(),
+                supplierIds: selectedIds
+            });
+            if (result.success && result.data) {
                 const link = document.createElement('a');
-                link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${result.base64}`;
-                link.download = `Reporte_Proveedores_${startDate.toISOString().split('T')[0]}_${endDate.toISOString().split('T')[0]}.xlsx`;
+                link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${result.data}`;
+                link.download = result.filename || `Reporte_Proveedores_${startDate.toISOString().split('T')[0]}_${endDate.toISOString().split('T')[0]}.xlsx`;
                 link.click();
                 toast.success('Reporte descargado exitosamente');
                 setIsExportModalOpen(false);
