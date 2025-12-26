@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { getRemittanceHistory, RemittanceHistoryItem } from '@/actions/treasury';
-import { exportFinanceReport } from '@/actions/finance-export';
+// V2: Funciones seguras con RBAC y auditoría
+import { getRemittanceHistorySecure, RemittanceHistoryItem } from '@/actions/treasury-v2';
+import { exportCashFlowSecure } from '@/actions/finance-export-v2';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { Download, RefreshCw, Filter, Calendar, Search } from 'lucide-react';
 import { toast } from 'sonner';
@@ -18,14 +19,13 @@ export const TreasuryHistoryTab = () => {
     const fetchHistory = async () => {
         setLoading(true);
         try {
-            // If ALL, we pass undefined to fetch all (if backend supports it) or iterate?
-            // Backend supports optional locationId.
+            // V2: getRemittanceHistorySecure con parámetros opcionales
             const locId = selectedLocation === 'ALL' ? undefined : selectedLocation;
-            const res = await getRemittanceHistory(locId);
+            const res = await getRemittanceHistorySecure({ locationId: locId });
             if (res.success && res.data) {
                 setHistory(res.data);
             } else {
-                toast.error('Error cargando historial');
+                toast.error(res.error || 'Error cargando historial');
             }
         } catch (error) {
             console.error(error);
@@ -42,23 +42,22 @@ export const TreasuryHistoryTab = () => {
     const handleExport = async () => {
         setExporting(true);
         try {
-            const res = await exportFinanceReport({
-                type: 'TREASURY_HISTORY',
-                startDate: new Date().toISOString(), // Required param but unused for this specific report query (fetched via limit currently)
-                endDate: new Date().toISOString(),
-                locationId: selectedLocation === 'ALL' ? undefined : selectedLocation,
-                userName: user?.name || 'Usuario',
-                locationName: locations.find(l => l.id === selectedLocation)?.name || 'Todas'
+            // V2: exportCashFlowSecure
+            const today = new Date().toISOString().split('T')[0];
+            const res = await exportCashFlowSecure({
+                startDate: today,
+                endDate: today,
+                locationId: selectedLocation === 'ALL' ? undefined : selectedLocation
             });
 
-            if (res.success && res.fileData) {
+            if (res.success && res.data) {
                 const link = document.createElement('a');
-                link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${res.fileData}`;
-                link.download = res.fileName || 'Reporte_Tesoreria.xlsx';
+                link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${res.data}`;
+                link.download = res.filename || 'Reporte_Tesoreria.xlsx';
                 link.click();
                 toast.success('Reporte descargado correctamente');
             } else {
-                toast.error('Error generando reporte');
+                toast.error(res.error || 'Error generando reporte');
             }
         } catch (error) {
             console.error(error);
