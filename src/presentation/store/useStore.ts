@@ -650,7 +650,7 @@ export const usePharmaStore = create<PharmaState>()(
             },
             updateSupplier: async (id, supplierData) => {
                 const { updateSupplierSecure } = await import('../../actions/suppliers-v2');
-                const result = await updateSupplierSecure(id, supplierData);
+                const result = await updateSupplierSecure({ supplierId: id, ...supplierData, userId: id });
                 if (result.success) {
                     set((state) => ({
                         suppliers: state.suppliers.map(s => s.id === id ? { ...s, ...supplierData } : s)

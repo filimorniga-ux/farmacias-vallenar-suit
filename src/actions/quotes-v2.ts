@@ -992,48 +992,6 @@ export async function getQuoteHistory(
     }
 }
 
-/**
- * 🔍 Retrieve Single Quote
- */
-export async function retrieveQuoteSecure(
-    quoteId: string
-): Promise<{ success: boolean; data?: any; error?: string }> {
-    if (!UUIDSchema.safeParse(quoteId).success) {
-        return { success: false, error: 'ID inválido' };
-    }
-
-    try {
-        const { query } = await import('@/lib/db');
-
-        // Fetch quote with items
-        const quoteRes = await query(`
-            SELECT 
-                q.*,
-                u.name as created_by_name,
-                c.name as customer_display_name,
-                (
-                    SELECT json_agg(qi.*)
-                    FROM quote_items qi
-                    WHERE qi.quote_id = q.id
-                ) as items
-            FROM quotes q
-            LEFT JOIN users u ON q.created_by = u.id
-            LEFT JOIN customers c ON q.customer_id = c.id
-            WHERE q.id = $1
-        `, [quoteId]);
-
-        if (quoteRes.rowCount === 0) {
-            return { success: false, error: 'Cotización no encontrada' };
-        }
-
-        return { success: true, data: quoteRes.rows[0] };
-
-    } catch (error: any) {
-        logger.error({ error }, '[Quotes] Retrieve quote error');
-        return { success: false, error: 'Error obteniendo cotización' };
-    }
-}
-
 // NOTE: DISCOUNT_THRESHOLDS es constante interna
 // Next.js 16 use server solo permite async functions
 
