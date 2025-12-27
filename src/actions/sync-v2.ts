@@ -249,6 +249,56 @@ export async function fetchEmployeesSecure(
 }
 
 // ============================================================================
+// LOGIN HELPERS
+// ============================================================================
+
+/**
+ * 🔓 Get Users For Login (Public)
+ * - Permite cargar usuarios para la pantalla de login sin sesión activa
+ * - Retorna solo datos básicos necesarios para la UI de selección
+ */
+export async function getUsersForLoginSecure(): Promise<{ success: boolean; data?: SafeEmployeeProfile[]; error?: string }> {
+    try {
+        // No checks de sesión aquí - es público para el login
+
+        const sql = `
+            SELECT 
+                id, rut, name, role, 
+                assigned_location_id, status, job_title, is_active
+            FROM users 
+            WHERE is_active = true
+            ORDER BY 
+                CASE WHEN role = 'ADMIN' THEN 1 
+                     WHEN role = 'GERENTE_GENERAL' THEN 2
+                     WHEN role = 'MANAGER' THEN 3 
+                     ELSE 4 END,
+                name ASC
+        `;
+
+        const res = await query(sql);
+
+        // Sin auditoría de usuario porque no hay sesión aún
+
+        const data: SafeEmployeeProfile[] = res.rows.map((row: any) => ({
+            id: row.id.toString(),
+            rut: row.rut || '',
+            name: row.name || '',
+            role: row.role || 'STAFF',
+            assigned_location_id: row.assigned_location_id?.toString(),
+            status: row.status || 'ACTIVE',
+            job_title: row.job_title || 'EMPLEADO',
+            is_active: row.is_active !== false,
+        }));
+
+        return { success: true, data };
+
+    } catch (error: any) {
+        logger.error({ error }, '[Sync] Get Users For Login error');
+        return { success: false, error: 'Error obteniendo usuarios' };
+    }
+}
+
+// ============================================================================
 // PROVEEDORES
 // ============================================================================
 

@@ -21,8 +21,8 @@ import {
     getTreasuryTransactionsSecure,
     getPendingRemittancesSecure,
 } from '@/actions/treasury-v2';
-// Types solo de treasury legacy
-import type { FinancialAccount, TreasuryTransaction, Remittance } from '@/actions/treasury';
+// Types de treasury-v2 (ahora exportados)
+import type { FinancialAccount, TreasuryTransaction, Remittance } from '@/actions/treasury-v2';
 import { toast } from 'sonner';
 import {
     Landmark, Briefcase, DollarSign, ArrowRight, ArrowUpRight,

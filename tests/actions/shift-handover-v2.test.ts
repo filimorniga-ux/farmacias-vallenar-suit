@@ -67,8 +67,10 @@ import {
     calculateHandoverSecure,
     executeHandoverSecure,
     quickHandoverSecure,
-    BASE_CASH
 } from '@/actions/shift-handover-v2';
+
+// Hardcoded constant (cannot export from 'use server' files)
+const BASE_CASH = 50000;
 
 // =====================================================
 // TEST DATA

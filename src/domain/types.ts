@@ -160,7 +160,7 @@ export interface EmployeeProfile {
     rut: string;
     name: string;
     role: Role; // System Role (Permissions)
-    access_pin: string; // 4 dígitos
+    access_pin?: string; // 4 dígitos (Optional for Secure Mode)
     status: 'ACTIVE' | 'ON_LEAVE' | 'TERMINATED';
     base_location_id?: string; // Sucursal Base (Contractual)
     assigned_location_id?: string; // Dónde trabaja hoy (Operativo)
@@ -187,7 +187,7 @@ export interface EmployeeProfile {
 
     // Biometrics & Attendance
     biometric_credentials?: string[]; // WebAuthn Credential IDs
-    current_status: AttendanceStatus;
+    current_status?: AttendanceStatus;
 }
 
 export type AttendanceType = 'CHECK_IN' | 'CHECK_OUT' | 'BREAK_START' | 'BREAK_END' | 'PERMISSION_START' | 'PERMISSION_END' | 'MEDICAL_LEAVE' | 'EMERGENCY' | 'WORK_ACCIDENT';

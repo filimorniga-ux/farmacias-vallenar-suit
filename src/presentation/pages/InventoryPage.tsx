@@ -33,6 +33,7 @@ const InventoryPage: React.FC = () => {
     // Nuclear Delete State
     const [isNuclearModalOpen, setIsNuclearModalOpen] = useState(false);
     const [nuclearConfirmation, setNuclearConfirmation] = useState('');
+    const [nuclearPin, setNuclearPin] = useState('');
     const [isDeleting, setIsDeleting] = useState(false);
 
     const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -157,17 +158,23 @@ const InventoryPage: React.FC = () => {
 
         setIsDeleting(true);
         try {
-            const { clearLocationInventory } = await import('../../actions/inventory');
-            const result = await clearLocationInventory(activeLocation.id, user?.id || '');
+            const { clearLocationInventorySecure } = await import('../../actions/inventory-v2');
+            const result = await clearLocationInventorySecure({
+                locationId: activeLocation.id,
+                userId: user?.id || '',
+                adminPin: nuclearPin,
+                confirmationCode: 'ELIMINAR-TODO'
+            });
 
             if (result.success) {
-                toast.success(result.message);
+                toast.success(`Inventario borrado: ${result.deletedCount} items`);
                 setIsNuclearModalOpen(false);
                 setNuclearConfirmation('');
+                setNuclearPin('');
                 // Refresh
                 window.location.reload();
             } else {
-                toast.error(result.error);
+                toast.error(result.error || 'Error al eliminar');
             }
         } catch (error) {
             toast.error('Error crítico al eliminar.');
@@ -550,6 +557,20 @@ const InventoryPage: React.FC = () => {
                                         placeholder="BORRAR"
                                         value={nuclearConfirmation}
                                         onChange={(e) => setNuclearConfirmation(e.target.value)}
+                                    />
+                                </div>
+
+                                <div className="w-full mt-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 text-left">
+                                        PIN de Administrador:
+                                    </label>
+                                    <input
+                                        type="password"
+                                        className="w-full p-3 border-2 border-slate-200 rounded-xl focus:border-red-500 focus:outline-none font-bold text-center tracking-widest"
+                                        placeholder="••••"
+                                        value={nuclearPin}
+                                        onChange={(e) => setNuclearPin(e.target.value)}
+                                        maxLength={4}
                                     />
                                 </div>
 

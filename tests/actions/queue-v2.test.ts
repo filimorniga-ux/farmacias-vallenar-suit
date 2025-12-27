@@ -32,8 +32,12 @@ describe('Queue V2 - RUT Validation', () => {
             type: 'GENERAL'
         });
 
-        // Will succeed with proper DB mocking
-        expect(result.error).not.toContain('RUT');
+        // Will succeed with proper DB mocking - either success or error not about RUT
+        if (result.error) {
+            expect(result.error).not.toContain('RUT');
+        } else {
+            expect(result.success).toBe(true);
+        }
     });
 });
 

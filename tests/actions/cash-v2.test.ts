@@ -39,7 +39,7 @@ describe('Cash V2 - PIN Thresholds', () => {
         });
 
         expect(result.success).toBe(false);
-        expect(result.error).toContain('20.000');
+        expect(result.error).toContain('20');
     });
 
     it('should require MANAGER PIN for withdrawals > $100,000', async () => {

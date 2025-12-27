@@ -50,6 +50,13 @@ const CreateTerminalSchema = z.object({
     allowedUsers: z.array(UUIDSchema).optional(),
 });
 
+const UpdateTerminalSchema = z.object({
+    terminalId: UUIDSchema,
+    name: z.string().min(2).max(50).optional(),
+    allowedUsers: z.array(UUIDSchema).optional(),
+    isActive: z.boolean().optional(),
+});
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
@@ -419,6 +426,138 @@ export async function createTerminalSecure(
         client.release();
     }
 }
+
+// ============================================================================
+// UPDATE TERMINAL
+// ============================================================================
+
+/**
+ * 💻 Actualizar Terminal (ADMIN + PIN)
+ */
+export async function updateTerminalSecure(
+    data: z.infer<typeof UpdateTerminalSchema>,
+    adminPin: string
+): Promise<{ success: boolean; error?: string }> {
+    const validated = UpdateTerminalSchema.safeParse(data);
+    if (!validated.success) {
+        return { success: false, error: validated.error.issues[0]?.message };
+    }
+
+    const { terminalId, name, allowedUsers, isActive } = validated.data;
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        // Validar PIN ADMIN
+        const authResult = await validateAdminPin(client, adminPin);
+        if (!authResult.valid) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'PIN de administrador inválido' };
+        }
+
+        // Obtener valores anteriores
+        const prevRes = await client.query('SELECT * FROM terminals WHERE id = $1', [terminalId]);
+        if (prevRes.rowCount === 0) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'Terminal no encontrada' };
+        }
+        const prev = prevRes.rows[0];
+
+        // Actualizar
+        const updates: string[] = ['updated_at = NOW()'];
+        const params: any[] = [];
+        let idx = 1;
+
+        if (name) { updates.push(`name = $${idx++}`); params.push(name); }
+        if (allowedUsers !== undefined) { updates.push(`allowed_users = $${idx++}`); params.push(allowedUsers); }
+        if (isActive !== undefined) { updates.push(`is_active = $${idx++}`); params.push(isActive); }
+
+        params.push(terminalId);
+        await client.query(`UPDATE terminals SET ${updates.join(', ')} WHERE id = $${idx}`, params);
+
+        // Auditar
+        await client.query(`
+            INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, new_values, created_at)
+            VALUES ($1, 'TERMINAL_UPDATED', 'TERMINAL', $2, $3::jsonb, $4::jsonb, NOW())
+        `, [authResult.admin!.id, terminalId, JSON.stringify({
+            name: prev.name,
+            is_active: prev.is_active,
+        }), JSON.stringify({ name, is_active: isActive })]);
+
+        await client.query('COMMIT');
+
+        logger.info({ terminalId }, '💻 [Network] Terminal updated');
+        revalidatePath('/settings/organization');
+        return { success: true };
+
+    } catch (error: any) {
+        await client.query('ROLLBACK');
+        logger.error({ error }, '[Network] Update terminal error');
+        return { success: false, error: 'Error actualizando terminal' };
+    } finally {
+        client.release();
+    }
+}
+
+// ============================================================================
+// DELETE TERMINAL
+// ============================================================================
+
+/**
+ * 🗑️ Eliminar/Desactivar Terminal (ADMIN + PIN)
+ */
+export async function deleteTerminalSecure(
+    terminalId: string,
+    adminPin: string
+): Promise<{ success: boolean; error?: string }> {
+    if (!UUIDSchema.safeParse(terminalId).success) {
+        return { success: false, error: 'ID inválido' };
+    }
+
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        // Validar PIN ADMIN
+        const authResult = await validateAdminPin(client, adminPin);
+        if (!authResult.valid) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'PIN de administrador inválido' };
+        }
+
+        // Verificar si tiene sesiones
+        const sessionCheck = await client.query('SELECT id FROM cash_register_sessions WHERE terminal_id = $1 LIMIT 1', [terminalId]);
+        if ((sessionCheck.rowCount || 0) > 0) {
+            // Soft delete
+            await client.query('UPDATE terminals SET is_active = false, status = \'CLOSED\', updated_at = NOW() WHERE id = $1', [terminalId]);
+        } else {
+            // Hard delete
+            await client.query('DELETE FROM terminals WHERE id = $1', [terminalId]);
+        }
+
+        // Auditar
+        await client.query(`
+            INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, created_at)
+            VALUES ($1, 'TERMINAL_DELETED', 'TERMINAL', $2, NOW())
+        `, [authResult.admin!.id, terminalId]);
+
+        await client.query('COMMIT');
+
+        logger.info({ terminalId }, '🗑️ [Network] Terminal deleted');
+        revalidatePath('/settings/organization');
+        return { success: true };
+
+    } catch (error: any) {
+        await client.query('ROLLBACK');
+        logger.error({ error }, '[Network] Delete terminal error');
+        return { success: false, error: 'Error eliminando terminal' };
+    } finally {
+        client.release();
+    }
+}
+
 
 // ============================================================================
 // ASSIGN EMPLOYEE

@@ -178,7 +178,7 @@ const LandingPage: React.FC = () => {
                     <motion.div
                         whileHover={{ scale: 1.02, y: -5 }}
                         whileTap={{ scale: 0.98 }}
-                        onClick={() => navigate('/warehouse')}
+                        onClick={() => navigate('/logistica')}
                         className="cursor-pointer bg-gradient-to-br from-orange-500 to-amber-600 rounded-3xl p-8 relative overflow-hidden shadow-2xl shadow-orange-900/40 border border-white/10 group"
                     >
                         <div className="absolute top-0 right-0 p-4 opacity-10 bg-white blur-3xl w-32 h-32 rounded-full -mr-10 -mt-10" />
