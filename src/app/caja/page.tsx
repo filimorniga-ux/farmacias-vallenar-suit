@@ -10,7 +10,6 @@ import { useOfflineSales } from '@/lib/store/offlineSales';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { cn } from '@/lib/utils';
 import { SyncStatusBadge } from '@/presentation/components/ui/SyncStatusBadge';
-import { usePharmaStore } from '@/presentation/store/useStore';
 
 const MOCK_PRODUCTS: Product[] = [
     { id: 1, name: 'Paracetamol 500mg', price: 2990, stock: 100, requiresPrescription: false },
@@ -26,7 +25,6 @@ export default function CajaPage() {
     const [lastTicket, setLastTicket] = useState<DTE | null>(null);
     const [showTicketModal, setShowTicketModal] = useState(false);
     const [syncing, setSyncing] = useState(false);
-    const { user } = usePharmaStore();
 
     const { cart, addToCart, removeFromCart, updateQuantity, clearCart, getCartTotal } = useCartStore();
     const { pendingSales, addOfflineSale, clearOfflineSales } = useOfflineSales();
@@ -134,11 +132,7 @@ export default function CajaPage() {
                                 onClick={async () => {
                                     try {
                                         const { callNextTicketSecure } = await import('@/actions/operations-v2');
-                                        if (!user?.id) {
-                                            alert('Usuario no identificado');
-                                            return;
-                                        }
-                                        const res = await callNextTicketSecure(1, user.id); // Assuming counter 1 for now
+                                        const res = await callNextTicketSecure(1, 'SYSTEM'); // Counter 1, system user
                                         if (res.success && res.ticket) {
                                             alert(`Llamando a ticket: ${res.ticket.number}`);
                                             // Optional: Speak the number

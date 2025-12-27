@@ -29,7 +29,7 @@ export default function OrganizationManager() {
         try {
             const { getOrganizationStructureSecure } = await import('@/actions/network-v2');
             const res = await getOrganizationStructureSecure();
-            if (res.success && res.data) {
+            if (res.success && res.data?.locations) {
                 setLocations(res.data.locations);
             }
         } catch (error) {

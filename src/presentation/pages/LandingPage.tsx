@@ -7,9 +7,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { EmployeeProfile } from '../../domain/types';
 import PriceCheckerModal from '../components/public/PriceCheckerModal';
 
+import { getUsersForLogin } from '../actions/login';
+
 const LandingPage: React.FC = () => {
     const navigate = useNavigate();
     const { login, employees } = usePharmaStore();
+    const [localEmployees, setLocalEmployees] = useState<EmployeeProfile[]>([]);
 
     // Context State
     const [context, setContext] = useState<{ id: string, name: string, type: string } | null>(null);
@@ -45,6 +48,15 @@ const LandingPage: React.FC = () => {
         });
     }, [navigate]);
 
+    // Fetch employees if store is empty (Login Fix)
+    useEffect(() => {
+        if (employees.length > 0) {
+            setLocalEmployees(employees);
+        } else {
+            getUsersForLogin().then(setLocalEmployees);
+        }
+    }, [employees]);
+
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedEmployee || !context) return;
@@ -74,7 +86,7 @@ const LandingPage: React.FC = () => {
     }
 
     // Filter active employees
-    const validEmployees = employees.filter(e => {
+    const validEmployees = localEmployees.filter(e => {
         if (e.status !== 'ACTIVE') return false;
 
         // Admins and Managers are visible everywhere (Global Access)

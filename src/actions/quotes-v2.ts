@@ -1036,3 +1036,94 @@ export async function retrieveQuoteSecure(
 
 // NOTE: DISCOUNT_THRESHOLDS es constante interna
 // Next.js 16 use server solo permite async functions
+
+/**
+ * 🔍 Retrieve Quote by ID
+ */
+export async function retrieveQuoteSecure(
+    quoteId: string
+): Promise<{
+    success: boolean;
+    data?: {
+        id: string;
+        status: string;
+        customer_name: string;
+        customer_phone: string;
+        items: any[];
+        subtotal: number;
+        discount: number;
+        total: number;
+        valid_until: Date;
+        created_at: Date;
+        created_by_name: string;
+    };
+    error?: string;
+}> {
+    if (!UUIDSchema.safeParse(quoteId).success) {
+        return { success: false, error: 'ID de cotización inválido' };
+    }
+
+    try {
+        const { query } = await import('@/lib/db');
+
+        // Get quote with creator info
+        const quoteRes = await query(`
+            SELECT 
+                q.*,
+                u.name as created_by_name,
+                c.name as customer_display_name
+            FROM quotes q
+            LEFT JOIN users u ON q.created_by = u.id
+            LEFT JOIN customers c ON q.customer_id = c.id
+            WHERE q.id = $1
+        `, [quoteId]);
+
+        if (quoteRes.rows.length === 0) {
+            return { success: false, error: 'Cotización no encontrada' };
+        }
+
+        const quote = quoteRes.rows[0];
+
+        // Get quote items
+        const itemsRes = await query(`
+            SELECT 
+                qi.*,
+                p.name as product_name,
+                p.sku
+            FROM quote_items qi
+            LEFT JOIN products p ON qi.product_id = p.id
+            WHERE qi.quote_id = $1
+            ORDER BY qi.created_at
+        `, [quoteId]);
+
+        return {
+            success: true,
+            data: {
+                id: quote.id,
+                status: quote.status,
+                customer_name: quote.customer_name || quote.customer_display_name || 'Sin nombre',
+                customer_phone: quote.customer_phone || '',
+                items: itemsRes.rows.map(item => ({
+                    id: item.id,
+                    productId: item.product_id,
+                    sku: item.sku,
+                    name: item.product_name || item.name,
+                    quantity: Number(item.quantity),
+                    unitPrice: Number(item.unit_price),
+                    discount: Number(item.discount || 0),
+                    subtotal: Number(item.subtotal),
+                })),
+                subtotal: Number(quote.subtotal),
+                discount: Number(quote.discount || 0),
+                total: Number(quote.total),
+                valid_until: quote.valid_until,
+                created_at: quote.created_at,
+                created_by_name: quote.created_by_name || 'Sistema',
+            }
+        };
+
+    } catch (error: any) {
+        logger.error({ error, quoteId }, '[Quotes] Retrieve quote error');
+        return { success: false, error: 'Error obteniendo cotización' };
+    }
+}

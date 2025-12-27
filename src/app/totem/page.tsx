@@ -12,9 +12,7 @@ export default function TotemPage() {
 
         try {
             const { generateTicketSecure } = await import('@/actions/operations-v2');
-            // TODO: Obtener locationId de configuración del tótem
-            const TEMP_LOCATION_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-            const res = await generateTicketSecure('GENERAL', TEMP_LOCATION_ID);
+            const res = await generateTicketSecure('GENERAL', 'DEFAULT_LOCATION');
 
             if (res.success && res.ticket) {
                 setLastTicket(res.ticket.number);

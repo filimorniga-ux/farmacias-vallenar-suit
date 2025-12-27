@@ -35,7 +35,19 @@ const DashboardPage: React.FC = () => {
         setIsOnline(navigator.onLine);
 
         // --- LAZY TRIGGER: GC & HEALTH CHECK ---
-        // Maintenance is now manual and secure (requires PIN). Automatic trigger removed.
+        // Only run for Admins/Managers to save resources
+        if (user?.role === 'ADMIN' || user?.role === 'MANAGER') {
+            import('../../actions/maintenance-v2').then(({ autoCloseGhostSessionsSecure }) => {
+                autoCloseGhostSessionsSecure('')  // System auto-cleanup, no PIN required
+                    .then(res => {
+                        if (res.success && res.count && res.count > 0) {
+                            // Optional: Notify user (as per future roadmap)
+                            console.log(`🧹 GC Limpió ${res.count} sesiones.`);
+                        }
+                    })
+                    .catch(e => console.error('GC Error:', e));
+            });
+        }
 
         return () => {
             autoBackupService.stop();
@@ -58,9 +70,9 @@ const DashboardPage: React.FC = () => {
             const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
             const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-            const metrics = await getFinancialMetricsSecure({ dateRange: { from: startOfDay, to: endOfDay }, locationId: currentLocation?.id });
-            if (metrics.success && metrics.data) {
-                setServerMetrics(metrics.data);
+            const result = await getFinancialMetricsSecure({ dateRange: { from: startOfDay, to: endOfDay }, locationId: currentLocation?.id });
+            if (result.success && result.data) {
+                setServerMetrics(result.data);
             }
         } catch (error) {
             console.error('Failed to fetch dashboard metrics:', error);

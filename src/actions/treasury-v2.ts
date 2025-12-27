@@ -95,6 +95,40 @@ const CashMovementSchema = z.object({
 });
 
 // =====================================================
+// TIPOS EXPORTADOS (para frontend)
+// =====================================================
+
+export interface FinancialAccount {
+    id: string;
+    location_id: string;
+    name: string;
+    type: 'SAFE' | 'BANK' | 'PETTY_CASH' | 'EQUITY';
+    balance: number;
+    is_active: boolean;
+}
+
+export interface TreasuryTransaction {
+    id: string;
+    account_id: string;
+    amount: number;
+    type: 'IN' | 'OUT';
+    description: string;
+    created_at: Date;
+    created_by?: string;
+}
+
+export interface Remittance {
+    id: string;
+    location_id: string;
+    source_terminal_id: string;
+    amount: number;
+    status: 'PENDING_RECEIPT' | 'RECEIVED';
+    created_at: Date;
+    created_by: string;
+    received_by?: string;
+}
+
+// =====================================================
 // CONSTANTES
 // =====================================================
 

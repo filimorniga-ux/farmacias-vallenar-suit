@@ -31,7 +31,7 @@ export default async function ProveedoresPage() {
                                 <form action={async () => {
                                     'use server';
                                     const { logActionSecure } = await import('@/actions/logger-action-v2');
-                                    await logActionSecure('AJUSTE_STOCK', 'Ajuste manual de stock simulado: Paracetamol -10');
+                                    await logActionSecure('admin', 'AJUSTE_STOCK', 'Ajuste manual de stock simulado: Paracetamol -10');
                                 }}>
                                     <button
                                         type="submit"

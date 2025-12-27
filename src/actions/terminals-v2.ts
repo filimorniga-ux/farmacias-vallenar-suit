@@ -910,91 +910,157 @@ export async function getTerminalsByLocationSecure(locationId?: string): Promise
 // =====================================================
 
 const UpdateTerminalSchema = z.object({
-    name: z.string().min(2).max(50).optional(),
-    locationId: z.string().uuid().optional(),
-    allowedUsers: z.array(z.string().uuid()).optional(),
+    terminalId: z.string().uuid(),
+    name: z.string().min(1).max(100).optional(),
+    type: z.enum(['POS', 'KIOSK', 'SELF_SERVICE']).optional(),
+    printer_config: z.record(z.string(), z.any()).optional(),
 });
 
+/**
+ * Actualiza un terminal con RBAC y auditoría.
+ */
 export async function updateTerminalSecure(
     terminalId: string,
-    data: z.infer<typeof UpdateTerminalSchema>
+    data: { name?: string; type?: string; printer_config?: Record<string, any> }
 ): Promise<{ success: boolean; error?: string }> {
+    const validation = UpdateTerminalSchema.safeParse({ terminalId, ...data });
+    if (!validation.success) {
+        return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
+    }
+
     try {
         const { headers } = await import('next/headers');
         const headersList = await headers();
-        const userRole = headersList.get('x-user-role');
         const userId = headersList.get('x-user-id');
+        const userRole = headersList.get('x-user-role');
 
         if (!userId) {
             return { success: false, error: 'No autenticado' };
         }
 
-        const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
-        if (!MANAGER_ROLES.includes(userRole || '')) {
-            return { success: false, error: 'Requiere permisos de gerente' };
+        const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
+        if (!ADMIN_ROLES.includes(userRole || '')) {
+            return { success: false, error: 'Acceso denegado: requiere rol de administrador' };
         }
 
-        const validation = UpdateTerminalSchema.safeParse(data);
-        if (!validation.success) {
-            return { success: false, error: validation.error.issues[0]?.message };
+        // Obtener datos actuales para auditoría
+        const current = await query('SELECT name, type, printer_config FROM terminals WHERE id = $1', [terminalId]);
+        if (current.rows.length === 0) {
+            return { success: false, error: 'Terminal no encontrado' };
         }
 
-        const { name, locationId, allowedUsers } = validation.data;
         const updates: string[] = [];
-        const params: any[] = [];
-        let idx = 1;
+        const values: any[] = [];
+        let paramIndex = 1;
 
-        if (name) { updates.push(`name = $${idx++}`); params.push(name); }
-        if (locationId) { updates.push(`location_id = $${idx++}`); params.push(locationId); }
-        if (allowedUsers) { updates.push(`allowed_users = $${idx++}`); params.push(allowedUsers); }
-
-        if (updates.length > 0) {
-            updates.push(`updated_at = NOW()`);
-            params.push(terminalId);
-            await query(`UPDATE terminals SET ${updates.join(', ')} WHERE id = $${idx}`, params);
-
-            revalidatePath('/settings/organization');
-            return { success: true };
+        if (data.name !== undefined) {
+            updates.push(`name = $${paramIndex++}`);
+            values.push(data.name);
+        }
+        if (data.type !== undefined) {
+            updates.push(`type = $${paramIndex++}`);
+            values.push(data.type);
+        }
+        if (data.printer_config !== undefined) {
+            updates.push(`printer_config = $${paramIndex++}`);
+            values.push(JSON.stringify(data.printer_config));
         }
 
-        return { success: true }; // No updates needed
+        if (updates.length === 0) {
+            return { success: false, error: 'No hay cambios para aplicar' };
+        }
+
+        updates.push(`updated_at = NOW()`);
+        values.push(terminalId);
+
+        await query(
+            `UPDATE terminals SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
+            values
+        );
+
+        // Auditoría
+        await query(`
+            INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, new_values, timestamp)
+            VALUES ($1, 'TERMINAL_UPDATE', 'TERMINAL', $2, $3, $4, NOW())
+        `, [userId, terminalId, JSON.stringify(current.rows[0]), JSON.stringify(data)]);
+
+        logger.info({ terminalId, userId }, '✅ Terminal actualizado');
+        revalidatePath('/settings');
+        revalidatePath('/settings/organization');
+
+        return { success: true };
 
     } catch (error: any) {
         logger.error({ error, terminalId }, '[TerminalsV2] updateTerminalSecure error');
-        return { success: false, error: 'Error actualizando terminal' };
+        return { success: false, error: error.message || 'Error actualizando terminal' };
     }
 }
 
 // =====================================================
-// FUNCIÓN: ELIMINAR TERMINAL (SEGURA)
+// FUNCIÓN: ELIMINAR TERMINAL (SEGURA - SOFT DELETE)
 // =====================================================
 
-export async function deleteTerminalSecure(terminalId: string): Promise<{ success: boolean; error?: string }> {
+/**
+ * Elimina (soft delete) un terminal con RBAC y auditoría.
+ * Solo permite eliminar terminales cerrados.
+ */
+export async function deleteTerminalSecure(
+    terminalId: string
+): Promise<{ success: boolean; error?: string }> {
+    if (!terminalId || !z.string().uuid().safeParse(terminalId).success) {
+        return { success: false, error: 'ID de terminal inválido' };
+    }
+
     try {
         const { headers } = await import('next/headers');
         const headersList = await headers();
+        const userId = headersList.get('x-user-id');
         const userRole = headersList.get('x-user-role');
 
-        if (!['ADMIN', 'GERENTE_GENERAL'].includes(userRole || '')) {
-            return { success: false, error: 'Solo administradores pueden eliminar terminales' };
+        if (!userId) {
+            return { success: false, error: 'No autenticado' };
         }
 
-        // Verificar si tiene sesiones
-        const sessions = await query('SELECT count(*) as c FROM cash_register_sessions WHERE terminal_id = $1', [terminalId]);
-        if (parseInt(sessions.rows[0].c) > 0) {
-            // Soft delete
-            await query("UPDATE terminals SET status = 'DELETED', is_active = false, updated_at = NOW() WHERE id = $1", [terminalId]);
-        } else {
-            // Hard delete si no tiene historial
-            await query("DELETE FROM terminals WHERE id = $1", [terminalId]);
+        const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
+        if (!ADMIN_ROLES.includes(userRole || '')) {
+            return { success: false, error: 'Acceso denegado: requiere rol de administrador' };
         }
 
+        // Verificar estado del terminal
+        const terminal = await query(
+            'SELECT id, name, status, location_id FROM terminals WHERE id = $1',
+            [terminalId]
+        );
+
+        if (terminal.rows.length === 0) {
+            return { success: false, error: 'Terminal no encontrado' };
+        }
+
+        if (terminal.rows[0].status === 'OPEN') {
+            return { success: false, error: 'No se puede eliminar un terminal abierto. Ciérrelo primero.' };
+        }
+
+        // Soft delete
+        await query(
+            `UPDATE terminals SET status = 'DELETED', updated_at = NOW() WHERE id = $1`,
+            [terminalId]
+        );
+
+        // Auditoría
+        await query(`
+            INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, timestamp)
+            VALUES ($1, 'TERMINAL_DELETE', 'TERMINAL', $2, $3, NOW())
+        `, [userId, terminalId, JSON.stringify(terminal.rows[0])]);
+
+        logger.info({ terminalId, userId }, '🗑️ Terminal eliminado (soft delete)');
+        revalidatePath('/settings');
         revalidatePath('/settings/organization');
+
         return { success: true };
 
     } catch (error: any) {
         logger.error({ error, terminalId }, '[TerminalsV2] deleteTerminalSecure error');
-        return { success: false, error: 'Error eliminando terminal' };
+        return { success: false, error: error.message || 'Error eliminando terminal' };
     }
 }
 
@@ -1006,3 +1072,5 @@ export async function deleteTerminalSecure(terminalId: string): Promise<{ succes
 export { openTerminalAtomic as openTerminal };
 export { closeTerminalAtomic as closeTerminal };
 export { forceCloseTerminalAtomic as forceCloseTerminalShift };
+export { updateTerminalSecure as updateTerminal };
+export { deleteTerminalSecure as deleteTerminal };
