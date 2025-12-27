@@ -843,8 +843,8 @@ export async function getInventorySecure(
                 ib.stock_max
 
             FROM inventory_batches ib
-            JOIN products p ON ib.product_id::text = p.id::text
-            WHERE ib.location_id::text = $1
+            JOIN products p ON ib.product_id = p.id
+            WHERE ib.location_id = $1::uuid
             ORDER BY p.name ASC
         `;
 
@@ -897,8 +897,8 @@ export async function getRecentMovementsSecure(
         const params: any[] = [];
 
         if (locationId) {
-            whereClause = `WHERE sm.location_id::text = $1 OR sm.location_id::text = (
-                SELECT default_warehouse_id::text FROM locations WHERE id::text = $1
+            whereClause = `WHERE sm.location_id = $1::uuid OR sm.location_id = (
+                SELECT default_warehouse_id FROM locations WHERE id = $1::uuid
             )`;
             params.push(locationId);
         }
@@ -918,8 +918,8 @@ export async function getRecentMovementsSecure(
                 u.name as user_name,
                 l.name as location_name
             FROM stock_movements sm
-            LEFT JOIN users u ON sm.user_id::text = u.id::text
-            LEFT JOIN locations l ON sm.location_id::text = l.id::text
+            LEFT JOIN users u ON sm.user_id = u.id
+            LEFT JOIN locations l ON sm.location_id = l.id
             ${whereClause}
             ORDER BY sm.timestamp DESC
             LIMIT $${params.length}
