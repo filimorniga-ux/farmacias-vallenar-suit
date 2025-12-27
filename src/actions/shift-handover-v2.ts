@@ -479,8 +479,8 @@ export async function executeHandoverSecure(params: {
 
         // 9. Notificar a gerentes (fuera de transacción)
         try {
-            const { notifyManagersSecure: notifyManagers } = await import('./notifications-v2');
-            await notifyManagers({
+            const { notifyManagersSecure } = await import('./notifications-v2');
+            await notifyManagersSecure({
                 locationId: terminal.location_id,
                 title: "💰 Nueva Remesa Pendiente",
                 message: `El cajero ${pinResult.user?.name} ha cerrado turno. Monto: $${amountToWithdraw.toLocaleString('es-CL')}`,

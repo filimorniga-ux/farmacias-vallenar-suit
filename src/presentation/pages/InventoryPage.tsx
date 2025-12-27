@@ -33,7 +33,7 @@ const InventoryPage: React.FC = () => {
     // Nuclear Delete State
     const [isNuclearModalOpen, setIsNuclearModalOpen] = useState(false);
     const [nuclearConfirmation, setNuclearConfirmation] = useState('');
-    const [nuclearPin, setNuclearPin] = useState('');
+    const [adminPin, setAdminPin] = useState('');
     const [isDeleting, setIsDeleting] = useState(false);
 
     const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -162,19 +162,19 @@ const InventoryPage: React.FC = () => {
             const result = await clearLocationInventorySecure({
                 locationId: activeLocation.id,
                 userId: user?.id || '',
-                adminPin: nuclearPin,
-                confirmationCode: 'ELIMINAR-TODO'
+                adminPin: adminPin,
+                confirmationCode: nuclearConfirmation.toUpperCase()
             });
 
             if (result.success) {
-                toast.success(`Inventario borrado: ${result.deletedCount} items`);
+                toast.success(`Inventario eliminado: ${result.deletedCount} registros`);
                 setIsNuclearModalOpen(false);
                 setNuclearConfirmation('');
-                setNuclearPin('');
+                setAdminPin('');
                 // Refresh
                 window.location.reload();
             } else {
-                toast.error(result.error || 'Error al eliminar');
+                toast.error(result.error);
             }
         } catch (error) {
             toast.error('Error crítico al eliminar.');
@@ -566,11 +566,11 @@ const InventoryPage: React.FC = () => {
                                     </label>
                                     <input
                                         type="password"
-                                        className="w-full p-3 border-2 border-slate-200 rounded-xl focus:border-red-500 focus:outline-none font-bold text-center tracking-widest"
-                                        placeholder="••••"
-                                        value={nuclearPin}
-                                        onChange={(e) => setNuclearPin(e.target.value)}
-                                        maxLength={4}
+                                        className="w-full p-3 border-2 border-red-200 rounded-xl focus:border-red-500 focus:outline-none font-bold text-center"
+                                        placeholder="****"
+                                        maxLength={6}
+                                        value={adminPin}
+                                        onChange={(e) => setAdminPin(e.target.value.replace(/\D/g, ''))}
                                     />
                                 </div>
 
@@ -583,7 +583,7 @@ const InventoryPage: React.FC = () => {
                                     </button>
                                     <button
                                         onClick={handleNuclearDelete}
-                                        disabled={nuclearConfirmation.toUpperCase() !== 'BORRAR' || isDeleting}
+                                        disabled={nuclearConfirmation.toUpperCase() !== 'BORRAR' || adminPin.length < 4 || isDeleting}
                                         className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-red-200"
                                     >
                                         {isDeleting ? 'Eliminando...' : 'Sí, Vaciar Todo'}
