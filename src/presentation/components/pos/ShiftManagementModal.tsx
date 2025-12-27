@@ -4,7 +4,7 @@ import { X, User, DollarSign, Monitor, Lock, MapPin, LockKeyhole, ArrowRight, Ro
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 // V2: Funciones atómicas seguras
-import { openTerminalAtomic, openTerminalWithPinValidation, forceCloseTerminalAtomic, getTerminalStatusAtomic, getTerminalsByLocationSecure } from '../../../actions/terminals-v2';
+import { openTerminalAtomic, openTerminalWithPinValidation, forceCloseTerminalShift, getTerminalStatusAtomic, getTerminalsByLocationSecure } from '../../../actions/terminals-v2';
 import { useTerminalSession } from '../../../hooks/useTerminalSession';
 import { Terminal } from '@/domain/types';
 
@@ -115,7 +115,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                     for (const ghost of ghosts) {
                         try {
                             console.log(`🔧 Auto-healing terminal ${ghost.name} (${ghost.id})...`);
-                            await forceCloseTerminalAtomic(ghost.id, 'SYSTEM_AUTOHEAL', 'Auto-healing ghost session');
+                            await forceCloseTerminalShift(ghost.id, 'SYSTEM_AUTOHEAL', 'Auto-healing ghost session');
                         } catch (e) {
                             console.error('Failed to auto-heal', ghost.id, e);
                         }
@@ -146,7 +146,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
         setIsForceLoading(true);
         try {
             const currentUserId = user?.id || 'SYSTEM_FORCE';
-            const res = await forceCloseTerminalAtomic(selectedTerminal, currentUserId, 'Cierre forzado por usuario');
+            const res = await forceCloseTerminalShift(selectedTerminal, currentUserId, 'Cierre forzado por usuario');
             if (res.success) {
                 toast.success('Terminal liberada exitosamente');
                 // Refresh list - V2

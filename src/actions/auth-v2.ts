@@ -170,7 +170,7 @@ async function incrementRateLimit(identifier: string): Promise<void> {
         `, [identifier]);
 
         const res = await query('SELECT attempt_count FROM login_attempts WHERE identifier = $1', [identifier]);
-        
+
         if (res.rowCount && res.rowCount > 0 && res.rows[0].attempt_count > MAX_ATTEMPTS) {
             // FIX: Use parameterized interval with make_interval()
             await query(`
@@ -227,12 +227,12 @@ export async function authenticateUserSecure(
     locationId?: string
 ): Promise<AuthResult> {
     const ipAddress = await getClientIP();
-    
+
     // 1. Validate inputs
     const validated = AuthenticateSchema.safeParse({ userId, pin, locationId });
     if (!validated.success) {
-        await auditLog(userId, 'LOGIN_INVALID_INPUT', { 
-            error: validated.error.issues[0]?.message 
+        await auditLog(userId, 'LOGIN_INVALID_INPUT', {
+            error: validated.error.issues[0]?.message
         }, ipAddress);
         return { success: false, error: 'Datos de autenticación inválidos' };
     }
@@ -243,8 +243,8 @@ export async function authenticateUserSecure(
         // 2. Check rate limit
         const limitCheck = await checkRateLimit(uid);
         if (!limitCheck.allowed) {
-            await auditLog(uid, 'LOGIN_BLOCKED_RATE_LIMIT', { 
-                reason: 'Rate limit exceeded' 
+            await auditLog(uid, 'LOGIN_BLOCKED_RATE_LIMIT', {
+                reason: 'Rate limit exceeded'
             }, ipAddress);
             return { success: false, error: limitCheck.error || 'Acceso bloqueado temporalmente' };
         }
@@ -253,7 +253,7 @@ export async function authenticateUserSecure(
         const res = await query(`
             SELECT id, name, role, access_pin, access_pin_hash, 
                    assigned_location_id, token_version, is_active,
-                   email, "fullName"
+                   email, name as "fullName"
             FROM users 
             WHERE id = $1
         `, [uid]);
@@ -275,7 +275,7 @@ export async function authenticateUserSecure(
 
         // 5. Compare PIN - Support both hashed and legacy plaintext
         let pinValid = false;
-        
+
         if (user.access_pin_hash) {
             // New secure method: bcrypt comparison
             const bcrypt = await import('bcryptjs');
@@ -286,11 +286,11 @@ export async function authenticateUserSecure(
             const crypto = await import('crypto');
             const inputBuffer = Buffer.from(validatedPin);
             const storedBuffer = Buffer.from(user.access_pin);
-            
+
             if (inputBuffer.length === storedBuffer.length) {
                 pinValid = crypto.timingSafeEqual(inputBuffer, storedBuffer);
             }
-            
+
             // Log warning about plaintext PIN
             console.warn(`[AUTH-V2] User ${uid} using legacy plaintext PIN. Migration required.`);
         }
@@ -328,10 +328,10 @@ export async function authenticateUserSecure(
 
         // 8. Clear rate limit on success
         await clearRateLimit(uid);
-        
+
         // 9. Audit successful login
-        await auditLog(uid, 'LOGIN_SUCCESS', { 
-            role: user.role, 
+        await auditLog(uid, 'LOGIN_SUCCESS', {
+            role: user.role,
             location: locId,
             method: user.access_pin_hash ? 'bcrypt' : 'legacy'
         }, ipAddress);
@@ -388,9 +388,9 @@ export async function setUserPinSecure(
 
         const adminRole = adminRes.rows[0].role?.toUpperCase();
         if (!ADMIN_ROLES.includes(adminRole)) {
-            await auditLog(adminId, 'PIN_CHANGE_DENIED', { 
-                target_user: userId, 
-                reason: 'Insufficient permissions' 
+            await auditLog(adminId, 'PIN_CHANGE_DENIED', {
+                target_user: userId,
+                reason: 'Insufficient permissions'
             });
             return { success: false, error: 'Sin permisos para cambiar PIN' };
         }
@@ -433,7 +433,7 @@ export async function migratePinToHash(
     try {
         // Verify current PIN
         const res = await query('SELECT access_pin, access_pin_hash FROM users WHERE id = $1', [userId]);
-        
+
         if (res.rowCount === 0) {
             return { success: false, error: 'Usuario no encontrado' };
         }
@@ -610,7 +610,7 @@ export async function validateSupervisorPin(
         .min(4, 'PIN debe tener al menos 4 dígitos')
         .max(8, 'PIN no puede exceder 8 dígitos')
         .regex(/^\d+$/, 'PIN debe contener solo números');
-    
+
     const validated = pinSchema.safeParse(pin);
     if (!validated.success) {
         return { success: false, error: 'Formato de PIN inválido' };
@@ -642,7 +642,7 @@ export async function validateSupervisorPin(
                 const crypto = await import('crypto');
                 const inputBuffer = Buffer.from(pin);
                 const storedBuffer = Buffer.from(supervisor.access_pin);
-                
+
                 if (inputBuffer.length === storedBuffer.length) {
                     pinValid = crypto.timingSafeEqual(inputBuffer, storedBuffer);
                 }
@@ -683,5 +683,7 @@ export async function validateSupervisorPin(
 
 /**
  * @deprecated Use authenticateUserSecure instead
+ * NOTE: Commented out for Next.js 16 compatibility - "use server" files can only export async functions
+ * If you need this alias, import authenticateUserSecure directly or create a re-export file without "use server"
  */
-export const authenticateUser = authenticateUserSecure;
+// export const authenticateUser = authenticateUserSecure;
