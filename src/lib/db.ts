@@ -4,13 +4,24 @@ import { Pool } from 'pg';
 // Detectar entorno
 const isProduction = process.env.NODE_ENV === 'production';
 
+// Debug: Log environment
+if (isProduction) {
+    console.log('🔌 [DB] Production Mode - DATABASE_URL:', process.env.DATABASE_URL ? 'CONFIGURED' : '❌ MISSING');
+} else {
+    console.log('🔌 [DB] Development Mode - DATABASE_URL:', process.env.DATABASE_URL ? 'CONFIGURED' : '❌ MISSING');
+}
+
+// Validar que DATABASE_URL existe
+if (!process.env.DATABASE_URL) {
+    console.error('❌ CRITICAL: DATABASE_URL environment variable is not set!');
+}
+
 // Configuración robusta
-console.log('DEBUG DB URL:', process.env.DATABASE_URL ? 'DEFINED' : 'UNDEFINED'); // Debug log
 const connectionConfig = {
     connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }, // Timescale requires SSL, usually self-signed okay or proper CA. Safer for dev scripts.
+    ssl: { rejectUnauthorized: false }, // Tiger Cloud requires SSL
     max: 10,
-    connectionTimeoutMillis: 20000, // Increased to 20s
+    connectionTimeoutMillis: 20000,
     idleTimeoutMillis: 30000,
     keepAlive: true,
 };
@@ -19,7 +30,23 @@ const connectionConfig = {
 export let pool: Pool;
 
 if (isProduction) {
+    console.log('🔌 [DB] Creating Production Pool...');
     pool = new Pool(connectionConfig);
+    
+    // Error handler para producción
+    pool.on('error', (err) => {
+        console.error('🔥 [DB] Unexpected pool error in production:', err.message);
+    });
+    
+    // Test inicial de conexión en producción
+    pool.connect()
+        .then(client => {
+            console.log('✅ [DB] Production connection successful');
+            client.release();
+        })
+        .catch(err => {
+            console.error('❌ [DB] Production connection FAILED:', err.message);
+        });
 } else {
     if (!global.postgresPool) {
         console.log('🔌 Initializing PostgreSQL Pool (Dev)...');
