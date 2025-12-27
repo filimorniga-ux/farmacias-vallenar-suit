@@ -59,13 +59,19 @@ vi.mock('bcryptjs', () => ({
 }));
 
 // Import after mocks
-import { 
-    transferFundsSecure, 
-    depositToBankSecure, 
+import {
+    transferFundsSecure,
+    depositToBankSecure,
     confirmRemittanceSecure,
     createCashMovementSecure,
-    AUTHORIZATION_THRESHOLDS 
 } from '@/actions/treasury-v2';
+
+// Hardcoded thresholds (cannot export from 'use server' files)
+const AUTHORIZATION_THRESHOLDS = {
+    TRANSFER: 500000,
+    DEPOSIT: 1000000,
+    WITHDRAWAL: 100000,
+} as const;
 
 // =====================================================
 // TEST DATA
@@ -100,10 +106,12 @@ describe('transferFundsSecure', () => {
         let callIndex = 0;
         const responses = [
             { rows: [] }, // BEGIN
-            { rows: [ // Account lock query - both accounts
-                { id: VALID_SAFE_ID, name: 'Caja Fuerte', type: 'SAFE', balance: 1000000, location_id: 'loc-1', is_active: true },
-                { id: VALID_BANK_ID, name: 'Banco', type: 'BANK', balance: 500000, location_id: 'loc-1', is_active: true },
-            ]},
+            {
+                rows: [ // Account lock query - both accounts
+                    { id: VALID_SAFE_ID, name: 'Caja Fuerte', type: 'SAFE', balance: 1000000, location_id: 'loc-1', is_active: true },
+                    { id: VALID_BANK_ID, name: 'Banco', type: 'BANK', balance: 500000, location_id: 'loc-1', is_active: true },
+                ]
+            },
             { rows: [], rowCount: 1 }, // Update source balance
             { rows: [] }, // Insert OUT transaction
             { rows: [], rowCount: 1 }, // Update dest balance
@@ -149,10 +157,12 @@ describe('transferFundsSecure', () => {
         const responses = [
             { rows: [] }, // BEGIN
             { rows: [{ id: VALID_MANAGER_ID, name: 'Manager', role: 'MANAGER', access_pin_hash: 'hashed' }] }, // Auth query
-            { rows: [ // Account lock
-                { id: VALID_SAFE_ID, name: 'Caja Fuerte', type: 'SAFE', balance: 10000000, location_id: 'loc-1', is_active: true },
-                { id: VALID_BANK_ID, name: 'Banco', type: 'BANK', balance: 500000, location_id: 'loc-1', is_active: true },
-            ]},
+            {
+                rows: [ // Account lock
+                    { id: VALID_SAFE_ID, name: 'Caja Fuerte', type: 'SAFE', balance: 10000000, location_id: 'loc-1', is_active: true },
+                    { id: VALID_BANK_ID, name: 'Banco', type: 'BANK', balance: 500000, location_id: 'loc-1', is_active: true },
+                ]
+            },
             { rows: [], rowCount: 1 }, // Update source
             { rows: [] }, // Insert OUT
             { rows: [], rowCount: 1 }, // Update dest
@@ -186,10 +196,12 @@ describe('transferFundsSecure', () => {
         let callIndex = 0;
         const responses = [
             { rows: [] }, // BEGIN
-            { rows: [ // Account lock - source has low balance
-                { id: VALID_SAFE_ID, name: 'Caja Fuerte', type: 'SAFE', balance: 50000, location_id: 'loc-1', is_active: true },
-                { id: VALID_BANK_ID, name: 'Banco', type: 'BANK', balance: 500000, location_id: 'loc-1', is_active: true },
-            ]},
+            {
+                rows: [ // Account lock - source has low balance
+                    { id: VALID_SAFE_ID, name: 'Caja Fuerte', type: 'SAFE', balance: 50000, location_id: 'loc-1', is_active: true },
+                    { id: VALID_BANK_ID, name: 'Banco', type: 'BANK', balance: 500000, location_id: 'loc-1', is_active: true },
+                ]
+            },
         ];
 
         mockQuery.mockImplementation((sql: string) => {

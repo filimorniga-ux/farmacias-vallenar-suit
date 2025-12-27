@@ -65,8 +65,13 @@ import {
     transferStockSecure,
     clearLocationInventorySecure,
     getInventorySecure,
-    AUTHORIZATION_THRESHOLDS
 } from '@/actions/inventory-v2';
+
+// Hardcoded thresholds (cannot export from 'use server' files)
+const AUTHORIZATION_THRESHOLDS = {
+    STOCK_ADJUSTMENT: 100,
+    TRANSFER_QUANTITY: 500,
+} as const;
 
 // =====================================================
 // TEST DATA

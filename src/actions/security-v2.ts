@@ -798,30 +798,19 @@ export async function getActiveSessionsSecure(): Promise<{
             WHERE last_active_at > NOW() - INTERVAL '24 hours'
             AND is_active = true
             ORDER BY last_active_at DESC
-        `);
+        `, []);
 
-        const now = new Date();
-        const sessions: ActiveSession[] = res.rows.map(row => {
-            const diffMinutes = (now.getTime() - new Date(row.last_active_at).getTime()) / 60000;
-            let status: 'ONLINE' | 'AWAY' | 'OFFLINE' = 'OFFLINE';
-            if (diffMinutes < 5) status = 'ONLINE';
-            else if (diffMinutes < 30) status = 'AWAY';
+        const activeSessions = res.rows.map((row: any) => ({
+            user_id: row.user_id,
+            name: row.name,
+            role: row.role,
+            last_active_at: row.last_active_at,
+            current_context: row.current_context_data,
+            status: (Date.now() - new Date(row.last_active_at).getTime() < 300000) ? 'ONLINE' : 'AWAY',
+            is_locked: row.account_locked_until && new Date(row.account_locked_until) > new Date() || row.account_locked_permanently,
+        }));
 
-            const isLocked = row.account_locked_permanently ||
-                (row.account_locked_until && new Date(row.account_locked_until) > now);
-
-            return {
-                user_id: row.user_id,
-                name: row.name,
-                role: row.role,
-                last_active_at: row.last_active_at,
-                current_context: row.current_context_data,
-                status,
-                is_locked: Boolean(isLocked),
-            };
-        });
-
-        return { success: true, data: sessions };
+        return { success: true, data: activeSessions as any };
 
     } catch (error: any) {
         logger.error({ error }, '[Security] Get active sessions error');
@@ -829,5 +818,31 @@ export async function getActiveSessionsSecure(): Promise<{
     }
 }
 
-// NOTE: LOCK_THRESHOLDS, SECURITY_ACTIONS son constantes internas
-// Next.js 16 use server solo permite async functions
+/**
+ * 📝 Log Generic Audit Action (Secure)
+ */
+export async function logAuditActionSecure(
+    userId: string,
+    action: string,
+    details: Record<string, any>
+): Promise<{ success: boolean; error?: string }> {
+    if (!UUIDSchema.safeParse(userId).success) {
+        return { success: false, error: 'ID de usuario inválido' };
+    }
+
+    try {
+        const { query } = await import('@/lib/db');
+        const ip = await getClientIP();
+
+        await query(`
+            INSERT INTO audit_logs (user_id, action, details, ip_address, timestamp)
+            VALUES ($1, $2, $3, $4, NOW())
+        `, [userId, action, JSON.stringify(details), ip]);
+
+        return { success: true };
+
+    } catch (error: any) {
+        logger.error({ error }, '[Security] Log audit error');
+        return { success: false, error: 'Error registrando auditoría' };
+    }
+}

@@ -797,7 +797,6 @@ export async function clearLocationInventorySecure(params: {
 
     } catch (error: any) {
         await client.query('ROLLBACK');
-        logger.error({ err: error }, '❌ [Inventory v2] Nuclear delete failed');
         return { success: false, error: error.message || 'Error eliminando inventario' };
 
     } finally {

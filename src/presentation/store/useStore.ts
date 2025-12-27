@@ -28,7 +28,6 @@ import {
     Location
 } from '../../domain/types';
 import { TigerDataService } from '../../domain/services/TigerDataService';
-// import { fetchEmployees } from '../../actions/sync'; // Converted to dynamic import for safety
 import { IntelligentOrderingService } from '../services/intelligentOrderingService';
 // Mocks removed
 // Mocks removed
@@ -288,10 +287,10 @@ export const usePharmaStore = create<PharmaState>()(
                     // Auto-Set Location Context based on User Assignment
                     if (authenticatedUser.assigned_location_id) {
                         try {
-                            const { getLocations } = await import('../../actions/locations');
-                            const locRes = await getLocations();
-                            if (locRes.success && locRes.data) {
-                                const assignedLoc = locRes.data.find(l => l.id === authenticatedUser!.assigned_location_id);
+                            const { getOrganizationStructureSecure } = await import('../../actions/network-v2');
+                            const locRes = await getOrganizationStructureSecure();
+                            if (locRes.success && locRes.data?.locations) {
+                                const assignedLoc = locRes.data.locations.find((l: any) => l.id === authenticatedUser!.assigned_location_id);
                                 if (assignedLoc) {
                                     const warehouseId = assignedLoc.default_warehouse_id || '';
                                     const currentLoc = get().currentLocationId;
@@ -402,14 +401,14 @@ export const usePharmaStore = create<PharmaState>()(
 
                     const [inventory, employees, sales, suppliers, cashMovements, customers, shipments, purchaseOrders, locations] = await Promise.all([
                         currentStoreState.currentLocationId ? TigerDataService.fetchInventory(currentStoreState.currentLocationId) : Promise.resolve([]), // FIX: Check if location is set
-                        import('../../actions/sync').then(m => m.fetchEmployees()),
+                        import('../../actions/sync-v2').then(m => m.fetchEmployeesSecure().then(r => (r.data || []) as unknown as EmployeeProfile[])),
                         TigerDataService.fetchSalesHistory(), // Fetch real sales
-                        import('../../actions/sync').then(m => m.fetchSuppliers()), // Fetch real suppliers
+                        import('../../actions/sync-v2').then(m => m.fetchSuppliersSecure().then(r => r.data || [])), // Fetch real suppliers
                         TigerDataService.fetchCashMovements(), // Fetch real cash movements
                         TigerDataService.fetchCustomers(), // Fetch real customers
                         TigerDataService.fetchShipments(currentStoreState.currentLocationId), // Fetch Real Shipments
                         TigerDataService.fetchPurchaseOrders(), // Fetch Real POs
-                        import('../../actions/sync').then(m => m.fetchLocations()) // Fetch Locations
+                        import('../../actions/sync-v2').then(m => m.fetchLocationsSecure().then(r => r.data || [])) // Fetch Locations
                     ]);
 
                     // Initialize Service Storage to prevent Auth Warnings
@@ -570,7 +569,7 @@ export const usePharmaStore = create<PharmaState>()(
                     return;
                 }
 
-                const { executeTransfer } = await import('../../actions/wms');
+                const { executeTransferSecure: executeTransfer } = await import('../../actions/wms-v2');
 
                 const result = await executeTransfer({
                     originWarehouseId: sourceItem.location_id, // Assuming location_id is warehouse_id
@@ -593,18 +592,17 @@ export const usePharmaStore = create<PharmaState>()(
             addPurchaseOrder: (po) => set((state) => ({ purchaseOrders: [...state.purchaseOrders, po] })),
             receivePurchaseOrder: async (poId, receivedItems, destinationLocationId) => {
                 const state = get();
-                const { receivePurchaseOrder: receivePOAction } = await import('../../actions/supply');
+                const { receivePurchaseOrderSecure: receivePOAction } = await import('../../actions/supply-v2');
 
                 const result = await receivePOAction({
                     purchaseOrderId: poId,
-                    userId: state.user?.id || 'SYSTEM',
                     receivedItems: receivedItems.map(i => ({
                         sku: i.sku,
                         quantity: i.receivedQty,
                         lotNumber: i.lotNumber,
                         expiryDate: i.expiryDate
                     }))
-                });
+                }, state.user?.id || 'SYSTEM');
 
                 if (result.success) {
                     import('sonner').then(({ toast }) => toast.success('Recepción de Orden exitosa'));
@@ -633,27 +631,38 @@ export const usePharmaStore = create<PharmaState>()(
 
             // --- SRM Actions ---
             addSupplier: async (supplierData) => {
-                const { createSupplier } = await import('../../actions/suppliers');
-                const result = await createSupplier(supplierData as any);
-                if (result.success && result.id) {
+                const { createSupplierSecure } = await import('../../actions/suppliers-v2');
+                const state = get();
+                const result = await createSupplierSecure({
+                    ...supplierData,
+                    userId: state.user?.id || 'SYSTEM'
+                } as any);
+
+                if (result.success && result.data?.supplierId) {
                     set((state) => ({
-                        suppliers: [...state.suppliers, { ...supplierData, id: result.id }]
+                        suppliers: [...state.suppliers, { ...supplierData, id: result.data!.supplierId }]
                     }));
                     import('sonner').then(({ toast }) => toast.success('Proveedor guardado correctamente'));
                 } else {
-                    import('sonner').then(({ toast }) => toast.error('Error al guardar proveedor'));
+                    import('sonner').then(({ toast }) => toast.error('Error al guardar proveedor: ' + result.error));
                 }
             },
             updateSupplier: async (id, supplierData) => {
-                const { updateSupplier } = await import('../../actions/suppliers');
-                const result = await updateSupplier(id, supplierData);
+                const { updateSupplierSecure } = await import('../../actions/suppliers-v2');
+                const state = get();
+                const result = await updateSupplierSecure({
+                    supplierId: id,
+                    userId: state.user?.id || 'SYSTEM',
+                    ...supplierData
+                } as any);
+
                 if (result.success) {
                     set((state) => ({
                         suppliers: state.suppliers.map(s => s.id === id ? { ...s, ...supplierData } : s)
                     }));
                     import('sonner').then(({ toast }) => toast.success('Proveedor actualizado correctamente'));
                 } else {
-                    import('sonner').then(({ toast }) => toast.error('Error al actualizar proveedor'));
+                    import('sonner').then(({ toast }) => toast.error('Error al actualizar proveedor: ' + result.error));
                 }
             },
             addSupplierDocument: (docData) => set((state) => ({
@@ -1085,41 +1094,46 @@ export const usePharmaStore = create<PharmaState>()(
                 const context = {
                     locationId: state.currentLocationId || 'UNKNOWN_LOC',
                     terminalId: state.currentTerminalId || 'UNKNOWN_TERM',
-                    userId: state.currentShift?.user_id || 'UNKNOWN_USER',
+                    userId: state.user?.id || 'SYSTEM',
                     customerId: customer?.id
                 };
 
-                const { createQuote: createQuoteAction } = await import('../../actions/quotes');
-                const result = await createQuoteAction(state.cart, context);
+                const { createQuoteSecure } = await import('../../actions/quotes-v2');
+                const result = await createQuoteSecure({
+                    items: state.cart.map(item => ({
+                        productId: item.id,
+                        sku: item.sku || 'UNKNOWN',
+                        name: item.name,
+                        quantity: item.quantity,
+                        unitPrice: item.price,
+                        discount: 0
+                    })),
+                    validDays: 15,
+                    customerId: customer?.id
+                });
 
-                if (result.success && result.quote) {
+                if (result.success && result.quoteCode) {
                     import('sonner').then(({ toast }) => {
-                        toast.success(`Cotización guardada: ${result.quote?.id}`);
+                        toast.success(`Cotización guardada: ${result.quoteCode}`);
                     });
                     set({ cart: [], currentCustomer: null });
-                    return result.quote;
+                    return { ...result, id: result.quoteId! } as any; // Cast to match expected return type if usage differs
                 } else {
                     import('sonner').then(({ toast }) => {
-                        toast.error('Error al guardar cotización');
+                        toast.error('Error al guardar cotización: ' + result.error);
                     });
-                    return null; // Handle error appropriately
+                    return null;
                 }
             },
             retrieveQuote: async (quoteCode) => {
                 const state = get();
-                const { retrieveQuote: retrieveQuoteAction } = await import('../../actions/quotes');
+                const { retrieveQuoteSecure } = await import('../../actions/quotes-v2');
 
-                const result = await retrieveQuoteAction(quoteCode);
+                const result = await retrieveQuoteSecure(quoteCode);
 
-                if (result.success && result.quote) {
-                    const quote = result.quote;
-
-                    // Convert QuoteItems to CartItems
-                    // Domain Quote items are already CartItems?
-                    // actions/quotes.ts now returns Quote with items as CartItems.
-                    // So quote.items is ALREADY CartItem[].
-
-                    const cartItems = quote.items;
+                if (result.success && result.data) {
+                    const quote = result.data;
+                    const cartItems = quote.items || [];
 
                     set({
                         cart: cartItems,
@@ -1127,7 +1141,7 @@ export const usePharmaStore = create<PharmaState>()(
                     });
 
                     import('sonner').then(({ toast }) => {
-                        toast.success(`Cotización cargada: ${quote.id}`);
+                        toast.success(`Cotización cargada`);
                     });
                     return true;
                 } else {
@@ -1145,8 +1159,8 @@ export const usePharmaStore = create<PharmaState>()(
             locations: [],
             fetchLocations: async () => {
                 try {
-                    const { getLocations } = await import('../../actions/locations');
-                    const result = await getLocations();
+                    const { fetchLocationsSecure } = await import('../../actions/sync-v2');
+                    const result = await fetchLocationsSecure();
                     if (result.success && result.data) {
                         set({ locations: result.data });
                     }
@@ -1159,12 +1173,10 @@ export const usePharmaStore = create<PharmaState>()(
             fetchTerminals: async (locationId) => {
                 set({ isLoading: true });
                 try {
-                    // Logic to fetch terminals for a specific location
-                    // Can reuse action or direct API
-                    const { getTerminalsByLocation } = await import('../../actions/terminals');
-                    const res = await getTerminalsByLocation(locationId);
+                    const { getTerminalsByLocationSecure } = await import('../../actions/terminals-v2');
+                    const res = await getTerminalsByLocationSecure(locationId);
                     if (res.success && res.data) {
-                        console.log('✅ Terminals set in store for Location', locationId, 'Count:', res.data.length, res.data);
+                        console.log('✅ Terminals set in store for Location', locationId, 'Count:', res.data.length);
                         set({ terminals: res.data });
                     } else {
                         console.warn('⚠️ Fetch Terminals yielded no data or error for', locationId);
@@ -1177,29 +1189,27 @@ export const usePharmaStore = create<PharmaState>()(
                 }
             },
 
-            addTerminal: async (terminal) => {
-                const { createTerminal } = await import('../../actions/network');
-                // Optimistic Update (Temporary ID)
+            addTerminal: async (terminal, adminPin = '0000') => { // TODO: Prompt for PIN properly
+                const { createTerminalSecure } = await import('../../actions/network-v2');
+                // Optimistic Update
                 const tempId = `TEMP-${Date.now()}`;
                 set((state) => ({
-                    terminals: [...state.terminals, { ...terminal, id: tempId, status: 'CLOSED' }]
+                    terminals: [...state.terminals, { ...terminal, id: tempId, status: 'CLOSED' } as any]
                 }));
 
                 try {
-                    const res = await createTerminal({
+                    const res = await createTerminalSecure({
                         name: terminal.name,
-                        location_id: terminal.location_id,
-                        printer_config: terminal.printer_config
-                    });
+                        locationId: terminal.location_id,
+                        allowedUsers: []
+                    }, adminPin);
 
-                    if (res.success && res.id) {
-                        // Replace Temp ID with Real ID
+                    if (res.success && res.terminalId) {
                         set((state) => ({
-                            terminals: state.terminals.map(t => t.id === tempId ? { ...t, id: res.id! } : t)
+                            terminals: state.terminals.map(t => t.id === tempId ? { ...t, id: res.terminalId! } : t)
                         }));
                         import('sonner').then(({ toast }) => toast.success('Caja creada correctamente'));
                     } else {
-                        // Rollback
                         set((state) => ({
                             terminals: state.terminals.filter(t => t.id !== tempId)
                         }));
@@ -1213,7 +1223,7 @@ export const usePharmaStore = create<PharmaState>()(
                 }
             },
             deleteTerminal: async (id) => {
-                const { deleteTerminal } = await import('../../actions/terminals');
+                const { deleteTerminalSecure } = await import('../../actions/terminals-v2');
 
                 // Optimistic Update
                 const previousTerminals = get().terminals;
@@ -1222,7 +1232,7 @@ export const usePharmaStore = create<PharmaState>()(
                 }));
 
                 try {
-                    const res = await deleteTerminal(id);
+                    const res = await deleteTerminalSecure(id);
                     if (!res.success) {
                         // Rollback
                         set({ terminals: previousTerminals });
@@ -1236,7 +1246,7 @@ export const usePharmaStore = create<PharmaState>()(
                 }
             },
             forceCloseTerminal: async (id) => {
-                const { closeTerminalAtomic } = await import('../../actions/terminals-v2');
+                const { forceCloseTerminalShift } = await import('../../actions/terminals-v2');
                 const currentUser = get().user;
 
                 // Optimistic Update
@@ -1245,8 +1255,8 @@ export const usePharmaStore = create<PharmaState>()(
                 }));
 
                 try {
-                    // Force close with 0 cash and admin comment using ATOMIC Implementation
-                    const res = await closeTerminalAtomic(id, currentUser?.id || 'ADMIN_FORCE', 0, 'Cierre Administrativo Forzado');
+                    // Force close with just admin ID and justification (3 args)
+                    const res = await forceCloseTerminalShift(id, currentUser?.id || 'ADMIN_FORCE', 'Cierre Administrativo Forzado');
 
                     if (!res.success) {
                         import('sonner').then(({ toast }) => toast.error('Error al forzar cierre: ' + res.error));
@@ -1261,7 +1271,7 @@ export const usePharmaStore = create<PharmaState>()(
                 }
             },
             updateTerminal: async (id, updates) => {
-                const { updateTerminal } = await import('../../actions/terminals');
+                const { updateTerminalSecure } = await import('../../actions/terminals-v2');
 
                 // Optimistic Update
                 set((state) => ({
@@ -1269,9 +1279,9 @@ export const usePharmaStore = create<PharmaState>()(
                 }));
 
                 try {
-                    const res = await updateTerminal(id, {
-                        name: updates.name || '',
-                        is_active: updates.is_active
+                    const res = await updateTerminalSecure(id, {
+                        name: updates.name,
+                        locationId: updates.location_id
                     });
 
                     if (!res.success) {
@@ -1288,7 +1298,7 @@ export const usePharmaStore = create<PharmaState>()(
             cashMovements: [],
 
             openShift: async (initialAmount, userId) => {
-                const { openTerminal } = await import('../../actions/terminals');
+                const { openTerminal } = await import('../../actions/terminals-v2');
                 const state = get();
                 if (!state.currentTerminalId) {
                     import('sonner').then(({ toast }) => toast.error('No hay caja seleccionada'));
@@ -1297,15 +1307,15 @@ export const usePharmaStore = create<PharmaState>()(
 
                 const res = await openTerminal(state.currentTerminalId, userId, initialAmount);
 
-                if (res.success && res.data) {
+                if (res.success && res.sessionId) {
                     const newShift: Shift = {
-                        id: res.data.id,
-                        terminal_id: res.data.terminal_id,
-                        start_time: res.data.start_time,
-                        opening_amount: Number(res.data.opening_amount),
+                        id: res.sessionId,
+                        terminal_id: state.currentTerminalId,
+                        start_time: Date.now(),
+                        opening_amount: initialAmount,
                         status: 'ACTIVE',
-                        user_id: res.data.user_id,
-                        authorized_by: res.data.user_id // using user_id as authorized_by for now
+                        user_id: userId,
+                        authorized_by: userId // using user_id as authorized_by for now
                     };
 
                     const updatedTerminals = state.terminals.map(t =>
@@ -1355,8 +1365,8 @@ export const usePharmaStore = create<PharmaState>()(
                 // 🔒 Security: Audit Log for Missing Cash
                 if (difference < 0) {
                     try {
-                        const { logAuditAction } = await import('../../actions/security');
-                        await logAuditAction(authorizedBy, 'CASH_DIFFERENCE', {
+                        const { logAuditActionSecure } = await import('../../actions/security-v2');
+                        await logAuditActionSecure(authorizedBy, 'CASH_DIFFERENCE', {
                             shift_id: state.currentShift.id,
                             difference,
                             expected: metrics.expectedCash,
@@ -1522,20 +1532,20 @@ export const usePharmaStore = create<PharmaState>()(
                 if (['CHECK_OUT', 'MEDICAL_LEAVE', 'EMERGENCY', 'WORK_ACCIDENT'].includes(type)) newStatus = 'OUT';
 
                 // Call Backend Action
-                const { registerAttendance: registerAction } = await import('../../actions/attendance');
-                const result = await registerAction(
-                    employeeId,
-                    type as any, // Cast to match limited backend types if needed, or update backend types
-                    state.currentLocationId,
-                    'PIN', // Default method
+                const { registerAttendanceSecure: registerAction } = await import('../../actions/attendance-v2');
+                const result = await registerAction({
+                    userId: employeeId,
+                    type: type as any,
+                    locationId: state.currentLocationId || 'UNKNOWN',
+                    method: 'PIN',
                     observation,
-                    evidence_photo_url,
+                    evidencePhotoUrl: evidence_photo_url,
                     overtimeMinutes
-                );
+                });
 
-                if (result.success) {
+                if (result.success && result.attendanceId) {
                     const newLog: AttendanceLog = {
-                        id: result.data.id,
+                        id: result.attendanceId,
                         employee_id: employeeId,
                         timestamp: now,
                         type,
@@ -1814,9 +1824,13 @@ export const usePharmaStore = create<PharmaState>()(
             })),
             generateTicket: async (rut = 'ANON', branch_id = 'SUC-CENTRO', type = 'GENERAL') => {
                 const state = get();
-                const { createTicket } = await import('../../actions/queue');
+                const { createTicketSecure } = await import('../../actions/queue-v2');
 
-                const result = await createTicket(branch_id, rut === 'ANON' ? '' : rut, type as any);
+                const result = await createTicketSecure({
+                    branchId: branch_id,
+                    rut: rut === 'ANON' ? 'ANON' : rut,
+                    type: type as any
+                });
 
                 if (result.success && result.ticket) {
                     const dbTicket = result.ticket;
@@ -1843,10 +1857,12 @@ export const usePharmaStore = create<PharmaState>()(
             },
             callNextTicket: async (counterId: string) => {
                 const state = get();
-                const { getNextTicket } = await import('../../actions/queue');
+                const { getNextTicketSecure } = await import('../../actions/queue-v2');
                 const branchId = state.currentLocationId || 'SUC-CENTRO';
+                // Assume counterId is the User ID for now, or use logged in user
+                const userId = state.user?.id || 'UNKNOWN';
 
-                const result = await getNextTicket(branchId, counterId);
+                const result = await getNextTicketSecure(branchId, userId);
 
                 if (result.success && result.ticket) {
                     const dbTicket = result.ticket;
@@ -1872,13 +1888,13 @@ export const usePharmaStore = create<PharmaState>()(
             },
             refreshQueueStatus: async () => {
                 const state = get();
-                const { getQueueStatus } = await import('../../actions/queue');
+                const { getQueueStatusSecure } = await import('../../actions/queue-v2');
                 if (!state.currentLocationId) return;
 
-                const result = await getQueueStatus(state.currentLocationId);
-                if (result.success && result.allTickets) {
+                const result = await getQueueStatusSecure(state.currentLocationId);
+                if (result.success && result.data?.waitingTickets) {
                     // Map DB tickets to store tickets
-                    const mappedTickets: QueueTicket[] = result.allTickets.map((t: any) => ({
+                    const mappedTickets: QueueTicket[] = result.data.waitingTickets.map((t: any) => ({
                         id: t.id,
                         number: t.code,
                         status: t.status === 'NO_SHOW' ? 'SKIPPED' : t.status,

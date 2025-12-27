@@ -38,8 +38,8 @@ export default function SessionGuard({ children }: { children: React.ReactNode }
                     path: pathname
                 };
 
-                const { verifySession } = await import('../../../actions/security');
-                const res = await verifySession(user.id, user.token_version || 1, contextData);
+                const { validateSessionSecure } = await import('../../../actions/security-v2');
+                const res = await validateSessionSecure(user.id, user.token_version || 1, contextData);
 
                 if (!res.valid) {
                     console.warn('Session Invalid/Revoked:', res.error);

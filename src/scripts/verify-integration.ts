@@ -10,8 +10,9 @@ async function verify() {
 
     // 1. Verify WMS Movements
     try {
-        const { getRecentMovements } = await import('../actions/inventory');
-        const movements = await getRecentMovements();
+        const { getRecentMovementsSecure } = await import('../actions/inventory-v2');
+        const result = await getRecentMovementsSecure();
+        const movements = result.data || [];
         console.log(`📦 WMS Movements Found: ${movements.length}`);
         if (movements.length > 0) {
             console.log('   Example:', movements[0]);
@@ -24,13 +25,14 @@ async function verify() {
 
     // 2. Verify Logistics KPIs
     try {
-        const { getLogisticsKPIs } = await import('../actions/reports-detail');
+        const { getLogisticsKPIsSecure } = await import('../actions/reports-detail-v2');
         // Usar fechas amplias
         const now = new Date();
         const lastMonth = new Date();
         lastMonth.setMonth(now.getMonth() - 2);
 
-        const kpis = await getLogisticsKPIs(lastMonth.toISOString(), now.toISOString());
+        const result = await getLogisticsKPIsSecure(lastMonth.toISOString(), now.toISOString());
+        const kpis = result.data || { total_in: 0, total_out: 0 };
         console.log(`📊 Logistics KPIs:`, kpis);
         if (kpis.total_in === 0 && kpis.total_out === 0) {
             console.warn('   ⚠️ KPIs are zero. Check date ranges or movement types.');

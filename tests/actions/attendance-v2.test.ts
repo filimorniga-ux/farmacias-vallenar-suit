@@ -5,7 +5,15 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as attendanceV2 from '@/actions/attendance-v2';
 
-vi.mock('@/lib/db', () => ({ query: vi.fn(), pool: { connect: vi.fn() } }));
+vi.mock('@/lib/db', () => ({
+    query: vi.fn(),
+    pool: {
+        connect: vi.fn(() => Promise.resolve({
+            query: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
+            release: vi.fn()
+        }))
+    }
+}));
 vi.mock('next/headers', () => ({
     headers: vi.fn(async () => new Map([['x-user-id', 'user-1'], ['x-user-role', 'CASHIER']]))
 }));
@@ -36,7 +44,9 @@ describe('Attendance V2 - Sequence Validation', () => {
         });
 
         // Will fail on DB but validates input correctly
-        expect(result.error).not.toContain('aprobación');
+        if (result.error) {
+            expect(result.error).not.toContain('aprobación');
+        }
     });
 
     it('should validate UUID format', async () => {

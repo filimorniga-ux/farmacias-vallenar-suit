@@ -906,6 +906,99 @@ export async function getTerminalsByLocationSecure(locationId?: string): Promise
 }
 
 // =====================================================
+// FUNCIÓN: ACTUALIZAR TERMINAL (SEGURA)
+// =====================================================
+
+const UpdateTerminalSchema = z.object({
+    name: z.string().min(2).max(50).optional(),
+    locationId: z.string().uuid().optional(),
+    allowedUsers: z.array(z.string().uuid()).optional(),
+});
+
+export async function updateTerminalSecure(
+    terminalId: string,
+    data: z.infer<typeof UpdateTerminalSchema>
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        const { headers } = await import('next/headers');
+        const headersList = await headers();
+        const userRole = headersList.get('x-user-role');
+        const userId = headersList.get('x-user-id');
+
+        if (!userId) {
+            return { success: false, error: 'No autenticado' };
+        }
+
+        const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
+        if (!MANAGER_ROLES.includes(userRole || '')) {
+            return { success: false, error: 'Requiere permisos de gerente' };
+        }
+
+        const validation = UpdateTerminalSchema.safeParse(data);
+        if (!validation.success) {
+            return { success: false, error: validation.error.issues[0]?.message };
+        }
+
+        const { name, locationId, allowedUsers } = validation.data;
+        const updates: string[] = [];
+        const params: any[] = [];
+        let idx = 1;
+
+        if (name) { updates.push(`name = $${idx++}`); params.push(name); }
+        if (locationId) { updates.push(`location_id = $${idx++}`); params.push(locationId); }
+        if (allowedUsers) { updates.push(`allowed_users = $${idx++}`); params.push(allowedUsers); }
+
+        if (updates.length > 0) {
+            updates.push(`updated_at = NOW()`);
+            params.push(terminalId);
+            await query(`UPDATE terminals SET ${updates.join(', ')} WHERE id = $${idx}`, params);
+
+            revalidatePath('/settings/organization');
+            return { success: true };
+        }
+
+        return { success: true }; // No updates needed
+
+    } catch (error: any) {
+        logger.error({ error, terminalId }, '[TerminalsV2] updateTerminalSecure error');
+        return { success: false, error: 'Error actualizando terminal' };
+    }
+}
+
+// =====================================================
+// FUNCIÓN: ELIMINAR TERMINAL (SEGURA)
+// =====================================================
+
+export async function deleteTerminalSecure(terminalId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+        const { headers } = await import('next/headers');
+        const headersList = await headers();
+        const userRole = headersList.get('x-user-role');
+
+        if (!['ADMIN', 'GERENTE_GENERAL'].includes(userRole || '')) {
+            return { success: false, error: 'Solo administradores pueden eliminar terminales' };
+        }
+
+        // Verificar si tiene sesiones
+        const sessions = await query('SELECT count(*) as c FROM cash_register_sessions WHERE terminal_id = $1', [terminalId]);
+        if (parseInt(sessions.rows[0].c) > 0) {
+            // Soft delete
+            await query("UPDATE terminals SET status = 'DELETED', is_active = false, updated_at = NOW() WHERE id = $1", [terminalId]);
+        } else {
+            // Hard delete si no tiene historial
+            await query("DELETE FROM terminals WHERE id = $1", [terminalId]);
+        }
+
+        revalidatePath('/settings/organization');
+        return { success: true };
+
+    } catch (error: any) {
+        logger.error({ error, terminalId }, '[TerminalsV2] deleteTerminalSecure error');
+        return { success: false, error: 'Error eliminando terminal' };
+    }
+}
+
+// =====================================================
 // RE-EXPORTS PARA COMPATIBILIDAD
 // =====================================================
 

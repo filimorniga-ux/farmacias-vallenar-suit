@@ -314,8 +314,8 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
             successCount = itemsToImport.length;
 
             // 3. Refresh Data
-            const { fetchInventory } = await import('../../../actions/sync');
-            await fetchInventory();
+            const { fetchInventorySecure } = await import('../../../actions/sync-v2');
+            await fetchInventorySecure();
 
             toast.success('Importación Completada', {
                 description: `Se importaron ${successCount} productos correctamente.`

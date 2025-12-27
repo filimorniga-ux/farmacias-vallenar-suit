@@ -182,7 +182,7 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ viewMode = 'LIVE'
                                         </div>
                                     </div>
 
-                                    <div className={`p-3 rounded-xl border flex items-center justify-between ${getStatusColor(emp.current_status)}`}>
+                                    <div className={`p-3 rounded-xl border flex items-center justify-between ${getStatusColor(emp.current_status || 'OUT')}`}>
                                         <span className="font-bold text-sm">
                                             {emp.current_status === 'IN' ? '🟢 TRABAJANDO' :
                                                 emp.current_status === 'LUNCH' ? '🍔 EN COLACIÓN' :

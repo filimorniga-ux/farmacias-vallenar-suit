@@ -11,11 +11,13 @@ export default function TotemPage() {
         setIsPrinting(true);
 
         try {
-            const { generateTicket } = await import('@/actions/operations');
-            const res = await generateTicket('GENERAL');
+            const { generateTicketSecure } = await import('@/actions/operations-v2');
+            // TODO: Obtener locationId de configuración del tótem
+            const TEMP_LOCATION_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+            const res = await generateTicketSecure('GENERAL', TEMP_LOCATION_ID);
 
             if (res.success && res.ticket) {
-                setLastTicket(res.ticket.numero_ticket);
+                setLastTicket(res.ticket.number);
                 // Simulate printing delay
                 setTimeout(() => {
                     window.print();

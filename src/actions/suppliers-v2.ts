@@ -40,6 +40,16 @@ const CreateSupplierSchema = z.object({
     userId: UUIDSchema,
 });
 
+const UpdateSupplierSchema = z.object({
+    supplierId: UUIDSchema,
+    businessName: z.string().min(2).max(200).optional(),
+    fantasyName: z.string().max(200).optional(),
+    contactEmail: z.string().email().optional(),
+    phone: z.string().max(20).optional(),
+    address: z.string().max(500).optional(),
+    userId: UUIDSchema,
+});
+
 const DeactivateSupplierSchema = z.object({
     supplierId: UUIDSchema,
     reason: z.string().min(10),
@@ -68,6 +78,57 @@ export async function createSupplierSecure(data: z.infer<typeof CreateSupplierSc
         await client.query('COMMIT');
         revalidatePath('/proveedores');
         return { success: true, data: { supplierId } };
+    } catch (e: any) {
+        await client.query('ROLLBACK');
+        return { success: false, error: e.message };
+    } finally {
+        client.release();
+    }
+}
+
+export async function updateSupplierSecure(data: z.infer<typeof UpdateSupplierSchema>) {
+    const validated = UpdateSupplierSchema.safeParse(data);
+    if (!validated.success) return { success: false, error: validated.error.issues[0]?.message };
+
+    const { supplierId, businessName, fantasyName, contactEmail, phone, address, userId } = validated.data;
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        // Check exists
+        const existing = await client.query('SELECT * FROM suppliers WHERE id = $1 FOR UPDATE NOWAIT', [supplierId]);
+        if (existing.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'Proveedor no encontrado' };
+        }
+
+        const prev = existing.rows[0];
+
+        // Update
+        const updates: string[] = ['updated_at = NOW()'];
+        const params: any[] = [];
+        let idx = 1;
+
+        if (businessName) { updates.push(`business_name = $${idx++}`); params.push(businessName); }
+        if (fantasyName !== undefined) { updates.push(`fantasy_name = $${idx++}`); params.push(fantasyName); }
+        if (contactEmail !== undefined) { updates.push(`contact_email = $${idx++}`); params.push(contactEmail); }
+        if (phone !== undefined) { updates.push(`phone = $${idx++}`); params.push(phone); }
+        if (address !== undefined) { updates.push(`address = $${idx++}`); params.push(address); }
+
+        params.push(supplierId);
+        await client.query(`UPDATE suppliers SET ${updates.join(', ')} WHERE id = $${idx}`, params);
+
+        // Audit
+        await client.query(`
+            INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, new_values, created_at)
+            VALUES ($1, 'SUPPLIER_UPDATED', 'SUPPLIER', $2, $3::jsonb, $4::jsonb, NOW())
+        `, [userId, supplierId, JSON.stringify(prev), JSON.stringify(validated.data)]);
+
+        await client.query('COMMIT');
+        revalidatePath('/proveedores');
+        return { success: true };
+
     } catch (e: any) {
         await client.query('ROLLBACK');
         return { success: false, error: e.message };

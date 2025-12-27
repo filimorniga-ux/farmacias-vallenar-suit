@@ -63,10 +63,10 @@ vi.mock('@/presentation/store/useLocationStore', () => ({
     }),
 }));
 
-// Mock scan action
+// Mock scan action (V2)
 const mockScanProduct = vi.fn();
-vi.mock('@/actions/scan', () => ({
-    scanProduct: (...args: any[]) => mockScanProduct(...args),
+vi.mock('@/actions/scan-v2', () => ({
+    scanProductSecure: (...args: any[]) => mockScanProduct(...args),
 }));
 
 // =====================================================
@@ -188,7 +188,7 @@ describe('useProductSearch Hook', () => {
             if (result.current.filteredInventory.length >= 2) {
                 const firstExpiry = result.current.filteredInventory[0].expiry_date || 0;
                 const secondExpiry = result.current.filteredInventory[1].expiry_date || 0;
-                
+
                 expect(firstExpiry).toBeLessThanOrEqual(secondExpiry);
             }
         });
@@ -324,9 +324,9 @@ describe('useProductSearch Hook', () => {
             });
 
             // Simulate Enter key
-            const event = { 
-                key: 'Enter', 
-                preventDefault: vi.fn() 
+            const event = {
+                key: 'Enter',
+                preventDefault: vi.fn()
             } as unknown as React.KeyboardEvent;
 
             act(() => {
@@ -343,9 +343,9 @@ describe('useProductSearch Hook', () => {
                 result.current.setSearchTerm('500mg'); // Multiple results
             });
 
-            const event = { 
-                key: 'ArrowDown', 
-                preventDefault: vi.fn() 
+            const event = {
+                key: 'ArrowDown',
+                preventDefault: vi.fn()
             } as unknown as React.KeyboardEvent;
 
             act(() => {
@@ -363,9 +363,9 @@ describe('useProductSearch Hook', () => {
             });
 
             // First go down
-            const downEvent = { 
-                key: 'ArrowDown', 
-                preventDefault: vi.fn() 
+            const downEvent = {
+                key: 'ArrowDown',
+                preventDefault: vi.fn()
             } as unknown as React.KeyboardEvent;
 
             act(() => {
@@ -373,9 +373,9 @@ describe('useProductSearch Hook', () => {
             });
 
             // Then go up
-            const upEvent = { 
-                key: 'ArrowUp', 
-                preventDefault: vi.fn() 
+            const upEvent = {
+                key: 'ArrowUp',
+                preventDefault: vi.fn()
             } as unknown as React.KeyboardEvent;
 
             act(() => {
@@ -392,9 +392,9 @@ describe('useProductSearch Hook', () => {
                 result.current.setSearchTerm('paracetamol');
             });
 
-            const event = { 
-                key: 'Escape', 
-                preventDefault: vi.fn() 
+            const event = {
+                key: 'Escape',
+                preventDefault: vi.fn()
             } as unknown as React.KeyboardEvent;
 
             act(() => {
@@ -412,12 +412,12 @@ describe('useProductSearch Hook', () => {
             });
 
             const resultCount = result.current.resultCount;
-            
+
             // Navigate to end and beyond
             for (let i = 0; i <= resultCount; i++) {
-                const event = { 
-                    key: 'ArrowDown', 
-                    preventDefault: vi.fn() 
+                const event = {
+                    key: 'ArrowDown',
+                    preventDefault: vi.fn()
                 } as unknown as React.KeyboardEvent;
 
                 act(() => {
@@ -516,9 +516,9 @@ describe('useProductSearch Hook', () => {
                 result.current.setSearchTerm('500mg');
             });
 
-            const downEvent = { 
-                key: 'ArrowDown', 
-                preventDefault: vi.fn() 
+            const downEvent = {
+                key: 'ArrowDown',
+                preventDefault: vi.fn()
             } as unknown as React.KeyboardEvent;
 
             act(() => {
