@@ -131,15 +131,15 @@ export default function CajaPage() {
                             <button
                                 onClick={async () => {
                                     try {
-                                        const { getNextTicket } = await import('@/actions/operations');
-                                        const res = await getNextTicket(1); // Assuming counter 1 for now
+                                        const { callNextTicketSecure } = await import('@/actions/operations-v2');
+                                        const res = await callNextTicketSecure(1, 'SYSTEM'); // Counter 1, system user
                                         if (res.success && res.ticket) {
-                                            alert(`Llamando a ticket: ${res.ticket.numero_ticket}`);
+                                            alert(`Llamando a ticket: ${res.ticket.number}`);
                                             // Optional: Speak the number
-                                            const msg = new SpeechSynthesisUtterance(`Atención, número ${res.ticket.numero_ticket}, pase a caja.`);
+                                            const msg = new SpeechSynthesisUtterance(`Atención, número ${res.ticket.number}, pase a caja.`);
                                             window.speechSynthesis.speak(msg);
                                         } else {
-                                            alert(res.message || res.error || 'No hay clientes en espera');
+                                            alert(res.error || 'No hay clientes en espera');
                                         }
                                     } catch (error) {
                                         console.error(error);

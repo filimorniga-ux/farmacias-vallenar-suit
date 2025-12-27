@@ -40,10 +40,10 @@ export const useLocationStore = create<LocationState>()(
 
             fetchLocations: async () => {
                 try {
-                    const { getLocationsWithTerminals } = await import('@/actions/network');
-                    const res = await getLocationsWithTerminals();
-                    if (res.success && res.locations) {
-                        set({ locations: res.locations });
+                    const { getOrganizationStructureSecure } = await import('@/actions/network-v2');
+                    const res = await getOrganizationStructureSecure();
+                    if (res.success && res.data?.locations) {
+                        set({ locations: res.data.locations });
                         // Also sync terminals if needed? Store mostly cares about locations logic for now
                         // But wait, the stores 'locations' type has 'associated_kiosks' (ids).
                         // The server action 'getLocationsWithTerminals' correctly maps terminals to 'associated_kiosks' ids.

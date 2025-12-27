@@ -13,16 +13,17 @@
 
 import React, { useState, useEffect } from 'react';
 import { usePharmaStore } from '@/presentation/store/useStore';
-// V2: Funciones seguras de treasury-v2
+// V2: Funciones seguras y tipos de treasury-v2
 import {
     transferFundsSecure,
     confirmRemittanceSecure,
     getFinancialAccountsSecure,
     getTreasuryTransactionsSecure,
     getPendingRemittancesSecure,
+    type FinancialAccount,
+    type TreasuryTransaction,
+    type Remittance,
 } from '@/actions/treasury-v2';
-// Types solo de treasury legacy
-import type { FinancialAccount, TreasuryTransaction, Remittance } from '@/actions/treasury';
 import { toast } from 'sonner';
 import {
     Landmark, Briefcase, DollarSign, ArrowRight, ArrowUpRight,

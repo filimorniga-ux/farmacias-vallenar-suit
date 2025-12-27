@@ -11,11 +11,11 @@ export default function TotemPage() {
         setIsPrinting(true);
 
         try {
-            const { generateTicket } = await import('@/actions/operations');
-            const res = await generateTicket('GENERAL');
+            const { generateTicketSecure } = await import('@/actions/operations-v2');
+            const res = await generateTicketSecure('GENERAL', 'DEFAULT_LOCATION');
 
             if (res.success && res.ticket) {
-                setLastTicket(res.ticket.numero_ticket);
+                setLastTicket(res.ticket.number);
                 // Simulate printing delay
                 setTimeout(() => {
                     window.print();

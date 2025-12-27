@@ -30,8 +30,8 @@ export default async function ProveedoresPage() {
                             <div className="flex">
                                 <form action={async () => {
                                     'use server';
-                                    const { logActionServer } = await import('@/actions/logger-action');
-                                    await logActionServer('admin', 'AJUSTE_STOCK', 'Ajuste manual de stock simulado: Paracetamol -10');
+                                    const { logActionSecure } = await import('@/actions/logger-action-v2');
+                                    await logActionSecure('admin', 'AJUSTE_STOCK', 'Ajuste manual de stock simulado: Paracetamol -10');
                                 }}>
                                     <button
                                         type="submit"
