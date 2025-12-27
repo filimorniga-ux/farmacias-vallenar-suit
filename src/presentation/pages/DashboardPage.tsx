@@ -14,7 +14,7 @@ import SystemIncidentsBanner from '../components/dashboard/SystemIncidentsBanner
 
 const DashboardPage: React.FC = () => {
     const navigate = useNavigate();
-    const { login, user, employees, salesHistory, expenses, inventory, attendanceLogs } = usePharmaStore();
+    const { login, user, employees, salesHistory, expenses, inventory, attendanceLogs, syncData } = usePharmaStore();
     const { currentLocation, locations, switchLocation, canSwitchLocation } = useLocationStore();
 
     const [pin, setPin] = useState('');
@@ -28,6 +28,9 @@ const DashboardPage: React.FC = () => {
 
     // --- AUTO-BACKUP & NETWORK MONITOR ---
     useEffect(() => {
+        // 🚀 Cargar datos si no están cargados (lazy loading)
+        syncData().catch(console.error);
+
         autoBackupService.start();
         const updateOnlineStatus = () => setIsOnline(navigator.onLine);
         window.addEventListener('online', updateOnlineStatus);
@@ -41,7 +44,6 @@ const DashboardPage: React.FC = () => {
                 autoCloseGhostSessionsSecure('')  // System auto-cleanup, no PIN required
                     .then(res => {
                         if (res.success && res.count && res.count > 0) {
-                            // Optional: Notify user (as per future roadmap)
                             console.log(`🧹 GC Limpió ${res.count} sesiones.`);
                         }
                     })
@@ -54,7 +56,7 @@ const DashboardPage: React.FC = () => {
             window.removeEventListener('online', updateOnlineStatus);
             window.removeEventListener('offline', updateOnlineStatus);
         };
-    }, [user?.role]); // Added user dependency to re-run on login
+    }, [user?.role, syncData]); // Added syncData dependency
 
     // --- SERVER SIDE DATA ---
     const [serverMetrics, setServerMetrics] = useState<any>(null);
