@@ -11,7 +11,7 @@ import { getUsersForLogin } from '../actions/login';
 
 const LandingPage: React.FC = () => {
     const navigate = useNavigate();
-    const { login, employees } = usePharmaStore();
+    const { login, employees, user, syncData } = usePharmaStore();
     const [localEmployees, setLocalEmployees] = useState<EmployeeProfile[]>([]);
 
     // Context State
@@ -31,7 +31,17 @@ const LandingPage: React.FC = () => {
     const [securityPin, setSecurityPin] = useState('');
     const [pinError, setPinError] = useState(false);
 
-    // Initial Check
+    // 🚀 AUTO-REDIRECT: Si ya hay sesión, ir directo al dashboard
+    useEffect(() => {
+        if (user) {
+            console.log('🔄 Sesión restaurada, redirigiendo al dashboard...');
+            // Cargar datos en background después de restaurar sesión
+            syncData().catch(console.error);
+            navigate('/dashboard', { replace: true });
+        }
+    }, [user, navigate, syncData]);
+
+    // Initial Check - Location Context
     useEffect(() => {
         const locId = localStorage.getItem('preferred_location_id');
         if (!locId) {
@@ -39,8 +49,6 @@ const LandingPage: React.FC = () => {
             return;
         }
 
-        // Load context details (Optimistic from localStorage or fetch if needed, 
-        // but for speed we rely on stored name, or just ID if name missing)
         setContext({
             id: locId,
             name: localStorage.getItem('preferred_location_name') || 'Sucursal Identificada',
@@ -68,7 +76,10 @@ const LandingPage: React.FC = () => {
         const success = await login(selectedEmployee.id, pin, context.id);
 
         if (success) {
+            // Navegar inmediatamente, datos se cargan en background
             navigate('/dashboard');
+            // Cargar datos en background (no bloquea la navegación)
+            syncData().catch(console.error);
         } else {
             setError('Credenciales inválidas o sin permiso en esta sucursal');
             setPin('');

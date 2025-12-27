@@ -352,7 +352,19 @@ export const usePharmaStore = create<PharmaState>()(
 
                 return false;
             },
-            logout: () => set({ user: null }),
+            logout: () => {
+                // Limpiar sesión en store
+                set({
+                    user: null,
+                    currentTerminalId: '',
+                    // Mantener location para no forzar re-selección
+                });
+                // Limpiar cookies de sesión
+                try {
+                    document.cookie = 'user_id=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+                    document.cookie = 'user_role=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+                } catch (e) { /* ignore */ }
+            },
 
             // --- Data Sync ---
             isLoading: false,
@@ -2049,10 +2061,13 @@ export const usePharmaStore = create<PharmaState>()(
             // We want to persist SETTINGS but NOT transactional data (Inventory, Sales, Employees) 
             // because that should be fresh from DB on login.
             partialize: (state) => ({
+                // Persistir sesión del usuario para evitar re-login
+                user: state.user,
+                // Configuraciones
                 printerConfig: state.printerConfig,
                 siiConfiguration: state.siiConfiguration,
                 loyaltyConfig: state.loyaltyConfig,
-                // Maybe persist current context ID?
+                // Contexto de ubicación
                 currentLocationId: state.currentLocationId,
                 currentWarehouseId: state.currentWarehouseId,
                 currentTerminalId: state.currentTerminalId

@@ -1,109 +1,150 @@
 'use client';
 
-import React from 'react';
-import { X, ExternalLink, Scale, ScrollText, BookOpen, FileText } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, FileText, Search, Loader2, ChevronRight, Scale, ExternalLink } from 'lucide-react';
+import { getLegalDocumentsSecure, type LegalDocument } from '@/actions/legal-v2';
 
 interface LegalModalProps {
     isOpen: boolean;
     onClose: () => void;
 }
 
-const LEGAL_LINKS = [
-    {
-        title: 'Reglamento de Farmacias',
-        subtitle: 'Decreto Supremo 466',
-        url: 'https://www.bcn.cl/leychile/navegar?idNorma=13613',
-        icon: ScrollText,
-        color: 'bg-blue-50 text-blue-600'
-    },
-    {
-        title: 'Reglamento Control de Productos',
-        subtitle: 'Decreto Supremo 3',
-        url: 'https://www.bcn.cl/leychile/navegar?idNorma=1010372',
-        icon: Scale,
-        color: 'bg-indigo-50 text-indigo-600'
-    },
-    {
-        title: 'Farmacopea Chilena',
-        subtitle: 'Instituto de Salud Pública (ISP)',
-        url: 'https://www.ispch.cl/anamed/farmacopea-chilena/',
-        icon: BookOpen,
-        color: 'bg-emerald-50 text-emerald-600'
-    },
-    {
-        title: 'Ley de Fármacos II',
-        subtitle: 'Normativa Vigente',
-        url: 'https://www.bcn.cl/leychile/navegar?idNorma=1058373',
-        icon: FileText,
-        color: 'bg-purple-50 text-purple-600'
-    }
-];
+export function LegalModal({ isOpen, onClose }: LegalModalProps) {
+    const [documents, setDocuments] = useState<LegalDocument[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [search, setSearch] = useState('');
+    const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
 
-export const LegalModal: React.FC<LegalModalProps> = ({ isOpen, onClose }) => {
+    useEffect(() => {
+        if (isOpen) {
+            setIsLoading(true);
+            getLegalDocumentsSecure().then(res => {
+                if (res.success && res.data) {
+                    setDocuments(res.data);
+                }
+                setIsLoading(false);
+            });
+        }
+    }, [isOpen]);
+
+    const categories = [
+        { id: 'ALL', label: 'Todos' },
+        { id: 'SANITARY', label: 'Sanitario' },
+        { id: 'REGULATORY', label: 'Regulatorio' },
+        { id: 'CONTROLLED', label: 'Controlados' },
+        { id: 'MEDICAL', label: 'Médico' },
+        { id: 'LEGAL', label: 'Legal' },
+        { id: 'CUSTOMER_SERVICE', label: 'Atención Cliente' }
+    ];
+
+    const filteredDocs = documents.filter(doc => {
+        const matchesSearch = doc.title.toLowerCase().includes(search.toLowerCase());
+        const matchesCategory = selectedCategory === 'ALL' || doc.category === selectedCategory;
+        return matchesSearch && matchesCategory;
+    });
+
     if (!isOpen) return null;
 
-    const handleOpenLink = (url: string) => {
-        window.open(url, '_blank');
-    };
-
     return (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
-            <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 z-[10000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200">
+            <div className="bg-slate-50 w-full max-w-5xl h-[80vh] rounded-3xl shadow-2xl flex overflow-hidden relative border border-white/10">
 
-                {/* Header */}
-                <div className="bg-slate-900 p-6 flex justify-between items-center shrink-0">
-                    <div className="flex items-center gap-3 text-white">
-                        <Scale className="w-8 h-8 text-cyan-400" />
-                        <div>
-                            <h2 className="text-2xl font-bold">Marco Legal Vigente</h2>
-                            <p className="text-cyan-200 text-sm">Documentación oficial y normativa sanitaria</p>
+                {/* Close Button */}
+                <button
+                    onClick={onClose}
+                    className="absolute top-4 right-4 z-20 bg-white/50 hover:bg-white p-2 rounded-full text-slate-800 transition-all shadow-sm"
+                >
+                    <X size={24} />
+                </button>
+
+                {/* Left Sidebar: Categories */}
+                <div className="w-64 bg-white border-r border-slate-200 flex flex-col shrink-0">
+                    <div className="p-6 border-b border-slate-100">
+                        <div className="flex items-center gap-2 text-cyan-700 mb-1">
+                            <Scale size={24} />
+                            <h2 className="text-xl font-black tracking-tight">Normativa</h2>
+                        </div>
+                        <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Documentación Oficial</p>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                        {categories.map(cat => (
+                            <button
+                                key={cat.id}
+                                onClick={() => setSelectedCategory(cat.id)}
+                                className={`w-full text-left px-4 py-3 rounded-xl text-sm font-bold transition-all flex justify-between items-center ${selectedCategory === cat.id
+                                        ? 'bg-cyan-50 text-cyan-700 shadow-sm'
+                                        : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                                    }`}
+                            >
+                                {cat.label}
+                                {selectedCategory === cat.id && <ChevronRight size={16} />}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Main Content: Document List */}
+                <div className="flex-1 flex flex-col bg-slate-50 relative">
+                    {/* Search Bar */}
+                    <div className="p-6 bg-white border-b border-slate-200 shadow-sm z-10">
+                        <div className="relative">
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                            <input
+                                type="text"
+                                placeholder="Buscar decreto, ley o reglamento..."
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                className="w-full pl-12 pr-4 py-4 bg-slate-100 border-none rounded-2xl text-slate-800 font-bold placeholder:text-slate-400 focus:ring-2 focus:ring-cyan-500 outline-none transition-all"
+                            />
                         </div>
                     </div>
-                    <button
-                        onClick={onClose}
-                        className="text-slate-400 hover:text-white bg-slate-800/50 hover:bg-slate-800 p-2 rounded-full transition-colors"
-                    >
-                        <X size={32} />
-                    </button>
-                </div>
 
-                {/* Content Grid */}
-                <div className="p-8 bg-slate-50 overflow-y-auto">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {LEGAL_LINKS.map((link, idx) => {
-                            const Icon = link.icon;
-                            return (
-                                <button
-                                    key={idx}
-                                    onClick={() => handleOpenLink(link.url)}
-                                    className="bg-white p-6 rounded-2xl shadow-sm border-2 border-slate-100 hover:border-cyan-400 hover:shadow-lg transition-all text-left group flex items-start gap-4 active:scale-[0.98]"
-                                >
-                                    <div className={`p-4 rounded-xl ${link.color} group-hover:scale-110 transition-transform`}>
-                                        <Icon size={32} />
-                                    </div>
-                                    <div className="flex-1">
-                                        <h3 className="text-lg font-bold text-slate-800 group-hover:text-cyan-700 transition-colors mb-1">
-                                            {link.title}
-                                        </h3>
-                                        <p className="text-slate-500 font-medium text-sm mb-3">
-                                            {link.subtitle}
-                                        </p>
-                                        <div className="inline-flex items-center gap-1 text-xs font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded group-hover:bg-cyan-50 group-hover:text-cyan-600 transition-colors">
-                                            <ExternalLink size={12} />
-                                            LEER DOCUMENTO
+                    {/* Results */}
+                    <div className="flex-1 overflow-y-auto p-6 md:p-8">
+                        {isLoading ? (
+                            <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                                <Loader2 size={48} className="animate-spin mb-4 text-cyan-500" />
+                                <p className="font-bold">Cargando biblioteca legal...</p>
+                            </div>
+                        ) : filteredDocs.length === 0 ? (
+                            <div className="h-full flex flex-col items-center justify-center text-slate-400 opacity-60">
+                                <FileText size={64} className="mb-4" />
+                                <p className="text-xl font-bold">No se encontraron documentos</p>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {filteredDocs.map(doc => (
+                                    <a
+                                        key={doc.id}
+                                        href={`/legal/${doc.filename}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="bg-white p-5 rounded-2xl border border-slate-100 hover:border-cyan-300 hover:shadow-lg hover:shadow-cyan-100/50 transition-all group flex items-start gap-4"
+                                    >
+                                        <div className="bg-slate-100 p-3 rounded-xl group-hover:bg-cyan-50 transition-colors">
+                                            <FileText size={24} className="text-slate-500 group-hover:text-cyan-600" />
                                         </div>
-                                    </div>
-                                </button>
-                            );
-                        })}
+                                        <div className="flex-1 min-w-0">
+                                            <h3 className="font-bold text-slate-800 text-lg leading-tight mb-1 group-hover:text-cyan-700 transition-colors truncate w-full">
+                                                {doc.title}
+                                            </h3>
+                                            <div className="flex items-center gap-2 text-xs font-medium text-slate-400">
+                                                <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-500">
+                                                    {doc.category}
+                                                </span>
+                                                <span>•</span>
+                                                <span>PDF</span>
+                                            </div>
+                                        </div>
+                                        <ExternalLink size={18} className="text-slate-300 group-hover:text-cyan-500" />
+                                    </a>
+                                ))}
+                            </div>
+                        )}
                     </div>
-                </div>
-
-                {/* Footer */}
-                <div className="bg-slate-100 p-6 text-center text-slate-400 text-sm border-t border-slate-200">
-                    <p>Estos enlaces redirigen a fuentes oficiales del Gobierno de Chile y el ISP.</p>
                 </div>
             </div>
         </div>
     );
-};
+}

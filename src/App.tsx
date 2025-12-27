@@ -42,11 +42,11 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 };
 
 function App({ forceContextSelection }: { forceContextSelection?: boolean }) {
-    const { syncData } = usePharmaStore();
     const { fetchLocations } = useLocationStore();
 
     useEffect(() => {
-        syncData();
+        // Solo cargar ubicaciones al inicio (ligero)
+        // Los datos pesados (inventario, ventas) se cargan después del login o cuando se necesitan
         fetchLocations();
     }, []);
 
