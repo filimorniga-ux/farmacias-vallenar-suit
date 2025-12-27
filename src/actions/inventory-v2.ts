@@ -843,8 +843,8 @@ export async function getInventorySecure(
                 ib.stock_max
 
             FROM inventory_batches ib
-            JOIN products p ON ib.product_id = p.id
-            WHERE ib.location_id = $1::uuid
+            JOIN products p ON ib.product_id::text = p.id
+            WHERE ib.location_id::text = $1
             ORDER BY p.name ASC
         `;
 

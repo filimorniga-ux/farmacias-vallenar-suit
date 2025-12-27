@@ -60,13 +60,13 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
             // V2: getTerminalsByLocationSecure para obtener terminales disponibles
             getTerminalsByLocationSecure(selectedLocation).then((res) => {
                 if (res.success && res.data) {
-                    // Filtrar solo terminales disponibles (no en uso)
                     const available = res.data.filter((t: any) => t.status !== 'OPEN');
                     setOpenableTerminals(available as Terminal[]);
                 } else {
                     setOpenableTerminals([]);
-                    toast.error('Error cargando estado de terminales');
                 }
+            }).catch(() => {
+                setOpenableTerminals([]);
             });
 
             // 2. Ensure Store has terminals for this location (Fallback for Dropdown) by re-fetching
@@ -435,9 +435,12 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                                                 {!selectedLocation ? 'Primero seleccione sucursal' : 'Seleccione Terminal...'}
                                             </option>
                                             {displayTerminals.map(t => {
-                                                const isOpenable = openableTerminals.some(ot => ot.id === t.id);
+                                                // Lógica simplificada: usar status directamente
                                                 const isMine = t.current_cashier_id === user?.id && t.status === 'OPEN';
-                                                const isOccupied = !isOpenable && !isMine;
+                                                // Una terminal está ocupada si está OPEN y NO es mía
+                                                const isOccupied = t.status === 'OPEN' && !isMine;
+                                                // Disponible si está CLOSED o si no tiene cajero asignado
+                                                const isAvailable = t.status === 'CLOSED' || t.status !== 'OPEN';
 
                                                 // Icon/Text Logic
                                                 let statusLabel = '';

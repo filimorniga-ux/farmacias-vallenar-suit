@@ -742,7 +742,7 @@ export async function getPurchaseOrderHistory(filters?: {
         const ordersResult = await pool.query(`
             SELECT 
                 po.*,
-                s.name as supplier_name,
+                s.business_name as supplier_name,
                 u1.name as created_by_name,
                 u2.name as approved_by_name,
                 u3.name as received_by_name

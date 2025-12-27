@@ -62,8 +62,8 @@ const ClientsPage: React.FC = () => {
     const filteredCustomers = useMemo(() => {
         return customers.filter(c =>
             (c.status !== 'BANNED') && (
-                c.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                c.rut.includes(searchTerm) ||
+                (c.fullName?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+                (c.rut || '').includes(searchTerm) ||
                 (c.phone && c.phone.includes(searchTerm))
             )
         );
