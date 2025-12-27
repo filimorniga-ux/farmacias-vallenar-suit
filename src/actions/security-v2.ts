@@ -234,21 +234,17 @@ export async function validateSessionSecure(
         return { valid: false, error: validated.error.issues[0]?.message };
     }
 
-    const client = await pool.connect();
-
     try {
-        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+        const { query } = await import('@/lib/db');
 
-        // Get user with lock
-        const userRes = await client.query(`
-            SELECT id, token_version, is_active, account_locked_until, account_locked_permanently
+        // Simple SELECT without transaction to avoid deadlocks
+        const userRes = await query(`
+            SELECT id, token_version, is_active
             FROM users 
             WHERE id = $1
-            FOR UPDATE NOWAIT
         `, [userId]);
 
         if (userRes.rows.length === 0) {
-            await client.query('ROLLBACK');
             return { valid: false, error: 'Usuario no encontrado' };
         }
 
@@ -256,54 +252,30 @@ export async function validateSessionSecure(
 
         // Check if user is active
         if (!user.is_active) {
-            await client.query('ROLLBACK');
             return { valid: false, error: 'Usuario deshabilitado' };
-        }
-
-        // Check if account is locked
-        if (user.account_locked_permanently) {
-            await client.query('ROLLBACK');
-            return { valid: false, error: 'Cuenta bloqueada permanentemente. Contacte al administrador.' };
-        }
-
-        if (user.account_locked_until && new Date(user.account_locked_until) > new Date()) {
-            await client.query('ROLLBACK');
-            const waitMinutes = Math.ceil(
-                (new Date(user.account_locked_until).getTime() - Date.now()) / 60000
-            );
-            return { valid: false, error: `Cuenta bloqueada. Espere ${waitMinutes} minutos.` };
         }
 
         // Check token version
         const dbTokenVersion = Number(user.token_version) || 1;
         if (dbTokenVersion > clientTokenVersion) {
-            await client.query('ROLLBACK');
             return { valid: false, error: 'Sesión revocada remotamente' };
         }
 
-        // Update activity
-        await client.query(`
+        // Update activity (fire and forget to avoid blocking)
+        query(`
             UPDATE users 
             SET last_active_at = NOW(),
                 current_context_data = $2
             WHERE id = $1
-        `, [userId, JSON.stringify(contextData || {})]);
+        `, [userId, JSON.stringify(contextData || {})]).catch(err => {
+            logger.warn({ err, userId }, '[Security] Failed to update last_active_at');
+        });
 
-        await client.query('COMMIT');
         return { valid: true };
 
     } catch (error: any) {
-        await client.query('ROLLBACK');
-
-        if (error.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
-            return { valid: false, error: 'Usuario en proceso. Reintente.' };
-        }
-
         logger.error({ error }, '[Security] Session validation error');
         return { valid: false, error: 'Error validando sesión' };
-
-    } finally {
-        client.release();
     }
 }
 
@@ -367,15 +339,13 @@ export async function lockAccountSecure(
             }
         }
 
-        // Update user
+        // Update user (only failure count - lock columns don't exist)
         await client.query(`
             UPDATE users 
             SET login_failure_count = $2,
-                account_locked_until = $3,
-                account_locked_permanently = $4,
                 updated_at = NOW()
             WHERE id = $1
-        `, [userId, newFailureCount, lockUntil, permanentLock]);
+        `, [userId, newFailureCount]);
 
         // Audit
         await insertSecurityAudit(client, {
@@ -433,7 +403,7 @@ export async function unlockAccountSecure(
 
         // Get target user
         const userRes = await client.query(`
-            SELECT id, name, account_locked_until, account_locked_permanently
+            SELECT id, name
             FROM users 
             WHERE id = $1
             FOR UPDATE NOWAIT
@@ -444,12 +414,10 @@ export async function unlockAccountSecure(
             return { success: false, error: 'Usuario no encontrado' };
         }
 
-        // Unlock account
+        // Unlock account (reset failure count only)
         await client.query(`
             UPDATE users 
             SET login_failure_count = 0,
-                account_locked_until = NULL,
-                account_locked_permanently = false,
                 updated_at = NOW()
             WHERE id = $1
         `, [userId]);
@@ -466,7 +434,6 @@ export async function unlockAccountSecure(
             details: {
                 reason,
                 unlocked_by: authResult.admin!.name,
-                was_permanent: userRes.rows[0].account_locked_permanently,
             }
         });
 
@@ -791,9 +758,7 @@ export async function getActiveSessionsSecure(): Promise<{
                 name, 
                 role, 
                 last_active_at, 
-                current_context_data,
-                account_locked_until,
-                account_locked_permanently
+                current_context_data
             FROM users 
             WHERE last_active_at > NOW() - INTERVAL '24 hours'
             AND is_active = true
@@ -807,7 +772,7 @@ export async function getActiveSessionsSecure(): Promise<{
             last_active_at: row.last_active_at,
             current_context: row.current_context_data,
             status: (Date.now() - new Date(row.last_active_at).getTime() < 300000) ? 'ONLINE' : 'AWAY',
-            is_locked: row.account_locked_until && new Date(row.account_locked_until) > new Date() || row.account_locked_permanently,
+            is_locked: false, // Lock columns don't exist in DB
         }));
 
         return { success: true, data: activeSessions as any };

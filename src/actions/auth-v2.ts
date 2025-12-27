@@ -336,7 +336,23 @@ export async function authenticateUserSecure(
             method: user.access_pin_hash ? 'bcrypt' : 'legacy'
         }, ipAddress);
 
-        // 10. Return user (without sensitive data)
+        // 10. Set session cookies for RBAC validation in server actions
+        const { cookies } = await import('next/headers');
+        const cookieStore = await cookies();
+        cookieStore.set('user_id', uid, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 60 * 60 * 24 // 24 hours
+        });
+        cookieStore.set('user_role', user.role, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 60 * 60 * 24 // 24 hours
+        });
+
+        // 11. Return user (without sensitive data)
         return {
             success: true,
             user: {

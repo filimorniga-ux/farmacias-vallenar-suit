@@ -109,7 +109,7 @@ async function validateSupervisorPin(
 ): Promise<{ valid: boolean; authorizedBy?: { id: string; name: string; role: string } }> {
     try {
         const bcrypt = await import('bcryptjs');
-        
+
         const usersRes = await client.query(`
             SELECT id, name, role, access_pin_hash, access_pin
             FROM users 
@@ -121,15 +121,15 @@ async function validateSupervisorPin(
             if (user.access_pin_hash) {
                 const isValid = await bcrypt.compare(pin, user.access_pin_hash);
                 if (isValid) {
-                    return { 
-                        valid: true, 
+                    return {
+                        valid: true,
                         authorizedBy: { id: user.id, name: user.name, role: user.role }
                     };
                 }
             } else if (user.access_pin && user.access_pin === pin) {
                 logger.warn({ userId: user.id }, '⚠️ Sales: Using legacy plaintext PIN');
-                return { 
-                    valid: true, 
+                return {
+                    valid: true,
                     authorizedBy: { id: user.id, name: user.name, role: user.role }
                 };
             }
@@ -228,14 +228,14 @@ export async function createSaleSecure(params: {
     pointsDiscount?: number;
     transferId?: string;
     notes?: string;
-}): Promise<{ 
-    success: boolean; 
-    saleId?: string; 
+}): Promise<{
+    success: boolean;
+    saleId?: string;
     totalAmount?: number;
     error?: string;
     stockErrors?: Array<{ batchId: string; available: number; requested: number }>;
 }> {
-    
+
     // 1. Validación de entrada
     const validation = CreateSaleSchema.safeParse(params);
     if (!validation.success) {
@@ -243,7 +243,7 @@ export async function createSaleSecure(params: {
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    const { 
+    const {
         locationId, terminalId, sessionId, userId, items, paymentMethod,
         customerRut, customerName, dteFolio, dteType, pointsRedeemed = 0,
         pointsDiscount = 0, transferId, notes
@@ -276,7 +276,7 @@ export async function createSaleSecure(params: {
 
         // Bloquear todos los batches de una vez (ordenados para evitar deadlocks)
         const sortedBatchIds = [...new Set(batchIds)].sort();
-        
+
         const batchesRes = await client.query(`
             SELECT id, quantity_real, sku, product_id
             FROM inventory_batches 
@@ -287,9 +287,9 @@ export async function createSaleSecure(params: {
         // Crear mapa de stock disponible
         const stockMap = new Map<string, { available: number; sku: string }>();
         for (const batch of batchesRes.rows) {
-            stockMap.set(batch.id, { 
-                available: Number(batch.quantity_real), 
-                sku: batch.sku 
+            stockMap.set(batch.id, {
+                available: Number(batch.quantity_real),
+                sku: batch.sku
             });
         }
 
@@ -313,10 +313,10 @@ export async function createSaleSecure(params: {
         if (stockErrors.length > 0) {
             await client.query('ROLLBACK');
             logger.warn({ stockErrors }, '⚠️ [Sales v2] Insufficient stock');
-            return { 
-                success: false, 
+            return {
+                success: false,
                 error: ERROR_MESSAGES.INSUFFICIENT_STOCK,
-                stockErrors 
+                stockErrors
             };
         }
 
@@ -357,7 +357,7 @@ export async function createSaleSecure(params: {
         // 6. Insertar ítems y actualizar stock
         for (const item of items) {
             const saleItemId = uuidv4();
-            
+
             await client.query(`
                 INSERT INTO sale_items (
                     id, sale_id, batch_id, quantity, 
@@ -365,7 +365,7 @@ export async function createSaleSecure(params: {
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7)
             `, [
                 saleItemId, saleId, item.batch_id, item.quantity,
-                item.price, item.discount || 0, 
+                item.price, item.discount || 0,
                 (item.price * item.quantity) - (item.discount || 0)
             ]);
 
@@ -465,7 +465,7 @@ export async function voidSaleSecure(params: {
     reason: string;
     supervisorPin: string;
 }): Promise<{ success: boolean; error?: string }> {
-    
+
     // 1. Validación
     const validation = VoidSaleSchema.safeParse(params);
     if (!validation.success) {
@@ -579,7 +579,7 @@ export async function refundSaleSecure(params: {
     reason: string;
     supervisorPin: string;
 }): Promise<{ success: boolean; refundId?: string; refundAmount?: number; error?: string }> {
-    
+
     // 1. Validación
     const validation = RefundSaleSchema.safeParse(params);
     if (!validation.success) {
@@ -708,7 +708,7 @@ export async function refundSaleSecure(params: {
             actionCode: 'SALE_REFUND',
             entityId: refundId,
             amount: totalRefund,
-            newValues: { 
+            newValues: {
                 original_sale_id: saleId,
                 items_count: items.length,
                 refund_reason: reason
@@ -750,7 +750,7 @@ export async function getSalesHistory(options: {
     limit?: number;
     offset?: number;
 }): Promise<{ success: boolean; data?: any[]; total?: number; error?: string }> {
-    
+
     const { limit = 50, offset = 0, locationId, terminalId, sessionId, startDate, endDate, status } = options;
 
     try {
@@ -759,19 +759,19 @@ export async function getSalesHistory(options: {
         let paramIndex = 1;
 
         if (locationId) {
-            whereClause += ` AND s.location_id = $${paramIndex}::uuid`;
+            whereClause += ` AND s.location_id::text = $${paramIndex}`;
             params.push(locationId);
             paramIndex++;
         }
 
         if (terminalId) {
-            whereClause += ` AND s.terminal_id = $${paramIndex}::uuid`;
+            whereClause += ` AND s.terminal_id::text = $${paramIndex}`;
             params.push(terminalId);
             paramIndex++;
         }
 
         if (sessionId) {
-            whereClause += ` AND s.session_id = $${paramIndex}::uuid`;
+            whereClause += ` AND s.session_id::text = $${paramIndex}`;
             params.push(sessionId);
             paramIndex++;
         }
@@ -820,12 +820,12 @@ export async function getSalesHistory(options: {
                     ) FILTER (WHERE si.id IS NOT NULL), '[]'
                 ) as items
             FROM sales s
-            LEFT JOIN users u ON s.user_id = u.id
-            LEFT JOIN sale_items si ON s.id = si.sale_id
+            LEFT JOIN users u ON s.user_id::text = u.id
+            LEFT JOIN sale_items si ON s.id = si.sale_id::text
             ${whereClause}
             GROUP BY s.id, u.name
             ORDER BY s.timestamp DESC
-            LIMIT $${paramIndex - 1} OFFSET $${paramIndex}
+            LIMIT $${params.length - 1} OFFSET $${params.length}
         `, params);
 
         return { success: true, data: dataRes.rows, total };

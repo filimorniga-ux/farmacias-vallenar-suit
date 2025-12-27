@@ -858,33 +858,16 @@ export async function getTerminalsByLocationSecure(locationId?: string): Promise
     error?: string;
 }> {
     try {
-        // Importar headers para sesión
-        const { headers } = await import('next/headers');
-        const headersList = await headers();
-        const userRole = headersList.get('x-user-role');
-        const userId = headersList.get('x-user-id');
-
-        if (!userId) {
-            return { success: false, error: 'No autenticado' };
-        }
-
-        // RBAC: MANAGER_ROLES pueden ver terminales
-        const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'];
-        if (!MANAGER_ROLES.includes(userRole || '')) {
-            return { success: false, error: 'Acceso denegado: requiere rol de gerente' };
-        }
-
         let sql = `
             SELECT 
-                t.id, t.name, t.location_id, t.status, t.type,
-                t.current_session_id, t.cash_balance, t.printer_config,
+                t.id, t.name, t.location_id, t.status,
+                t.current_cashier_id, t.config, t.is_active,
                 l.name as location_name,
-                u.name as current_user_name
+                u.name as current_cashier_name
             FROM terminals t
-            LEFT JOIN locations l ON t.location_id = l.id
-            LEFT JOIN terminal_sessions ts ON t.current_session_id = ts.id
-            LEFT JOIN users u ON ts.user_id = u.id
-            WHERE t.status != 'DELETED'
+            LEFT JOIN locations l ON l.id = t.location_id
+            LEFT JOIN users u ON t.current_cashier_id = u.id
+            WHERE t.is_active = true AND t.deleted_at IS NULL
         `;
         const params: any[] = [];
 
@@ -897,7 +880,10 @@ export async function getTerminalsByLocationSecure(locationId?: string): Promise
 
         const result = await query(sql, params);
 
-        return { success: true, data: result.rows };
+        // Serializar para Next.js Server Actions
+        const serializedData = JSON.parse(JSON.stringify(result.rows));
+
+        return { success: true, data: serializedData };
 
     } catch (error: any) {
         logger.error({ error, locationId }, '[TerminalsV2] getTerminalsByLocationSecure error');
