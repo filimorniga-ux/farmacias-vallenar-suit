@@ -27,10 +27,10 @@ export default function OrganizationManager() {
     const loadData = async () => {
         setIsLoading(true);
         try {
-            const { getLocationsWithTerminals } = await import('@/actions/network');
-            const res = await getLocationsWithTerminals();
-            if (res.success && res.locations) {
-                setLocations(res.locations);
+            const { getOrganizationStructureSecure } = await import('@/actions/network-v2');
+            const res = await getOrganizationStructureSecure();
+            if (res.success && res.data?.locations) {
+                setLocations(res.data.locations);
             }
         } catch (error) {
             toast.error("Error cargando datos de organización");
@@ -360,8 +360,8 @@ function LocationDetailDrawer({ location, allLocations, onClose }: { location: L
                                         onClick={() => {
                                             const newName = prompt("Nuevo nombre:", t.name);
                                             if (newName && newName !== t.name) {
-                                                import('@/actions/terminals').then(({ updateTerminal }) => {
-                                                    toast.promise(updateTerminal(t.id, { name: newName }), {
+                                                import('@/actions/terminals-v2').then(({ updateTerminalSecure }) => {
+                                                    toast.promise(updateTerminalSecure(t.id, { name: newName }), {
                                                         loading: 'Actualizando...',
                                                         success: () => { window.location.reload(); return 'Nombre actualizado'; },
                                                         error: 'Error'
@@ -379,8 +379,8 @@ function LocationDetailDrawer({ location, allLocations, onClose }: { location: L
                                         <button
                                             onClick={() => {
                                                 if (confirm('¿Seguro que deseas eliminar esta caja? Esta acción no se puede deshacer.')) {
-                                                    import('@/actions/terminals').then(({ deleteTerminal }) => {
-                                                        toast.promise(deleteTerminal(t.id), {
+                                                    import('@/actions/terminals-v2').then(({ deleteTerminalSecure }) => {
+                                                        toast.promise(deleteTerminalSecure(t.id), {
                                                             loading: 'Eliminando...',
                                                             success: () => { window.location.reload(); return 'Terminal eliminado'; },
                                                             error: (err) => err.message || 'Error al eliminar'

@@ -106,3 +106,86 @@ export async function getSuppliersListSecure() {
         return { success: false, error: e.message };
     }
 }
+
+// Schema para actualización de proveedor
+const UpdateSupplierSchema = z.object({
+    businessName: z.string().min(2).optional(),
+    fantasyName: z.string().optional(),
+    contactEmail: z.string().email().optional(),
+    phone: z.string().optional(),
+    address: z.string().optional(),
+});
+
+export async function updateSupplierSecure(
+    supplierId: string,
+    data: z.infer<typeof UpdateSupplierSchema>
+): Promise<{ success: boolean; error?: string }> {
+    if (!supplierId || !z.string().uuid().safeParse(supplierId).success) {
+        return { success: false, error: 'ID de proveedor inválido' };
+    }
+
+    const validated = UpdateSupplierSchema.safeParse(data);
+    if (!validated.success) {
+        return { success: false, error: validated.error.issues[0]?.message };
+    }
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        // Verificar que existe
+        const existing = await client.query('SELECT id FROM suppliers WHERE id = $1', [supplierId]);
+        if (existing.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'Proveedor no encontrado' };
+        }
+
+        // Construir updates dinámicamente
+        const updates: string[] = [];
+        const values: any[] = [];
+        let paramIndex = 1;
+
+        if (validated.data.businessName !== undefined) {
+            updates.push(`business_name = $${paramIndex++}`);
+            values.push(validated.data.businessName);
+        }
+        if (validated.data.fantasyName !== undefined) {
+            updates.push(`fantasy_name = $${paramIndex++}`);
+            values.push(validated.data.fantasyName);
+        }
+        if (validated.data.contactEmail !== undefined) {
+            updates.push(`contact_email = $${paramIndex++}`);
+            values.push(validated.data.contactEmail);
+        }
+        if (validated.data.phone !== undefined) {
+            updates.push(`phone = $${paramIndex++}`);
+            values.push(validated.data.phone);
+        }
+        if (validated.data.address !== undefined) {
+            updates.push(`address = $${paramIndex++}`);
+            values.push(validated.data.address);
+        }
+
+        if (updates.length === 0) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'No hay cambios para aplicar' };
+        }
+
+        updates.push(`updated_at = NOW()`);
+        values.push(supplierId);
+
+        await client.query(
+            `UPDATE suppliers SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
+            values
+        );
+
+        await client.query('COMMIT');
+        revalidatePath('/proveedores');
+        return { success: true };
+    } catch (e: any) {
+        await client.query('ROLLBACK');
+        return { success: false, error: e.message };
+    } finally {
+        client.release();
+    }
+}

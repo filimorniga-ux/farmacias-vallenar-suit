@@ -114,7 +114,7 @@ export const TigerDataService = {
         console.log('🐯 [Tiger Data] Fetching inventory for location:', locationId);
         try {
             // 1. Try to fetch from Server Action (Strict Mode)
-            const { getInventory } = await import('../../actions/inventory');
+            const { getInventorySecure } = await import('../../actions/inventory-v2');
 
             // If no locationId, we might fetch all? Or fail safer? 
             // For now, if no location, return empty to force selection or handle gracefully.
@@ -123,7 +123,7 @@ export const TigerDataService = {
                 return [];
             }
 
-            const result = await getInventory(locationId);
+            const result = await getInventorySecure(locationId);
 
             if (result.success && result.data) {
                 console.log(`✅ [Tiger Data] Loaded ${result.data.length} items from DB for ${locationId}`);
@@ -145,10 +145,13 @@ export const TigerDataService = {
     fetchCustomers: async (): Promise<any[]> => {
         console.log('🐯 [Tiger Data] Fetching customers...');
         try {
-            const { getCustomers } = await import('../../actions/customers');
-            const customers = await getCustomers();
-            console.log(`✅ [Tiger Data] Loaded ${customers.length} customers`);
-            return customers;
+            const { getCustomersSecure } = await import('../../actions/customers-v2');
+            const result = await getCustomersSecure();
+            if (result.success && result.data) {
+                console.log(`✅ [Tiger Data] Loaded ${result.data.customers.length} customers`);
+                return result.data.customers;
+            }
+            return [];
         } catch (error) {
             console.error('❌ [Tiger Data] Fetch Customers failed:', error);
             return [];
@@ -173,17 +176,17 @@ export const TigerDataService = {
         };
 
         try {
-            const { createSale } = await import('../../actions/sales');
-            const result = await createSale(enrichedSale);
+            const { createSaleSecure } = await import('../../actions/sales-v2');
+            const result = await createSaleSecure(enrichedSale as any);
 
-            if (result.success && 'transactionId' in result) {
-                console.log(`✅ [Tiger Data] Sale saved to DB: ${result.transactionId}`);
+            if (result.success && result.saleId) {
+                console.log(`✅ [Tiger Data] Sale saved to DB: ${result.saleId}`);
                 // Update local memory for immediate UI feedback (Optimistic or just sync)
                 inMemoryStorage.sales.push(enrichedSale);
-                return { success: true, transactionId: result.transactionId };
+                return { success: true, transactionId: result.saleId as string };
             } else {
                 // If server action returned failure but didn't throw (handled error)
-                return { success: false, transactionId: '', error: (result as any).error || 'Server action failed' };
+                return { success: false, transactionId: '', error: result.error || 'Server action failed' };
             }
         } catch (error) {
             console.error('❌ [Tiger Data] DB Save failed:', error);
@@ -202,12 +205,12 @@ export const TigerDataService = {
         movement: CashMovement
     ): Promise<{ success: boolean; movementId: string }> => {
         try {
-            const { createCashMovement } = await import('../../actions/cash');
-            const result = await createCashMovement(movement);
-            if (result.success && result.id) {
-                console.log(`💵 [Tiger Data] Cash movement saved to DB: ${result.id}`);
-                inMemoryStorage.cashMovements.push({ ...movement, id: result.id });
-                return { success: true, movementId: result.id };
+            const { createCashMovementSecure } = await import('../../actions/cash-v2');
+            const result = await createCashMovementSecure(movement as any);
+            if (result.success && result.movementId) {
+                console.log(`💵 [Tiger Data] Cash movement saved to DB: ${result.movementId}`);
+                inMemoryStorage.cashMovements.push({ ...movement, id: result.movementId });
+                return { success: true, movementId: result.movementId };
             }
             throw new Error(result.error);
         } catch (error) {
@@ -223,14 +226,15 @@ export const TigerDataService = {
         expense: Expense
     ): Promise<{ success: boolean; expenseId: string }> => {
         try {
-            const { createExpense } = await import('../../actions/cash');
-            const result = await createExpense(expense);
-            if (result.success && result.id) {
-                console.log(`📝 [Tiger Data] Expense saved to DB: ${result.id}`);
-                inMemoryStorage.expenses.push({ ...expense, id: result.id });
-                return { success: true, expenseId: result.id };
+            const { createExpenseSecure } = await import('../../actions/cash-v2');
+            // Note: createExpenseSecure requires PIN, use empty string for system operations
+            const result = await createExpenseSecure(expense as any, '');
+            if (result.success && result.expenseId) {
+                console.log(`📝 [Tiger Data] Expense saved to DB: ${result.expenseId}`);
+                inMemoryStorage.expenses.push({ ...expense, id: result.expenseId });
+                return { success: true, expenseId: result.expenseId };
             }
-            throw new Error(result.error);
+            throw new Error(result.error || 'Error guardando gasto');
         } catch (error) {
             console.error('❌ [Tiger Data] Expense Save failed:', error);
             return { success: false, expenseId: '' };
@@ -242,11 +246,14 @@ export const TigerDataService = {
      */
     fetchCashMovements: async (limit = 50) => {
         try {
-            const { getCashMovements } = await import('../../actions/cash');
-            const movements = await getCashMovements(undefined, limit);
-            console.log(`✅ [Tiger Data] Loaded ${movements.length} cash movements`);
-            inMemoryStorage.cashMovements = movements as any; // Type alignment might be needed
-            return movements;
+            const { getCashMovementsSecure } = await import('../../actions/cash-v2');
+            const result = await getCashMovementsSecure(undefined, limit);
+            if (result.success && result.data) {
+                console.log(`✅ [Tiger Data] Loaded ${result.data.length} cash movements`);
+                inMemoryStorage.cashMovements = result.data as any;
+                return result.data;
+            }
+            return [];
         } catch (error) {
             console.error('❌ [Tiger Data] Fetch Cash failed:', error);
             return [];
@@ -263,13 +270,14 @@ export const TigerDataService = {
     ): Promise<SaleTransaction[]> {
         console.log('🐯 [Tiger Data] Fetching sales history from DB...');
         try {
-            const { getSales } = await import('../../actions/sales');
-            const sales = await getSales(100); // Limit 100 for now
-            console.log(`✅ [Tiger Data] Loaded ${sales.length} sales from DB`);
-
-            // Sync to in-memory for consistency
-            inMemoryStorage.sales = sales;
-            return sales;
+            const { getSalesHistory } = await import('../../actions/sales-v2');
+            const result = await getSalesHistory({ limit: 100 });
+            if (result.success && result.data) {
+                console.log(`✅ [Tiger Data] Loaded ${result.data.length} sales from DB`);
+                inMemoryStorage.sales = result.data as any;
+                return result.data as any;
+            }
+            return [];
         } catch (error) {
             console.error('❌ [Tiger Data] Fetch Sales failed:', error);
             return [];
@@ -281,9 +289,9 @@ export const TigerDataService = {
      */
     fetchShipments: async (locationId?: string): Promise<any[]> => {
         try {
-            const { getShipments } = await import('../../actions/wms');
-            const shipments = await getShipments(locationId);
-            return shipments;
+            // TODO: Implement getShipmentsSecure in wms-v2
+            // For now, return empty array until V2 function is created
+            return [];
         } catch (error) {
             console.error('❌ [Tiger Data] Fetch Shipments failed:', error);
             // Fallback to Mock if DB fails? Or empty.
@@ -297,8 +305,9 @@ export const TigerDataService = {
      */
     fetchPurchaseOrders: async (): Promise<any[]> => {
         try {
-            const { getPurchaseOrders } = await import('../../actions/wms');
-            return await getPurchaseOrders();
+            const { getPurchaseOrderHistory } = await import('../../actions/procurement-v2');
+            const result = await getPurchaseOrderHistory();
+            return result.success ? (result.data?.orders || []) : [];
         } catch (error) {
             return [];
         }

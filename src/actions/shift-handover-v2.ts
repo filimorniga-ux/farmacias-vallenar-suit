@@ -479,13 +479,13 @@ export async function executeHandoverSecure(params: {
 
         // 9. Notificar a gerentes (fuera de transacción)
         try {
-            const { notifyManagers } = await import('./notifications');
-            await notifyManagers(
-                terminal.location_id,
-                "💰 Nueva Remesa Pendiente",
-                `El cajero ${pinResult.user?.name} ha cerrado turno. Monto: $${amountToWithdraw.toLocaleString('es-CL')}`,
-                "/finance/treasury"
-            );
+            const { notifyManagersSecure } = await import('./notifications-v2');
+            await notifyManagersSecure({
+                locationId: terminal.location_id,
+                title: "💰 Nueva Remesa Pendiente",
+                message: `El cajero ${pinResult.user?.name} ha cerrado turno. Monto: $${amountToWithdraw.toLocaleString('es-CL')}`,
+                link: "/finance/treasury"
+            });
         } catch (notifyError) {
             logger.warn({ err: notifyError }, 'Failed to notify managers (non-critical)');
         }

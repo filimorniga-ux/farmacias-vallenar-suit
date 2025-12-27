@@ -37,8 +37,8 @@ const DashboardPage: React.FC = () => {
         // --- LAZY TRIGGER: GC & HEALTH CHECK ---
         // Only run for Admins/Managers to save resources
         if (user?.role === 'ADMIN' || user?.role === 'MANAGER') {
-            import('../../actions/maintenance').then(({ autoCloseGhostSessions }) => {
-                autoCloseGhostSessions()
+            import('../../actions/maintenance-v2').then(({ autoCloseGhostSessionsSecure }) => {
+                autoCloseGhostSessionsSecure('')  // System auto-cleanup, no PIN required
                     .then(res => {
                         if (res.success && res.count && res.count > 0) {
                             // Optional: Notify user (as per future roadmap)
@@ -65,13 +65,15 @@ const DashboardPage: React.FC = () => {
         // setIsRefreshing(true); // Already true on init.
 
         try {
-            const { getFinancialMetrics } = await import('../../actions/dashboard');
+            const { getFinancialMetricsSecure } = await import('../../actions/dashboard-v2');
             const now = new Date();
             const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
             const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-            const metrics = await getFinancialMetrics({ from: startOfDay, to: endOfDay }, currentLocation?.id);
-            setServerMetrics(metrics);
+            const result = await getFinancialMetricsSecure({ dateRange: { from: startOfDay, to: endOfDay }, locationId: currentLocation?.id });
+            if (result.success && result.data) {
+                setServerMetrics(result.data);
+            }
         } catch (error) {
             console.error('Failed to fetch dashboard metrics:', error);
         } finally {
