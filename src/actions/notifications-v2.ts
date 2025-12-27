@@ -379,8 +379,5 @@ export async function deleteOldNotifications(
     }
 }
 
-// ============================================================================
-// EXPORTS
-// ============================================================================
-
-export type { CreateNotificationSchema, NotifyManagersSchema };
+// Los tipos (CreateNotificationSchema, NotifyManagersSchema) son internos
+// No se exportan porque 'use server' solo permite exportar funciones async
