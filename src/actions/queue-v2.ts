@@ -36,6 +36,7 @@ const CreateTicketSchema = z.object({
     rut: z.string().default('ANON'),
     type: TicketType.default('GENERAL'),
     name: z.string().max(100).optional(),
+    phone: z.string().max(15).optional(), // +569XXXXXXXX
 });
 
 // ============================================================================
@@ -110,12 +111,17 @@ function checkRutRateLimit(rut: string): boolean {
 export async function createTicketSecure(
     data: z.infer<typeof CreateTicketSchema>
 ): Promise<{ success: boolean; ticket?: any; error?: string }> {
+    console.log('[Queue-Backend] Received data:', JSON.stringify(data, null, 2));
+
     const validated = CreateTicketSchema.safeParse(data);
     if (!validated.success) {
+        console.error('[Queue-Backend] Validation failed:', JSON.stringify(validated.error.issues, null, 2));
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { branchId, rut, type, name } = validated.data;
+    console.log('[Queue-Backend] Validation passed, branchId:', validated.data.branchId);
+
+    const { branchId, rut, type, name, phone } = validated.data;
 
     // Validar RUT si no es anónimo
     const cleanRut = rut !== 'ANON' ? rut.replace(/\./g, '').toUpperCase() : 'ANON';
@@ -141,18 +147,19 @@ export async function createTicketSecure(
         // Buscar/crear cliente si tiene RUT
         if (cleanRut !== 'ANON') {
             const customerRes = await query(`
-                SELECT id, full_name, name FROM customers WHERE rut = $1
+                SELECT id, name FROM customers WHERE rut = $1
             `, [cleanRut]);
 
             if ((customerRes.rowCount || 0) > 0) {
                 customerId = customerRes.rows[0].id;
-                customerName = customerRes.rows[0].full_name || customerRes.rows[0].name || customerName;
+                customerName = customerRes.rows[0].name || customerName;
             } else if (name) {
+                // Crear nuevo cliente desde totem
                 const newCustomerRes = await query(`
-                    INSERT INTO customers (id, rut, full_name, name, total_points, registration_source, status, created_at)
-                    VALUES ($1, $2, $3, $4, 0, 'KIOSK', 'ACTIVE', NOW())
+                    INSERT INTO customers (id, rut, name, phone, source, status, created_at)
+                    VALUES ($1, $2, $3, $4, 'TOTEM', 'ACTIVE', NOW())
                     RETURNING id
-                `, [randomUUID(), cleanRut, name, name]);
+                `, [randomUUID(), cleanRut, name, phone || null]);
                 customerId = newCustomerRes.rows[0].id;
             }
         }
@@ -167,13 +174,13 @@ export async function createTicketSecure(
         const prefix = type === 'PREFERENTIAL' ? 'P' : 'G';
         const ticketCode = `${prefix}${count.toString().padStart(3, '0')}`;
 
-        // Insertar ticket
+        // Insertar ticket con datos de cliente
         const ticketId = randomUUID();
         const result = await query(`
-            INSERT INTO queue_tickets (id, branch_id, rut, type, code, status, customer_id, created_at)
-            VALUES ($1, $2, $3, $4, $5, 'WAITING', $6, NOW())
+            INSERT INTO queue_tickets (id, branch_id, rut, type, code, status, customer_id, customer_name, customer_phone, created_at)
+            VALUES ($1, $2, $3, $4, $5, 'WAITING', $6, $7, $8, NOW())
             RETURNING *
-        `, [ticketId, branchId, cleanRut, type, ticketCode, customerId]);
+        `, [ticketId, branchId, cleanRut, type, ticketCode, customerId, customerName, phone || null]);
 
         logger.info({ ticketId, code: ticketCode, branchId }, '🎫 [Queue] Ticket created');
         revalidatePath('/totem');
@@ -235,15 +242,20 @@ export async function getNextTicketSecure(
             WHERE id = $1
         `, [ticket.id, userId]);
 
-        // Auditar
-        await client.query(`
-            INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at)
-            VALUES ($1, 'TICKET_CALLED', 'QUEUE', $2, $3::jsonb, NOW())
-        `, [userId, ticket.id, JSON.stringify({
-            code: ticket.code,
-            type: ticket.type,
-            wait_time_seconds: Math.floor((Date.now() - new Date(ticket.created_at).getTime()) / 1000),
-        })]);
+        // Auditar (con campos mínimos requeridos)
+        try {
+            await client.query(`
+                INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at, server_timestamp)
+                VALUES ($1, 'TICKET_CALLED', 'QUEUE', $2::text, $3::jsonb, NOW(), NOW())
+            `, [userId, ticket.id, JSON.stringify({
+                code: ticket.code,
+                type: ticket.type,
+                wait_time_seconds: Math.floor((Date.now() - new Date(ticket.created_at).getTime()) / 1000),
+            })]);
+        } catch (auditErr: any) {
+            // No fallar si auditoría falla, solo loguear
+            console.warn('[Queue] Audit insert failed (non-critical):', auditErr?.message);
+        }
 
         await client.query('COMMIT');
 
@@ -254,8 +266,9 @@ export async function getNextTicketSecure(
 
     } catch (error: any) {
         await client.query('ROLLBACK');
-        logger.error({ error }, '[Queue] Get next ticket error');
-        return { success: false, error: 'Error obteniendo ticket' };
+        console.error('[Queue] Get next ticket error:', error?.message, error?.detail || '', error?.code || '');
+        logger.error({ error: error?.message, detail: error?.detail, code: error?.code }, '[Queue] Get next ticket error');
+        return { success: false, error: `Error: ${error?.message || 'Error obteniendo ticket'}` };
     } finally {
         client.release();
     }
@@ -479,5 +492,45 @@ export async function getQueueMetrics(
     } catch (error: any) {
         logger.error({ error }, '[Queue] Get metrics error');
         return { success: false, error: 'Error obteniendo métricas' };
+    }
+}
+
+// ============================================================================
+// RESET QUEUE (Admin function)
+// ============================================================================
+
+/**
+ * 🔄 Resetear Cola - Marca todos los tickets pendientes como cancelados
+ */
+export async function resetQueueSecure(
+    branchId: string,
+    userId: string
+): Promise<{ success: boolean; count?: number; error?: string }> {
+    if (!UUIDSchema.safeParse(branchId).success || !UUIDSchema.safeParse(userId).success) {
+        return { success: false, error: 'IDs inválidos' };
+    }
+
+    try {
+        // Cancelar todos los tickets WAITING y CALLED de hoy (usar NO_SHOW ya que CANCELLED no existe en el enum)
+        const result = await query(`
+            UPDATE queue_tickets
+            SET status = 'NO_SHOW', 
+                notes = 'Reseteado por usuario'
+            WHERE branch_id = $1 
+            AND status IN ('WAITING', 'CALLED')
+            AND DATE(created_at) = CURRENT_DATE
+            RETURNING id
+        `, [branchId]);
+
+        const count = result.rows?.length || 0;
+
+        logger.info({ branchId, userId, count }, '🔄 [Queue] Queue reset');
+        revalidatePath('/');
+
+        return { success: true, count };
+
+    } catch (error: any) {
+        logger.error({ error }, '[Queue] Reset queue error');
+        return { success: false, error: error?.message || 'Error reseteando cola' };
     }
 }
