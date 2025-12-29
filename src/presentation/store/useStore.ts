@@ -413,7 +413,16 @@ export const usePharmaStore = create<PharmaState>()(
 
                     const [inventory, employeesRes, sales, suppliersRes, cashMovements, customers, shipments, purchaseOrders, locationsRes] = await Promise.all([
                         currentStoreState.currentLocationId ? TigerDataService.fetchInventory(currentStoreState.currentLocationId) : Promise.resolve([]), // FIX: Check if location is set
-                        import('../../actions/sync-v2').then(m => m.fetchEmployeesSecure()),
+                        // Try authenticated fetch first, fallback to public if session not available
+                        import('../../actions/sync-v2').then(async m => {
+                            const result = await m.fetchEmployeesSecure();
+                            // If auth failed, try the public version (for login page scenarios)
+                            if (!result.success && result.error === 'No autenticado') {
+                                console.log('🔄 Fallback to getUsersForLoginSecure for employees...');
+                                return m.getUsersForLoginSecure();
+                            }
+                            return result;
+                        }),
                         TigerDataService.fetchSalesHistory(), // Fetch real sales
                         import('../../actions/sync-v2').then(m => m.fetchSuppliersSecure()), // Fetch real suppliers
                         TigerDataService.fetchCashMovements(), // Fetch real cash movements
@@ -1314,46 +1323,43 @@ export const usePharmaStore = create<PharmaState>()(
             },
             cashMovements: [],
 
-            openShift: async (initialAmount, userId) => {
-                const { openTerminalAtomic } = await import('../../actions/terminals-v2');
+            // openShift: Actualiza el estado local después de que el modal ya abrió el turno en el servidor
+            openShift: (initialAmount, userId, authorizedBy, terminalId, locationId) => {
                 const state = get();
-                if (!state.currentTerminalId) {
+
+                // Usar terminalId pasado como parámetro
+                const effectiveTerminalId = terminalId || state.currentTerminalId;
+                const effectiveLocationId = locationId || state.currentLocationId;
+
+                if (!effectiveTerminalId) {
                     import('sonner').then(({ toast }) => toast.error('No hay caja seleccionada'));
                     return;
                 }
 
-                const res = await openTerminalAtomic(state.currentTerminalId, userId, initialAmount);
+                // Crear el nuevo shift con un ID temporal (el modal ya guardó el real en localStorage)
+                const sessionId = localStorage.getItem('pos_session_id') || `shift_${Date.now()}`;
 
-                if (res.success && res.sessionId) {
-                    const newShift: Shift = {
-                        id: res.sessionId,
-                        terminal_id: state.currentTerminalId,
-                        start_time: Date.now(),
-                        opening_amount: initialAmount,
-                        status: 'ACTIVE',
-                        user_id: userId,
-                        authorized_by: userId // using user_id as authorized_by for now
-                    };
+                const newShift: Shift = {
+                    id: sessionId,
+                    terminal_id: effectiveTerminalId,
+                    start_time: Date.now(),
+                    opening_amount: initialAmount,
+                    status: 'ACTIVE',
+                    user_id: userId,
+                    authorized_by: authorizedBy || userId
+                };
 
-                    const updatedTerminals = state.terminals.map(t =>
-                        t.id === state.currentTerminalId ? { ...t, status: 'OPEN' as const, operator_id: userId } : t
-                    );
+                const updatedTerminals = state.terminals.map(t =>
+                    t.id === effectiveTerminalId ? { ...t, status: 'OPEN' as const, operator_id: userId } : t
+                );
 
-                    // Persist Session ID for Concurrency Check
-                    try {
-                        localStorage.setItem('pos_session_id', newShift.id);
-                    } catch (e) {
-                        console.error('Failed to persist session ID', e);
-                    }
-
-                    set({
-                        currentShift: newShift,
-                        terminals: updatedTerminals
-                    });
-                    import('sonner').then(({ toast }) => toast.success('Turno abierto correctamente'));
-                } else {
-                    import('sonner').then(({ toast }) => toast.error('Error al abrir turno: ' + res.error));
-                }
+                // Actualizar estado
+                set({
+                    currentTerminalId: effectiveTerminalId,
+                    currentLocationId: effectiveLocationId,
+                    currentShift: newShift,
+                    terminals: updatedTerminals
+                });
             },
 
             resumeShift: (shift) => {

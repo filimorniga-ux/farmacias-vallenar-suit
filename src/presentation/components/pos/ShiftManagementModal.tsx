@@ -15,7 +15,7 @@ interface ShiftManagementModalProps {
 
 const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onClose }) => {
     const router = useRouter();
-    const { employees, openShift, resumeShift, fetchLocations, locations, terminals, fetchTerminals, user } = usePharmaStore();
+    const { employees, openShift, resumeShift, fetchLocations, locations, terminals, fetchTerminals, user, syncData } = usePharmaStore();
     const { saveSession } = useTerminalSession(); // Hook para persistencia local segura
 
     const [selectedLocation, setSelectedLocation] = useState('');
@@ -27,10 +27,27 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     const [openableTerminals, setOpenableTerminals] = useState<Terminal[]>([]);
     const [isForceLoading, setIsForceLoading] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false); // Estado de carga para evitar doble clic
+    const [loadedCashiers, setLoadedCashiers] = useState<any[]>([]); // Cajeros cargados del servidor
 
+    // Cargar empleados directamente del servidor cuando se abre el modal
     useEffect(() => {
         if (isOpen) {
             fetchLocations();
+            // Forzar carga de empleados desde el servidor
+            import('../../../actions/sync-v2').then(async (m) => {
+                console.log('📥 Loading cashiers from server...');
+                let result = await m.fetchEmployeesSecure();
+                // Fallback si no hay sesión
+                if (!result.success) {
+                    result = await m.getUsersForLoginSecure();
+                }
+                if (result.success && result.data) {
+                    console.log(`✅ Loaded ${result.data.length} employees from server`);
+                    setLoadedCashiers(result.data);
+                } else {
+                    console.warn('⚠️ Could not load employees:', result.error);
+                }
+            });
         }
     }, [isOpen, fetchLocations]);
 
@@ -211,7 +228,10 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
 
     if (!isOpen) return null;
 
-    const cashiers = employees.filter(e => {
+    // Usar empleados cargados del servidor, con fallback al store
+    const employeesSource = loadedCashiers.length > 0 ? loadedCashiers : employees;
+
+    const cashiers = employeesSource.filter((e: any) => {
         const isRoleValid = ['CASHIER', 'QF', 'MANAGER', 'ADMIN'].includes(e.role);
 
         const isGlobal = ['MANAGER', 'ADMIN', 'QF'].includes(e.role); // Manager/Admin/QF roam

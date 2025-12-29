@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { usePharmaStore } from '../store/useStore';
 import TimeFilter, { DateRange } from '../components/bi/TimeFilter';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -17,6 +18,7 @@ import { HRReportTab } from '../components/reports/HRReportTab';
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
 const ReportsPage: React.FC = () => {
+    const navigate = useNavigate();
     const { currentWarehouseId, currentLocationId } = usePharmaStore();
     const [activeTab, setActiveTab] = useState<'cash' | 'tax' | 'logistics' | 'hr'>('cash');
     const [dateRange, setDateRange] = useState<DateRange>(() => {
@@ -169,8 +171,13 @@ const ReportsPage: React.FC = () => {
                     <p className="text-gray-600 mt-1">Auditoría detallada y cumplimiento normativo</p>
                 </div>
                 <div className="flex gap-2">
-
-
+                    <button
+                        onClick={() => navigate('/reports/sales-by-product')}
+                        className="px-4 py-3 bg-white border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 flex items-center gap-2 font-bold shadow-sm transition-colors"
+                    >
+                        <Package className="w-5 h-5" />
+                        Ventas por Producto
+                    </button>
 
                     <button onClick={fetchData} className="p-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 transition">
                         <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />

@@ -420,7 +420,16 @@ export async function openTerminalWithPinValidation(
 
         // 8. OPERACIONES ATÓMICAS
 
-        // A. Insertar movimiento de caja (apertura)
+        // A. Crear sesión de caja PRIMERO (para satisfacer FK)
+        await client.query(`
+            INSERT INTO cash_register_sessions (
+                id, terminal_id, user_id, opening_amount, status, opened_at, authorized_by
+            ) VALUES (
+                $1::uuid, $2::uuid, $3::uuid, $4, 'OPEN', NOW(), $5::uuid
+            )
+        `, [newSessionId, terminalId, userId, initialCash, authorizedBy.id]);
+
+        // B. Insertar movimiento de caja (apertura) DESPUÉS de crear la sesión
         await client.query(`
             INSERT INTO cash_movements (
                 id, location_id, terminal_id, session_id, user_id, 
@@ -431,7 +440,7 @@ export async function openTerminalWithPinValidation(
             )
         `, [moveId, terminal.location_id, terminalId, newSessionId, userId, initialCash]);
 
-        // B. Actualizar estado del terminal
+        // C. Actualizar estado del terminal
         await client.query(`
             UPDATE terminals 
             SET status = 'OPEN', 
@@ -439,15 +448,6 @@ export async function openTerminalWithPinValidation(
                 updated_at = NOW()
             WHERE id = $1::uuid
         `, [terminalId, userId]);
-
-        // C. Crear sesión de caja con authorized_by
-        await client.query(`
-            INSERT INTO cash_register_sessions (
-                id, terminal_id, user_id, opening_amount, status, opened_at, authorized_by
-            ) VALUES (
-                $1::uuid, $2::uuid, $3::uuid, $4, 'OPEN', NOW(), $5::uuid
-            )
-        `, [newSessionId, terminalId, userId, initialCash, authorizedBy.id]);
 
         // D. Registrar auditoría
         await insertAuditLog(client, {
