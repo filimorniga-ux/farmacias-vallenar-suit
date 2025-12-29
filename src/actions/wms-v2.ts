@@ -649,3 +649,294 @@ export async function getStockHistorySecure(filters: {
         };
     }
 }
+
+// ============================================================================
+// SHIPMENTS & PURCHASE ORDERS (V2 SECURE)
+// ============================================================================
+
+const GetShipmentsSchema = z.object({
+    locationId: UUIDSchema.optional(),
+    status: z.enum(['PENDING', 'IN_TRANSIT', 'DELIVERED', 'CANCELLED']).optional(),
+    type: z.enum(['INBOUND', 'OUTBOUND', 'INTER_BRANCH']).optional(),
+    startDate: z.date().optional(),
+    endDate: z.date().optional(),
+    page: z.number().min(1).default(1),
+    pageSize: z.number().min(1).max(100).default(50),
+});
+
+const GetPurchaseOrdersSchema = z.object({
+    locationId: UUIDSchema.optional(),
+    status: z.enum(['PENDING', 'APPROVED', 'ORDERED', 'RECEIVED', 'CANCELLED']).optional(),
+    supplierId: UUIDSchema.optional(),
+    startDate: z.date().optional(),
+    endDate: z.date().optional(),
+    page: z.number().min(1).default(1),
+    pageSize: z.number().min(1).max(100).default(50),
+});
+
+/**
+ * 📦 Get Shipments (Inbound/Outbound/Transit)
+ * Secure version with filtering and pagination
+ */
+export async function getShipmentsSecure(filters?: z.infer<typeof GetShipmentsSchema>): Promise<{
+    success: boolean;
+    data?: {
+        shipments: any[];
+        total: number;
+        page: number;
+        pageSize: number;
+        totalPages: number;
+    };
+    error?: string;
+}> {
+    const validated = GetShipmentsSchema.safeParse(filters || {});
+    if (!validated.success) {
+        return {
+            success: false,
+            error: validated.error.issues[0]?.message || 'Filtros inválidos'
+        };
+    }
+
+    try {
+        const { locationId, status, type, startDate, endDate, page, pageSize } = validated.data;
+
+        // Build WHERE clause
+        const conditions: string[] = [];
+        const params: any[] = [];
+        let paramIndex = 1;
+
+        if (locationId) {
+            conditions.push(`(origin_location_id = $${paramIndex} OR destination_location_id = $${paramIndex})`);
+            params.push(locationId);
+            paramIndex++;
+        }
+
+        if (status) {
+            conditions.push(`status = $${paramIndex++}`);
+            params.push(status);
+        }
+
+        if (type) {
+            conditions.push(`type = $${paramIndex++}`);
+            params.push(type);
+        }
+
+        if (startDate) {
+            conditions.push(`created_at >= $${paramIndex++}`);
+            params.push(startDate);
+        }
+
+        if (endDate) {
+            conditions.push(`created_at <= $${paramIndex++}`);
+            params.push(endDate);
+        }
+
+        const whereClause = conditions.length > 0
+            ? `WHERE ${conditions.join(' AND ')}`
+            : '';
+
+        // Get total count
+        const countResult = await pool.query(`
+            SELECT COUNT(*) as total
+            FROM shipments
+            ${whereClause}
+        `, params);
+
+        const total = parseInt(countResult.rows[0].total);
+        const totalPages = Math.ceil(total / pageSize);
+
+        // Get paginated shipments
+        const offset = (page - 1) * pageSize;
+        params.push(pageSize);
+        params.push(offset);
+
+        const shipmentsResult = await pool.query(`
+            SELECT 
+                s.*,
+                ol.name as origin_location_name,
+                dl.name as destination_location_name
+            FROM shipments s
+            LEFT JOIN locations ol ON s.origin_location_id::text = ol.id::text
+            LEFT JOIN locations dl ON s.destination_location_id::text = dl.id::text
+            ${whereClause}
+            ORDER BY s.created_at DESC
+            LIMIT $${paramIndex++} OFFSET $${paramIndex++}
+        `, params);
+
+        // Map to consistent format
+        const shipments = shipmentsResult.rows.map(row => ({
+            id: row.id,
+            origin_location_id: row.origin_location_id,
+            origin_location_name: row.origin_location_name,
+            destination_location_id: row.destination_location_id,
+            destination_location_name: row.destination_location_name,
+            status: row.status,
+            type: row.type,
+            created_at: row.created_at ? new Date(row.created_at).getTime() : null,
+            updated_at: row.updated_at ? new Date(row.updated_at).getTime() : null,
+            expected_delivery: row.expected_delivery ? new Date(row.expected_delivery).getTime() : null,
+            transport_data: row.transport_data || {},
+            items: row.items || [],
+            valuation: Number(row.valuation) || 0,
+            documents: row.documents || [],
+            notes: row.notes
+        }));
+
+        return {
+            success: true,
+            data: {
+                shipments,
+                total,
+                page,
+                pageSize,
+                totalPages
+            }
+        };
+
+    } catch (error: any) {
+        console.error('[WMS-V2] Get shipments error:', error);
+        return {
+            success: false,
+            error: error.message || 'Error obteniendo envíos'
+        };
+    }
+}
+
+/**
+ * 🛒 Get Purchase Orders
+ * Secure version with filtering and pagination
+ */
+export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurchaseOrdersSchema>): Promise<{
+    success: boolean;
+    data?: {
+        purchaseOrders: any[];
+        total: number;
+        page: number;
+        pageSize: number;
+        totalPages: number;
+    };
+    error?: string;
+}> {
+    const validated = GetPurchaseOrdersSchema.safeParse(filters || {});
+    if (!validated.success) {
+        return {
+            success: false,
+            error: validated.error.issues[0]?.message || 'Filtros inválidos'
+        };
+    }
+
+    try {
+        const { locationId, status, supplierId, startDate, endDate, page, pageSize } = validated.data;
+
+        // Build WHERE clause
+        const conditions: string[] = [];
+        const params: any[] = [];
+        let paramIndex = 1;
+
+        if (locationId) {
+            conditions.push(`po.location_id = $${paramIndex++}`);
+            params.push(locationId);
+        }
+
+        if (status) {
+            conditions.push(`po.status = $${paramIndex++}`);
+            params.push(status);
+        }
+
+        if (supplierId) {
+            conditions.push(`po.supplier_id = $${paramIndex++}`);
+            params.push(supplierId);
+        }
+
+        if (startDate) {
+            conditions.push(`po.created_at >= $${paramIndex++}`);
+            params.push(startDate);
+        }
+
+        if (endDate) {
+            conditions.push(`po.created_at <= $${paramIndex++}`);
+            params.push(endDate);
+        }
+
+        const whereClause = conditions.length > 0
+            ? `WHERE ${conditions.join(' AND ')}`
+            : '';
+
+        // Get total count
+        const countResult = await pool.query(`
+            SELECT COUNT(*) as total
+            FROM purchase_orders po
+            ${whereClause}
+        `, params);
+
+        const total = parseInt(countResult.rows[0].total);
+        const totalPages = Math.ceil(total / pageSize);
+
+        // Get paginated purchase orders
+        const offset = (page - 1) * pageSize;
+        params.push(pageSize);
+        params.push(offset);
+
+        const purchaseOrdersResult = await pool.query(`
+            SELECT 
+                po.*,
+                s.business_name as supplier_name,
+                l.name as location_name,
+                cu.name as created_by_name,
+                au.name as approved_by_name,
+                ru.name as received_by_name
+            FROM purchase_orders po
+            LEFT JOIN suppliers s ON po.supplier_id::text = s.id::text
+            LEFT JOIN locations l ON po.location_id::text = l.id::text
+            LEFT JOIN users cu ON po.created_by::text = cu.id::text
+            LEFT JOIN users au ON po.approved_by::text = au.id::text
+            LEFT JOIN users ru ON po.received_by::text = ru.id::text
+            ${whereClause}
+            ORDER BY po.created_at DESC
+            LIMIT $${paramIndex++} OFFSET $${paramIndex++}
+        `, params);
+
+        // Map to consistent format
+        const purchaseOrders = purchaseOrdersResult.rows.map(row => ({
+            id: row.id,
+            supplier_id: row.supplier_id,
+            supplier_name: row.supplier_name,
+            location_id: row.location_id,
+            location_name: row.location_name,
+            status: row.status,
+            total_amount: Number(row.total_amount) || 0,
+            tax_amount: Number(row.tax_amount) || 0,
+            items: row.items || [],
+            created_at: row.created_at ? new Date(row.created_at).getTime() : null,
+            updated_at: row.updated_at ? new Date(row.updated_at).getTime() : null,
+            expected_delivery: row.expected_delivery ? new Date(row.expected_delivery).getTime() : null,
+            delivery_date: row.delivery_date ? new Date(row.delivery_date).getTime() : null,
+            created_by: row.created_by,
+            created_by_name: row.created_by_name,
+            approved_by: row.approved_by,
+            approved_by_name: row.approved_by_name,
+            received_by: row.received_by,
+            received_by_name: row.received_by_name,
+            notes: row.notes,
+            documents: row.documents || []
+        }));
+
+        return {
+            success: true,
+            data: {
+                purchaseOrders,
+                total,
+                page,
+                pageSize,
+                totalPages
+            }
+        };
+
+    } catch (error: any) {
+        console.error('[WMS-V2] Get purchase orders error:', error);
+        return {
+            success: false,
+            error: error.message || 'Error obteniendo órdenes de compra'
+        };
+    }
+}
