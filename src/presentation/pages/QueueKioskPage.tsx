@@ -39,7 +39,7 @@ const QueueKioskPage: React.FC = () => {
     // Location State
     const [locationId, setLocationId] = useState<string>('');
     const [locations, setLocations] = useState<Location[]>([]);
-    const locationName = locations.find(l => l.id === locationId)?.name || localStorage.getItem('preferred_location_name') || 'Farmacia';
+    const locationName = locations.find(l => l.id === locationId)?.name || (typeof window !== 'undefined' ? localStorage.getItem('preferred_location_name') : null) || 'Farmacia';
 
     // Customer Data
     const [rut, setRut] = useState('');
@@ -409,7 +409,7 @@ const QueueKioskPage: React.FC = () => {
 
     // KIOSK ACTIVATION SCREEN
     if (!isKioskActive) {
-        const hasLocation = locationId || localStorage.getItem('preferred_location_id');
+        const hasLocation = locationId || (typeof window !== 'undefined' ? localStorage.getItem('preferred_location_id') : null);
 
         return (
             <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex flex-col items-center justify-center p-6">
