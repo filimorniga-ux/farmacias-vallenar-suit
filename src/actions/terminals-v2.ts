@@ -1167,3 +1167,77 @@ export { closeTerminalAtomic as closeTerminal };
 export { forceCloseTerminalSecure as forceCloseTerminalShift };
 export { updateTerminalSecure as updateTerminal };
 /* export { deleteTerminalSecure as deleteTerminal }; // Moved to network-v2 */
+
+// =====================================================
+// FUNCIÓN: OBTENER SESIÓN ACTIVA DE UN TERMINAL
+// =====================================================
+
+/**
+ * 🔍 Obtiene la sesión activa de un terminal para el POS
+ * 
+ * Esta función es usada por el frontend de caja para:
+ * - Validar que hay una sesión abierta antes de vender
+ * - Obtener el sessionId para asociar ventas
+ * 
+ * @param terminalId - UUID del terminal
+ * @returns Información de la sesión activa o error
+ */
+export async function getActiveSession(terminalId: string): Promise<{
+    success: boolean;
+    data?: {
+        sessionId: string;
+        terminalName: string;
+        openedAt: string;
+        userId: string;
+        openingAmount: number;
+    };
+    error?: string;
+}> {
+    // Validar UUID
+    if (!terminalId || !z.string().uuid().safeParse(terminalId).success) {
+        return { success: false, error: 'ID de terminal inválido' };
+    }
+
+    try {
+        const result = await query(`
+            SELECT 
+                s.id as session_id,
+                s.user_id,
+                s.opening_amount,
+                s.opened_at,
+                t.name as terminal_name,
+                t.status as terminal_status
+            FROM cash_register_sessions s
+            INNER JOIN terminals t ON t.id = s.terminal_id
+            WHERE s.terminal_id = $1
+              AND s.status = 'OPEN'
+              AND s.closed_at IS NULL
+            ORDER BY s.opened_at DESC
+            LIMIT 1
+        `, [terminalId]);
+
+        if (result.rows.length === 0) {
+            return { 
+                success: false, 
+                error: 'No hay sesión de caja activa. Abra turno para comenzar.' 
+            };
+        }
+
+        const session = result.rows[0];
+
+        return {
+            success: true,
+            data: {
+                sessionId: session.session_id,
+                terminalName: session.terminal_name,
+                openedAt: session.opened_at?.toISOString?.() || String(session.opened_at),
+                userId: session.user_id,
+                openingAmount: Number(session.opening_amount) || 0
+            }
+        };
+
+    } catch (error: any) {
+        logger.error({ error, terminalId }, '[TerminalsV2] getActiveSession error');
+        return { success: false, error: 'Error verificando sesión de caja' };
+    }
+}
