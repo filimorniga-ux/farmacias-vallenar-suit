@@ -1373,3 +1373,117 @@ export async function updateBatchCostSecure(params: {
 
 // NOTE: AUTHORIZATION_THRESHOLDS y AUTHORIZED_ROLES no se exportan
 // porque Next.js 16 "use server" solo permite exportar async functions
+
+// =====================================================
+// FUNCIÓN: ENCONTRAR MEJOR LOTE (FIFO)
+// =====================================================
+
+/**
+ * 📦 Encuentra el mejor lote disponible para un producto (FIFO)
+ * 
+ * Lógica de selección:
+ * 1. Ordenar por fecha de vencimiento (más próximo primero)
+ * 2. Si no hay fecha de vencimiento, ordenar por fecha de creación (FIFO)
+ * 3. Solo lotes con stock > 0
+ * 
+ * @param sku - Código SKU del producto
+ * @param locationId - UUID de la ubicación/sucursal
+ * @returns El mejor lote disponible o null
+ */
+export async function findBestBatchSecure(
+    sku: string,
+    locationId: string
+): Promise<{
+    success: boolean;
+    batch?: {
+        id: string;
+        sku: string;
+        name: string;
+        price: number;
+        quantity: number;
+        lotNumber: string | null;
+        expiryDate: string | null;
+    };
+    error?: string;
+}> {
+    // Validaciones
+    if (!sku || sku.trim().length === 0) {
+        return { success: false, error: 'SKU requerido' };
+    }
+
+    if (!locationId || !z.string().uuid().safeParse(locationId).success) {
+        return { success: false, error: 'ID de ubicación inválido' };
+    }
+
+    try {
+        // Buscar primero por SKU exacto en inventory_batches
+        let result = await query(`
+            SELECT 
+                ib.id,
+                ib.sku,
+                COALESCE(ib.name, p.name, 'Producto') as name,
+                COALESCE(ib.sale_price, ib.price_sell_box, p.price_sell_box, 0) as price,
+                ib.quantity_real as quantity,
+                ib.lot_number,
+                ib.expiry_date
+            FROM inventory_batches ib
+            LEFT JOIN products p ON ib.product_id::text = p.id::text OR ib.sku = p.sku
+            WHERE ib.sku = $1
+              AND ib.location_id = $2::uuid
+              AND ib.quantity_real > 0
+            ORDER BY 
+                ib.expiry_date ASC NULLS LAST,
+                ib.id ASC
+            LIMIT 1
+        `, [sku, locationId]);
+
+        // Si no encuentra por SKU exacto, buscar por product_id
+        if (result.rows.length === 0) {
+            result = await query(`
+                SELECT 
+                    ib.id,
+                    ib.sku,
+                    COALESCE(ib.name, p.name, 'Producto') as name,
+                    COALESCE(ib.sale_price, ib.price_sell_box, p.price_sell_box, 0) as price,
+                    ib.quantity_real as quantity,
+                    ib.lot_number,
+                    ib.expiry_date
+                FROM inventory_batches ib
+                INNER JOIN products p ON ib.product_id::text = p.id::text
+                WHERE p.sku = $1
+                  AND ib.location_id = $2::uuid
+                  AND ib.quantity_real > 0
+                ORDER BY 
+                    ib.expiry_date ASC NULLS LAST,
+                    ib.id ASC
+                LIMIT 1
+            `, [sku, locationId]);
+        }
+
+        if (result.rows.length === 0) {
+            return { 
+                success: false, 
+                error: 'Sin stock disponible para este producto en esta ubicación' 
+            };
+        }
+
+        const batch = result.rows[0];
+
+        return {
+            success: true,
+            batch: {
+                id: batch.id,
+                sku: batch.sku,
+                name: batch.name,
+                price: Number(batch.price) || 0,
+                quantity: Number(batch.quantity) || 0,
+                lotNumber: batch.lot_number || null,
+                expiryDate: batch.expiry_date ? new Date(Number(batch.expiry_date)).toISOString() : null
+            }
+        };
+
+    } catch (error: any) {
+        logger.error({ error, sku, locationId }, '[InventoryV2] findBestBatchSecure error');
+        return { success: false, error: 'Error buscando lote disponible' };
+    }
+}
