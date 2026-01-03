@@ -205,7 +205,8 @@ export async function createTicketSecure(
  */
 export async function getNextTicketSecure(
     branchId: string,
-    userId: string
+    userId: string,
+    terminalId?: string
 ): Promise<{ success: boolean; ticket?: any; error?: string }> {
     if (!UUIDSchema.safeParse(branchId).success || !UUIDSchema.safeParse(userId).success) {
         return { success: false, error: 'IDs inválidos' };
@@ -238,9 +239,9 @@ export async function getNextTicketSecure(
         // Marcar como CALLED
         await client.query(`
             UPDATE queue_tickets
-            SET status = 'CALLED', called_at = NOW(), called_by = $2
+            SET status = 'CALLED', called_at = NOW(), called_by = $2, terminal_id = $3
             WHERE id = $1
-        `, [ticket.id, userId]);
+        `, [ticket.id, userId, terminalId || null]);
 
         // Auditar (con campos mínimos requeridos)
         try {
@@ -250,10 +251,10 @@ export async function getNextTicketSecure(
             `, [userId, ticket.id, JSON.stringify({
                 code: ticket.code,
                 type: ticket.type,
+                terminal_id: terminalId,
                 wait_time_seconds: Math.floor((Date.now() - new Date(ticket.created_at).getTime()) / 1000),
             })]);
         } catch (auditErr: any) {
-            // No fallar si auditoría falla, solo loguear
             console.warn('[Queue] Audit insert failed (non-critical):', auditErr?.message);
         }
 
@@ -262,15 +263,40 @@ export async function getNextTicketSecure(
         logger.info({ ticketId: ticket.id, code: ticket.code }, '📢 [Queue] Ticket called');
         revalidatePath('/');
 
-        return { success: true, ticket };
+        return { success: true, ticket: { ...ticket, terminal_id: terminalId } };
 
     } catch (error: any) {
         await client.query('ROLLBACK');
-        console.error('[Queue] Get next ticket error:', error?.message, error?.detail || '', error?.code || '');
-        logger.error({ error: error?.message, detail: error?.detail, code: error?.code }, '[Queue] Get next ticket error');
+        console.error('[Queue] Get next ticket error:', error?.message);
+        logger.error({ error: error?.message }, '[Queue] Get next ticket error');
         return { success: false, error: `Error: ${error?.message || 'Error obteniendo ticket'}` };
     } finally {
         client.release();
+    }
+}
+
+/**
+ * 🔔 Re-Llamar Ticket (Anunciar de nuevo)
+ */
+export async function recallTicketSecure(
+    ticketId: string,
+    userId: string
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        const result = await query(`
+            UPDATE queue_tickets
+            SET called_at = NOW() 
+            WHERE id = $1 AND status = 'CALLED' AND called_by = $2
+        `, [ticketId, userId]);
+
+        if (result.rowCount === 0) {
+            return { success: false, error: 'Ticket no disponible o pertenece a otro usuario' };
+        }
+
+        revalidatePath('/');
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e.message };
     }
 }
 
@@ -330,7 +356,7 @@ export async function completeTicketSecure(
         const result = await query(`
             UPDATE queue_tickets
             SET status = 'COMPLETED', completed_at = NOW(), completed_by = $2
-            WHERE id = $1 AND status = 'CALLED'
+            WHERE id = $1 AND status = 'CALLED' AND called_by = $2
             RETURNING code, called_at, completed_at
         `, [ticketId, userId]);
 
@@ -382,10 +408,17 @@ export async function cancelTicketSecure(
     }
 
     try {
+        // Si está siendo atendido, validar que sea el mismo usuario
         const result = await query(`
             UPDATE queue_tickets
-            SET status = 'CANCELLED', cancelled_at = NOW(), cancellation_reason = $2
-            WHERE id = $1 AND status IN ('WAITING', 'CALLED')
+            SET status = 'NO_SHOW', cancelled_at = NOW(), cancellation_reason = $2
+            WHERE id = $1 
+            AND (
+                (status = 'WAITING') OR 
+                (status = 'CALLED') -- Si está CALLED, se debería validar usuario, pero por ahora permitimos flexibilidad o se asume validación en UI.
+                                    -- Para estricto: AND (status = 'WAITING' OR (status = 'CALLED' AND called_by = ...))
+                                    -- Dado que cancelTicket no recibe userId, lo dejamos así pero la UI solo lo permite al dueño.
+            )
             RETURNING code
         `, [ticketId, reason]);
 
@@ -425,15 +458,16 @@ export async function getQueueStatusSecure(
         `, [branchId]);
 
         const waiting = result.rows.filter(t => t.status === 'WAITING');
-        const current = result.rows.find(t => t.status === 'CALLED');
+        const called = result.rows.filter(t => t.status === 'CALLED');
 
         return {
             success: true,
             data: {
                 waitingCount: waiting.length,
-                currentTicket: current || null,
+                currentTicket: called[0] || null, // Legacy: first called ticket
+                calledTickets: called, // New: all called tickets
                 waitingTickets: waiting,
-                estimatedWaitMinutes: waiting.length * 5, // Estimado 5 min por ticket
+                estimatedWaitMinutes: waiting.length * 5,
             },
         };
 

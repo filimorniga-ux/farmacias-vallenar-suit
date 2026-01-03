@@ -4,8 +4,8 @@
  */
 import React, { useEffect, useState, useCallback } from 'react';
 import { usePharmaStore } from '../../store/useStore';
-import { Users, Bell, RefreshCw, Check, RotateCcw, ChevronDown } from 'lucide-react';
-import { getQueueStatusSecure, getNextTicketSecure, completeTicketSecure, resetQueueSecure } from '../../../actions/queue-v2';
+import { Users, Bell, RefreshCw, Check, RotateCcw, ChevronDown, X, Volume2, ArrowRight, MousePointerClick } from 'lucide-react';
+import { getQueueStatusSecure, getNextTicketSecure, completeTicketSecure, resetQueueSecure, cancelTicketSecure, recallTicketSecure } from '../../../actions/queue-v2';
 import { toast } from 'sonner';
 
 interface QueueTicket {
@@ -15,6 +15,8 @@ interface QueueTicket {
     status: 'WAITING' | 'CALLED' | 'COMPLETED';
     customer_name?: string;
     created_at: string;
+    called_by?: string;
+    terminal_id?: string;
 }
 
 const QueueWidget: React.FC = () => {
@@ -22,6 +24,7 @@ const QueueWidget: React.FC = () => {
 
     const [waitingTickets, setWaitingTickets] = useState<QueueTicket[]>([]);
     const [currentTicket, setCurrentTicket] = useState<QueueTicket | null>(null);
+    const [calledTickets, setCalledTickets] = useState<QueueTicket[]>([]); // Track all active
     const [loading, setLoading] = useState(false);
     const [showDropdown, setShowDropdown] = useState(false);
 
@@ -32,15 +35,27 @@ const QueueWidget: React.FC = () => {
             const result = await getQueueStatusSecure(currentLocationId);
             if (result.success && result.data) {
                 setWaitingTickets(result.data.waitingTickets || []);
-                // Solo actualizar currentTicket si no hay uno llamado actualmente
-                if (!currentTicket || currentTicket.status !== 'CALLED') {
-                    setCurrentTicket(result.data.currentTicket || null);
+                setCalledTickets(result.data.calledTickets || []);
+
+                // Find MY active ticket (Prioritize Terminal Match)
+                const allCalled = result.data.calledTickets || [];
+                let myTicket = null;
+
+                if (currentTerminalId) {
+                    myTicket = allCalled.find((t: QueueTicket) => t.terminal_id === currentTerminalId);
                 }
+
+                // Fallback to User Match if no terminal match (or terminal not set yet)
+                if (!myTicket && user?.id) {
+                    myTicket = allCalled.find((t: QueueTicket) => t.called_by === user.id);
+                }
+
+                setCurrentTicket(myTicket || null);
             }
         } catch (e) {
             console.error('Error fetching queue', e);
         }
-    }, [currentLocationId, currentTicket]);
+    }, [currentLocationId, user?.id, currentTerminalId]);
 
     useEffect(() => {
         fetchStatus();
@@ -57,7 +72,7 @@ const QueueWidget: React.FC = () => {
 
         setLoading(true);
         try {
-            const result = await getNextTicketSecure(currentLocationId, user.id);
+            const result = await getNextTicketSecure(currentLocationId, user.id, currentTerminalId);
             if (result.success && result.ticket) {
                 setCurrentTicket(result.ticket);
                 toast.success(`🔔 ${result.ticket.code}`, { duration: 2000 });
@@ -124,25 +139,104 @@ const QueueWidget: React.FC = () => {
             </div>
 
             {/* Current Ticket or Call Button */}
+            {/* Current Ticket or Call Button */}
             {currentTicket ? (
-                <div className="flex items-center gap-1 bg-blue-100 px-2 py-0.5 rounded border border-blue-200">
-                    <span className="text-sm font-black text-blue-700">{currentTicket.code}</span>
+                <div className="flex items-center gap-1 bg-blue-100 px-2 py-0.5 rounded border border-blue-200 animate-in fade-in slide-in-from-right-2 duration-300">
+                    <span className="text-sm font-black text-blue-700 min-w-[3rem] text-center">{currentTicket.code}</span>
+
+                    {/* Re-Call */}
                     <button
-                        onClick={handleComplete}
-                        className="p-0.5 bg-green-500 text-white rounded hover:bg-green-600"
-                        title="Completar"
+                        onClick={async () => {
+                            if (!currentTicket || !user?.id || loading) return;
+                            setLoading(true);
+                            try {
+                                const res = await recallTicketSecure(currentTicket.id, user.id);
+                                if (res.success) toast.info('📢 Ticket re-llamado');
+                                else toast.error(res.error || 'Error re-llamando');
+                            } catch (e: any) {
+                                toast.error(e.message);
+                            } finally {
+                                setLoading(false);
+                            }
+                        }}
+                        disabled={loading}
+                        className="p-1 bg-blue-500 text-white rounded hover:bg-blue-600 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Re-Llamar (Anunciar de nuevo)"
                     >
-                        <Check size={12} />
+                        <Volume2 size={14} />
+                    </button>
+
+                    {/* No Show */}
+                    <button
+                        onClick={async () => {
+                            if (!currentTicket || loading) return;
+                            if (!confirm('¿Marcar como NO PRESENTÓ?')) return;
+                            setLoading(true);
+                            try {
+                                const result = await cancelTicketSecure(currentTicket.id, 'No se presentó');
+                                if (result.success) {
+                                    toast.info('Marcado como No Show');
+                                    setCurrentTicket(null);
+                                    setTimeout(fetchStatus, 300); // Debounce refresh
+                                }
+                            } catch (e: any) {
+                                toast.error(e.message);
+                            } finally {
+                                setLoading(false);
+                            }
+                        }}
+                        disabled={loading}
+                        className="p-1 bg-red-100 text-red-600 rounded hover:bg-red-200 border border-red-200 disabled:opacity-50"
+                        title="Cliente No Presentó"
+                    >
+                        <X size={14} />
+                    </button>
+
+                    {/* Complete */}
+                    <button
+                        onClick={async () => {
+                            if (loading) return;
+                            setLoading(true);
+                            await handleComplete();
+                            setLoading(false);
+                        }}
+                        disabled={loading}
+                        className="p-1 bg-green-500 text-white rounded hover:bg-green-600 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Finalizar Atención"
+                    >
+                        <Check size={14} />
+                    </button>
+
+                    {/* Complete & Next */}
+                    <button
+                        onClick={async () => {
+                            if (loading) return;
+                            setLoading(true);
+                            await handleComplete();
+                            // Small delay to ensure DB update before calling next
+                            setTimeout(() => {
+                                handleCallNext();
+                                // Note: handleCallNext handles setLoading(false) internally? 
+                                // Actually handleCallNext sets loading=true at start and false at end.
+                                // But since handleComplete is async and we wait for it, we are safe.
+                                // We leave loading=true here to prevent double clicks during the transition.
+                            }, 300);
+                        }}
+                        disabled={loading}
+                        className="p-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 shadow-sm ml-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Finalizar y Llamar Siguiente"
+                    >
+                        <ArrowRight size={14} />
                     </button>
                 </div>
             ) : (
                 <button
                     onClick={handleCallNext}
-                    disabled={loading || count === 0}
-                    className="flex items-center gap-1 px-2 py-1 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
+                    disabled={loading || waitingTickets.length === 0}
+                    className="flex items-center gap-1.5 px-3 py-1 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed shadow-sm transition-all active:scale-95"
                 >
-                    <Bell size={12} />
-                    {loading ? '...' : 'Llamar'}
+                    <MousePointerClick size={14} />
+                    {loading ? '...' : (waitingTickets.length > 0 ? 'Llamar Siguiente' : 'Sin espera')}
                 </button>
             )}
 
@@ -169,7 +263,37 @@ const QueueWidget: React.FC = () => {
                         </div>
                     </div>
 
-                    <div className="max-h-40 overflow-y-auto p-2">
+                    <div className="max-h-60 overflow-y-auto p-2">
+                        {/* 1. Active Calls */}
+                        {calledTickets.length > 0 && (
+                            <div className="mb-2">
+                                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-1 px-1">En Atención / Llamados</p>
+                                <div className="space-y-1">
+                                    {calledTickets.map((t) => (
+                                        <div key={t.id} className="flex items-center justify-between px-2 py-1 rounded text-xs bg-blue-50 border border-blue-100">
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-black text-blue-700">{t.code}</span>
+                                                {t.terminal_id && (
+                                                    <span className="px-1 py-0.5 bg-white rounded border border-blue-200 text-[10px] text-blue-500">
+                                                        {t.terminal_id === currentTerminalId ? 'Tu terminal' : 'Otro terminal'}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="flex flex-col text-right">
+                                                <span className="text-[10px] text-slate-500 truncate max-w-[80px]">
+                                                    {/* Try to show box number if available or user name if needed */}
+                                                    {t.terminal_id ? 'Caja Ocupada' : 'En Atención'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="h-px bg-slate-100 my-2"></div>
+                            </div>
+                        )}
+
+                        {/* 2. Waiting */}
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 px-1">En Espera</p>
                         {waitingTickets.length === 0 ? (
                             <p className="text-xs text-slate-400 text-center py-2">Sin tickets</p>
                         ) : (

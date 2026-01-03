@@ -723,17 +723,42 @@ export async function forceCloseTerminalAtomic(
         const terminal = termRes.rows[0];
 
         // 2. Obtener sesión activa con datos del usuario para auditoría
+        // 2. Obtener sesión activa (Bloqueo directo SÓLO en la tabla de sesiones)
+        // FIX: No usar LEFT JOIN con FOR UPDATE para evitar error "nullable side of outer join"
         const sessionRes = await client.query(`
             SELECT 
-                s.id, s.user_id, s.opening_amount, s.opened_at, s.status,
-                u.name as user_name, u.email as user_email
-            FROM cash_register_sessions s
-            LEFT JOIN users u ON s.user_id = u.id
-            WHERE s.terminal_id = $1 AND s.status = 'OPEN' AND s.closed_at IS NULL
+                id, user_id, opening_amount, opened_at, status
+            FROM cash_register_sessions 
+            WHERE terminal_id = $1 AND status = 'OPEN' AND closed_at IS NULL
             FOR UPDATE
         `, [terminalId]);
 
-        const oldSession = sessionRes.rows[0] || null;
+        let oldSession: any = null;
+
+        if (sessionRes.rows.length > 0) {
+            const session = sessionRes.rows[0];
+
+            // Obtener datos del usuario por separado (lectura sin bloqueo)
+            let userName = 'Desconocido';
+            let userEmail = '';
+
+            if (session.user_id) {
+                const userRes = await client.query(
+                    'SELECT name, email FROM users WHERE id = $1',
+                    [session.user_id]
+                );
+                if (userRes.rows.length > 0) {
+                    userName = userRes.rows[0].name;
+                    userEmail = userRes.rows[0].email;
+                }
+            }
+
+            oldSession = {
+                ...session,
+                user_name: userName,
+                user_email: userEmail
+            };
+        }
 
         // 3. Cerrar sesión si existe
         if (oldSession) {
@@ -753,10 +778,10 @@ export async function forceCloseTerminalAtomic(
         await client.query(`
             UPDATE terminals 
             SET status = 'CLOSED', 
-                current_cashier_id = NULL,
-                updated_at = NOW()
-            WHERE id = $1
-        `, [terminalId]);
+            current_cashier_id = NULL,
+            updated_at = NOW()
+        WHERE id = $1
+    `, [terminalId]);
 
         // 5. AUDITORÍA CRÍTICA (obligatoria para force close)
         await insertAuditLog(client, {
@@ -776,32 +801,89 @@ export async function forceCloseTerminalAtomic(
             } : undefined,
             newValues: {
                 status: 'CLOSED_FORCE',
-                terminal_name: terminal.name
+                closed_by: adminUserId,
+                reason: justification
             },
-            justification
+            justification: `CIERRE FORZADO: ${justification}`
         });
 
         await client.query('COMMIT');
-        logger.info({ terminalId, adminUserId }, '✅ [Atomic v2.1] FORCE CLOSE completed.');
+        logger.info({ terminalId }, '✅ [Atomic v2.1] Terminal force-closed successfully');
 
         revalidatePath('/pos');
         revalidatePath('/caja');
-        revalidatePath('/admin/audit');
 
         return { success: true };
 
     } catch (error: any) {
         await client.query('ROLLBACK');
-
-        if (error.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
-            return { success: false, error: ERROR_MESSAGES.TERMINAL_LOCKED };
-        }
-
-        logger.error({ err: error, terminalId, adminUserId }, '❌ [Atomic v2.1] Force Close Failed');
-        return { success: false, error: error.message || 'Error en cierre forzado' };
+        logger.error({ err: error, terminalId }, '❌ [Atomic v2.1] Force Close Failed');
+        return { success: false, error: error.message || 'Error forzando cierre' };
 
     } finally {
         client.release();
+    }
+}
+
+// =====================================================
+// FUNCIÓN: GET ACTIVE SESSION (Non-blocking)
+// =====================================================
+
+/**
+* Obtiene la sesión activa de un terminal (si existe)
+* 
+* @param terminalId - UUID del terminal
+*/
+export async function getActiveSession(terminalId: string): Promise<{
+    success: boolean;
+    data?: {
+        sessionId: string;
+        userId: string;
+        openedAt: Date;
+        openingAmount: number;
+        terminalName: string;
+    };
+    error?: string
+}> {
+    try {
+        const { pool } = await import('@/lib/db');
+        const client = await pool.connect();
+
+        try {
+            const res = await client.query(`
+            SELECT 
+                s.id, s.user_id, s.opened_at, s.opening_amount,
+                t.name as terminal_name
+            FROM cash_register_sessions s
+            JOIN terminals t ON s.terminal_id = t.id
+            WHERE s.terminal_id = $1 
+            AND s.closed_at IS NULL
+            AND s.status = 'OPEN'
+            LIMIT 1
+        `, [terminalId]);
+
+            if (res.rows.length === 0) {
+                return { success: false, error: 'No hay sesión activa' };
+            }
+
+            const row = res.rows[0];
+            return {
+                success: true,
+                data: {
+                    sessionId: row.id,
+                    userId: row.user_id,
+                    openedAt: row.opened_at,
+                    openingAmount: Number(row.opening_amount),
+                    terminalName: row.terminal_name
+                }
+            };
+
+        } finally {
+            client.release();
+        }
+    } catch (error: any) {
+        logger.error({ error, terminalId }, 'Error fetching active session');
+        return { success: false, error: 'Error al consultar sesión' };
     }
 }
 

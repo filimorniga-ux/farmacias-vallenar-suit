@@ -134,7 +134,7 @@ interface PharmaState {
     forceCloseTerminal: (id: string) => Promise<void>;
     cashMovements: CashMovement[];
 
-    openShift: (amount: number, cashierId: string, authorizedBy: string, terminalId: string, locationId: string) => void;
+    openShift: (amount: number, cashierId: string, authorizedBy: string, terminalId: string, locationId: string, sessionId?: string) => void;
     resumeShift: (shift: Shift) => void;
     closeShift: (finalAmount: number, authorizedBy: string) => void;
     updateOpeningAmount: (newAmount: number) => void;
@@ -452,6 +452,7 @@ export const usePharmaStore = create<PharmaState>()(
                     }
 
                     // FIX: Always set inventory, even if empty, to reflect "cleared" state
+                    console.log(`📦 Inventory loaded: ${inventory?.length || 0} items for location ${currentStoreState.currentLocationId || 'NONE'}`);
                     set({ inventory });
 
                     if (employees.length > 0) {
@@ -893,12 +894,44 @@ export const usePharmaStore = create<PharmaState>()(
                 }
 
                 try {
+                    // Get session_id from currentShift
+                    const sessionId = state.currentShift?.id;
+
+                    // 🔍 DEBUG: Log session info to diagnose the issue
+                    console.log('🔍 [processSale] DEBUG:', JSON.stringify({
+                        sessionId,
+                        terminalId: state.currentTerminalId,
+                        locationId: state.currentLocationId,
+                        shiftExists: !!state.currentShift,
+                        shiftData: state.currentShift ? {
+                            id: state.currentShift.id,
+                            terminal_id: state.currentShift.terminal_id,
+                            status: state.currentShift.status
+                        } : null
+                    }, null, 2));
+
+                    if (!sessionId) {
+                        import('sonner').then(({ toast }) => {
+                            toast.error(`⚠️ Sin sesión activa (${sessionId}). Debe abrir caja antes de vender.`);
+                        });
+                        return false;
+                    }
+
+                    // 🔍 DEBUG: Show the session ID in the console even if we have one, to check if it's the right one
+                    if (!sessionId.includes('-')) {
+                        console.warn('⚠️ WARNING: Session ID does not look like a UUID:', sessionId);
+                        import('sonner').then(({ toast }) => {
+                            toast.error(`⚠️ Error de sesión: ID inválido (${sessionId})`);
+                        });
+                        return false;
+                    }
+
                     // 1. Create sale transaction object
                     const saleTransaction: SaleTransaction = {
                         id: `SALE - ${Date.now()} -${Math.floor(Math.random() * 1000)} `,
                         timestamp: Date.now(),
                         items: state.cart.map(item => ({
-                            batch_id: item.batch_id || 'UNKNOWN',
+                            batch_id: item.batch_id || item.id, // CartItem uses 'id' as batch reference
                             sku: item.sku,
                             name: item.name,
                             price: item.price,
@@ -912,7 +945,8 @@ export const usePharmaStore = create<PharmaState>()(
                         seller_id: state.user?.id || 'UNKNOWN',
                         customer: customer || undefined,
                         branch_id: state.currentLocationId,
-                        terminal_id: state.currentTerminalId
+                        terminal_id: state.currentTerminalId,
+                        session_id: sessionId // ✅ Added for createSaleSecure validation
                     };
 
                     // 2. CRITICAL: Save to Tiger Data BEFORE clearing cart
@@ -1324,7 +1358,7 @@ export const usePharmaStore = create<PharmaState>()(
             cashMovements: [],
 
             // openShift: Actualiza el estado local después de que el modal ya abrió el turno en el servidor
-            openShift: (initialAmount, userId, authorizedBy, terminalId, locationId) => {
+            openShift: (initialAmount, userId, authorizedBy, terminalId, locationId, sessionId) => {
                 const state = get();
 
                 // Usar terminalId pasado como parámetro
@@ -1336,11 +1370,10 @@ export const usePharmaStore = create<PharmaState>()(
                     return;
                 }
 
-                // Crear el nuevo shift con un ID temporal (el modal ya guardó el real en localStorage)
-                const sessionId = localStorage.getItem('pos_session_id') || `shift_${Date.now()}`;
-
+                // 🔧 FIX: Usar sessionId pasado directamente, fallback a localStorage solo si no se pasa
+                const effectiveSessionId = sessionId || localStorage.getItem('pos_session_id') || `shift_${Date.now()}`;
                 const newShift: Shift = {
-                    id: sessionId,
+                    id: effectiveSessionId,
                     terminal_id: effectiveTerminalId,
                     start_time: Date.now(),
                     opening_amount: initialAmount,

@@ -13,6 +13,20 @@ interface ShiftManagementModalProps {
     onClose: () => void;
 }
 
+// Helper: Formatear número con separadores de miles (puntos)
+const formatWithThousands = (value: string | number): string => {
+    const numericValue = typeof value === 'string'
+        ? value.replace(/\./g, '').replace(/[^0-9]/g, '')
+        : String(value);
+    if (!numericValue) return '';
+    return parseInt(numericValue).toLocaleString('es-CL');
+};
+
+// Helper: Obtener valor numérico limpio (sin puntos)
+const parseFormattedNumber = (formatted: string): number => {
+    return parseInt(formatted.replace(/\./g, '').replace(/[^0-9]/g, '') || '0');
+};
+
 const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onClose }) => {
     const router = useRouter();
     const { employees, openShift, resumeShift, fetchLocations, locations, terminals, fetchTerminals, user, syncData } = usePharmaStore();
@@ -245,6 +259,10 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
             toast.error('Complete todos los campos');
             return;
         }
+        if (parseFormattedNumber(openingAmount) < 0) {
+            toast.error('El monto debe ser positivo');
+            return;
+        }
         setStep('AUTH');
     };
 
@@ -267,7 +285,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
             const result = await openTerminalWithPinValidation(
                 selectedTerminal,
                 selectedCashier,
-                parseInt(openingAmount),
+                parseFormattedNumber(openingAmount),
                 managerPin  // PIN enviado al servidor para validación segura
             );
 
@@ -297,18 +315,24 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                     terminalName: terminalData?.name || 'Terminal',
                     userId: selectedCashier,
                     openedAt: Date.now(),
-                    openingAmount: parseInt(openingAmount)
+                    openingAmount: parseFormattedNumber(openingAmount)
                 });
+                // Also persist locationId for page reload recovery
+                if (typeof window !== 'undefined') {
+                    localStorage.setItem('current_location_id', selectedLocation);
+                }
             }
 
             // B. Actualizar Store Global (Zustand) para la UI inmediata
             // Usamos el authorizedById retornado por el servidor (validado con bcrypt)
+            // 🔧 FIX: Pasar sessionId directamente para evitar race condition con localStorage
             openShift(
-                parseInt(openingAmount),
+                parseFormattedNumber(openingAmount),
                 selectedCashier,
                 result.authorizedById || 'SYSTEM',
                 selectedTerminal,
-                selectedLocation
+                selectedLocation,
+                result.sessionId // ← Pasar sessionId real de la DB
             );
 
             toast.success('Turno abierto correctamente');
@@ -555,17 +579,26 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                                     </div>
 
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">Fondo Inicial</label>
+                                        <label className="block text-sm font-medium text-slate-700 mb-1">Fondo Inicial (Efectivo Sencillo)</label>
                                         <div className="relative">
                                             <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                                             <input
-                                                type="number"
+                                                type="text"
+                                                inputMode="numeric"
                                                 value={openingAmount}
-                                                onChange={(e) => setOpeningAmount(e.target.value)}
-                                                className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-cyan-500 outline-none font-mono"
-                                                placeholder="0"
+                                                onChange={(e) => {
+                                                    const formatted = formatWithThousands(e.target.value);
+                                                    setOpeningAmount(formatted);
+                                                }}
+                                                className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-cyan-500 outline-none font-mono text-lg"
+                                                placeholder="100.000"
                                             />
                                         </div>
+                                        {openingAmount && (
+                                            <p className="text-xs text-slate-500 mt-1 text-right">
+                                                Valor: ${formatWithThousands(openingAmount)} CLP
+                                            </p>
+                                        )}
                                     </div>
 
                                     <button

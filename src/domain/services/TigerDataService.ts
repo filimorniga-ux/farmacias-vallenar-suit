@@ -166,26 +166,50 @@ export const TigerDataService = {
         locationId: string,
         terminalId?: string
     ): Promise<{ success: boolean; transactionId: string; error?: string }> => {
-        // Enriched Data logic moved to Action or kept here?
-        // Let's keep augmentation here but delegate save.
-        const enrichedSale: SaleTransaction = {
-            ...saleData,
-            branch_id: locationId,
-            terminal_id: terminalId, // Added terminal_id
-            timestamp: Date.now()
-        };
-
         try {
             const { createSaleSecure } = await import('../../actions/sales-v2');
-            const result = await createSaleSecure(enrichedSale as any);
+
+            // Map SaleTransaction (snake_case) to createSaleSecure format (camelCase)
+            const mappedParams = {
+                locationId: saleData.branch_id || locationId,
+                terminalId: saleData.terminal_id || terminalId || '',
+                sessionId: saleData.session_id || '',
+                userId: saleData.seller_id || '',
+                items: saleData.items.map(item => ({
+                    batch_id: item.batch_id,
+                    sku: item.sku,
+                    name: item.name,
+                    quantity: item.quantity,
+                    price: item.price,
+                    discount: item.discount || 0
+                })),
+                paymentMethod: saleData.payment_method as 'CASH' | 'DEBIT' | 'CREDIT' | 'TRANSFER' | 'MIXED',
+                customerRut: saleData.customer?.rut,
+                customerName: saleData.customer?.fullName || saleData.customer?.name,
+                pointsRedeemed: saleData.points_redeemed || 0,
+                pointsDiscount: saleData.points_discount || 0,
+                transferId: saleData.transfer_id,
+                notes: saleData.notes
+            };
+
+            // 🔍 DEBUG: Log all IDs for diagnosis
+            console.log('🔍 [Tiger Data] Sale params:', {
+                locationId: mappedParams.locationId,
+                terminalId: mappedParams.terminalId,
+                sessionId: mappedParams.sessionId,
+                userId: mappedParams.userId,
+                itemCount: mappedParams.items.length,
+                firstItemBatchId: mappedParams.items[0]?.batch_id,
+                paymentMethod: mappedParams.paymentMethod
+            });
+
+            const result = await createSaleSecure(mappedParams);
 
             if (result.success && result.saleId) {
                 console.log(`✅ [Tiger Data] Sale saved to DB: ${result.saleId}`);
-                // Update local memory for immediate UI feedback (Optimistic or just sync)
-                inMemoryStorage.sales.push(enrichedSale);
+                inMemoryStorage.sales.push(saleData);
                 return { success: true, transactionId: result.saleId as string };
             } else {
-                // If server action returned failure but didn't throw (handled error)
                 return { success: false, transactionId: '', error: result.error || 'Server action failed' };
             }
         } catch (error) {

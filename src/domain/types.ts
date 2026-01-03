@@ -244,6 +244,7 @@ export interface SaleItem {
     is_fractional?: boolean;
     original_name?: string;
     cost_price?: number; // Added for financial reporting
+    discount?: number; // Item-level discount (for createSaleSecure)
 }
 
 export interface SaleTransaction {
@@ -262,7 +263,11 @@ export interface SaleTransaction {
     branch_id?: string; // Added for location tracking
     shift_id?: string; // Linked to a specific shift
     terminal_id?: string; // Specific POS Terminal
+    session_id?: string; // Cash register session ID (for createSaleSecure)
     is_synced?: boolean; // Offline Sync Flag
+    points_redeemed?: number; // Loyalty points used
+    points_discount?: number; // Discount amount from points
+    notes?: string; // Sale notes
 }
 
 // --- POS & Turnos ---

@@ -7,7 +7,7 @@ import { SupervisorOverrideModal } from '../security/SupervisorOverrideModal';
 import { toast } from 'sonner';
 import { generateCashReportSecure } from '../../../actions/cash-export-v2';
 // V2: Métricas seguras
-import { getShiftMetricsSecure, ShiftMetricsDetailed } from '../../../actions/cash-management-v2';
+import { getShiftMetricsSecure, ShiftMetricsDetailed, closeCashDrawerSecure } from '../../../actions/cash-management-v2';
 import { TransactionListModal } from './TransactionListModal';
 // Treasury V2 - Operaciones seguras con bcrypt PIN, RBAC, y auditoría
 import { createCashMovementSecure } from '../../../actions/treasury-v2';
@@ -295,9 +295,22 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
         const transferSales = transferSalesGroup ? transferSalesGroup.total : 0;
 
         // 2. Cash Movements
-        const initialBase = m.opening_amount || 0;
-        const cashIn = m.manual_movements?.total_in || 0;
-        const cashOut = m.manual_movements?.total_out || 0;
+        // 2. Cash Movements
+        const initialBase = m.openingAmount || m.opening_amount || 0;
+
+        // Handle V2 adjustments structure if manual_movements missing
+        let cashIn = m.manual_movements?.total_in || 0;
+        let cashOut = m.manual_movements?.total_out || 0;
+
+        if (m.adjustments && Array.isArray(m.adjustments)) {
+            cashIn = m.adjustments
+                .filter((a: any) => ['EXTRA_INCOME'].includes(a.type))
+                .reduce((sum: number, a: any) => sum + a.amount, 0);
+
+            cashOut = m.adjustments
+                .filter((a: any) => ['WITHDRAWAL', 'EXPENSE'].includes(a.type))
+                .reduce((sum: number, a: any) => sum + a.amount, 0);
+        }
 
         // 3. MASTER FORMULA (Physical Cash Only)
         // Base + Sales (Cash) + In - Out
@@ -623,18 +636,53 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                             </div>
 
                                             <button
-                                                onClick={() => {
-                                                    const amount = parseInt(closingAmount);
-                                                    if (!isNaN(amount)) {
-                                                        closeShift(amount, 'MANAGER_PIN');
+                                                onClick={async () => {
+                                                    const numAmount = parseInt(closingAmount);
+                                                    if (isNaN(numAmount) || !currentShift?.terminal_id || !currentShift?.id) return;
+
+                                                    setIsSubmitting(true);
+                                                    try {
+                                                        // 1. Server Close
+                                                        const result = await closeCashDrawerSecure({
+                                                            terminalId: currentShift.terminal_id,
+                                                            userId: user?.id || 'SYSTEM',
+                                                            userPin: '0000', // FIXME: Pedir PIN real o usar el de session si ya validó supervisor
+                                                            declaredCash: numAmount
+                                                        });
+
+                                                        if (!result.success) {
+                                                            toast.error(result.error || 'Error cerrando caja en servidor');
+                                                            setIsSubmitting(false);
+                                                            return;
+                                                        }
+
+                                                        // 2. Local Cleanup (Only if server success)
+                                                        closeShift(numAmount, 'Verified_Close');
                                                         onClose();
-                                                        toast.success('Turno cerrado correctamente');
+                                                        toast.success(
+                                                            <div>
+                                                                <p className="font-bold">¡Turno Cerrado Correctamente!</p>
+                                                                <p className="text-xs">Diferencia: ${result.summary?.difference.toLocaleString()}</p>
+                                                            </div>
+                                                        );
+
+                                                    } catch (error) {
+                                                        console.error(error);
+                                                        toast.error('Error de conexión al cerrar caja');
+                                                        setIsSubmitting(false);
                                                     }
                                                 }}
-                                                disabled={!closingAmount}
-                                                className="w-full bg-red-600 hover:bg-red-700 text-white py-4 rounded-xl font-bold shadow-lg transition-all"
+                                                disabled={!closingAmount || isSubmitting}
+                                                className="w-full bg-red-600 hover:bg-red-700 text-white py-4 rounded-xl font-bold shadow-lg transition-all flex justify-center items-center gap-2"
                                             >
-                                                Confirmar Cierre
+                                                {isSubmitting ? (
+                                                    <>
+                                                        <RefreshCw size={20} className="animate-spin" />
+                                                        Cerrando...
+                                                    </>
+                                                ) : (
+                                                    'Confirmar Cierre'
+                                                )}
                                             </button>
                                         </div>
                                     )}

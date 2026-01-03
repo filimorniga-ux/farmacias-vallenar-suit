@@ -43,13 +43,15 @@ const QuoteItemSchema = z.object({
 });
 
 const CreateQuoteSchema = z.object({
-    customerId: UUIDSchema.optional(),
+    customerId: UUIDSchema.optional().nullable(),
     customerName: z.string().max(200).optional(),
     customerPhone: z.string().max(20).optional(),
     customerEmail: z.string().email().optional().or(z.literal('')),
     items: z.array(QuoteItemSchema).min(1, 'Debe incluir al menos un item'),
     notes: z.string().max(1000).optional(),
     validDays: z.number().int().min(1).max(90).default(7),
+    locationId: UUIDSchema,
+    terminalId: UUIDSchema.optional(),
 });
 
 const UpdateQuoteSchema = z.object({
@@ -288,8 +290,8 @@ export async function createQuoteSecure(
             INSERT INTO quotes (
                 id, code, customer_id, customer_name, customer_phone, customer_email,
                 subtotal, discount, total, status, notes, valid_until,
-                created_by, created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PENDING', $10, $11, $12, NOW())
+                created_by, created_at, location_id, terminal_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PENDING', $10, $11, $12, NOW(), $13, $14)
         `, [
             quoteId,
             quoteCode,
@@ -302,7 +304,10 @@ export async function createQuoteSecure(
             total,
             notes || null,
             expiresAt,
-            session.user.id
+            expiresAt,
+            session.user.id,
+            validated.data.locationId,
+            validated.data.terminalId || null
         ]);
 
         // Insert items
@@ -1053,6 +1058,33 @@ export async function retrieveQuoteSecure(
             WHERE qi.quote_id = $1
             ORDER BY qi.created_at
         `, [quoteId]);
+
+        // Validate Location and Stock (Optional but recommended)
+        let stockWarnings: string[] = [];
+
+        // If we want to check stock in the quote's location:
+        if (quote.location_id) {
+            const skuList = itemsRes.rows.map(i => i.sku).filter(Boolean);
+            if (skuList.length > 0) {
+                const stockRes = await query(`
+                    SELECT sku, quantity_real 
+                    FROM inventory_batches 
+                    WHERE location_id = $1 AND sku = ANY($2::text[])
+                 `, [quote.location_id, skuList]);
+
+                const stockMap = new Map();
+                stockRes.rows.forEach((r: any) => {
+                    stockMap.set(r.sku, (stockMap.get(r.sku) || 0) + Number(r.quantity_real));
+                });
+
+                itemsRes.rows.forEach(item => {
+                    const available = stockMap.get(item.sku) || 0;
+                    if (available < item.quantity) {
+                        stockWarnings.push(`Stock bajo para ${item.product_name || item.sku}: ${available}/${item.quantity}`);
+                    }
+                });
+            }
+        }
 
         return {
             success: true,

@@ -2,11 +2,12 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 export interface Product {
-    id: number;
+    id: string | number;
     name: string;
     price: number;
     stock: number;
     requiresPrescription: boolean;
+    batchId?: string;
 }
 
 export interface CartItem extends Product {
@@ -16,8 +17,8 @@ export interface CartItem extends Product {
 interface CartState {
     cart: CartItem[];
     addToCart: (product: Product) => void;
-    removeFromCart: (productId: number) => void;
-    updateQuantity: (productId: number, delta: number) => void;
+    removeFromCart: (productId: string | number) => void;
+    updateQuantity: (productId: string | number, delta: number) => void;
     clearCart: () => void;
     getCartTotal: () => number;
 }
