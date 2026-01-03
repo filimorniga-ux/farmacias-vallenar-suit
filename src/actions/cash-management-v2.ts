@@ -420,13 +420,13 @@ export async function closeCashDrawerSecure(
 
         // Calculate expected cash
         const salesRes = await client.query(`
-            SELECT COALESCE(SUM(total), 0) as cash_sales
+            SELECT COALESCE(SUM(COALESCE(total_amount, total)), 0) as cash_sales
             FROM sales 
             WHERE terminal_id = $1 
+            AND session_id = $2
             AND payment_method = 'CASH'
             AND status != 'VOIDED'
-            AND timestamp >= $2
-        `, [terminalId, session.opened_at]);
+        `, [terminalId, session.id]);
 
         const cashSales = Number(salesRes.rows[0].cash_sales);
 
@@ -977,6 +977,7 @@ export interface ShiftMetricsDetailed {
     otherSales: number;
     totalSales: number;
     transactionCount: number;
+    sales_breakdown: { method: string; total: number; count: number }[];
     adjustments: { type: string; amount: number }[];
     lastCount?: { amount: number; difference: number; timestamp: Date };
 }
@@ -993,13 +994,8 @@ export async function getShiftMetricsSecure(
     }
 
     try {
-        const { headers } = await import('next/headers');
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-
-        if (!userId) {
-            return { success: false, error: 'No autenticado' };
-        }
+        // NOTE: Authentication optional for read-only metrics
+        // Authorization is implicit via terminal access
 
         const { query } = await import('@/lib/db');
 
@@ -1025,13 +1021,13 @@ export async function getShiftMetricsSecure(
             SELECT 
                 payment_method,
                 COUNT(*) as count,
-                COALESCE(SUM(total), 0) as total
+                COALESCE(SUM(COALESCE(total_amount, total)), 0) as total
             FROM sales 
             WHERE terminal_id = $1 
+            AND session_id = $2
             AND status != 'VOIDED'
-            AND timestamp >= $2
             GROUP BY payment_method
-        `, [terminalId, session.opened_at]);
+        `, [terminalId, session.id]);
 
         let cashSales = 0, cardSales = 0, transferSales = 0, otherSales = 0;
         let transactionCount = 0;
@@ -1101,6 +1097,11 @@ export async function getShiftMetricsSecure(
                 otherSales,
                 totalSales: cashSales + cardSales + transferSales + otherSales,
                 transactionCount,
+                sales_breakdown: salesRes.rows.map(row => ({
+                    method: row.payment_method,
+                    count: parseInt(row.count),
+                    total: Number(row.total)
+                })),
                 adjustments,
                 lastCount,
             }

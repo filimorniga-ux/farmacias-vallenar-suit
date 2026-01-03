@@ -278,11 +278,20 @@ export async function createSaleSecure(params: {
         const sortedBatchIds = [...new Set(batchIds)].sort();
 
         const batchesRes = await client.query(`
-            SELECT id, quantity_real, sku, product_id
+            SELECT id, quantity_real, sku, product_id, location_id
             FROM inventory_batches 
             WHERE id = ANY($1::uuid[])
+            AND location_id = $2::uuid
             FOR UPDATE NOWAIT
-        `, [sortedBatchIds]);
+        `, [sortedBatchIds, locationId]);
+
+        if (batchesRes.rows.length !== sortedBatchIds.length) {
+            await client.query('ROLLBACK');
+            return {
+                success: false,
+                error: 'Algunos productos no pertenecen a esta sucursal o no existen'
+            };
+        }
 
         // Crear mapa de stock disponible
         const stockMap = new Map<string, { available: number; sku: string }>();
@@ -332,24 +341,32 @@ export async function createSaleSecure(params: {
             totalDiscount += itemDiscount;
         }
 
-        const totalAmount = subtotal - totalDiscount - pointsDiscount;
+        const totalAmount = Math.max(0, subtotal - totalDiscount - pointsDiscount);
+
+        if (totalAmount === 0 && subtotal > 0) {
+            await client.query('ROLLBACK');
+            return {
+                success: false,
+                error: 'Los descuentos no pueden superar el total de la venta'
+            };
+        }
 
         // 5. Insertar venta
         await client.query(`
             INSERT INTO sales (
                 id, location_id, terminal_id, session_id, user_id,
-                customer_rut, customer_name, total_amount, subtotal,
+                customer_rut, customer_name, total, total_amount, subtotal,
                 discount_amount, points_discount, payment_method,
                 dte_folio, dte_type, transfer_id, notes, status, timestamp
             ) VALUES (
-                $1, $2, $3, $4, $5::uuid,
-                $6, $7, $8, $9,
-                $10, $11, $12,
-                $13, $14, $15, $16, 'COMPLETED', NOW()
+                $1, $2, $3, $4, $5,
+                $6, $7, $8, $9, $10,
+                $11, $12, $13,
+                $14, $15, $16, $17, 'COMPLETED', NOW()
             )
         `, [
             saleId, locationId, terminalId, sessionId, userId,
-            customerRut || null, customerName || null, totalAmount, subtotal,
+            customerRut || null, customerName || null, totalAmount, totalAmount, subtotal,
             totalDiscount, pointsDiscount, paymentMethod,
             dteFolio || null, dteType || 'BOLETA', transferId || null, notes || null
         ]);
