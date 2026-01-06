@@ -22,7 +22,7 @@ interface PaymentModalProps {
 }
 
 export function PaymentModal({ isOpen, onClose, onSuccess }: PaymentModalProps) {
-    const { currentCustomer, loyaltyConfig, calculateDiscountValue } = usePharmaStore();
+    const { currentCustomer, loyaltyConfig, calculateDiscountValue, currentTicket, currentTerminalId, completeAndNextTicket } = usePharmaStore();
 
     const {
         isProcessing,
@@ -39,7 +39,36 @@ export function PaymentModal({ isOpen, onClose, onSuccess }: PaymentModalProps) 
         setAutoPrint,
         checkout
     } = useCheckout({
-        onSuccess: () => {
+        onSuccess: async () => {
+            // CHECK CONDITIONS
+            if (!currentTicket) {
+                console.warn('⚠️ [PaymentModal] Auto-next skipped: No current ticket');
+            }
+            if (!currentTerminalId) {
+                console.warn('⚠️ [PaymentModal] Auto-next skipped: No terminal ID');
+            }
+
+            // AUTO-NEXT TICKET: Fire and forget to keep UI snappy
+            if (currentTicket && currentTerminalId) {
+                import('sonner').then(({ toast }) => toast.info('🔄 Finalizando ticket actual...'));
+
+                // Force await to ensure it runs
+                try {
+                    const res = await completeAndNextTicket(currentTerminalId, currentTicket.id);
+                    if (res.completedTicket) {
+                        import('sonner').then(({ toast }) => toast.success('Ticket finalizado correctamente'));
+                    }
+
+                    if (res.nextTicket) {
+                        import('sonner').then(({ toast }) => toast.success(`🔔 Siguiente: ${res.nextTicket?.number}`));
+                    } else {
+                        import('sonner').then(({ toast }) => toast.info('No hay más tickets en espera'));
+                    }
+                } catch (err: any) {
+                    console.error('❌ [PaymentModal] Auto-next error:', err);
+                    import('sonner').then(({ toast }) => toast.error('Error al avanzar turno: ' + err.message));
+                }
+            }
             onClose();
             onSuccess?.();
         }
@@ -57,7 +86,7 @@ export function PaymentModal({ isOpen, onClose, onSuccess }: PaymentModalProps) 
                 {/* Header */}
                 <div className="p-6 border-b border-slate-100 flex justify-between items-center">
                     <h3 className="text-xl font-bold text-slate-800">Finalizar Venta</h3>
-                    <button 
+                    <button
                         onClick={onClose}
                         disabled={isProcessing}
                         className="text-slate-400 hover:text-slate-600 transition-colors"
@@ -125,11 +154,10 @@ export function PaymentModal({ isOpen, onClose, onSuccess }: PaymentModalProps) 
                     <button
                         onClick={handleCheckout}
                         disabled={isProcessing}
-                        className={`w-full py-4 text-white font-bold rounded-xl transition shadow-lg flex items-center justify-center gap-2 ${
-                            isProcessing 
-                                ? 'bg-slate-400 cursor-not-allowed' 
-                                : 'bg-cyan-600 hover:bg-cyan-700 shadow-cyan-200'
-                        }`}
+                        className={`w-full py-4 text-white font-bold rounded-xl transition shadow-lg flex items-center justify-center gap-2 ${isProcessing
+                            ? 'bg-slate-400 cursor-not-allowed'
+                            : 'bg-cyan-600 hover:bg-cyan-700 shadow-cyan-200'
+                            }`}
                     >
                         {isProcessing ? (
                             <>
@@ -169,11 +197,10 @@ function PaymentMethodSelector({ selected, onChange, disabled }: PaymentMethodSe
                     key={key}
                     onClick={() => onChange(key)}
                     disabled={disabled}
-                    className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all ${
-                        selected === key 
-                            ? `border-${color}-500 bg-${color}-50 text-${color}-700` 
-                            : 'border-slate-100 text-slate-400'
-                    } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all ${selected === key
+                        ? `border-${color}-500 bg-${color}-50 text-${color}-700`
+                        : 'border-slate-100 text-slate-400'
+                        } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                     <Icon size={24} />
                     <span className="text-xs font-bold">{label}</span>
@@ -327,7 +354,7 @@ function TotalsDisplay({ cartTotal, pointsToRedeem, pointsDiscount, finalTotal }
                     ${cartTotal.toLocaleString()}
                 </span>
             </div>
-            
+
             {pointsToRedeem > 0 && (
                 <div className="flex justify-between items-center mb-2 text-emerald-600">
                     <span className="font-semibold flex items-center gap-1">
@@ -339,7 +366,7 @@ function TotalsDisplay({ cartTotal, pointsToRedeem, pointsDiscount, finalTotal }
                     </span>
                 </div>
             )}
-            
+
             <div className="border-t-2 border-slate-300 mt-2 pt-2 flex justify-between items-center">
                 <span className="text-slate-900 font-extrabold text-lg">TOTAL:</span>
                 <span className="text-3xl font-extrabold text-cyan-600">

@@ -53,7 +53,7 @@ function App({ forceContextSelection }: { forceContextSelection?: boolean }) {
 
     return (
         <BrowserRouter>
-            <Toaster position="top-center" richColors />
+            <Toaster position="bottom-right" richColors closeButton />
             <Routes>
                 {/* Public Routes */}
                 <Route path="/" element={forceContextSelection ? <ContextSelectionPage /> : <LandingPage />} />

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { calculateHandoverSecure, executeHandoverSecure, type HandoverSummary } from '@/actions/shift-handover-v2';
 import { toast } from 'sonner';
-import { Loader2, ArrowRight, CheckCircle, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Loader2, ArrowRight, CheckCircle, AlertTriangle, ShieldCheck, X } from 'lucide-react';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { useRouter } from 'next/navigation';
 import { printHandoverTicket } from '@/presentation/utils/print-utils'; // New Import
@@ -25,7 +25,8 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
     // Step 1: Calculate
     const handleCalculate = async () => {
         if (!currentTerminalId) return;
-        const amount = Number(declaredAmount);
+        // Clean separators (dots) for integer parsing
+        const amount = Number(declaredAmount.replace(/\./g, ''));
 
         if (isNaN(amount) || amount < 0) {
             toast.error('Ingrese un monto válido');
@@ -115,9 +116,9 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
                         </h2>
                         <p className="text-xs text-gray-500">Protocolo de Cierre y Entrega de Caja</p>
                     </div>
-                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+                    <button onClick={onClose} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors">
                         <span className="sr-only">Cancelar</span>
-                        Does not matter, close icon here
+                        <X size={24} />
                     </button>
                 </div>
 
@@ -142,10 +143,19 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
                             <div>
                                 <label className="block text-sm font-bold text-gray-700 mb-2">Efectivo Contado ($)</label>
                                 <input
-                                    type="number"
+                                    type="text"
+                                    inputMode="numeric"
                                     autoFocus
                                     value={declaredAmount}
-                                    onChange={(e) => setDeclaredAmount(e.target.value)}
+                                    onChange={(e) => {
+                                        const raw = e.target.value.replace(/\D/g, '');
+                                        if (raw) {
+                                            const num = parseInt(raw, 10);
+                                            setDeclaredAmount(num.toLocaleString('es-CL'));
+                                        } else {
+                                            setDeclaredAmount('');
+                                        }
+                                    }}
                                     className="w-full text-3xl font-mono font-bold p-4 border rounded-xl focus:ring-4 focus:ring-blue-100 outline-none text-center"
                                     placeholder="0"
                                 />
@@ -209,6 +219,38 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
                                     <p className="text-xs text-slate-400 italic">
                                         * Al confirmar, se generará una remesa por el monto a entregar. La caja se cerrará automáticamente.
                                     </p>
+                                </div>
+                            </div>
+
+                            {/* Desglose Detallado */}
+                            <div className="bg-white p-4 rounded-xl border border-slate-200 text-sm space-y-2">
+                                <h3 className="font-bold text-slate-700 border-b border-slate-100 pb-2 mb-2">📊 Desglose de Ventas y Movimientos</h3>
+
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                                    <span className="text-slate-500">Ventas Efectivo:</span>
+                                    <span className="text-right font-mono">${summary.cashSales.toLocaleString('es-CL')}</span>
+
+                                    <span className="text-slate-500">Ventas Tarjeta:</span>
+                                    <span className="text-right font-mono">${(summary.cardSales || 0).toLocaleString('es-CL')}</span>
+
+                                    <span className="text-slate-500">Transferencias:</span>
+                                    <span className="text-right font-mono">${(summary.transferSales || 0).toLocaleString('es-CL')}</span>
+
+                                    <span className="text-slate-500">Otros/Cheques:</span>
+                                    <span className="text-right font-mono">${(summary.otherSales || 0).toLocaleString('es-CL')}</span>
+
+                                    <div className="col-span-2 h-px bg-slate-100 my-1"></div>
+
+                                    <span className="font-bold text-slate-700">Total Ventas:</span>
+                                    <span className="text-right font-bold font-mono">${(summary.totalSales || 0).toLocaleString('es-CL')}</span>
+                                </div>
+
+                                <div className="mt-4 pt-2 border-t border-slate-100 grid grid-cols-2 gap-x-4 gap-y-1">
+                                    <span className="text-green-600">Ingresos Manuales:</span>
+                                    <span className="text-right font-mono text-green-600">+${summary.cashIn.toLocaleString('es-CL')}</span>
+
+                                    <span className="text-red-500">Egresos/Gastos:</span>
+                                    <span className="text-right font-mono text-red-500">-${summary.cashOut.toLocaleString('es-CL')}</span>
                                 </div>
                             </div>
 

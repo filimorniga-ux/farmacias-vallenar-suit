@@ -122,12 +122,26 @@ async function validateAdminPin(
 /**
  * 🏢 Obtener Estructura Organizacional (con RBAC)
  */
-export async function getOrganizationStructureSecure(): Promise<{
+export async function getOrganizationStructureSecure(explicitUserId?: string): Promise<{
     success: boolean;
     data?: { locations: any[]; terminals: any[] };
     error?: string;
 }> {
-    const session = await getSession();
+    let session = await getSession();
+
+    // Fallback: If no session headers, but explicit user ID provided (e.g. from client store)
+    if (!session && explicitUserId && UUIDSchema.safeParse(explicitUserId).success) {
+        try {
+            const userRes = await query('SELECT id, role, assigned_location_id FROM users WHERE id = $1 AND is_active = true', [explicitUserId]);
+            if (userRes.rows.length > 0) {
+                const u = userRes.rows[0];
+                session = { userId: u.id, role: u.role, locationId: u.assigned_location_id };
+            }
+        } catch (e) {
+            console.error('Error recovering session from explicit ID', e);
+        }
+    }
+
     if (!session) {
         return { success: false, error: 'No autenticado' };
     }
@@ -136,10 +150,10 @@ export async function getOrganizationStructureSecure(): Promise<{
         let locationFilter = '';
         const params: any[] = [];
 
-        if (!ADMIN_ROLES.includes(session.role) && session.locationId) {
+        if (!MANAGER_ROLES.includes(session.role) && session.locationId) {
             locationFilter = 'WHERE l.id = $1';
             params.push(session.locationId);
-        } else if (!ADMIN_ROLES.includes(session.role)) {
+        } else if (!MANAGER_ROLES.includes(session.role)) {
             locationFilter = 'WHERE l.is_active = true';
         }
 

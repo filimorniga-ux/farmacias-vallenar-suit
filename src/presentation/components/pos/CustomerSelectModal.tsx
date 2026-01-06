@@ -36,8 +36,8 @@ const CustomerSelectModal: React.FC<CustomerSelectModalProps> = ({ isOpen, onClo
         if (!searchTerm) return [];
         const term = searchTerm.toLowerCase();
         return customers.filter(c =>
-            c.fullName.toLowerCase().includes(term) ||
-            c.rut.includes(term)
+            (c.fullName || '').toLowerCase().includes(term) ||
+            (c.rut || '').toLowerCase().includes(term)
         ).slice(0, 5);
     }, [customers, searchTerm]);
 

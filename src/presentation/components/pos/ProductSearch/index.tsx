@@ -46,7 +46,7 @@ export function ProductSearch({
     const rowVirtualizer = useVirtualizer({
         count: filteredInventory.length,
         getScrollElement: () => parentRef.current,
-        estimateSize: () => 100,
+        estimateSize: () => 130,
         overscan: 5,
     });
 
@@ -99,31 +99,35 @@ export function ProductSearch({
                 className="flex-1 overflow-y-auto p-4 pb-24 md:pb-4"
             >
                 {searchTerm ? (
-                    <div
-                        style={{
-                            height: `${rowVirtualizer.getTotalSize()}px`,
-                            width: '100%',
-                            position: 'relative',
-                            contain: 'strict'
-                        }}
-                    >
-                        {rowVirtualizer.getVirtualItems().map((virtualRow: VirtualItem) => {
-                            const item = filteredInventory[virtualRow.index];
-                            const isSelected = virtualRow.index === selectedIndex;
+                    filteredInventory.length > 0 ? (
+                        <div
+                            style={{
+                                paddingTop: `${rowVirtualizer.getVirtualItems()[0]?.start || 0}px`,
+                                paddingBottom: `${rowVirtualizer.getTotalSize() - (rowVirtualizer.getVirtualItems()[rowVirtualizer.getVirtualItems().length - 1]?.end || 0)}px`
+                            }}
+                        >
+                            {rowVirtualizer.getVirtualItems().map((virtualRow: VirtualItem) => {
+                                const item = filteredInventory[virtualRow.index];
+                                const isSelected = virtualRow.index === selectedIndex;
 
-                            return (
-                                <ProductSearchItem
-                                    key={virtualRow.key}
-                                    item={item}
-                                    isSelected={isSelected}
-                                    virtualRow={virtualRow}
-                                    measureElement={rowVirtualizer.measureElement}
-                                    onClick={() => selectProduct(virtualRow.index)}
-                                    onFractionClick={onFractionSelect ? () => onFractionSelect(item) : undefined}
-                                />
-                            );
-                        })}
-                    </div>
+                                return (
+                                    <ProductSearchItem
+                                        key={virtualRow.key}
+                                        item={item}
+                                        isSelected={isSelected}
+                                        virtualRow={virtualRow}
+                                        measureElement={rowVirtualizer.measureElement}
+                                        onClick={() => selectProduct(virtualRow.index)}
+                                        onFractionClick={onFractionSelect ? () => onFractionSelect(item) : undefined}
+                                    />
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <div className="h-full flex flex-col items-center justify-center text-slate-400 opacity-70">
+                            <p className="text-sm">No se encontraron productos</p>
+                        </div>
+                    )
                 ) : (
                     <EmptySearchState />
                 )}
@@ -154,23 +158,17 @@ function ProductSearchItem({
         <div
             data-index={virtualRow.index}
             ref={measureElement}
-            className={`absolute top-0 left-0 w-full p-2 transition-all duration-75 ${
-                isSelected
-                    ? 'bg-amber-50 border-l-4 border-amber-500 shadow-sm z-10 scale-[1.01]'
-                    : 'hover:bg-slate-50 border-l-4 border-transparent'
-            }`}
-            style={{
-                height: `${virtualRow.size}px`,
-                transform: `translateY(${virtualRow.start}px)`,
-            }}
+            className={`w-full p-2 border-b border-transparent ${isSelected
+                ? 'bg-amber-50 border-l-4 border-amber-500 shadow-sm z-10'
+                : 'hover:bg-slate-50 border-l-4 border-transparent'
+                }`}
             onClick={onClick}
         >
             <div
-                className={`p-3 rounded-xl border transition-all group h-full cursor-pointer relative ${
-                    isSelected
-                        ? 'bg-cyan-50 border-cyan-500 shadow-md ring-2 ring-cyan-200 z-10 scale-[1.02]'
-                        : 'bg-white border-slate-100 hover:border-cyan-200'
-                }`}
+                className={`p-3 rounded-xl border transition-all group cursor-pointer relative ${isSelected
+                    ? 'bg-cyan-50 border-cyan-500 shadow-md ring-2 ring-cyan-200 z-10'
+                    : 'bg-white border-slate-100 hover:border-cyan-200'
+                    }`}
             >
                 <h3 className="font-bold text-slate-800 text-sm leading-tight mb-1 group-hover:text-cyan-600">
                     {item.name}
@@ -199,11 +197,10 @@ function ProductSearchItem({
                                 <Scissors size={16} />
                             </button>
                         )}
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                            item.stock_actual > 0 
-                                ? 'bg-emerald-100 text-emerald-700' 
-                                : 'bg-red-100 text-red-700'
-                        }`}>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${item.stock_actual > 0
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-red-100 text-red-700'
+                            }`}>
                             Stock: {item.stock_actual}
                         </span>
                     </div>

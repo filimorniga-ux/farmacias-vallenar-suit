@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { usePharmaStore } from '../store/useStore';
 import { Ticket, UserPlus, ArrowRight, Settings, Printer, X, Phone, User, MapPin, Check, ChevronLeft, LogOut } from 'lucide-react';
@@ -31,6 +33,7 @@ const QueueKioskPage: React.FC = () => {
     const [activationPin, setActivationPin] = useState('');
     const [exitPin, setExitPin] = useState('');
     const [showExitPrompt, setShowExitPrompt] = useState(false);
+    const [isMounted, setIsMounted] = useState(false);
 
     // Flow State
     const [step, setStep] = useState<Step>('WELCOME');
@@ -39,7 +42,9 @@ const QueueKioskPage: React.FC = () => {
     // Location State
     const [locationId, setLocationId] = useState<string>('');
     const [locations, setLocations] = useState<Location[]>([]);
-    const locationName = locations.find(l => l.id === locationId)?.name || (typeof window !== 'undefined' ? localStorage.getItem('preferred_location_name') : null) || 'Farmacia';
+
+    // Derived state (safe for server)
+    const locationName = locations.find(l => l.id === locationId)?.name || 'Farmacia';
 
     // Customer Data
     const [rut, setRut] = useState('');
@@ -109,10 +114,74 @@ const QueueKioskPage: React.FC = () => {
     };
 
     // =============================================================================
+    // KEYBOARD LISTENER (Physical Keyboard Support)
+    // =============================================================================
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Ignore if regular inputs are focused (Setup/Activation screens)
+            if ((e.target as HTMLElement).tagName === 'INPUT') return;
+
+            const key = e.key;
+
+            // Global Back/Escape
+            if (key === 'Escape') {
+                if (step === 'IDENTIFY' || step === 'REGISTER' || step === 'PHONE') {
+                    goBack();
+                } else if (step === 'WELCOME') {
+                    setShowExitPrompt(true);
+                }
+                return;
+            }
+
+            // Step: IDENTIFY (RUT)
+            if (step === 'IDENTIFY') {
+                if (/^[0-9kK]$/.test(key)) {
+                    // Need to use functional update wrapper or access current state
+                    // We use the existing handler but it sets state.
+                    // To avoid stale state issues in this closure, we rely on the dependency array
+                    // re-creating this listener on every change. 
+                    handleNumberClick(key.toUpperCase());
+                } else if (key === 'Backspace') {
+                    handleBackspace();
+                } else if (key === 'Enter') {
+                    handleIdentifySubmit();
+                }
+            }
+
+            // Step: REGISTER (Name)
+            if (step === 'REGISTER') {
+                if (/^[a-zA-Z\s\u00f1\u00d1]$/.test(key) && key.length === 1) {
+                    setName(prev => prev + key);
+                } else if (key === 'Backspace') {
+                    setName(prev => prev.slice(0, -1));
+                } else if (key === 'Enter') {
+                    handleRegisterSubmit();
+                }
+            }
+
+            // Step: PHONE
+            if (step === 'PHONE') {
+                if (/^[0-9+]$/.test(key)) {
+                    setPhone(prev => prev.length < 12 ? prev + key : prev);
+                } else if (key === 'Backspace') {
+                    setPhone(prev => prev.length > 4 ? prev.slice(0, -1) : prev);
+                } else if (key === 'Enter') {
+                    handlePhoneSubmit();
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [step, rut, name, phone, locationId, customers, ticketType]); // Re-bind when state changes to keep closures fresh
+
+    // =============================================================================
     // INIT: Load location from localStorage (shared with ContextSelectionPage)
     // =============================================================================
 
     useEffect(() => {
+        setIsMounted(true);
         // Read from shared location preference (set in ContextSelectionPage)
         const storedLocation = localStorage.getItem('preferred_location_id');
         const storedLocationName = localStorage.getItem('preferred_location_name');
@@ -407,9 +476,21 @@ const QueueKioskPage: React.FC = () => {
     // RENDER
     // =============================================================================
 
+    // =============================================================================
     // KIOSK ACTIVATION SCREEN
+    // =============================================================================
+
     if (!isKioskActive) {
-        const hasLocation = locationId || (typeof window !== 'undefined' ? localStorage.getItem('preferred_location_id') : null);
+        // Prevent hydration mismatch by rendering null until mounted
+        if (!isMounted) {
+            return (
+                <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+                    <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+            );
+        }
+
+        const hasLocation = !!locationId;
 
         return (
             <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex flex-col items-center justify-center p-6">
@@ -431,6 +512,7 @@ const QueueKioskPage: React.FC = () => {
                                             setLocationId(loc.id);
                                             localStorage.setItem('preferred_location_id', loc.id);
                                             localStorage.setItem('preferred_location_name', loc.name);
+                                            const name = loc.name; // optimization
                                         }}
                                         className="p-4 bg-white/10 border border-white/20 rounded-xl text-white font-bold hover:bg-blue-500/30 hover:border-blue-400 transition-all flex items-center gap-3"
                                     >
