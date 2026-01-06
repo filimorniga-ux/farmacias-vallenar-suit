@@ -174,8 +174,11 @@ interface PharmaState {
     // Queue
     tickets: QueueTicket[];
     currentTicket: QueueTicket | null;
+    lastQueueActionTimestamp: number;
+    setCurrentTicket: (ticket: QueueTicket | null) => void;
     generateTicket: (rut?: string, branch_id?: string, type?: string) => Promise<QueueTicket>;
     callNextTicket: (counterId: string) => Promise<QueueTicket | null>;
+    completeAndNextTicket: (counterId: string, currentTicketId: string) => Promise<{ nextTicket: QueueTicket | null, completedTicket: QueueTicket | null }>;
     refreshQueueStatus: () => Promise<void>;
     addTicketToQueue: (ticket: QueueTicket) => void; // Sync helper
 
@@ -423,7 +426,13 @@ export const usePharmaStore = create<PharmaState>()(
                             }
                             return result;
                         }),
-                        TigerDataService.fetchSalesHistory(), // Fetch real sales
+                        // Param 4: Session ID helps ensure we load sales for the active shift even if cross-day
+                        TigerDataService.fetchSalesHistory(
+                            currentStoreState.currentLocationId,
+                            undefined,
+                            undefined,
+                            currentStoreState.currentShift?.id // ✅ Pass Session ID
+                        ),
                         import('../../actions/sync-v2').then(m => m.fetchSuppliersSecure()), // Fetch real suppliers
                         TigerDataService.fetchCashMovements(), // Fetch real cash movements
                         TigerDataService.fetchCustomers(), // Fetch real customers
@@ -929,6 +938,7 @@ export const usePharmaStore = create<PharmaState>()(
                     // 1. Create sale transaction object
                     const saleTransaction: SaleTransaction = {
                         id: `SALE - ${Date.now()} -${Math.floor(Math.random() * 1000)} `,
+                        status: 'COMPLETED',
                         timestamp: Date.now(),
                         items: state.cart.map(item => ({
                             batch_id: item.batch_id || item.id, // CartItem uses 'id' as batch reference
@@ -1156,6 +1166,7 @@ export const usePharmaStore = create<PharmaState>()(
                         unitPrice: item.price,
                         discount: 0
                     })),
+                    locationId: state.currentLocationId,
                     validDays: 7
                 });
 
@@ -1512,8 +1523,13 @@ export const usePharmaStore = create<PharmaState>()(
                 const initialFund = state.currentShift.opening_amount;
 
                 const shiftMovements = state.cashMovements.filter(m => m.shift_id === state.currentShift!.id);
-                const totalOutflows = shiftMovements.filter(m => m.type === 'OUT' && m.is_cash).reduce((sum, m) => sum + m.amount, 0);
-                const totalInflows = shiftMovements.filter(m => m.type === 'IN' && m.is_cash).reduce((sum, m) => sum + m.amount, 0);
+                const totalOutflows = shiftMovements
+                    .filter(m => ['OUT', 'WITHDRAWAL', 'EXPENSE'].includes(m.type))
+                    .reduce((sum, m) => sum + m.amount, 0);
+
+                const totalInflows = shiftMovements
+                    .filter(m => ['IN', 'EXTRA_INCOME'].includes(m.type))
+                    .reduce((sum, m) => sum + m.amount, 0);
 
                 const expectedCash = initialFund + cashSales + totalInflows - totalOutflows;
 
@@ -1883,6 +1899,7 @@ export const usePharmaStore = create<PharmaState>()(
             // --- Queue ---
             tickets: [],
             currentTicket: null,
+            lastQueueActionTimestamp: 0,
             addTicketToQueue: (ticket: QueueTicket) => set((state) => ({
                 tickets: [...state.tickets, ticket]
             })),
@@ -1924,7 +1941,10 @@ export const usePharmaStore = create<PharmaState>()(
                 const { getNextTicketSecure } = await import('../../actions/queue-v2');
                 const branchId = state.currentLocationId || 'SUC-CENTRO';
 
-                const result = await getNextTicketSecure(branchId, counterId);
+                // Optimistic timestamp update
+                set({ lastQueueActionTimestamp: Date.now() });
+
+                const result = await getNextTicketSecure(branchId, state.user?.id || '', counterId);
 
                 if (result.success && result.ticket) {
                     const dbTicket = result.ticket;
@@ -1940,6 +1960,7 @@ export const usePharmaStore = create<PharmaState>()(
 
                     set((state) => ({
                         currentTicket: ticket,
+                        lastQueueActionTimestamp: Date.now(),
                         // Update in tickets list if it exists there
                         tickets: state.tickets.map(t => t.id === ticket.id ? ticket : t)
                     }));
@@ -1948,6 +1969,45 @@ export const usePharmaStore = create<PharmaState>()(
                     return null;
                 }
             },
+            completeAndNextTicket: async (counterId: string, currentTicketId: string) => {
+                const state = get();
+                // Optimistic timestamp update
+                set({ lastQueueActionTimestamp: Date.now() });
+
+                const { completeAndGetNextSecure } = await import('../../actions/queue-v2');
+                const branchId = state.currentLocationId || 'SUC-CENTRO';
+
+                const result = await completeAndGetNextSecure(currentTicketId, branchId, state.user?.id || '', counterId);
+
+                if (result.success) {
+                    let nextTicket: QueueTicket | null = null;
+                    if (result.nextTicket) {
+                        const dbTicket = result.nextTicket;
+                        nextTicket = {
+                            id: dbTicket.id,
+                            number: dbTicket.code,
+                            status: 'CALLED',
+                            rut: dbTicket.rut || 'ANON',
+                            timestamp: new Date(dbTicket.created_at).getTime(),
+                            branch_id: dbTicket.branch_id,
+                            counter: counterId
+                        };
+                    }
+
+                    // Update State
+                    set((state) => ({
+                        currentTicket: nextTicket,
+                        lastQueueActionTimestamp: Date.now(),
+                    }));
+
+                    // Force refresh status to keep lists in sync (but refreshQueueStatus will respect timestamp for currentTicket)
+                    state.refreshQueueStatus();
+
+                    return { nextTicket, completedTicket: result.completedTicket };
+                }
+                return { nextTicket: null, completedTicket: null };
+            },
+            setCurrentTicket: (ticket: QueueTicket | null) => set({ currentTicket: ticket, lastQueueActionTimestamp: Date.now() }),
             refreshQueueStatus: async () => {
                 const state = get();
                 const { getQueueStatusSecure } = await import('../../actions/queue-v2');
@@ -1956,7 +2016,7 @@ export const usePharmaStore = create<PharmaState>()(
                 const result = await getQueueStatusSecure(state.currentLocationId);
                 if (result.success && result.data) {
                     // Map DB tickets to store tickets
-                    const allTickets = Array.isArray(result.data) ? result.data : result.data.tickets || [];
+                    const allTickets = Array.isArray(result.data) ? result.data : result.data.waitingTickets || [];
                     const mappedTickets: QueueTicket[] = allTickets.map((t: any) => ({
                         id: t.id,
                         number: t.code,
@@ -1965,7 +2025,51 @@ export const usePharmaStore = create<PharmaState>()(
                         timestamp: new Date(t.created_at).getTime(),
                         branch_id: t.branch_id
                     }));
-                    set({ tickets: mappedTickets });
+
+                    // Handle Current Ticket Sync
+                    const calledTickets = result.data.calledTickets || [];
+                    const myTicket = calledTickets.find((t: any) =>
+                        (state.currentTerminalId && t.terminal_id === state.currentTerminalId) ||
+                        (state.user?.id && t.called_by === state.user.id)
+                    );
+
+                    set((prevState) => {
+                        const changes: Partial<PharmaState> = { tickets: mappedTickets };
+
+                        // Only update currentTicket if no recent local action (> 3000ms)
+                        if (Date.now() - prevState.lastQueueActionTimestamp > 3000) {
+                            if (myTicket) {
+                                // Found my ticket!
+                                changes.currentTicket = {
+                                    id: myTicket.id,
+                                    number: myTicket.code,
+                                    status: 'CALLED',
+                                    rut: myTicket.rut || 'ANON',
+                                    timestamp: new Date(myTicket.created_at).getTime(),
+                                    branch_id: myTicket.branch_id,
+                                    counter: myTicket.terminal_name
+                                };
+                            } else {
+                                // 🔍 DEBUG: Why did we lose the ticket?
+                                if (prevState.currentTicket) {
+                                    console.warn('⚠️ [Store] Lost currentTicket during sync!', {
+                                        currentTicketId: prevState.currentTicket.id,
+                                        availableCalled: calledTickets.map((t: any) => ({
+                                            id: t.id,
+                                            code: t.code,
+                                            called_by: t.called_by,
+                                            terminal_id: t.terminal_id
+                                        })),
+                                        myUser: state.user?.id,
+                                        myTerminal: state.currentTerminalId
+                                    });
+                                }
+                                changes.currentTicket = null;
+                            }
+                        }
+
+                        return changes;
+                    });
                 }
             },
 

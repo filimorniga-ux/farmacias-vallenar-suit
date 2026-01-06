@@ -250,6 +250,7 @@ export interface SaleItem {
 export interface SaleTransaction {
     id: string;
     timestamp: number;
+    status: 'COMPLETED' | 'VOIDED' | 'PARTIALLY_REFUNDED' | 'FULLY_REFUNDED';
     items: SaleItem[];
     total: number;
     payment_method: 'CASH' | 'DEBIT' | 'CREDIT' | 'TRANSFER';
@@ -497,6 +498,7 @@ export interface QueueTicket {
     status: 'WAITING' | 'CALLED' | 'COMPLETED' | 'SKIPPED';
     counter?: string; // Box 1
     branch_id: string; // Sucursal
+    type?: 'GENERAL' | 'PREFERENTIAL';
 }
 
 // --- AI y Compliance ---

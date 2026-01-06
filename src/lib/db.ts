@@ -29,15 +29,24 @@ const connectionConfig = {
 // Singleton Pattern corrected for Next.js Fast Refresh
 export let pool: Pool;
 
+// Configurar Timezone Global
+const setLocalTimezone = (client: any) => {
+    client.query("SET TIME ZONE 'America/Santiago'")
+        .catch((err: any) => console.error('❌ Error setting timezone to Chile:', err.message));
+};
+
 if (isProduction) {
     console.log('🔌 [DB] Creating Production Pool...');
     pool = new Pool(connectionConfig);
-    
+
+    // Configurar Timezone al conectar
+    pool.on('connect', setLocalTimezone);
+
     // Error handler para producción
     pool.on('error', (err) => {
         console.error('🔥 [DB] Unexpected pool error in production:', err.message);
     });
-    
+
     // Test inicial de conexión en producción
     pool.connect()
         .then(client => {
@@ -52,6 +61,9 @@ if (isProduction) {
         console.log('🔌 Initializing PostgreSQL Pool (Dev)...');
         try {
             global.postgresPool = new Pool(connectionConfig);
+
+            // Configurar Timezone al conectar
+            global.postgresPool.on('connect', setLocalTimezone);
 
             // Test connection immediately
             global.postgresPool.on('error', (err) => {

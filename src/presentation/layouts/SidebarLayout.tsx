@@ -200,10 +200,20 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                 </header>
 
                 {/* Desktop Header with Location Selector */}
-                <header className="hidden lg:flex bg-white/80 backdrop-blur-md px-8 py-4 border-b border-slate-100 justify-end items-center z-40 gap-4">
-                    <ContextBadge />
-                    <NotificationBell userRole={user?.role || 'ALL'} />
-                    <LocationSwitcher />
+                {/* Desktop Header with Location Selector */}
+                <header className="hidden lg:flex bg-white/80 backdrop-blur-md px-8 py-4 border-b border-slate-100 justify-between items-center z-40 gap-4">
+                    {/* Portal Targets for Page-Specific Content (e.g. POS Search) */}
+                    <div className="flex-1 flex items-center gap-4 min-w-0 mr-4">
+                        <div id="header-search-portal" className="flex-1 max-w-xl" />
+                        <div id="header-actions-portal" className="flex items-center gap-2" />
+                    </div>
+
+                    {/* Global Header Items */}
+                    <div className="flex items-center gap-4">
+                        <ContextBadge />
+                        <NotificationBell userRole={user?.role || 'ALL'} />
+                        <LocationSwitcher />
+                    </div>
                 </header>
 
                 <div className="flex-1 overflow-auto p-2">

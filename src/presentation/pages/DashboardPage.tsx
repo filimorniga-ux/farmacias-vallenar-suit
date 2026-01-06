@@ -15,7 +15,7 @@ import SystemIncidentsBanner from '../components/dashboard/SystemIncidentsBanner
 const DashboardPage: React.FC = () => {
     const navigate = useNavigate();
     const { login, user, employees, salesHistory, expenses, inventory, attendanceLogs, syncData } = usePharmaStore();
-    const { currentLocation, locations, switchLocation, canSwitchLocation } = useLocationStore();
+    const { currentLocation, locations, switchLocation, canSwitchLocation, fetchLocations } = useLocationStore();
 
     const [pin, setPin] = useState('');
     const [error, setError] = useState('');
@@ -25,11 +25,15 @@ const DashboardPage: React.FC = () => {
     const [step, setStep] = useState<'select' | 'pin'>('select');
     const [isRefreshing, setIsRefreshing] = useState(true); // Start true to prevent flicker
     const [isOnline, setIsOnline] = useState(true);
+    const [isLocationMenuOpen, setIsLocationMenuOpen] = useState(false);
 
     // --- AUTO-BACKUP & NETWORK MONITOR ---
     useEffect(() => {
         // 🚀 Cargar datos si no están cargados (lazy loading)
         syncData().catch(console.error);
+
+        // 🌍 Ensure Locations are loaded for the dropdown
+        fetchLocations().catch(console.error);
 
         autoBackupService.start();
         const updateOnlineStatus = () => setIsOnline(navigator.onLine);
@@ -268,27 +272,50 @@ const DashboardPage: React.FC = () => {
 
                     <div className="flex items-center gap-3">
                         {/* Location Selector */}
-                        <div className="relative group">
-                            <button className="flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-sm font-bold text-slate-700 transition-colors">
+                        <div className="relative">
+                            <button
+                                onClick={() => setIsLocationMenuOpen(!isLocationMenuOpen)}
+                                className="flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-sm font-bold text-slate-700 transition-colors"
+                            >
                                 <MapPin size={16} className="text-cyan-600" />
                                 {currentLocation?.name || 'Seleccionar Sucursal'}
-                                <ChevronDown size={14} className="text-slate-400" />
+                                <ChevronDown size={14} className={`text-slate-400 transition-transform ${isLocationMenuOpen ? 'rotate-180' : ''}`} />
                             </button>
-                            {/* Dropdown (Simplified) */}
-                            {/* Dropdown (with padding bridge to prevent closing) */}
-                            <div className="absolute right-0 top-full pt-2 w-48 hidden group-hover:block z-50 animate-in fade-in slide-in-from-top-2">
-                                <div className="bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden">
-                                    {locations.map(loc => (
-                                        <button
-                                            key={loc.id}
-                                            onClick={() => handleLocationSwitch(loc.id)}
-                                            className={`w-full text-left px-4 py-3 text-sm font-medium hover:bg-slate-50 ${currentLocation?.id === loc.id ? 'text-cyan-600 bg-cyan-50' : 'text-slate-600'}`}
-                                        >
-                                            {loc.name}
-                                        </button>
-                                    ))}
+
+                            {/* Backdrop to close on click outside */}
+                            {isLocationMenuOpen && (
+                                <div
+                                    className="fixed inset-0 z-40 cursor-default"
+                                    onClick={() => setIsLocationMenuOpen(false)}
+                                ></div>
+                            )}
+
+                            {/* Dropdown */}
+                            {isLocationMenuOpen && (
+                                <div className="absolute right-0 top-full pt-2 w-56 z-50 animate-in fade-in slide-in-from-top-2">
+                                    <div className="bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden py-1 max-h-96 overflow-y-auto">
+                                        {locations && locations.length > 0 ? (
+                                            locations.map(loc => (
+                                                <button
+                                                    key={loc.id}
+                                                    onClick={() => {
+                                                        handleLocationSwitch(loc.id);
+                                                        setIsLocationMenuOpen(false);
+                                                    }}
+                                                    className={`w-full text-left px-4 py-3 text-sm font-medium hover:bg-slate-50 flex items-center justify-between ${currentLocation?.id === loc.id ? 'text-cyan-600 bg-cyan-50' : 'text-slate-600'}`}
+                                                >
+                                                    <span className="truncate mr-2">{loc.name}</span>
+                                                    {currentLocation?.id === loc.id && <div className="w-2 h-2 rounded-full bg-cyan-600"></div>}
+                                                </button>
+                                            ))
+                                        ) : (
+                                            <div className="px-4 py-3 text-xs text-slate-400 text-center">
+                                                Cargando sucursales...
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
+                            )}
                         </div>
 
                         <button onClick={handleRefresh} className={`p-2 rounded-full hover:bg-slate-100 transition-colors ${isRefreshing ? 'animate-spin text-cyan-600' : 'text-slate-400'}`}>

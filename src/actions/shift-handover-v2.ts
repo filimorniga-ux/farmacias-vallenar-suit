@@ -216,6 +216,10 @@ export interface HandoverSummary {
     amountToWithdraw: number;
     amountToKeep: number;
     cashSales: number;
+    cardSales: number;
+    transferSales: number;
+    otherSales: number;
+    totalSales: number;
     cashIn: number;
     cashOut: number;
     openingAmount: number;
@@ -257,18 +261,32 @@ export async function calculateHandoverSecure(
         const session = sessionRes.rows[0];
         const openingAmount = Number(session.opening_amount || 0);
 
-        // 3. Calcular ventas en efectivo
+        // 3. Calcular ventas por método de pago
         const salesRes = await query(`
-            SELECT COALESCE(SUM(total), 0) as total
+            SELECT 
+                payment_method,
+                COALESCE(SUM(COALESCE(total_amount, total)), 0) as total
             FROM sales 
             WHERE 
                 terminal_id = $1::uuid 
-                AND payment_method = 'CASH'
+                AND session_id = $2::uuid
                 AND status != 'VOIDED'
-                AND timestamp >= $2
-        `, [terminalId, session.opened_at]);
+            GROUP BY payment_method
+        `, [terminalId, session.id]);
 
-        const cashSales = Number(salesRes.rows[0]?.total || 0);
+        let cashSales = 0, cardSales = 0, transferSales = 0, otherSales = 0;
+
+        for (const row of salesRes.rows) {
+            const amount = Number(row.total);
+            const pm = row.payment_method;
+
+            if (pm === 'CASH') cashSales = amount;
+            else if (['CARD', 'CREDIT', 'DEBIT'].includes(pm)) cardSales += amount;
+            else if (pm === 'TRANSFER') transferSales = amount;
+            else otherSales += amount;
+        }
+
+        const totalSales = cashSales + cardSales + transferSales + otherSales;
 
         // 4. Calcular movimientos de caja
         const movementsRes = await query(`
@@ -278,7 +296,6 @@ export async function calculateHandoverSecure(
             FROM cash_movements
             WHERE 
                 session_id = $1::uuid
-                AND is_cash = true
                 AND type NOT IN ('APERTURA', 'OPENING')
         `, [session.id]);
 
@@ -310,6 +327,10 @@ export async function calculateHandoverSecure(
                 amountToWithdraw,
                 amountToKeep,
                 cashSales,
+                cardSales,
+                transferSales,
+                otherSales,
+                totalSales,
                 cashIn,
                 cashOut,
                 openingAmount
@@ -433,10 +454,9 @@ export async function executeHandoverSecure(params: {
             UPDATE cash_register_sessions 
             SET closed_at = NOW(), 
                 status = 'CLOSED',
-                closing_amount = $2,
-                closed_by = $3::uuid
+                closing_amount = $2
             WHERE id = $1::uuid
-        `, [currentShift.id, declaredCash, userId]);
+        `, [currentShift.id, declaredCash]);
 
         // 7. Actualizar terminal
         await client.query(`
@@ -597,10 +617,9 @@ export async function quickHandoverSecure(params: {
             UPDATE cash_register_sessions 
             SET closed_at = NOW(), 
                 status = 'CLOSED',
-                closing_amount = $2,
-                closed_by = $3::uuid
+                closing_amount = $2
             WHERE id = $1::uuid
-        `, [currentShift.id, declaredCash, outgoingUserId]);
+        `, [currentShift.id, declaredCash]);
 
         // 7. Crear nueva sesión para cajero entrante
         const newSessionId = uuidv4();

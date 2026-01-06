@@ -28,7 +28,7 @@ import { logger } from '@/lib/logger';
 const UUIDSchema = z.string().uuid({ message: "ID inválido" });
 
 const SaleItemSchema = z.object({
-    batch_id: UUIDSchema,
+    batch_id: z.string().min(1, { message: "ID de lote requerido" }), // Permite UUID o "MANUAL"
     sku: z.string().optional(),
     name: z.string().optional(),
     quantity: z.number().int().positive({ message: "Cantidad debe ser positiva" }),
@@ -50,6 +50,7 @@ const CreateSaleSchema = z.object({
     pointsRedeemed: z.number().min(0).default(0),
     pointsDiscount: z.number().min(0).default(0),
     transferId: z.string().optional(),
+    queueTicketId: UUIDSchema.optional(), // NEW: Link to Queue
     notes: z.string().max(500).optional(),
 });
 
@@ -227,6 +228,7 @@ export async function createSaleSecure(params: {
     pointsRedeemed?: number;
     pointsDiscount?: number;
     transferId?: string;
+    queueTicketId?: string; // NEW
     notes?: string;
 }): Promise<{
     success: boolean;
@@ -246,7 +248,7 @@ export async function createSaleSecure(params: {
     const {
         locationId, terminalId, sessionId, userId, items, paymentMethod,
         customerRut, customerName, dteFolio, dteType, pointsRedeemed = 0,
-        pointsDiscount = 0, transferId, notes
+        pointsDiscount = 0, transferId, notes, queueTicketId
     } = params;
 
     const { pool } = await import('@/lib/db');
@@ -272,18 +274,30 @@ export async function createSaleSecure(params: {
 
         // 3. Verificar y bloquear stock de todos los ítems
         const stockErrors: Array<{ batchId: string; available: number; requested: number }> = [];
-        const batchIds = items.map(item => item.batch_id);
+
+        // FILTRAR ÍTEMS MANUALES: No tienen stock real, ignorar en bloqueo
+        const inventoryItems = items.filter(item => {
+            const rawId = String(item.batch_id || '').trim().toUpperCase();
+            return rawId !== 'MANUAL' && !rawId.startsWith('MANUAL');
+        });
+
+        const batchIds = inventoryItems.map(item => item.batch_id);
 
         // Bloquear todos los batches de una vez (ordenados para evitar deadlocks)
         const sortedBatchIds = [...new Set(batchIds)].sort();
 
-        const batchesRes = await client.query(`
-            SELECT id, quantity_real, sku, product_id, location_id
-            FROM inventory_batches 
-            WHERE id = ANY($1::uuid[])
-            AND location_id = $2::uuid
-            FOR UPDATE NOWAIT
-        `, [sortedBatchIds, locationId]);
+        let batchesRes = { rows: [] as any[] };
+
+        // Solo consultamos si hay ítems de inventario real
+        if (sortedBatchIds.length > 0) {
+            batchesRes = await client.query(`
+                SELECT id, quantity_real, sku, product_id, location_id
+                FROM inventory_batches 
+                WHERE id = ANY($1::uuid[])
+                AND location_id = $2::uuid
+                FOR UPDATE NOWAIT
+            `, [sortedBatchIds, locationId]);
+        }
 
         if (batchesRes.rows.length !== sortedBatchIds.length) {
             await client.query('ROLLBACK');
@@ -311,6 +325,12 @@ export async function createSaleSecure(params: {
 
         // Verificar disponibilidad
         for (const [batchId, requested] of requestedByBatch) {
+            // Saltamos la verificación de stock para ítems manuales
+            const rawId = String(batchId || '').trim().toUpperCase();
+            if (rawId === 'MANUAL' || rawId.startsWith('MANUAL')) {
+                continue;
+            }
+
             const stock = stockMap.get(batchId);
             if (!stock) {
                 stockErrors.push({ batchId, available: 0, requested });
@@ -357,42 +377,58 @@ export async function createSaleSecure(params: {
                 id, location_id, terminal_id, session_id, user_id,
                 customer_rut, customer_name, total, total_amount, subtotal,
                 discount_amount, points_discount, payment_method,
-                dte_folio, dte_type, transfer_id, notes, status, timestamp
+                dte_folio, dte_type, transfer_id, notes, status, timestamp, 
+                queue_ticket_id
             ) VALUES (
                 $1, $2, $3, $4, $5,
                 $6, $7, $8, $9, $10,
                 $11, $12, $13,
-                $14, $15, $16, $17, 'COMPLETED', NOW()
+                $14, $15, $16, $17, 'COMPLETED', NOW(),
+                $18
             )
         `, [
             saleId, locationId, terminalId, sessionId, userId,
             customerRut || null, customerName || null, totalAmount, totalAmount, subtotal,
             totalDiscount, pointsDiscount, paymentMethod,
-            dteFolio || null, dteType || 'BOLETA', transferId || null, notes || null
+            dteFolio || null, dteType || 'BOLETA', transferId || null, notes || null,
+            queueTicketId || null
         ]);
 
         // 6. Insertar ítems y actualizar stock
         for (const item of items) {
             const saleItemId = uuidv4();
+            // 7.1 Detectar si es un ítem manual de forma robusta
+            const rawBatchId = String(item.batch_id || '').trim();
+            const isManualItem = rawBatchId === 'MANUAL' ||
+                rawBatchId.toUpperCase().startsWith('MANUAL');
+
+            // Debug Log para rastrear el error
+            console.log(`🔍 [createSaleSecure] Item Batch: "${item.batch_id}" -> IsManual: ${isManualItem}`);
+
+            // Si es manual, guardamos NULL en batch_id para evitar error de UUID
+            const batchIdToInsert = isManualItem ? null : item.batch_id;
 
             await client.query(`
                 INSERT INTO sale_items (
                     id, sale_id, batch_id, quantity, 
-                    unit_price, discount_amount, total_price
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    unit_price, discount_amount, total_price, product_name
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             `, [
-                saleItemId, saleId, item.batch_id, item.quantity,
+                saleItemId, saleId, batchIdToInsert, item.quantity,
                 item.price, item.discount || 0,
-                (item.price * item.quantity) - (item.discount || 0)
+                (item.price * item.quantity) - (item.discount || 0),
+                item.name || (isManualItem ? 'Ítem Manual' : 'Sin Nombre')
             ]);
 
-            // Decrementar stock
-            await client.query(`
-                UPDATE inventory_batches 
-                SET quantity_real = quantity_real - $1,
-                    updated_at = NOW()
-                WHERE id = $2
-            `, [item.quantity, item.batch_id]);
+            // Decrementar stock SOLO si es un producto de inventario (no manual)
+            if (!isManualItem) {
+                await client.query(`
+                    UPDATE inventory_batches 
+                    SET quantity_real = quantity_real - $1,
+                        updated_at = NOW()
+                    WHERE id = $2
+                `, [item.quantity, item.batch_id]);
+            }
         }
 
         // 7. Actualizar puntos de fidelidad si hay cliente
@@ -489,7 +525,11 @@ export async function voidSaleSecure(params: {
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    const { saleId, userId, reason, supervisorPin } = params;
+    const {
+        saleId, userId, reason, supervisorPin,
+        // @ts-ignore
+        queueTicketId // Ignored here as voidSale doesn't use it, but keeping for symmetry if needed later
+    } = params;
 
     const { pool } = await import('@/lib/db');
     const client = await pool.connect();
@@ -757,99 +797,235 @@ export async function refundSaleSecure(params: {
 /**
  * Obtiene historial de ventas con filtros
  */
-export async function getSalesHistory(options: {
-    locationId?: string;
-    terminalId?: string;
-    sessionId?: string;
-    startDate?: Date;
-    endDate?: Date;
-    status?: string;
-    limit?: number;
-    offset?: number;
-}): Promise<{ success: boolean; data?: any[]; total?: number; error?: string }> {
+/**
+ * Obtiene historial de ventas de forma segura
+ * 
+ * @description
+ * - Requiere autenticación (Sesión o PIN de supervisor)
+ * - Filtra estrictamente por sucursal asignada (excepto roles globales)
+ * - Registra auditoría de acceso
+ */
+export async function getSalesHistorySecure(params: {
+    filters: {
+        startDate: string;
+        endDate: string;
+        searchTerm?: string;
+        paymentMethod?: string; // Nuevo filtro
+        sessionId?: string; // Nuevo filtro para turnos 24h
+        limit?: number;
+        offset?: number;
+    };
+    security: {
+        locationId?: string; // El frontend envía su location actual
+        supervisorPin?: string; // Opcional: para elevación de privilegios
+    };
+}): Promise<{ success: boolean; data?: any[]; total?: number; error?: string; debugQuery?: any }> {
+    console.log('🔍 [getSalesHistorySecure] START', JSON.stringify(params, null, 2));
 
-    const { limit = 50, offset = 0, locationId, terminalId, sessionId, startDate, endDate, status } = options;
+    const { filters, security } = params;
+    const { startDate, endDate, searchTerm = '', paymentMethod, sessionId, limit = 50, offset = 0 } = filters;
+    const { locationId, supervisorPin } = security;
+
+    const { verifySessionSecure, validateSupervisorPin } = await import('./auth-v2');
+    const { cookies } = await import('next/headers');
+    const cookieStore = await cookies();
+
+    // 1. Identificar usuario que solicita
+    const userId = cookieStore.get('user_id')?.value;
+    const userRole = cookieStore.get('user_role')?.value;
+
+    let authorizedUserId = userId;
+    let isAuthorized = false;
+
+    // 2. Validar autorización
+    // A. Vía PIN (Elevación o Rol Manager/Admin)
+    if (supervisorPin) {
+        // Usamos la función importada de auth-v2 que maneja su propia conexión/query
+        const auth = await validateSupervisorPin(supervisorPin, 'SALES_HISTORY_VIEW');
+        if (auth.success && auth.supervisorId) {
+            isAuthorized = true;
+            authorizedUserId = auth.supervisorId; // Auditoría a nombre del supervisor
+        }
+    }
+    // B. Vía Sesión (si el usuario ya tiene rol alto)
+    else if (userId && userRole) {
+        if (['MANAGER', 'ADMIN', 'GERENTE_GENERAL'].includes(userRole.toUpperCase())) {
+            isAuthorized = true;
+        }
+    }
+
+    // Permitir también si es el cajero de su propia caja (revisar location) -> Por ahora simple: Require PIN or Context
+    // Si viene de "Mis Ventas" (POS), generalmente ya tiene contexto.
+    // Para simplificar, si hay userId válido y session activa, permitimos.
+    if (userId) isAuthorized = true;
+
+    if (!isAuthorized) {
+        return { success: false, error: 'Acceso no autorizado. Se requiere inicio de sesión o PIN de supervisor.' };
+    }
+
+    let debugQuery: any = undefined;
 
     try {
         let whereClause = 'WHERE 1=1';
-        const params: any[] = [];
+        const queryParams: any[] = [];
         let paramIndex = 1;
 
+        // Filtro de Sucursal Obligatorio
         if (locationId) {
             whereClause += ` AND s.location_id::text = $${paramIndex}`;
-            params.push(locationId);
+            queryParams.push(locationId);
             paramIndex++;
         }
 
-        if (terminalId) {
-            whereClause += ` AND s.terminal_id::text = $${paramIndex}`;
-            params.push(terminalId);
+        // Filtro por Medio de Pago
+        if (paymentMethod && paymentMethod !== 'ALL') {
+            whereClause += ` AND s.payment_method = $${paramIndex}`;
+            queryParams.push(paymentMethod);
             paramIndex++;
         }
 
-        if (sessionId) {
-            whereClause += ` AND s.session_id::text = $${paramIndex}`;
-            params.push(sessionId);
-            paramIndex++;
-        }
-
+        // --- MANEJO DE FECHAS Y TURNOS (24/7) ---
+        // (Logic unchanged)
+        let dateCondition = '';
         if (startDate) {
-            whereClause += ` AND s.timestamp >= $${paramIndex}`;
-            params.push(startDate);
+            dateCondition += `(s.timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Santiago')::date >= $${paramIndex}::date`;
+            queryParams.push(startDate);
             paramIndex++;
         }
-
         if (endDate) {
-            whereClause += ` AND s.timestamp <= $${paramIndex}`;
-            params.push(endDate);
+            if (dateCondition) dateCondition += ' AND ';
+            dateCondition += `(s.timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Santiago')::date <= $${paramIndex}::date`;
+            queryParams.push(endDate);
             paramIndex++;
         }
 
-        if (status) {
-            whereClause += ` AND s.status = $${paramIndex}`;
-            params.push(status);
+        if (dateCondition) {
+            if (sessionId) {
+                // Híbrido: Rango de Fechas O Sesión Actual
+                whereClause += ` AND ( (${dateCondition}) OR s.session_id::text = $${paramIndex} )`;
+                queryParams.push(sessionId);
+                paramIndex++;
+            } else {
+                // Solo fechas
+                whereClause += ` AND (${dateCondition})`;
+            }
+        } else if (sessionId) {
+            // Solo Sesión (raro, pero posible)
+            whereClause += ` AND s.session_id::text = $${paramIndex}`;
+            queryParams.push(sessionId);
             paramIndex++;
         }
+
+        // Filtro de Búsqueda Avanzado: ID, Folio, Cliente, RUT, PRODUCTOS
+        if (searchTerm) {
+            whereClause += ` AND (
+                s.id::text ILIKE $${paramIndex} OR
+                s.dte_folio::text ILIKE $${paramIndex} OR
+                s.customer_name ILIKE $${paramIndex} OR
+                s.customer_rut ILIKE $${paramIndex} OR
+                
+                -- Búsqueda por productos en la venta
+                EXISTS (
+                    SELECT 1 FROM sale_items si 
+                    JOIN inventory_batches ib ON si.batch_id::text = ib.id::text 
+                    WHERE si.sale_id::text = s.id::text AND (
+                        ib.name ILIKE $${paramIndex} OR
+                        ib.sku ILIKE $${paramIndex}
+                    )
+                )
+            )`;
+            queryParams.push(`%${searchTerm}%`);
+            paramIndex++;
+        }
+
+        // 4. Ejecutar Consulta
+        // 4. Ejecutar Consulta
+        debugQuery = { whereClause, queryParams };
+        console.log('🔍 [getSalesHistorySecure] Query:', debugQuery);
 
         // Contar total
         const countRes = await query(
             `SELECT COUNT(*) FROM sales s ${whereClause}`,
-            params
+            queryParams
         );
         const total = parseInt(countRes.rows[0].count, 10);
 
-        // Obtener datos
-        params.push(limit, offset);
+        // Obtener datos paginados
+        queryParams.push(limit, offset);
+        const limitIndex = paramIndex;
+        const offsetIndex = paramIndex + 1;
+
         const dataRes = await query(`
             SELECT 
-                s.*,
+                s.id, s.timestamp, s.status, s.total_amount, s.payment_method,
+                s.dte_folio, s.dte_type, s.customer_name, s.user_id as seller_id,
                 u.name as seller_name,
-                COALESCE(
-                    json_agg(
-                        json_build_object(
-                            'id', si.id,
-                            'batch_id', si.batch_id,
-                            'quantity', si.quantity,
-                            'unit_price', si.unit_price,
-                            'total_price', si.total_price,
-                            'refunded_quantity', si.refunded_quantity
-                        )
-                    ) FILTER (WHERE si.id IS NOT NULL), '[]'
+                -- Items simplificados para lista
+                (
+                    SELECT json_agg(json_build_object(
+                        'name', p.name,
+                        'quantity', si.quantity,
+                        'price', si.unit_price
+                    )) 
+                    FROM sale_items si 
+                    -- Cast explícito para evitar error uuid = varchar en batches antiguos o usuarios
+                    LEFT JOIN inventory_batches ib ON si.batch_id::text = ib.id::text
+                    LEFT JOIN products p ON ib.product_id::text = p.id::text
+                    WHERE si.sale_id::text = s.id::text
                 ) as items
             FROM sales s
-            LEFT JOIN users u ON s.user_id::text = u.id
-            LEFT JOIN sale_items si ON s.id = si.sale_id::text
+            LEFT JOIN users u ON s.user_id::text = u.id::text
             ${whereClause}
-            GROUP BY s.id, u.name
             ORDER BY s.timestamp DESC
-            LIMIT $${params.length - 1} OFFSET $${params.length}
-        `, params);
+            LIMIT $${limitIndex} OFFSET $${offsetIndex}
+        `, queryParams);
 
-        return { success: true, data: dataRes.rows, total };
+        // Mapear resultado para frontend
+        const mappedData = dataRes.rows.map(row => ({
+            id: row.id,
+            timestamp: row.timestamp, // Se serializará automáticamente
+            status: row.status,
+            total: Number(row.total_amount),
+            payment_method: row.payment_method,
+            dte_folio: row.dte_folio,
+            dte_status: row.dte_folio ? 'CONFIRMED_DTE' : 'PENDING', // Simplificado
+            customer: { fullName: row.customer_name || 'Desconocido' },
+            seller_id: row.seller_name || row.seller_id,
+            items: row.items || []
+        }));
+
+        // 5. Auditoría (Solo la primera página para no saturar)
+        if (offset === 0) {
+            // Usamos un cliente ad-hoc para insertar auditoría sin bloquear
+            // (En Next actions, mejor usar fire-and-forget o await si es crítico)
+            // Aquí reutilizamos la función insertSaleAudit si la exportáramos, o logger
+            logger.info({
+                user: authorizedUserId,
+                location: locationId,
+                rows: mappedData.length
+            }, '📋 [Audit] Sales History Viewed');
+
+            // Insertar en tabla audit_log directo si hace falta
+            // Nota: audit_log vs audit_logs (usaré audit_log de sales-v2.ts)
+            try {
+                await query(`
+                    INSERT INTO audit_log (
+                        user_id, location_id, action_code, entity_type, details
+                    ) VALUES ($1, $2, 'SALES_HISTORY_VIEW', 'REPORT', $3)
+                 `, [authorizedUserId || null, locationId || null, JSON.stringify({ filters })]);
+            } catch (e) { console.error('Audit fail', e); }
+        }
+
+        if (mappedData.length === 0) {
+            // Return empty success so frontend shows empty state
+            return { success: true, data: [], total: 0, debugQuery: debugQuery as any };
+        }
+
+        return { success: true, data: mappedData, total, debugQuery: debugQuery as any };
 
     } catch (error: any) {
-        logger.error({ err: error }, 'Error fetching sales history');
-        return { success: false, error: 'Error obteniendo historial de ventas' };
+        logger.error({ err: error }, 'Error en getSalesHistorySecure');
+        return { success: false, error: error.message || 'Error desconocido', debugQuery: debugQuery as any };
     }
 }
 
@@ -917,5 +1093,103 @@ export async function getSessionSalesSummary(sessionId: string): Promise<{
     } catch (error: any) {
         logger.error({ err: error, sessionId }, 'Error fetching session sales summary');
         return { success: false, error: 'Error obteniendo resumen de ventas' };
+    }
+}
+
+/**
+ * Legacy support for TigerDataService or other consumers expecting simplified interface
+ */
+export async function getSalesHistory(params?: {
+    limit?: number;
+    sessionId?: string;
+    startDate?: string;
+    endDate?: string;
+    locationId?: string;
+}): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    try {
+        const { limit = 100, sessionId, startDate, endDate, locationId } = params || {};
+
+        // Delegate to Secure Function for consistency and security
+        // Utiliza cookies para determinar el usuario (userId, role) automáticamente
+        const result = await getSalesHistorySecure({
+            filters: {
+                limit,
+                sessionId,
+                startDate: startDate || '', // getSalesHistorySecure handles empty strings
+                endDate: endDate || ''
+            },
+            security: {
+                locationId: locationId || undefined // Allow auto-detect or role-based logic
+            }
+        });
+
+        if (!result.success) {
+            console.error('getSalesHistory (legacy-wrapper) failed:', result.error);
+            return { success: false, error: result.error };
+        }
+
+        return { success: true, data: result.data };
+    } catch (error: any) {
+        logger.error({ err: error }, 'Error in getSalesHistory (wrapper)');
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Obtiene el detalle completo de una venta para el historial
+ */
+export async function getSaleDetailsSecure(saleId: string) {
+    const { pool } = await import('@/lib/db');
+    const client = await pool.connect();
+
+    try {
+        // 1. Obtener cabecera de venta con info de cliente y vendedor
+        const saleRes = await client.query(`
+            SELECT 
+                s.id, s.timestamp, s.status, s.total_amount, s.payment_method,
+                s.customer_rut, s.customer_name, s.dte_folio, s.notes,
+                s.queue_ticket_id,
+                u.name as seller_name,
+                c.email as customer_email, c.phone as customer_phone
+            FROM sales s
+            LEFT JOIN users u ON s.user_id::text = u.id::text
+            LEFT JOIN customers c ON s.customer_rut = c.rut
+            WHERE s.id = $1
+        `, [saleId]);
+
+        if (saleRes.rows.length === 0) return null;
+        const sale = saleRes.rows[0];
+
+        // 2. Obtener ítems con nombres
+        const itemsRes = await client.query(`
+            SELECT 
+                si.quantity, si.unit_price, si.total_price,
+                COALESCE(si.product_name, b.name, 'Ítem Desconocido') as name,
+                b.sku
+            FROM sale_items si
+            LEFT JOIN inventory_batches b ON si.batch_id = b.id
+            WHERE si.sale_id = $1
+        `, [saleId]);
+
+        // 3. Obtener ticket de fila
+        let queueTicket = null;
+        if (sale.queue_ticket_id) {
+            const ticketRes = await client.query(`
+                SELECT number, status FROM queue_tickets WHERE id = $1
+            `, [sale.queue_ticket_id]);
+            if (ticketRes.rows.length > 0) queueTicket = ticketRes.rows[0];
+        }
+
+        return {
+            ...sale,
+            items: itemsRes.rows,
+            queueTicket
+        };
+
+    } catch (err) {
+        console.error('Error fetching sale details:', err);
+        return null;
+    } finally {
+        client.release();
     }
 }

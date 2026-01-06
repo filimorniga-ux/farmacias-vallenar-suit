@@ -26,8 +26,8 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
     const [isVerifying, setIsVerifying] = useState(false);
     const [verifyTime, setVerifyTime] = useState(0);
     const [retryCount, setRetryCount] = useState(0);
-    const { employees } = usePharmaStore();
-    
+    const { employees, user } = usePharmaStore();
+
     // Track verification time for slow network feedback
     useEffect(() => {
         let interval: NodeJS.Timeout;
@@ -55,7 +55,7 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
         try {
             // SECURITY FIX: Server-side validation with bcrypt + retry for network issues
             const result = await withServerActionRetry(
-                () => validateSupervisorPin(pin, actionDescription),
+                () => validateSupervisorPin(pin, actionDescription, user?.id),
                 {
                     maxAttempts: 3,
                     baseDelay: 500,
@@ -181,10 +181,10 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
                                             ) : (
                                                 <Loader2 size={18} className="animate-spin" />
                                             )}
-                                            {retryCount > 0 
+                                            {retryCount > 0
                                                 ? `Reintentando (${retryCount + 1}/3)...`
-                                                : verifyTime >= 3 
-                                                    ? 'Conectando...' 
+                                                : verifyTime >= 3
+                                                    ? 'Conectando...'
                                                     : 'Verificando...'
                                             }
                                         </>

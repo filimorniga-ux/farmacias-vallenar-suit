@@ -825,9 +825,10 @@ export async function createCashMovementSecure(params: {
 
         // 4. Verificar sesión activa
         const sessionRes = await client.query(`
-            SELECT id, terminal_id, user_id 
-            FROM cash_register_sessions 
-            WHERE id = $1 AND terminal_id = $2 AND closed_at IS NULL
+            SELECT s.id, s.terminal_id, s.user_id, t.location_id
+            FROM cash_register_sessions s
+            JOIN terminals t ON s.terminal_id = t.id
+            WHERE s.id = $1 AND s.terminal_id = $2 AND s.closed_at IS NULL
             FOR UPDATE NOWAIT
         `, [sessionId, terminalId]);
 
@@ -835,27 +836,29 @@ export async function createCashMovementSecure(params: {
             throw new Error('No hay sesión activa para este terminal');
         }
 
+        const activeSession = sessionRes.rows[0];
+
         // 5. Crear movimiento
         const movementId = uuidv4();
 
         await client.query(`
             INSERT INTO cash_movements (
                 id, location_id, terminal_id, session_id, user_id,
-                type, amount, reason, is_cash, timestamp, authorized_by
+                type, amount, reason, timestamp
             ) VALUES (
                 $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid,
-                $6, $7, $8, true, NOW(), $9::uuid
+                $6, $7, $8, NOW()
             )
         `, [
             movementId,
-            sessionId, // location_id holds session_id per legacy schema
+            activeSession.location_id, // Fixed: Use actual location_id from session
+
             terminalId,
             sessionId,
             userId,
             type,
             amount,
-            reason,
-            authorizedBy?.id || null
+            reason
         ]);
 
         // 6. Auditoría
@@ -879,6 +882,7 @@ export async function createCashMovementSecure(params: {
 
         logger.info({ movementId, type, amount }, '✅ [Treasury v2] Cash movement created');
         revalidatePath('/caja');
+        revalidatePath('/pos');
 
         return { success: true, movementId };
 

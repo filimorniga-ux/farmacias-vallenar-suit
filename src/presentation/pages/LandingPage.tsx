@@ -30,6 +30,10 @@ const LandingPage: React.FC = () => {
     const [isPinModalOpen, setIsPinModalOpen] = useState(false);
     const [securityPin, setSecurityPin] = useState('');
     const [pinError, setPinError] = useState(false);
+    const [pinTarget, setPinTarget] = useState<'PRICE_CHECKER' | 'QUEUE_DISPLAY' | null>(null);
+
+    // Queue Modal State
+    const [isQueueOptionsOpen, setIsQueueOptionsOpen] = useState(false);
 
     // 🚀 AUTO-REDIRECT: Si ya hay sesión, ir directo al dashboard
     useEffect(() => {
@@ -85,6 +89,24 @@ const LandingPage: React.FC = () => {
             setPin('');
         }
         setIsLoading(false);
+    };
+
+    const handlePinSuccess = () => {
+        setIsPinModalOpen(false);
+        setSecurityPin('');
+
+        if (pinTarget === 'PRICE_CHECKER') {
+            setIsPriceCheckOpen(true);
+        } else if (pinTarget === 'QUEUE_DISPLAY') {
+            // Auto-configure display for this location
+            if (context) {
+                localStorage.setItem('queue_display_location_id', context.id);
+                localStorage.setItem('queue_display_location_name', context.name);
+                // ⚠️ CRITICAL: Must use window.location to escape React Router SPA and hit Next.js App Router
+                window.location.href = '/display/queue';
+            }
+        }
+        setPinTarget(null);
     };
 
     // Initial Loading Check
@@ -179,21 +201,21 @@ const LandingPage: React.FC = () => {
                         </div>
                     </motion.div>
 
-                    {/* 3. Customer Queue Totem */}
+                    {/* 3. Customer Queue Totem & Display */}
                     <motion.div
                         whileHover={{ scale: 1.02, y: -5 }}
                         whileTap={{ scale: 0.98 }}
-                        onClick={() => navigate('/totem')}
+                        onClick={() => setIsQueueOptionsOpen(true)}
                         className="cursor-pointer bg-gradient-to-br from-purple-500 to-indigo-600 rounded-3xl p-8 relative overflow-hidden shadow-2xl shadow-purple-900/40 border border-white/10 group"
                     >
                         <div className="absolute top-0 right-0 p-4 opacity-10 bg-white blur-3xl w-32 h-32 rounded-full -mr-10 -mt-10" />
                         <div className="bg-white/20 w-16 h-16 rounded-2xl flex items-center justify-center backdrop-blur-sm mb-6 text-white group-hover:scale-110 transition-transform">
                             <Ticket size={40} />
                         </div>
-                        <h3 className="text-2xl font-bold text-white mb-2">Totem Filas</h3>
-                        <p className="text-purple-100/90 text-sm mb-6">Activar dispensador de números para atención a público.</p>
+                        <h3 className="text-2xl font-bold text-white mb-2">Fila / Turnos</h3>
+                        <p className="text-purple-100/90 text-sm mb-6">Totem de auto-atención y pantalla de anuncios.</p>
                         <div className="flex items-center text-xs font-bold text-white uppercase tracking-wider bg-white/20 px-4 py-2 rounded-lg w-fit backdrop-blur-md">
-                            Activar <ArrowRight size={14} className="ml-2" />
+                            Opciones <ArrowRight size={14} className="ml-2" />
                         </div>
                     </motion.div>
 
@@ -219,7 +241,10 @@ const LandingPage: React.FC = () => {
                     <motion.div
                         whileHover={{ scale: 1.02, y: -5 }}
                         whileTap={{ scale: 0.98 }}
-                        onClick={() => setIsPinModalOpen(true)}
+                        onClick={() => {
+                            setPinTarget('PRICE_CHECKER');
+                            setIsPinModalOpen(true);
+                        }}
                         className="cursor-pointer bg-gradient-to-br from-emerald-500 to-teal-600 rounded-3xl p-8 relative overflow-hidden shadow-2xl shadow-emerald-900/40 border border-white/10 group"
                     >
                         <div className="absolute top-0 right-0 p-4 opacity-10 bg-white blur-3xl w-32 h-32 rounded-full -mr-10 -mt-10" />
@@ -332,7 +357,65 @@ const LandingPage: React.FC = () => {
                     )}
                 </AnimatePresence>
 
-                {/* PIN Modal for Price Checker */}
+                {/* Queue Options Modal */}
+                <AnimatePresence>
+                    {isQueueOptionsOpen && (
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.95 }}
+                                className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md relative"
+                            >
+                                <button onClick={() => setIsQueueOptionsOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600">✕</button>
+
+                                <div className="text-center mb-6">
+                                    <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4 text-purple-600">
+                                        <Ticket size={32} />
+                                    </div>
+                                    <h2 className="text-2xl font-bold text-slate-900">Sistema de Filas</h2>
+                                    <p className="text-slate-500 text-sm">Selecciona una opción</p>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <button
+                                        onClick={() => navigate('/totem')}
+                                        className="w-full flex items-center p-4 rounded-2xl bg-slate-50 border border-slate-200 hover:border-purple-500 hover:bg-purple-50 transition-all group"
+                                    >
+                                        <div className="w-12 h-12 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center">
+                                            <Ticket size={24} />
+                                        </div>
+                                        <div className="ml-4 text-left">
+                                            <p className="font-bold text-slate-800">Abrir Totem</p>
+                                            <p className="text-xs text-slate-500">Para tablet de ingreso de público.</p>
+                                        </div>
+                                        <ArrowRight size={20} className="ml-auto text-slate-300 group-hover:text-purple-500" />
+                                    </button>
+
+                                    <button
+                                        onClick={() => {
+                                            setIsQueueOptionsOpen(false);
+                                            setPinTarget('QUEUE_DISPLAY');
+                                            setIsPinModalOpen(true);
+                                        }}
+                                        className="w-full flex items-center p-4 rounded-2xl bg-slate-50 border border-slate-200 hover:border-blue-500 hover:bg-blue-50 transition-all group"
+                                    >
+                                        <div className="w-12 h-12 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center">
+                                            <RefreshCw size={24} />
+                                        </div>
+                                        <div className="ml-4 text-left">
+                                            <p className="font-bold text-slate-800">Activar Pantalla</p>
+                                            <p className="text-xs text-slate-500">Para TV/Monitor de sala de espera.</p>
+                                        </div>
+                                        <ArrowRight size={20} className="ml-auto text-slate-300 group-hover:text-blue-500" />
+                                    </button>
+                                </div>
+                            </motion.div>
+                        </div>
+                    )}
+                </AnimatePresence>
+
+                {/* PIN Modal (Generalized) */}
                 <AnimatePresence>
                     {isPinModalOpen && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
@@ -347,6 +430,7 @@ const LandingPage: React.FC = () => {
                                         setIsPinModalOpen(false);
                                         setSecurityPin('');
                                         setPinError(false);
+                                        setPinTarget(null);
                                     }}
                                     className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors"
                                 >✕</button>
@@ -359,8 +443,8 @@ const LandingPage: React.FC = () => {
                                             <span className="text-2xl font-bold">*</span>
                                         </div>
                                     </div>
-                                    <h3 className="text-xl font-bold text-white">Seguridad</h3>
-                                    <p className="text-slate-400 text-sm">Ingrese PIN para acceder al modo Kiosco</p>
+                                    <h3 className="text-xl font-bold text-white">Seguridad Admin</h3>
+                                    <p className="text-slate-400 text-sm">Ingrese PIN administrativo para continuar</p>
                                 </div>
 
                                 <input
@@ -374,10 +458,8 @@ const LandingPage: React.FC = () => {
                                         const val = e.target.value.replace(/\D/g, '').slice(0, 4);
                                         setSecurityPin(val);
                                         setPinError(false);
-                                        if (val === '1213') {
-                                            setIsPinModalOpen(false);
-                                            setSecurityPin('');
-                                            setIsPriceCheckOpen(true);
+                                        if (val === '1213') { // Admin/Master PIN
+                                            handlePinSuccess();
                                         } else if (val.length === 4) {
                                             setPinError(true);
                                             setTimeout(() => setSecurityPin(''), 500);

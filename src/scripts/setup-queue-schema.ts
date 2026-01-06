@@ -48,7 +48,9 @@ async function migrateQueueSchema() {
         await query(`
             CREATE TABLE IF NOT EXISTS queue_tickets (
                 id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-                branch_id UUID NOT NULL, -- FK to locations handled logically or we can add CONSTRAINT
+                branch_id UUID NOT NULL, -- FK to locations
+                terminal_id UUID, -- Caja que atiende (nullable until called)
+                user_id UUID, -- Usuario que atiende
                 rut VARCHAR(20) NOT NULL,
                 type ticket_type NOT NULL DEFAULT 'GENERAL',
                 code VARCHAR(10) NOT NULL, -- "G001", "P005"
@@ -58,6 +60,10 @@ async function migrateQueueSchema() {
                 completed_at TIMESTAMP
             );
         `);
+
+        // Add columns if table existed but without them (Transition support)
+        await query(`ALTER TABLE queue_tickets ADD COLUMN IF NOT EXISTS terminal_id UUID;`);
+        await query(`ALTER TABLE queue_tickets ADD COLUMN IF NOT EXISTS user_id UUID;`);
 
         // Indices
         await query(`CREATE INDEX IF NOT EXISTS idx_queue_branch_status ON queue_tickets(branch_id, status);`);

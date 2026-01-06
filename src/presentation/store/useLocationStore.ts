@@ -40,13 +40,30 @@ export const useLocationStore = create<LocationState>()(
 
             fetchLocations: async () => {
                 try {
-                    const { getOrganizationStructureSecure } = await import('@/actions/network-v2');
-                    const res = await getOrganizationStructureSecure();
-                    if (res.success && res.data?.locations) {
-                        set({ locations: res.data.locations });
-                        // Also sync terminals if needed? Store mostly cares about locations logic for now
-                        // But wait, the stores 'locations' type has 'associated_kiosks' (ids).
-                        // The server action 'getOrganizationStructureSecure' correctly maps terminals to 'terminals' structure.
+                    const { usePharmaStore } = await import('./useStore'); // Import store to get user
+                    const user = usePharmaStore.getState().user;
+                    console.log('📍 [LocationStore] Fetching locations...', user ? `(User: ${user.id})` : '(Public Mode)');
+
+                    if (user) {
+                        // Secure Fetch (Full Org Structure)
+                        const { getOrganizationStructureSecure } = await import('@/actions/network-v2');
+                        const res = await getOrganizationStructureSecure(user.id);
+                        if (res.success && res.data?.locations) {
+                            set({ locations: res.data.locations });
+                            console.log('📍 [LocationStore] Secure locations updated:', res.data.locations.length);
+                        } else {
+                            console.error('📍 [LocationStore] Secure fetch failed:', res.error);
+                        }
+                    } else {
+                        // Public Fetch (Basic Locations for Context Selector)
+                        const { getPublicLocationsSecure } = await import('@/actions/public-network-v2');
+                        const res = await getPublicLocationsSecure();
+                        if (res.success && res.data) {
+                            set({ locations: res.data });
+                            console.log('📍 [LocationStore] Public locations updated:', res.data.length);
+                        } else {
+                            console.error('📍 [LocationStore] Public fetch failed:', res.error);
+                        }
                     }
                 } catch (error) {
                     console.error('Failed to sync locations', error);

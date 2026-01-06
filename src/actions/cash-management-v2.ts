@@ -42,9 +42,13 @@ const OpenCashDrawerSchema = z.object({
 const CloseCashDrawerSchema = z.object({
     terminalId: UUIDSchema,
     userId: UUIDSchema,
-    userPin: z.string().min(4, 'PIN requerido'),
+    userPin: z.string().min(4, 'PIN requerido').optional(),
+    managerPin: z.string().min(4, 'PIN de gerente requerido').optional(),
     declaredCash: z.number().min(0, 'Monto declarado debe ser positivo'),
     notes: z.string().max(500).optional(),
+}).refine(data => data.userPin || data.managerPin, {
+    message: "Debe ingresar PIN de usuario o PIN de gerente",
+    path: ["userPin"]
 });
 
 const RegisterCashCountSchema = z.object({
@@ -67,8 +71,10 @@ const CashHistorySchema = z.object({
     sessionId: UUIDSchema.optional(),
     startDate: z.date().optional(),
     endDate: z.date().optional(),
+    paymentMethod: z.string().optional(),
+    term: z.string().optional(),
     page: z.number().int().min(1).default(1),
-    pageSize: z.number().int().min(1).max(100).default(50),
+    pageSize: z.number().int().min(1).max(10000).default(50),
 });
 
 // ============================================================================
@@ -114,7 +120,7 @@ async function validateUserPin(
         const userRes = await client.query(`
             SELECT id, name, role, access_pin_hash, access_pin
             FROM users 
-            WHERE id = $1 AND is_active = true
+            WHERE id = $1::uuid AND is_active = true
         `, [userId]);
 
         if (userRes.rows.length === 0) {
@@ -253,7 +259,7 @@ export async function openCashDrawerSecure(
         const terminalRes = await client.query(`
             SELECT id, location_id, current_cashier_id, status
             FROM terminals 
-            WHERE id = $1
+            WHERE id = $1::uuid
             FOR UPDATE NOWAIT
         `, [terminalId]);
 
@@ -273,7 +279,7 @@ export async function openCashDrawerSecure(
         // Check for existing open session
         const existingSession = await client.query(`
             SELECT id FROM cash_register_sessions 
-            WHERE terminal_id = $1 AND closed_at IS NULL
+            WHERE terminal_id = $1::uuid AND closed_at IS NULL
         `, [terminalId]);
 
         if (existingSession.rows.length > 0) {
@@ -283,7 +289,7 @@ export async function openCashDrawerSecure(
 
         // Get user info
         const userRes = await client.query(
-            'SELECT id, name, role FROM users WHERE id = $1 AND is_active = true',
+            'SELECT id, name, role FROM users WHERE id = $1::uuid AND is_active = true',
             [userId]
         );
 
@@ -306,16 +312,16 @@ export async function openCashDrawerSecure(
         // Update terminal
         await client.query(`
             UPDATE terminals 
-            SET current_cashier_id = $2, status = 'OPEN', updated_at = NOW()
-            WHERE id = $1
+            SET current_cashier_id = $2::uuid, status = 'OPEN', updated_at = NOW()
+            WHERE id = $1::uuid
         `, [terminalId, userId]);
 
         // Record opening movement
         await client.query(`
             INSERT INTO cash_movements (
                 id, location_id, terminal_id, session_id, user_id,
-                type, amount, reason, is_cash, timestamp
-            ) VALUES ($1, $2, $3, $4, $5, 'OPENING', $6, 'Apertura de caja', true, NOW())
+                type, amount, reason, timestamp
+            ) VALUES ($1, $2, $3, $4, $5, 'OPENING', $6, 'Apertura de caja', NOW())
         `, [randomUUID(), sessionId, terminalId, sessionId, userId, openingAmount]);
 
         // Audit
@@ -376,24 +382,38 @@ export async function closeCashDrawerSecure(
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { terminalId, userId, userPin, declaredCash, notes } = validated.data;
+    const { terminalId, userId, userPin, managerPin, declaredCash, notes } = validated.data;
     const client = await pool.connect();
+    let closedBy = userId;
 
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-        // Validate user PIN
-        const pinResult = await validateUserPin(client, userId, userPin);
-        if (!pinResult.valid) {
+        // Validation Logic: User PIN OR Manager PIN
+        if (managerPin) {
+            const managerAuth = await validateManagerPin(client, managerPin);
+            if (!managerAuth.valid) {
+                await client.query('ROLLBACK');
+                return { success: false, error: managerAuth.error || 'PIN de gerente inválido' };
+            }
+            closedBy = managerAuth.manager?.id || userId;
+        } else if (userPin) {
+            const pinResult = await validateUserPin(client, userId, userPin);
+            if (!pinResult.valid) {
+                await client.query('ROLLBACK');
+                return { success: false, error: pinResult.error };
+            }
+        } else {
+            // Should be unreachable due to Zod refine
             await client.query('ROLLBACK');
-            return { success: false, error: pinResult.error };
+            return { success: false, error: 'PIN requerido' };
         }
 
         // Lock terminal
         const terminalRes = await client.query(`
             SELECT id, location_id, current_cashier_id
             FROM terminals 
-            WHERE id = $1
+            WHERE id = $1::uuid
             FOR UPDATE NOWAIT
         `, [terminalId]);
 
@@ -406,7 +426,7 @@ export async function closeCashDrawerSecure(
         const sessionRes = await client.query(`
             SELECT id, opening_amount, opened_at, user_id
             FROM cash_register_sessions 
-            WHERE terminal_id = $1 AND closed_at IS NULL
+            WHERE terminal_id = $1::uuid AND closed_at IS NULL
             FOR UPDATE NOWAIT
         `, [terminalId]);
 
@@ -422,7 +442,7 @@ export async function closeCashDrawerSecure(
         const salesRes = await client.query(`
             SELECT COALESCE(SUM(COALESCE(total_amount, total)), 0) as cash_sales
             FROM sales 
-            WHERE terminal_id = $1 
+            WHERE terminal_id = $1::uuid 
             AND session_id = $2
             AND payment_method = 'CASH'
             AND status != 'VOIDED'
@@ -435,7 +455,7 @@ export async function closeCashDrawerSecure(
                 COALESCE(SUM(CASE WHEN type IN ('EXTRA_INCOME') THEN amount ELSE 0 END), 0) as total_in,
                 COALESCE(SUM(CASE WHEN type IN ('WITHDRAWAL', 'EXPENSE') THEN amount ELSE 0 END), 0) as total_out
             FROM cash_movements
-            WHERE session_id = $1 AND type NOT IN ('OPENING')
+            WHERE session_id = $1::uuid AND type NOT IN ('OPENING')
         `, [session.id]);
 
         const cashIn = Number(movementsRes.rows[0].total_in);
@@ -460,16 +480,15 @@ export async function closeCashDrawerSecure(
             SET closed_at = NOW(),
                 closing_amount = $2,
                 status = 'CLOSED',
-                closed_by = $3,
-                cash_difference = $4
-            WHERE id = $1
-        `, [session.id, declaredCash, userId, difference]);
+                cash_difference = $3
+            WHERE id = $1::uuid
+        `, [session.id, declaredCash, difference]);
 
         // Update terminal
         await client.query(`
             UPDATE terminals 
             SET current_cashier_id = NULL, status = 'CLOSED', updated_at = NOW()
-            WHERE id = $1
+            WHERE id = $1::uuid
         `, [terminalId]);
 
         // Audit
@@ -545,7 +564,7 @@ export async function registerCashCountSecure(
         const sessionRes = await client.query(`
             SELECT id, terminal_id, opening_amount, opened_at
             FROM cash_register_sessions 
-            WHERE id = $1 AND closed_at IS NULL
+            WHERE id = $1::uuid AND closed_at IS NULL
             FOR UPDATE NOWAIT
         `, [sessionId]);
 
@@ -560,18 +579,18 @@ export async function registerCashCountSecure(
         const salesRes = await client.query(`
             SELECT COALESCE(SUM(total), 0) as cash_sales
             FROM sales 
-            WHERE terminal_id = $1 
+            WHERE terminal_id = $1::uuid 
             AND payment_method = 'CASH'
             AND status != 'VOIDED'
-            AND timestamp >= $2
-        `, [session.terminal_id, session.opened_at]);
+            AND session_id = $2::uuid
+        `, [session.terminal_id, sessionId]);
 
         const movementsRes = await client.query(`
             SELECT 
                 COALESCE(SUM(CASE WHEN type IN ('EXTRA_INCOME', 'OPENING') THEN amount ELSE 0 END), 0) as total_in,
                 COALESCE(SUM(CASE WHEN type IN ('WITHDRAWAL', 'EXPENSE') THEN amount ELSE 0 END), 0) as total_out
             FROM cash_movements
-            WHERE session_id = $1
+            WHERE session_id = $1::uuid
         `, [sessionId]);
 
         const openingAmount = Number(session.opening_amount);
@@ -686,7 +705,7 @@ export async function adjustCashSecure(
         const sessionRes = await client.query(`
             SELECT id, terminal_id, user_id
             FROM cash_register_sessions 
-            WHERE id = $1 AND closed_at IS NULL
+            WHERE id = $1::uuid AND closed_at IS NULL
             FOR UPDATE NOWAIT
         `, [sessionId]);
 
@@ -705,8 +724,8 @@ export async function adjustCashSecure(
         await client.query(`
             INSERT INTO cash_movements (
                 id, location_id, terminal_id, session_id, user_id,
-                type, amount, reason, is_cash, timestamp, authorized_by
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, NOW(), $9)
+                type, amount, reason, timestamp
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
         `, [
             movementId,
             sessionId, // Legacy: location_id stores session_id
@@ -715,8 +734,7 @@ export async function adjustCashSecure(
             userId,
             movementType,
             absAdjustment,
-            reason,
-            authorizedBy?.id || null
+            reason
         ]);
 
         // Audit
@@ -789,8 +807,8 @@ export async function getCashDrawerStatus(
                    u.name as cashier_name
             FROM terminals t
             LEFT JOIN cash_register_sessions crs ON crs.terminal_id = t.id AND crs.closed_at IS NULL
-            LEFT JOIN users u ON t.current_cashier_id = u.id
-            WHERE t.id = $1
+            LEFT JOIN users u ON t.current_cashier_id::text = u.id::text
+            WHERE t.id = $1::uuid
         `, [terminalId]);
 
         if (terminalRes.rows.length === 0) {
@@ -808,7 +826,7 @@ export async function getCashDrawerStatus(
         const salesRes = await query(`
             SELECT COALESCE(SUM(total), 0) as cash_sales
             FROM sales 
-            WHERE terminal_id = $1 
+            WHERE terminal_id = $1::uuid 
             AND payment_method = 'CASH'
             AND status != 'VOIDED'
             AND timestamp >= $2
@@ -819,7 +837,7 @@ export async function getCashDrawerStatus(
                 COALESCE(SUM(CASE WHEN type IN ('EXTRA_INCOME', 'OPENING') THEN amount ELSE 0 END), 0) as total_in,
                 COALESCE(SUM(CASE WHEN type IN ('WITHDRAWAL', 'EXPENSE') THEN amount ELSE 0 END), 0) as total_out
             FROM cash_movements
-            WHERE session_id = $1
+            WHERE session_id = $1::uuid
         `, [terminal.session_id]);
 
         const openingAmount = Number(terminal.opening_amount);
@@ -832,7 +850,7 @@ export async function getCashDrawerStatus(
         const countRes = await query(`
             SELECT counted_amount, difference, created_at
             FROM cash_counts
-            WHERE session_id = $1
+            WHERE session_id = $1::uuid
             ORDER BY created_at DESC
             LIMIT 1
         `, [terminal.session_id]);
@@ -863,6 +881,8 @@ export async function getCashDrawerStatus(
     }
 }
 
+
+
 /**
  * 📜 Get Cash Movement History
  */
@@ -883,68 +903,163 @@ export async function getCashMovementHistory(
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { terminalId, sessionId, startDate, endDate, page, pageSize } = validated.data;
+    const { terminalId, sessionId, startDate, endDate, paymentMethod, term, page, pageSize } = validated.data;
     const offset = (page - 1) * pageSize;
 
     try {
         const { query } = await import('@/lib/db');
 
-        // Build WHERE clause
-        const conditions: string[] = ['1=1'];
+        // Parameter handling
         const params: any[] = [];
         let paramIndex = 1;
 
+        // Base filters for both queries
+        let moveFilters = '1=1';
+        let saleFilters = "s.status != 'VOIDED'"; // Base sales filter
+
         if (terminalId) {
-            conditions.push(`cm.terminal_id = $${paramIndex++}`);
+            moveFilters += ` AND cm.terminal_id = $${paramIndex}::uuid`;
+            saleFilters += ` AND s.terminal_id = $${paramIndex}::uuid`;
             params.push(terminalId);
+            paramIndex++;
         }
 
         if (sessionId) {
-            conditions.push(`cm.session_id = $${paramIndex++}`);
+            moveFilters += ` AND cm.session_id = $${paramIndex}::uuid`;
+            saleFilters += ` AND s.session_id = $${paramIndex}::uuid`;
             params.push(sessionId);
+            paramIndex++;
         }
 
         if (startDate) {
-            conditions.push(`cm.timestamp >= $${paramIndex++}`);
+            moveFilters += ` AND cm.timestamp >= $${paramIndex}`;
+            saleFilters += ` AND s.timestamp >= $${paramIndex}`;
             params.push(startDate);
+            paramIndex++;
         }
 
         if (endDate) {
-            conditions.push(`cm.timestamp <= $${paramIndex++}`);
+            // Use provided endDate directly (expecting frontend to handle EOD/Timezone)
+            moveFilters += ` AND cm.timestamp <= $${paramIndex}`;
+            saleFilters += ` AND s.timestamp <= $${paramIndex}`;
             params.push(endDate);
+            paramIndex++;
         }
 
-        const whereClause = conditions.join(' AND ');
+        // Payment Method Filter
+        // Payment Method Filter or Movement Type Filter
+        if (paymentMethod && paymentMethod !== 'ALL') {
+            const MOVEMENT_TYPES = ['EXTRA_INCOME', 'EXPENSE', 'WITHDRAWAL', 'OPENING', 'CLOSING', 'APERTURA'];
 
-        // Count total
+            if (MOVEMENT_TYPES.includes(paymentMethod)) {
+                // It's a movement type filter (e.g. EXTRA_INCOME)
+                moveFilters += ` AND cm.type = $${paramIndex}`;
+                saleFilters += ` AND 1=0`; // Hide sales entirely when looking for specific movement types
+            } else {
+                // It's a payment method filter (CASH, DEBIT, etc.)
+                saleFilters += ` AND s.payment_method = $${paramIndex}`;
+
+                // If filtering by specific payment method other than CASH, hide physical cash movements
+                if (paymentMethod !== 'CASH') {
+                    moveFilters += ' AND 1=0'; // Hide movements if looking for Card/Transfer
+                }
+                // If CASH, we keep movements visible (default 1=1)
+            }
+
+            params.push(paymentMethod);
+            paramIndex++;
+        }
+
+        // Search Term Filter
+        if (term) {
+            const searchPattern = `%${term}%`;
+
+            moveFilters += ` AND (
+                cm.reason ILIKE $${paramIndex} OR 
+                u.name ILIKE $${paramIndex}
+            )`;
+
+            saleFilters += ` AND (
+                s.id::text ILIKE $${paramIndex} OR
+                s.dte_folio::text ILIKE $${paramIndex} OR
+                u.name ILIKE $${paramIndex} OR
+                s.customer_name ILIKE $${paramIndex}
+            )`;
+
+            params.push(searchPattern);
+            paramIndex++;
+        }
+
+        // 1. Get Total Count
         const countRes = await query(`
-            SELECT COUNT(*) as total
-            FROM cash_movements cm
-            WHERE ${whereClause}
+            SELECT 
+                (SELECT COUNT(*) FROM cash_movements cm 
+                 LEFT JOIN users u ON cm.user_id::text = u.id::text 
+                 WHERE ${moveFilters}) +
+                (SELECT COUNT(*) FROM sales s 
+                 LEFT JOIN users u ON s.user_id = u.id
+                 WHERE ${saleFilters}) as total
         `, params);
 
         const total = parseInt(countRes.rows[0]?.total || '0');
 
-        // Fetch movements
-        params.push(pageSize, offset);
-        const movementsRes = await query(`
-            SELECT 
-                cm.id, cm.type, cm.amount, cm.reason, cm.timestamp,
-                cm.terminal_id, cm.session_id,
-                u.name as user_name,
-                auth.name as authorized_by_name
-            FROM cash_movements cm
-            LEFT JOIN users u ON cm.user_id = u.id
-            LEFT JOIN users auth ON cm.authorized_by = auth.id
-            WHERE ${whereClause}
-            ORDER BY cm.timestamp DESC
-            LIMIT $${paramIndex++} OFFSET $${paramIndex}
+        // 2. Get Combined History
+        params.push(pageSize, offset); // Add limit/offset params
+
+        const historyRes = await query(`
+            (
+                SELECT 
+                    cm.id, 
+                    cm.type, 
+                    cm.amount, 
+                    cm.reason, 
+                    cm.timestamp,
+                    cm.terminal_id, 
+                    cm.session_id,
+                    u.name as user_name,
+                    NULL as authorized_by_name,
+                    'CASH' as payment_method,
+                    NULL::text as status,
+                    NULL::text as dte_status,
+                    NULL::text as dte_folio,
+                    NULL::text as customer_name
+                FROM cash_movements cm
+                LEFT JOIN users u ON cm.user_id::text = u.id::text
+                WHERE ${moveFilters}
+            )
+            UNION ALL
+            (
+                SELECT 
+                    s.id,
+                    'SALE' as type,
+                    COALESCE(s.total_amount, s.total) as amount,
+                    CONCAT('Venta #', COALESCE(s.dte_folio::text, 'S/N')) as reason,
+                    s.timestamp,
+                    s.terminal_id,
+                    s.session_id,
+                    u.name as user_name,
+                    NULL as authorized_by_name,
+                    s.payment_method,
+                    s.status,
+                    s.dte_status,
+                    s.dte_folio::text,
+                    s.customer_name
+                FROM sales s
+                LEFT JOIN users u ON s.user_id::text = u.id::text
+                WHERE ${saleFilters}
+            )
+            ORDER BY timestamp DESC
+            LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
         `, params);
 
         return {
             success: true,
             data: {
-                movements: movementsRes.rows,
+                movements: historyRes.rows.map(row => ({
+                    ...row,
+                    // Normalize fields for frontend if needed
+                    customer: row.customer_name ? { fullName: row.customer_name } : undefined
+                })),
                 total,
                 page,
                 pageSize,
@@ -953,7 +1068,7 @@ export async function getCashMovementHistory(
 
     } catch (error: any) {
         logger.error({ error }, '[Cash] Get history error');
-        return { success: false, error: 'Error obteniendo historial' };
+        return { success: false, error: 'Error obteniendo historial: ' + error.message };
     }
 }
 
@@ -1005,8 +1120,8 @@ export async function getShiftMetricsSecure(
                 crs.id, crs.terminal_id, crs.opening_amount, crs.opened_at,
                 u.name as cashier_name
             FROM cash_register_sessions crs
-            JOIN users u ON crs.user_id = u.id
-            WHERE crs.terminal_id = $1 AND crs.closed_at IS NULL
+            JOIN users u ON crs.user_id::text = u.id::text
+            WHERE crs.terminal_id = $1::uuid AND crs.closed_at IS NULL
         `, [terminalId]);
 
         if (sessionRes.rows.length === 0) {
@@ -1023,7 +1138,7 @@ export async function getShiftMetricsSecure(
                 COUNT(*) as count,
                 COALESCE(SUM(COALESCE(total_amount, total)), 0) as total
             FROM sales 
-            WHERE terminal_id = $1 
+            WHERE terminal_id = $1::uuid 
             AND session_id = $2
             AND status != 'VOIDED'
             GROUP BY payment_method
@@ -1045,17 +1160,20 @@ export async function getShiftMetricsSecure(
             }
         }
 
-        // Get cash movements/adjustments
+        // Get cash movements/adjustments details
         const movementsRes = await query(`
-            SELECT type, COALESCE(SUM(amount), 0) as total
+            SELECT id, type, amount, reason, timestamp
             FROM cash_movements
-            WHERE session_id = $1 AND type NOT IN ('OPENING')
-            GROUP BY type
+            WHERE session_id = $1::uuid AND type NOT IN ('OPENING')
+            ORDER BY timestamp DESC
         `, [session.id]);
 
         const adjustments = movementsRes.rows.map(r => ({
+            id: r.id,
             type: r.type,
-            amount: Number(r.total)
+            amount: Number(r.amount), // Note: amount, not total
+            reason: r.reason,
+            timestamp: r.timestamp
         }));
 
         // Calculate current cash
@@ -1109,9 +1227,146 @@ export async function getShiftMetricsSecure(
 
     } catch (error: any) {
         logger.error({ error }, '[Cash] Get shift metrics error');
-        return { success: false, error: 'Error obteniendo métricas del turno' };
+        return { success: false, error: `Error obteniendo métricas del turno: ${error.message}` };
     }
 }
 
-// NOTE: ADJUSTMENT_THRESHOLDS es constante interna
-// Next.js 16 use server solo permite async functions
+
+// ============================================================================
+// EXPORT UTILS
+// ============================================================================
+
+/**
+ * 📥 Export Cash Movement History (Detailed, High Limit)
+ */
+export async function exportCashMovementHistory(
+    filters?: z.infer<typeof CashHistorySchema>
+): Promise<{
+    success: boolean;
+    data?: any[];
+    error?: string;
+}> {
+    // Reuse schema but override page/pageSize for export
+    const validated = CashHistorySchema.safeParse({ ...filters, page: 1, pageSize: 5000 }); // High limit for export
+    if (!validated.success) {
+        return { success: false, error: validated.error.issues[0]?.message };
+    }
+
+    const { terminalId, sessionId, startDate, endDate, paymentMethod, term } = validated.data;
+
+    try {
+        const { query } = await import('@/lib/db');
+
+        // Parameter handling
+        const params: any[] = [];
+        let paramIndex = 1;
+
+        // Base filters for both queries
+        let moveFilters = '1=1';
+        let saleFilters = "s.status != 'VOIDED'";
+
+        if (terminalId) {
+            moveFilters += ` AND cm.terminal_id = $${paramIndex}::uuid`;
+            saleFilters += ` AND s.terminal_id = $${paramIndex}::uuid`;
+            params.push(terminalId);
+            paramIndex++;
+        }
+
+        if (sessionId) {
+            moveFilters += ` AND cm.session_id = $${paramIndex}::uuid`;
+            saleFilters += ` AND s.session_id = $${paramIndex}::uuid`;
+            params.push(sessionId);
+            paramIndex++;
+        }
+
+        if (startDate) {
+            moveFilters += ` AND cm.timestamp >= $${paramIndex}`;
+            saleFilters += ` AND s.timestamp >= $${paramIndex}`;
+            params.push(startDate);
+            paramIndex++;
+        }
+
+        if (endDate) {
+            // Use provided endDate directly (expecting frontend to handle EOD/Timezone)
+            moveFilters += ` AND cm.timestamp <= $${paramIndex}`;
+            saleFilters += ` AND s.timestamp <= $${paramIndex}`;
+            params.push(endDate);
+            paramIndex++;
+        }
+
+        if (paymentMethod && paymentMethod !== 'ALL') {
+            const MOVEMENT_TYPES = ['EXTRA_INCOME', 'EXPENSE', 'WITHDRAWAL', 'OPENING', 'CLOSING', 'APERTURA'];
+
+            if (MOVEMENT_TYPES.includes(paymentMethod)) {
+                moveFilters += ` AND cm.type = $${paramIndex}`;
+                saleFilters += ` AND 1=0`;
+            } else {
+                saleFilters += ` AND s.payment_method = $${paramIndex}`;
+                if (paymentMethod !== 'CASH') {
+                    moveFilters += ' AND 1=0';
+                }
+            }
+            params.push(paymentMethod);
+            paramIndex++;
+        }
+
+        if (term) {
+            const searchPattern = `%${term}%`;
+            moveFilters += ` AND (cm.reason ILIKE $${paramIndex} OR u.name ILIKE $${paramIndex})`;
+            saleFilters += ` AND (s.id::text ILIKE $${paramIndex} OR s.dte_folio::text ILIKE $${paramIndex} OR u.name ILIKE $${paramIndex} OR s.customer_name ILIKE $${paramIndex})`;
+            params.push(searchPattern);
+            paramIndex++;
+        }
+
+        const historyRes = await query(`
+            (
+                SELECT 
+                    cm.id, 
+                    cm.type, 
+                    cm.amount, 
+                    cm.reason, 
+                    cm.timestamp,
+                    u.name as user_name,
+                    'CASH' as payment_method,
+                    NULL::text as dte_folio,
+                    NULL::text as customer_name
+                FROM cash_movements cm
+                LEFT JOIN users u ON cm.user_id::text = u.id::text
+                WHERE ${moveFilters}
+            )
+            UNION ALL
+            (
+                SELECT 
+                    s.id,
+                    'SALE' as type,
+                    COALESCE(s.total_amount, s.total) as amount,
+                    -- Combine Venta # with item list
+                    CONCAT(
+                        'Venta #', COALESCE(s.dte_folio::text, 'S/N'), ': ',
+                        COALESCE(STRING_AGG(CONCAT(si.quantity, 'x ', si.product_name), ', '), 'Sin items')
+                    ) as reason,
+                    s.timestamp,
+                    u.name as user_name,
+                    s.payment_method,
+                    s.dte_folio::text,
+                    s.customer_name
+                FROM sales s
+                LEFT JOIN users u ON s.user_id::text = u.id::text
+                LEFT JOIN sale_items si ON s.id = si.sale_id
+                WHERE ${saleFilters}
+                GROUP BY s.id, u.name
+            )
+            ORDER BY timestamp DESC
+            LIMIT 5000
+        `, params);
+
+        return {
+            success: true,
+            data: historyRes.rows
+        };
+
+    } catch (error: any) {
+        logger.error({ error }, '[Cash] Export history error');
+        return { success: false, error: 'Error exportando historial: ' + error.message };
+    }
+}

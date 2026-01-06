@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { usePharmaStore } from '../../store/useStore';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, DollarSign, Camera, AlertTriangle, CheckCircle, TrendingDown, TrendingUp, Lock, ChevronDown, ChevronUp, Download, ShieldCheck, RefreshCw } from 'lucide-react';
+import { X, DollarSign, Camera, AlertTriangle, CheckCircle, TrendingDown, TrendingUp, Lock, ChevronDown, ChevronUp, Download, ShieldCheck, RefreshCw, Eye } from 'lucide-react';
 import { CashMovementReason } from '../../../domain/types';
 import { SupervisorOverrideModal } from '../security/SupervisorOverrideModal';
 import { toast } from 'sonner';
@@ -9,6 +9,7 @@ import { generateCashReportSecure } from '../../../actions/cash-export-v2';
 // V2: Métricas seguras
 import { getShiftMetricsSecure, ShiftMetricsDetailed, closeCashDrawerSecure } from '../../../actions/cash-management-v2';
 import { TransactionListModal } from './TransactionListModal';
+import TransactionHistoryModal from './TransactionHistoryModal'; // New import
 // Treasury V2 - Operaciones seguras con bcrypt PIN, RBAC, y auditoría
 import { createCashMovementSecure } from '../../../actions/treasury-v2';
 // Retry utility for SERIALIZABLE transaction conflicts
@@ -42,6 +43,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
     const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
     const [expandedSection, setExpandedSection] = useState<'SALES_BREAKDOWN' | 'MANUAL_IN' | 'MANUAL_OUT' | null>(null);
     const [selectedTransactions, setSelectedTransactions] = useState<{ title: string, list: any[] } | null>(null);
+    const [historyModalConfig, setHistoryModalConfig] = useState<{ isOpen: boolean, paymentMethod?: string }>({ isOpen: false }); // New state
 
     // Helper to translate methods
     const getMethodLabel = (method: string) => {
@@ -67,12 +69,35 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
             setReason('SUPPLIES');
             setDescription('');
 
-            // Auto-trigger supervisor modal for sensitive actions
-            if ((mode === 'AUDIT' || mode === 'CLOSE') && currentShift?.status === 'ACTIVE') {
+            // Auto-trigger supervisor modal for sensitive actions (AUDIT only blocks viewing)
+            if (mode === 'AUDIT' && currentShift?.status === 'ACTIVE') {
                 setIsSupervisorModalOpen(true);
+            } else if (mode === 'CLOSE') {
+                setIsAuditVisible(true); // Close mode shows audit immediately, PIN required at end
             }
         }
     }, [isOpen, mode]);
+
+    // Helper to refresh metrics securely
+    const loadServerMetrics = useCallback(async () => {
+        if (!currentShift?.terminal_id) return;
+
+        setIsLoadingMetrics(true);
+        try {
+            const res = await getShiftMetricsSecure(currentShift.terminal_id);
+            if (res.success && res.data) {
+                console.log('📊 [CashManagement] Server Metrics loaded:', res.data);
+                setServerMetrics(res.data as any);
+            } else {
+                console.error('SERVER METRICS ERROR:', res.error);
+                // Don't toast on auto-refresh to avoid spam
+            }
+        } catch (err) {
+            console.error('Metric load error:', err);
+        } finally {
+            setIsLoadingMetrics(false);
+        }
+    }, [currentShift]);
 
     // Effect 2: Data Refresh (Hybrid: Local Instant + Server Verified)
     useEffect(() => {
@@ -81,32 +106,16 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
             const localM = getShiftMetrics();
             setMetrics(localM);
 
-            // 2. Server Authority (Fetch in background)
-            if (!currentShift.terminal_id) {
-                console.warn('⚠️ [CashManagement] Skipping metrics fetch: Missing terminal_id');
-                return;
-            }
-
-            setIsLoadingMetrics(true);
-            // V2: getShiftMetricsSecure
-            getShiftMetricsSecure(currentShift.terminal_id).then((res) => {
-                if (res.success && res.data) {
-                    console.log('📊 [CashManagement] Server Metrics loaded:', res.data);
-                    setServerMetrics(res.data as any); // Cast para compatibilidad con campos legacy
-                } else {
-                    toast.error('Error sincronizando métricas de servidor');
-                }
-                setIsLoadingMetrics(false);
-            });
+            // 2. Server Authority
+            loadServerMetrics();
         }
-    }, [isOpen, currentShift, getShiftMetrics]);
+    }, [isOpen, currentShift, getShiftMetrics, loadServerMetrics]);
 
     const handleSupervisorAuthorize = (authorizedBy: string) => {
         console.log('✅ [CashManagement] Supervisor Authorized:', authorizedBy, 'Mode:', mode);
         if (mode === 'CLOSE') {
-            const finalAmount = parseInt(closingAmount);
-            closeShift(finalAmount, authorizedBy);
-            onClose();
+            // Legacy path: if we ever go back to pre-check
+            setIsAuditVisible(true);
         } else if (mode === 'AUDIT') {
             console.log('🔓 [CashManagement] Unlocking Audit View');
             setIsAuditVisible(true);
@@ -160,7 +169,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
     const WITHDRAWAL_THRESHOLD = 100000;
 
     const handleRegisterMovement = async () => {
-        const numAmount = parseInt(amount);
+        const numAmount = parseInt(amount.replace(/\./g, ''));
         if (isNaN(numAmount) || numAmount <= 0) return;
         if (!evidence && description.length < 5) return;
 
@@ -221,7 +230,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                 }
 
                 // Show success with retry info if applicable
-                const retryInfo = (result as any)._retryInfo;
+                const retryInfo = result._retryInfo;
                 if (retryInfo && retryInfo.attempts > 1) {
                     toast.success(
                         <div className="flex items-center gap-2">
@@ -237,6 +246,20 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                         </div>
                     );
                 }
+
+                // Update local store for immediate feedback
+                registerCashMovement({
+                    type: movementType,
+                    amount: numAmount,
+                    reason: reason,
+                    description: description,
+                    evidence_url: evidence || undefined,
+                    is_cash: true
+                });
+
+                // Refresh server metrics to ensure consistency (Arqueo relies on server data)
+                await loadServerMetrics();
+
             } else {
                 // Fallback to legacy for non-terminal contexts
                 registerCashMovement({
@@ -256,6 +279,68 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
             setEvidence(null);
             setAuthPin('');
             setShowPinInput(false);
+            // Don't close immediately if user might want to add another?
+            // User requested to see it reflected in Arqueo, so maybe we stay or close?
+            // The logic was onClose(), but user says "realice un gasto... no se ven reflejados".
+            // If modal closes, they have to reopen. If they reopen, useEffect runs.
+            // If they are IN the modal (e.g. Movement Mode), and switch to Audit Mode...
+            // Wait, this modal handles BOTH "Movement Registration" and "Audit View".
+            // If I am in MOVEMENT mode, I register, then maybe I want to see the Audit.
+            // But usually this modal is opened either for Movement OR Audit.
+            // If it keeps open, we just refreshed metrics, so switching mode would show it.
+            // But if it closes, re-opening will fetch. 
+            // The issue might be if they are looking at the modal and expecting it to update without closing?
+            // But line 278 says `onClose()`! 
+            // If it closes, the user is back to POS. Then they click "Arqueo". 
+            // "Arqueo" opens this same modal but in AUDIT mode.
+            // useEffect runs on open.
+            // So why didn't it show? Maybe `registerCashMovement` (local) vs `getShiftMetricsSecure` (server) sync issue?
+            // Adding `await loadServerMetrics()` here creates a delay before close, ensuring server has processed it?
+            // Actually, `createCashMovementSecure` is awaited. So server has it.
+
+            // Let's keep onClose() but maybe the user wants to stay? 
+            // "realice un gasto y un ingreso". Implies doing multiple.
+            // If it closes every time, it's annoying.
+            // I will REMOVE onClose() to let them see the result or add more? 
+            // No, standard POS behavior usually closes after success.
+            // I will keep onClose() but ensure loadServerMetrics is called if we were NOT to close,
+            // or just rely on the fact that re-opening triggers fetch.
+            // Wait, if I close, `useEffect` cleanup happens? No.
+            // If I re-open, `useEffect` runs again (depending on logic).
+            // Line 63: `useEffect(() => { if (isOpen) { ... } }, [isOpen])`.
+            // Yes, it re-runs.
+            // So if `createCashMovementSecure` finished, the DB has data.
+            // Re-opening should fetch it.
+
+            // Maybe the user is NOT closing it?
+            // "realice un gasto ... y un ingreso ... no se ven reflejados".
+            // Maybe they are doing this from the "Arqueo" screen itself?
+            // Lines 401: `{mode === 'MOVEMENT' && ...}`
+            // Lines 533: `{(mode === 'AUDIT' || mode === 'CLOSE') && ...}`
+            // Can they switch modes inside the modal?
+            // If they are in AUDIT mode, and click "Registrar Ingreso" (is there a button?), 
+            // Line 391 only has Close button.
+            // Line 404 has toggle switch for IN/OUT.
+            // But how do they get to MOVEMENT mode?
+            // Usually passed as prop `initialMode`. 
+            // If they are in Arqueo, they likely clicked "Arqueo" button -> `mode='AUDIT'`.
+            // Does Arqueo screen allow registering movements? 
+            // Line 571 (Ingresos Extras) just shows list.
+            // Typically POS has separate buttons for "Ingreso/Retiro" and "Arqueo".
+            // If they do "Ingreso", then "Arqueo", it is two different modal opens.
+            // If I add `loadServerMetrics`, it ensures cache is seemingly fresh?
+            // Re-reading: "realice un gasto... y un ingreso... no se ven reflejados en el arqueo".
+            // This strongly implies: Open Gasto -> Save. Open Ingreso -> Save. Open Arqueo -> Empty.
+
+            // If `getShiftMetricsSecure` is returning 0, maybe `session_id` logic?
+            // Or maybe `query` inside `getShiftMetricsSecure` filters `type NOT IN ('OPENING')`?
+            // My manually added code: `type: treasuryType` (Line 196).
+            // `treasuryType` is 'EXPENSE', 'WITHDRAWAL', 'EXTRA_INCOME'.
+            // Query: `type NOT IN ('OPENING')`. So yes, they should appear.
+
+            // I will add the `await loadServerMetrics()` anyway as a safety, 
+            // and I will explicitly update the dependency array which was the previous error.
+
             onClose();
 
         } catch (error) {
@@ -343,6 +428,12 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                 transactions={selectedTransactions?.list || []}
             />
 
+            <TransactionHistoryModal
+                isOpen={historyModalConfig.isOpen}
+                onClose={() => setHistoryModalConfig({ isOpen: false })}
+                initialPaymentMethod={historyModalConfig.paymentMethod}
+            />
+
             <AnimatePresence>
                 <motion.div
                     initial={{ opacity: 0 }}
@@ -383,14 +474,24 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                     {/* Toggle Switch */}
                                     <div className="flex bg-slate-100 p-1 rounded-xl">
                                         <button
-                                            onClick={() => { setMovementType('OUT'); setReason('SUPPLIES'); }}
+                                            onClick={() => {
+                                                setMovementType('OUT');
+                                                setReason('SUPPLIES');
+                                                setAmount('');
+                                                setDescription('');
+                                            }}
                                             className={`flex-1 py-3 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 ${movementType === 'OUT' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                                         >
                                             <TrendingDown size={18} />
                                             REGISTRAR SALIDA
                                         </button>
                                         <button
-                                            onClick={() => { setMovementType('IN'); setReason('CHANGE'); }}
+                                            onClick={() => {
+                                                setMovementType('IN');
+                                                setReason('CHANGE');
+                                                setAmount('');
+                                                setDescription('');
+                                            }}
                                             className={`flex-1 py-3 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 ${movementType === 'IN' ? 'bg-white text-green-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                                         >
                                             <TrendingUp size={18} />
@@ -404,9 +505,14 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                             <div className="relative">
                                                 <span className={`absolute left-4 top-1/2 -translate-y-1/2 ${movementType === 'IN' ? 'text-green-500' : 'text-red-500'}`}>$</span>
                                                 <input
-                                                    type="number"
+                                                    type="text"
+                                                    inputMode="numeric"
                                                     value={amount}
-                                                    onChange={(e) => setAmount(e.target.value)}
+                                                    onChange={(e) => {
+                                                        const raw = e.target.value.replace(/\D/g, '');
+                                                        const formatted = raw ? parseInt(raw).toLocaleString('es-CL') : '';
+                                                        setAmount(formatted);
+                                                    }}
                                                     className={`w-full pl-8 pr-4 py-3 text-lg font-bold text-slate-800 bg-slate-50 border rounded-xl outline-none focus:ring-2 ${movementType === 'IN' ? 'focus:ring-green-500 border-green-200' : 'focus:ring-red-500 border-red-200'}`}
                                                     placeholder="0"
                                                 />
@@ -471,7 +577,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
 
                                     <button
                                         onClick={handleRegisterMovement}
-                                        disabled={!amount || (!evidence && description.length < 5) || isSubmitting}
+                                        disabled={!amount || (!evidence && description.length < 3) || isSubmitting}
                                         className={`w-full text-white py-4 rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${movementType === 'IN' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}
                                     >
                                         {isSubmitting ? (
@@ -539,49 +645,29 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                                             <span>(+) Fondo Inicial</span>
                                                             <span className="font-mono font-bold">${auditData.cashSection.initial.toLocaleString()}</span>
                                                         </div>
-                                                        <div className="flex justify-between items-center text-slate-800 font-bold text-sm">
-                                                            <span>(+) Ventas Efectivo</span>
+                                                        <div className="group flex justify-between items-center text-slate-800 font-bold text-sm cursor-pointer hover:bg-slate-50 p-1 rounded transition" onClick={() => setHistoryModalConfig({ isOpen: true, paymentMethod: 'CASH' })}>
+                                                            <span className="flex items-center gap-1 group-hover:text-cyan-600 transition-colors">
+                                                                (+) Ventas Efectivo <Eye size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                            </span>
                                                             <span className="font-mono text-green-600">+${auditData.cashSection.sales.toLocaleString()}</span>
                                                         </div>
-                                                        <div
-                                                            className="flex justify-between items-center text-emerald-600 text-sm cursor-pointer hover:underline"
-                                                            onClick={() => setExpandedSection(expandedSection === 'MANUAL_IN' ? null : 'MANUAL_IN')}
+                                                        <div className="group flex justify-between items-center text-emerald-600 text-sm cursor-pointer hover:bg-emerald-50/50 p-1 rounded transition"
+                                                            onClick={() => setHistoryModalConfig({ isOpen: true, paymentMethod: 'EXTRA_INCOME' })}
                                                         >
-                                                            <span>(+) Ingresos Extras</span>
+                                                            <span className="flex items-center gap-1">
+                                                                (+) Ingresos Extras <Eye size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                            </span>
                                                             <span className="font-mono font-bold">+${auditData.cashSection.income.toLocaleString()}</span>
                                                         </div>
-                                                        {expandedSection === 'MANUAL_IN' && (
-                                                            <div className="pl-2 text-xs text-slate-400 border-l border-emerald-200">
-                                                                {/* V2: Usar adjustments en vez de manual_movements */}
-                                                                {(serverMetrics as any)?.adjustments?.filter((m: any) => m.type === 'EXTRA_INCOME').map((m: any, idx: number) => (
-                                                                    <div key={idx} className="flex justify-between">
-                                                                        <span>{m.type}</span>
-                                                                        <span>${m.amount}</span>
-                                                                    </div>
-                                                                ))}
-                                                                {auditData.cashSection.income === 0 && <span>Sin movimientos</span>}
-                                                            </div>
-                                                        )}
 
-                                                        <div
-                                                            className="flex justify-between items-center text-red-500 text-sm cursor-pointer hover:underline"
-                                                            onClick={() => setExpandedSection(expandedSection === 'MANUAL_OUT' ? null : 'MANUAL_OUT')}
+                                                        <div className="group flex justify-between items-center text-red-500 text-sm cursor-pointer hover:bg-red-50/50 p-1 rounded transition"
+                                                            onClick={() => setHistoryModalConfig({ isOpen: true, paymentMethod: 'EXPENSE' })}
                                                         >
-                                                            <span>(-) Gastos / Retiros</span>
+                                                            <span className="flex items-center gap-1">
+                                                                (-) Gastos / Retiros <Eye size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                            </span>
                                                             <span className="font-mono font-bold">-${auditData.cashSection.expenses.toLocaleString()}</span>
                                                         </div>
-                                                        {expandedSection === 'MANUAL_OUT' && (
-                                                            <div className="pl-2 text-xs text-slate-400 border-l border-red-200">
-                                                                {/* V2: Usar adjustments en vez de manual_movements */}
-                                                                {(serverMetrics as any)?.adjustments?.filter((m: any) => ['WITHDRAWAL', 'EXPENSE'].includes(m.type)).map((m: any, idx: number) => (
-                                                                    <div key={idx} className="flex justify-between">
-                                                                        <span>{m.type}</span>
-                                                                        <span>${m.amount}</span>
-                                                                    </div>
-                                                                ))}
-                                                                {auditData.cashSection.expenses === 0 && <span>Sin movimientos</span>}
-                                                            </div>
-                                                        )}
 
                                                         <div className="h-px bg-slate-200 my-2"></div>
 
@@ -598,12 +684,16 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                                         💳 Digital / Bancos
                                                     </h3>
                                                     <div className="space-y-3 opacity-80">
-                                                        <div className="flex justify-between items-center text-blue-900 text-sm">
-                                                            <span>Transbank (T. Débito/Crédito)</span>
+                                                        <div className="group flex justify-between items-center text-blue-900 text-sm cursor-pointer hover:bg-blue-100 p-1 rounded transition" onClick={() => setHistoryModalConfig({ isOpen: true, paymentMethod: 'DEBIT' })}>
+                                                            <span className="flex items-center gap-1 group-hover:text-blue-700 transition-colors">
+                                                                Transbank (T. Débito/Crédito) <Eye size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                            </span>
                                                             <span className="font-mono font-bold">${auditData.digitalSection.cards.toLocaleString()}</span>
                                                         </div>
-                                                        <div className="flex justify-between items-center text-blue-900 text-sm">
-                                                            <span>Transferencias</span>
+                                                        <div className="group flex justify-between items-center text-blue-900 text-sm cursor-pointer hover:bg-blue-100 p-1 rounded transition" onClick={() => setHistoryModalConfig({ isOpen: true, paymentMethod: 'TRANSFER' })}>
+                                                            <span className="flex items-center gap-1 group-hover:text-blue-700 transition-colors">
+                                                                Transferencias <Eye size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                            </span>
                                                             <span className="font-mono font-bold">${auditData.digitalSection.transfers.toLocaleString()}</span>
                                                         </div>
                                                         <div className="h-px bg-blue-200 my-2"></div>
@@ -635,8 +725,10 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                                 />
                                             </div>
 
-                                            <button
-                                                onClick={async () => {
+                                            {/* Manager PIN Input for Close */}
+                                            <form
+                                                onSubmit={async (e) => {
+                                                    e.preventDefault();
                                                     const numAmount = parseInt(closingAmount);
                                                     if (isNaN(numAmount) || !currentShift?.terminal_id || !currentShift?.id) return;
 
@@ -646,7 +738,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                                         const result = await closeCashDrawerSecure({
                                                             terminalId: currentShift.terminal_id,
                                                             userId: user?.id || 'SYSTEM',
-                                                            userPin: '0000', // FIXME: Pedir PIN real o usar el de session si ya validó supervisor
+                                                            managerPin: authPin,
                                                             declaredCash: numAmount
                                                         });
 
@@ -672,18 +764,35 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                                         setIsSubmitting(false);
                                                     }
                                                 }}
-                                                disabled={!closingAmount || isSubmitting}
-                                                className="w-full bg-red-600 hover:bg-red-700 text-white py-4 rounded-xl font-bold shadow-lg transition-all flex justify-center items-center gap-2"
                                             >
-                                                {isSubmitting ? (
-                                                    <>
-                                                        <RefreshCw size={20} className="animate-spin" />
-                                                        Cerrando...
-                                                    </>
-                                                ) : (
-                                                    'Confirmar Cierre'
-                                                )}
-                                            </button>
+                                                <div className="mb-4">
+                                                    <label className="block text-sm font-bold text-blue-900 mb-2 text-center">PIN DE GERENTE (VISTO BUENO)</label>
+                                                    <input
+                                                        type="password"
+                                                        maxLength={4}
+                                                        value={authPin}
+                                                        onChange={(e) => setAuthPin(e.target.value)}
+                                                        className="w-full p-3 text-center text-xl tracking-[0.5em] font-mono bg-white border border-blue-200 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none"
+                                                        placeholder="••••"
+                                                        autoComplete="off"
+                                                    />
+                                                </div>
+
+                                                <button
+                                                    type="submit"
+                                                    disabled={!closingAmount || !authPin || isSubmitting}
+                                                    className="w-full bg-red-600 hover:bg-red-700 text-white py-4 rounded-xl font-bold shadow-lg transition-all flex justify-center items-center gap-2"
+                                                >
+                                                    {isSubmitting ? (
+                                                        <>
+                                                            <RefreshCw size={20} className="animate-spin" />
+                                                            Cerrando...
+                                                        </>
+                                                    ) : (
+                                                        'Confirmar Cierre'
+                                                    )}
+                                                </button>
+                                            </form>
                                         </div>
                                     )}
 
@@ -703,7 +812,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                         </div>
                     </motion.div>
                 </motion.div>
-            </AnimatePresence>
+            </AnimatePresence >
 
             <SupervisorOverrideModal
                 isOpen={isSupervisorModalOpen}

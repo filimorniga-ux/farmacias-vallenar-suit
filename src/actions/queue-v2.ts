@@ -218,7 +218,22 @@ export async function getNextTicketSecure(
         // SERIALIZABLE para evitar duplicados
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-        // Buscar siguiente con prioridad y bloqueo
+        // 1. RECOVER SESSION: Check if user already has an active ticket (CALLED)
+        // This prevents stacking tickets and allows recovering state if UI crashed
+        const activeTicketRes = await client.query(`
+            SELECT * FROM queue_tickets
+            WHERE branch_id = $1 AND status = 'CALLED' AND called_by = $2
+            ORDER BY created_at DESC
+            LIMIT 1
+        `, [branchId, userId]);
+
+        if ((activeTicketRes.rowCount || 0) > 0) {
+            await client.query('COMMIT');
+            logger.info({ ticketId: activeTicketRes.rows[0].id }, '📢 [Queue] Recovered active ticket');
+            return { success: true, ticket: activeTicketRes.rows[0] };
+        }
+
+        // 2. Select Next Waiting Ticket
         const result = await client.query(`
             SELECT * FROM queue_tickets
             WHERE branch_id = $1 AND status = 'WAITING'
@@ -270,6 +285,95 @@ export async function getNextTicketSecure(
         console.error('[Queue] Get next ticket error:', error?.message);
         logger.error({ error: error?.message }, '[Queue] Get next ticket error');
         return { success: false, error: `Error: ${error?.message || 'Error obteniendo ticket'}` };
+    } finally {
+        client.release();
+    }
+}
+
+/**
+ * 🚀 Completar Actual y Llamar Siguiente (ATÓMICO)
+ * Evita race conditions y asegura fluidez.
+ */
+export async function completeAndGetNextSecure(
+    currentTicketId: string,
+    branchId: string,
+    userId: string,
+    terminalId?: string
+): Promise<{ success: boolean; nextTicket?: any; completedTicket?: any; error?: string }> {
+    if (!UUIDSchema.safeParse(currentTicketId).success || !UUIDSchema.safeParse(branchId).success) {
+        return { success: false, error: 'IDs inválidos' };
+    }
+
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        // 1. COMPLETAR ACTUAL
+        const completeRes = await client.query(`
+             UPDATE queue_tickets
+             SET status = 'COMPLETED', completed_at = NOW(), completed_by = $2
+             WHERE id = $1 AND status = 'CALLED' AND called_by = $2
+             RETURNING *
+         `, [currentTicketId, userId]);
+
+        let completedTicket = null;
+
+        if ((completeRes.rowCount || 0) > 0) {
+            completedTicket = completeRes.rows[0];
+        } else {
+            // Si no se actualizó, verificamos si ya estaba completado para no bloquear
+            // Esto permite "autocuración" si la UI estaba desincronizada
+            const checkRes = await client.query(`
+                SELECT status FROM queue_tickets WHERE id = $1
+            `, [currentTicketId]);
+
+            if ((checkRes.rowCount || 0) > 0 && checkRes.rows[0].status === 'COMPLETED') {
+                // Ya estaba completado, ignoramos el error y seguimos
+                console.log('[Queue] Ticket already completed, proceeding to next');
+            } else {
+                // Si no existe o está en otro estado extraño, logueamos pero INTENTAMOS seguir 
+                // para no bloquear al cajero.
+                console.warn('[Queue] Warning: Current ticket could not be completed (stale state?)');
+            }
+        }
+
+        // 2. OBTENER SIGUIENTE
+        const nextRes = await client.query(`
+             SELECT * FROM queue_tickets
+             WHERE branch_id = $1 AND status = 'WAITING'
+             ORDER BY
+                 CASE WHEN type = 'PREFERENTIAL' THEN 1 ELSE 2 END,
+                 created_at ASC
+             LIMIT 1
+             FOR UPDATE SKIP LOCKED
+         `, [branchId]);
+
+        let nextTicket = null;
+
+        if ((nextRes.rowCount || 0) > 0) {
+            nextTicket = nextRes.rows[0];
+            // Marcar Siguiente como CALLED
+            await client.query(`
+                 UPDATE queue_tickets
+                 SET status = 'CALLED', called_at = NOW(), called_by = $2, terminal_id = $3
+                 WHERE id = $1
+             `, [nextTicket.id, userId, terminalId || null]);
+
+            nextTicket = { ...nextTicket, status: 'CALLED', terminal_id: terminalId };
+        }
+
+        // 3. AUDITORÍA (Opcional, fuera del throw crítico)
+        // ... (Podemos simplificar auditoría aquí para velocidad)
+
+        await client.query('COMMIT');
+        revalidatePath('/');
+
+        return { success: true, nextTicket, completedTicket };
+
+    } catch (error: any) {
+        await client.query('ROLLBACK');
+        return { success: false, error: error.message };
     } finally {
         client.release();
     }
@@ -452,13 +556,27 @@ export async function getQueueStatusSecure(
 
     try {
         const result = await query(`
-            SELECT * FROM queue_tickets
-            WHERE branch_id = $1 AND status IN ('WAITING', 'CALLED')
-            ORDER BY created_at ASC
+            SELECT qt.*, t.name as terminal_name 
+            FROM queue_tickets qt
+            LEFT JOIN terminals t ON qt.terminal_id = t.id
+            WHERE qt.branch_id = $1 AND qt.status IN ('WAITING', 'CALLED')
+            ORDER BY qt.created_at ASC
+        `, [branchId]);
+
+        // Fetch recent history (COMPLETED tickets)
+        const historyRes = await query(`
+            SELECT qt.*, t.name as terminal_name 
+            FROM queue_tickets qt
+            LEFT JOIN terminals t ON qt.terminal_id = t.id
+            WHERE qt.branch_id = $1 AND qt.status IN ('COMPLETED', 'NO_SHOW')
+            AND DATE(qt.created_at) = CURRENT_DATE
+            ORDER BY COALESCE(qt.completed_at, qt.cancelled_at) DESC
+            LIMIT 5
         `, [branchId]);
 
         const waiting = result.rows.filter(t => t.status === 'WAITING');
         const called = result.rows.filter(t => t.status === 'CALLED');
+        const completed = historyRes.rows;
 
         return {
             success: true,
@@ -466,6 +584,7 @@ export async function getQueueStatusSecure(
                 waitingCount: waiting.length,
                 currentTicket: called[0] || null, // Legacy: first called ticket
                 calledTickets: called, // New: all called tickets
+                lastCompletedTickets: completed, // New: history
                 waitingTickets: waiting,
                 estimatedWaitMinutes: waiting.length * 5,
             },
@@ -548,11 +667,9 @@ export async function resetQueueSecure(
         // Cancelar todos los tickets WAITING y CALLED de hoy (usar NO_SHOW ya que CANCELLED no existe en el enum)
         const result = await query(`
             UPDATE queue_tickets
-            SET status = 'NO_SHOW', 
-                notes = 'Reseteado por usuario'
+            SET status = 'NO_SHOW'
             WHERE branch_id = $1 
             AND status IN ('WAITING', 'CALLED')
-            AND DATE(created_at) = CURRENT_DATE
             RETURNING id
         `, [branchId]);
 

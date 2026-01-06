@@ -1,87 +1,76 @@
 /**
- * QueueWidget - Ultra Compact Version
- * Se integra en la barra superior del POS, mínimo espacio visual
+ * QueueWidget - Versión Compacta con Menú
+ * Ahorra espacio horizontal moviendo acciones secundarias al dropdown.
  */
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { usePharmaStore } from '../../store/useStore';
-import { Users, Bell, RefreshCw, Check, RotateCcw, ChevronDown, X, Volume2, ArrowRight, MousePointerClick } from 'lucide-react';
-import { getQueueStatusSecure, getNextTicketSecure, completeTicketSecure, resetQueueSecure, cancelTicketSecure, recallTicketSecure } from '../../../actions/queue-v2';
+import { Users, RefreshCw, Check, RotateCcw, ChevronDown, X, Volume2, ArrowRight, MousePointerClick, MoreVertical } from 'lucide-react';
+import { completeTicketSecure, resetQueueSecure, cancelTicketSecure, recallTicketSecure } from '../../../actions/queue-v2';
 import { toast } from 'sonner';
 
-interface QueueTicket {
-    id: string;
-    code: string;
-    type: 'GENERAL' | 'PREFERENTIAL';
-    status: 'WAITING' | 'CALLED' | 'COMPLETED';
-    customer_name?: string;
-    created_at: string;
-    called_by?: string;
-    terminal_id?: string;
-}
+// QueueTicket imported from types
+
 
 const QueueWidget: React.FC = () => {
-    const { user, currentLocationId, currentTerminalId } = usePharmaStore();
+    const {
+        user,
+        currentLocationId,
+        currentTerminalId,
+        currentTicket,
+        tickets: waitingTickets,
+        setCurrentTicket,
+        refreshQueueStatus,
+        callNextTicket,
+        completeAndNextTicket
+    } = usePharmaStore();
 
-    const [waitingTickets, setWaitingTickets] = useState<QueueTicket[]>([]);
-    const [currentTicket, setCurrentTicket] = useState<QueueTicket | null>(null);
-    const [calledTickets, setCalledTickets] = useState<QueueTicket[]>([]); // Track all active
     const [loading, setLoading] = useState(false);
     const [showDropdown, setShowDropdown] = useState(false);
+    const lastActionTimeRef = useRef(0);
 
-    // Fetch queue status
-    const fetchStatus = useCallback(async () => {
-        if (!currentLocationId) return;
-        try {
-            const result = await getQueueStatusSecure(currentLocationId);
-            if (result.success && result.data) {
-                setWaitingTickets(result.data.waitingTickets || []);
-                setCalledTickets(result.data.calledTickets || []);
-
-                // Find MY active ticket (Prioritize Terminal Match)
-                const allCalled = result.data.calledTickets || [];
-                let myTicket = null;
-
-                if (currentTerminalId) {
-                    myTicket = allCalled.find((t: QueueTicket) => t.terminal_id === currentTerminalId);
-                }
-
-                // Fallback to User Match if no terminal match (or terminal not set yet)
-                if (!myTicket && user?.id) {
-                    myTicket = allCalled.find((t: QueueTicket) => t.called_by === user.id);
-                }
-
-                setCurrentTicket(myTicket || null);
-            }
-        } catch (e) {
-            console.error('Error fetching queue', e);
-        }
-    }, [currentLocationId, user?.id, currentTerminalId]);
-
+    // Polling using Store Action
     useEffect(() => {
-        fetchStatus();
-        const interval = setInterval(fetchStatus, 10000);
+        refreshQueueStatus();
+        const interval = setInterval(refreshQueueStatus, 5000);
         return () => clearInterval(interval);
-    }, [fetchStatus]);
+    }, [refreshQueueStatus]);
 
-    // Call next ticket
-    const handleCallNext = async () => {
+    // Actions
+    const handleCallNext = async (e?: React.MouseEvent) => {
+        e?.stopPropagation();
         if (!currentTerminalId || !user?.id || !currentLocationId) {
-            toast.error('Terminal/usuario/sucursal no configurado');
+            toast.error('Terminal error');
             return;
         }
 
         setLoading(true);
         try {
-            const result = await getNextTicketSecure(currentLocationId, user.id, currentTerminalId);
-            if (result.success && result.ticket) {
-                setCurrentTicket(result.ticket);
-                toast.success(`🔔 ${result.ticket.code}`, { duration: 2000 });
-                // Refrescar lista
-                setTimeout(fetchStatus, 500);
-            } else if (result.success && !result.ticket) {
-                toast.info('Sin tickets en espera');
+            const ticket = await callNextTicket(currentTerminalId);
+            if (ticket) {
+                toast.success(`🔔 ${ticket.number}`, { duration: 2000 });
             } else {
-                toast.error(result.error || 'Error');
+                toast.info('Sin tickets', { duration: 1000 });
+            }
+        } catch (e: any) {
+            toast.error(e.message || 'Error');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleComplete = async () => {
+        if (!currentTicket || !user?.id) return;
+        setLoading(true);
+        try {
+            // We use direct action for simple complete as we didn't add completeTicket to store yet
+            // But we can use completeTicketSecure and then nullify current ticket in store
+            const result = await completeTicketSecure(currentTicket.id, user.id);
+            if (result.success) {
+                toast.success('Ticket finalizado');
+                setCurrentTicket(null); // Updates store and timestamp
+                await refreshQueueStatus(); // Force backend sync immediately
+            } else {
+                toast.error(result.error);
             }
         } catch (e: any) {
             toast.error(e.message);
@@ -90,226 +79,238 @@ const QueueWidget: React.FC = () => {
         }
     };
 
-    // Complete current ticket
-    const handleComplete = async () => {
-        if (!currentTicket || !user?.id) return;
+    const handleCompleteAndNext = async (e?: React.MouseEvent) => {
+        e?.stopPropagation();
+        if (!currentTicket || !currentLocationId || !user?.id) return;
+        setLoading(true);
         try {
-            const result = await completeTicketSecure(currentTicket.id, user.id);
-            if (result.success) {
-                toast.success(`✓ ${currentTicket.code}`);
-                setCurrentTicket(null);
-                fetchStatus();
+            const result = await completeAndNextTicket(currentTerminalId || '', currentTicket.id);
+
+            if (result.completedTicket) {
+                toast.success('Ticket finalizado');
+            } else {
+                console.warn('Previous ticket not confirmed as completed');
             }
+
+            if (result.nextTicket) {
+                toast.success(`🔔 ${result.nextTicket.number}`);
+            } else {
+                toast.info('No hay más tickets', { duration: 1500 });
+            }
+            await refreshQueueStatus();
         } catch (e: any) {
-            toast.error(e.message);
+            toast.error(e.message || 'Error');
+        } finally {
+            setLoading(false);
         }
     };
 
-    // Reset all tickets (admin function)
-    const handleReset = async () => {
-        if (!currentLocationId || !user?.id) return;
-        if (!confirm('¿Resetear TODOS los tickets de hoy?')) return;
+    const handleRecall = async () => {
+        if (!currentTicket || !user?.id) return;
+        setLoading(true);
+        try {
+            await recallTicketSecure(currentTicket.id, user.id);
+            toast.message('📢 Re-llamando...', { duration: 1000 }); // Keep subtle feedback for recall
+            lastActionTimeRef.current = Date.now();
+        } finally {
+            setLoading(false);
+        }
+    };
 
+    const handleNoShow = async () => {
+        if (!currentTicket) return;
+        // Removed confirm() as requested
+        setLoading(true);
+        try {
+            await cancelTicketSecure(currentTicket.id, 'No se presentó');
+            toast.info('Marcado No Show', { duration: 1500 });
+            setCurrentTicket(null);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleResetQueue = async () => {
+        if (!user?.id || !currentLocationId) return;
+        if (!confirm('⚠️ ¿ESTÁS SEGURO?\n\nEsto borrará TODOS los tickets de la fila actual y reiniciará el contador.\nEsta acción no se puede deshacer.')) return;
+
+        setLoading(true);
         try {
             const result = await resetQueueSecure(currentLocationId, user.id);
             if (result.success) {
-                toast.success('Cola reseteada');
-                setWaitingTickets([]);
-                setCurrentTicket(null);
-                fetchStatus();
+                toast.success('Cola reiniciada correctamente');
+                refreshQueueStatus();
+                setShowDropdown(false);
             } else {
-                toast.error(result.error || 'Error');
+                toast.error(result.error || 'Error al reiniciar cola');
             }
-        } catch (e: any) {
-            toast.error(e.message);
+        } catch (e) {
+            toast.error('Error de conexión');
+        } finally {
+            setLoading(false);
         }
     };
 
+    // Dropdown Handlers
+    const containerRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+                setShowDropdown(false);
+            }
+        }
+        if (showDropdown) document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [showDropdown]);
+
     const count = waitingTickets.length;
+    const hasTicket = !!currentTicket;
 
     return (
-        <div className="relative inline-flex items-center gap-1 bg-slate-50 rounded-lg border border-slate-200 px-2 py-1">
-            {/* Status Badge */}
-            <div className="flex items-center gap-1.5">
-                <Users size={14} className="text-slate-500" />
-                <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${count > 0 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'
-                    }`}>
-                    {count}
-                </span>
-            </div>
-
-            {/* Current Ticket or Call Button */}
-            {/* Current Ticket or Call Button */}
-            {currentTicket ? (
-                <div className="flex items-center gap-1 bg-blue-100 px-2 py-0.5 rounded border border-blue-200 animate-in fade-in slide-in-from-right-2 duration-300">
-                    <span className="text-sm font-black text-blue-700 min-w-[3rem] text-center">{currentTicket.code}</span>
-
-                    {/* Re-Call */}
-                    <button
-                        onClick={async () => {
-                            if (!currentTicket || !user?.id || loading) return;
-                            setLoading(true);
-                            try {
-                                const res = await recallTicketSecure(currentTicket.id, user.id);
-                                if (res.success) toast.info('📢 Ticket re-llamado');
-                                else toast.error(res.error || 'Error re-llamando');
-                            } catch (e: any) {
-                                toast.error(e.message);
-                            } finally {
-                                setLoading(false);
-                            }
-                        }}
-                        disabled={loading}
-                        className="p-1 bg-blue-500 text-white rounded hover:bg-blue-600 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Re-Llamar (Anunciar de nuevo)"
-                    >
-                        <Volume2 size={14} />
-                    </button>
-
-                    {/* No Show */}
-                    <button
-                        onClick={async () => {
-                            if (!currentTicket || loading) return;
-                            if (!confirm('¿Marcar como NO PRESENTÓ?')) return;
-                            setLoading(true);
-                            try {
-                                const result = await cancelTicketSecure(currentTicket.id, 'No se presentó');
-                                if (result.success) {
-                                    toast.info('Marcado como No Show');
-                                    setCurrentTicket(null);
-                                    setTimeout(fetchStatus, 300); // Debounce refresh
-                                }
-                            } catch (e: any) {
-                                toast.error(e.message);
-                            } finally {
-                                setLoading(false);
-                            }
-                        }}
-                        disabled={loading}
-                        className="p-1 bg-red-100 text-red-600 rounded hover:bg-red-200 border border-red-200 disabled:opacity-50"
-                        title="Cliente No Presentó"
-                    >
-                        <X size={14} />
-                    </button>
-
-                    {/* Complete */}
-                    <button
-                        onClick={async () => {
-                            if (loading) return;
-                            setLoading(true);
-                            await handleComplete();
-                            setLoading(false);
-                        }}
-                        disabled={loading}
-                        className="p-1 bg-green-500 text-white rounded hover:bg-green-600 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Finalizar Atención"
-                    >
-                        <Check size={14} />
-                    </button>
-
-                    {/* Complete & Next */}
-                    <button
-                        onClick={async () => {
-                            if (loading) return;
-                            setLoading(true);
-                            await handleComplete();
-                            // Small delay to ensure DB update before calling next
-                            setTimeout(() => {
-                                handleCallNext();
-                                // Note: handleCallNext handles setLoading(false) internally? 
-                                // Actually handleCallNext sets loading=true at start and false at end.
-                                // But since handleComplete is async and we wait for it, we are safe.
-                                // We leave loading=true here to prevent double clicks during the transition.
-                            }, 300);
-                        }}
-                        disabled={loading}
-                        className="p-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 shadow-sm ml-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Finalizar y Llamar Siguiente"
-                    >
-                        <ArrowRight size={14} />
-                    </button>
-                </div>
-            ) : (
-                <button
-                    onClick={handleCallNext}
-                    disabled={loading || waitingTickets.length === 0}
-                    className="flex items-center gap-1.5 px-3 py-1 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed shadow-sm transition-all active:scale-95"
-                >
-                    <MousePointerClick size={14} />
-                    {loading ? '...' : (waitingTickets.length > 0 ? 'Llamar Siguiente' : 'Sin espera')}
-                </button>
-            )}
-
-            {/* Dropdown Toggle */}
+        <div ref={containerRef} className="relative">
+            {/* Main Trigger Button */}
             <button
                 onClick={() => setShowDropdown(!showDropdown)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100"
+                className={`
+                    flex items-center gap-2 h-10 px-3 rounded-xl border border-slate-200 transition-all shadow-sm outline-none
+                    ${hasTicket ? 'bg-indigo-50 border-indigo-200' : 'bg-white hover:bg-slate-50'}
+                    ${showDropdown ? 'ring-2 ring-indigo-500/20' : ''}
+                `}
             >
-                <ChevronDown size={14} className={`transition-transform ${showDropdown ? 'rotate-180' : ''}`} />
+                {/* Badge/Icon */}
+                <div className={`
+                    flex items-center justify-center w-6 h-6 rounded-lg text-xs font-bold
+                    ${count > 0 ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-500'}
+                `}>
+                    {count}
+                </div>
+
+                {/* Label */}
+                <div className="flex flex-col items-start leading-none mr-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Fila</span>
+                    <span className={`text-sm font-bold ${hasTicket ? 'text-indigo-700' : 'text-slate-700'}`}>
+                        {currentTicket ? currentTicket.number : 'Gestión'}
+                    </span>
+                </div>
+
+                <ChevronDown size={14} className={`text-slate-400 transition-transform ${showDropdown ? 'rotate-180' : ''}`} />
             </button>
 
             {/* Dropdown Menu */}
             {showDropdown && (
-                <div className="absolute top-full right-0 mt-1 bg-white rounded-lg shadow-xl border border-slate-200 z-50 min-w-48">
-                    <div className="p-2 border-b border-slate-100 flex justify-between items-center">
-                        <span className="text-xs font-bold text-slate-600">Cola de Espera</span>
+                <div className="absolute top-12 left-0 z-50 w-72 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+
+                    {/* Header Status */}
+                    <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+                        <span className="text-xs font-bold text-slate-500 uppercase">
+                            {hasTicket ? 'En Atención' : 'Control de Fila'}
+                        </span>
                         <div className="flex gap-1">
-                            <button onClick={fetchStatus} className="p-1 text-slate-400 hover:text-blue-600 rounded hover:bg-slate-50">
-                                <RefreshCw size={12} />
+                            <button onClick={refreshQueueStatus} className="p-1 hover:bg-slate-200 rounded text-slate-400" title="Actualizar"><RefreshCw size={12} /></button>
+                            <button onClick={handleResetQueue} className="p-1 hover:bg-red-100 rounded text-slate-400 hover:text-red-500" title="Resetear Fila"><RotateCcw size={12} /></button>
+                        </div>
+                    </div>
+
+                    {/* ACTIONS SECTION */}
+                    <div className="p-3 grid gap-2">
+                        {/* Primary Action Button */}
+                        <button
+                            onClick={async (e) => {
+                                hasTicket ? await handleCompleteAndNext(e) : await handleCallNext(e);
+                                setShowDropdown(false);
+                            }}
+                            disabled={loading || (!hasTicket && count === 0)}
+                            className={`
+                                w-full py-3 px-4 rounded-lg flex items-center justify-center gap-2 font-bold text-sm text-white shadow-md transition-all
+                                ${hasTicket
+                                    ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'
+                                    : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200 disabled:bg-slate-100 disabled:text-slate-300 disabled:shadow-none'
+                                }
+                            `}
+                        >
+                            {loading ? <RefreshCw className="animate-spin" size={16} /> : (hasTicket ? <ArrowRight size={18} /> : <Volume2 size={18} />)}
+                            <span>{hasTicket ? 'Terminar y Siguiente' : 'Llamar Siguiente'}</span>
+                        </button>
+
+                        {/* Secondary Actions Grid (Always visible) */}
+                        <div className="grid grid-cols-3 gap-2 mt-1">
+                            <button
+                                onClick={handleRecall}
+                                disabled={!hasTicket}
+                                className={`
+                                    flex flex-col items-center justify-center gap-1 p-2 rounded-lg border transition-colors
+                                    ${hasTicket
+                                        ? 'bg-slate-50 hover:bg-blue-50 text-slate-600 hover:text-blue-600 border-slate-200 shadow-sm'
+                                        : 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed opacity-70'}
+                                `}
+                            >
+                                <Volume2 size={16} />
+                                <span className="text-[10px] font-bold">Rellamar</span>
                             </button>
-                            <button onClick={handleReset} className="p-1 text-slate-400 hover:text-red-600 rounded hover:bg-red-50" title="Resetear cola">
-                                <RotateCcw size={12} />
+
+                            <button
+                                onClick={handleNoShow}
+                                disabled={!hasTicket}
+                                className={`
+                                    flex flex-col items-center justify-center gap-1 p-2 rounded-lg border transition-colors
+                                    ${hasTicket
+                                        ? 'bg-slate-50 hover:bg-red-50 text-slate-600 hover:text-red-600 border-slate-200 shadow-sm'
+                                        : 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed opacity-70'}
+                                `}
+                            >
+                                <X size={16} />
+                                <span className="text-[10px] font-bold">Ausente</span>
+                            </button>
+
+                            <button
+                                onClick={handleComplete}
+                                disabled={!hasTicket}
+                                className={`
+                                    flex flex-col items-center justify-center gap-1 p-2 rounded-lg border transition-colors
+                                    ${hasTicket
+                                        ? 'bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-emerald-600 border-slate-200 shadow-sm'
+                                        : 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed opacity-70'}
+                                `}
+                            >
+                                <Check size={16} />
+                                <span className="text-[10px] font-bold">Finalizar</span>
                             </button>
                         </div>
                     </div>
 
-                    <div className="max-h-60 overflow-y-auto p-2">
-                        {/* 1. Active Calls */}
-                        {calledTickets.length > 0 && (
-                            <div className="mb-2">
-                                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-1 px-1">En Atención / Llamados</p>
-                                <div className="space-y-1">
-                                    {calledTickets.map((t) => (
-                                        <div key={t.id} className="flex items-center justify-between px-2 py-1 rounded text-xs bg-blue-50 border border-blue-100">
-                                            <div className="flex items-center gap-2">
-                                                <span className="font-black text-blue-700">{t.code}</span>
-                                                {t.terminal_id && (
-                                                    <span className="px-1 py-0.5 bg-white rounded border border-blue-200 text-[10px] text-blue-500">
-                                                        {t.terminal_id === currentTerminalId ? 'Tu terminal' : 'Otro terminal'}
-                                                    </span>
+                    {/* Waiting List Section */}
+                    <div className="border-t border-slate-100">
+                        <div className="px-3 py-2 bg-slate-50/50 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                            En Espera ({waitingTickets.length})
+                        </div>
+                        <div className="max-h-48 overflow-y-auto w-full bg-white">
+                            {waitingTickets.length === 0 ? (
+                                <div className="py-8 text-center text-slate-300 flex flex-col items-center gap-2">
+                                    <Users size={24} className="opacity-20" />
+                                    <span className="text-xs">Cola vacía</span>
+                                </div>
+                            ) : (
+                                <div className="divide-y divide-slate-50">
+                                    {waitingTickets.slice(0, 50).map((t) => (
+                                        <div key={t.id} className={`flex items-center justify-between px-4 py-2.5 text-xs hover:bg-slate-50 ${t.type === 'PREFERENTIAL' ? 'bg-purple-50/30' : ''}`}>
+                                            <div className="flex items-center gap-3">
+                                                <div className={`font-black text-sm ${t.type === 'PREFERENTIAL' ? 'text-purple-600' : 'text-slate-700'}`}>
+                                                    {t.number}
+                                                </div>
+                                                {t.type === 'PREFERENTIAL' && (
+                                                    <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 text-[9px] rounded font-bold">PREF</span>
                                                 )}
                                             </div>
-                                            <div className="flex flex-col text-right">
-                                                <span className="text-[10px] text-slate-500 truncate max-w-[80px]">
-                                                    {/* Try to show box number if available or user name if needed */}
-                                                    {t.terminal_id ? 'Caja Ocupada' : 'En Atención'}
-                                                </span>
-                                            </div>
+                                            <span className="font-mono text-[10px] text-slate-400">
+                                                {new Date(t.timestamp).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
                                         </div>
                                     ))}
                                 </div>
-                                <div className="h-px bg-slate-100 my-2"></div>
-                            </div>
-                        )}
-
-                        {/* 2. Waiting */}
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 px-1">En Espera</p>
-                        {waitingTickets.length === 0 ? (
-                            <p className="text-xs text-slate-400 text-center py-2">Sin tickets</p>
-                        ) : (
-                            <div className="space-y-1">
-                                {waitingTickets.slice(0, 8).map((t) => (
-                                    <div key={t.id} className={`flex items-center justify-between px-2 py-1 rounded text-xs ${t.type === 'PREFERENTIAL' ? 'bg-purple-50 text-purple-700' : 'bg-slate-50 text-slate-700'
-                                        }`}>
-                                        <span className="font-bold">{t.code}</span>
-                                        <span className="text-slate-400">
-                                            {new Date(t.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
-                                        </span>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
+
                 </div>
             )}
         </div>

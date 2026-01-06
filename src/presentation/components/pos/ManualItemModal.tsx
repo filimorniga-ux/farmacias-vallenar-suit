@@ -19,7 +19,7 @@ const ManualItemModal: React.FC<ManualItemModalProps> = ({ isOpen, onConfirm, on
         if (description && price) {
             onConfirm({
                 description,
-                price: parseInt(price),
+                price: parseInt(price.replace(/\./g, '')),
                 quantity: parseInt(quantity)
             });
             // Reset
@@ -61,7 +61,17 @@ const ManualItemModal: React.FC<ManualItemModalProps> = ({ isOpen, onConfirm, on
                                     className="w-full pl-8 pr-3 py-3 border-2 border-slate-200 rounded-xl focus:border-cyan-500 focus:outline-none"
                                     placeholder="0"
                                     value={price}
-                                    onChange={(e) => setPrice(e.target.value)}
+                                    onChange={(e) => {
+                                        // Remove non-digits
+                                        const rawValue = e.target.value.replace(/\D/g, '');
+                                        if (!rawValue) {
+                                            setPrice('');
+                                            return;
+                                        }
+                                        // Format with thousands separator
+                                        const numberValue = parseInt(rawValue, 10);
+                                        setPrice(numberValue.toLocaleString('es-CL'));
+                                    }}
                                 />
                             </div>
                         </div>

@@ -290,12 +290,25 @@ export const TigerDataService = {
     async fetchSalesHistory(
         locationId?: string,
         startDate?: number,
-        endDate?: number
+        endDate?: number,
+        sessionId?: string
     ): Promise<SaleTransaction[]> {
-        console.log('🐯 [Tiger Data] Fetching sales history from DB...');
+        console.log(`🐯 [Tiger Data] Fetching sales history... Loc:${locationId} Session:${sessionId}`);
         try {
             const { getSalesHistory } = await import('../../actions/sales-v2');
-            const result = await getSalesHistory({ limit: 100 });
+
+            // Convert timestamps to YYYY-MM-DD
+            const start = startDate ? new Date(startDate).toISOString().split('T')[0] : undefined;
+            const end = endDate ? new Date(endDate).toISOString().split('T')[0] : undefined;
+
+            const result = await getSalesHistory({
+                limit: 200, // Aumentamos límite para turnos ocupados
+                locationId,
+                sessionId,
+                startDate: start,
+                endDate: end
+            });
+
             if (result.success && result.data) {
                 console.log(`✅ [Tiger Data] Loaded ${result.data.length} sales from DB`);
                 inMemoryStorage.sales = result.data as any;

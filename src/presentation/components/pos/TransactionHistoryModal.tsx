@@ -1,9 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { usePharmaStore } from '../../../presentation/store/useStore';
 import { useLocationStore } from '../../../presentation/store/useLocationStore';
 import { useSettingsStore } from '../../../presentation/store/useSettingsStore';
-import { X, Search, Calendar, Printer, Eye, Lock, FileText, Download, User, RotateCcw } from 'lucide-react';
+import { X, Search, Calendar, Printer, Lock, FileText, Download, User, RotateCcw, Loader2, RefreshCw, AlertCircle, TrendingUp, TrendingDown, DollarSign } from 'lucide-react';
 import { exportSalesHistorySecure } from '../../../actions/pos-export-v2';
+import { getCashMovementHistory } from '../../../actions/cash-management-v2'; // Unified Endpoint
+import { getSaleDetailsSecure } from '../../../actions/sales-v2'; // NEW: Details
+import { validateSupervisorPin } from '../../../actions/auth-v2';
 import { toast } from 'sonner';
 import { printSaleTicket } from '../../utils/print-utils';
 import { SaleTransaction } from '../../../domain/types';
@@ -12,100 +15,366 @@ import ReturnsModal from './ReturnsModal';
 interface TransactionHistoryModalProps {
     isOpen: boolean;
     onClose: () => void;
+    locationId?: string;
+    initialPaymentMethod?: string; // Can be 'ALL', 'CASH', 'EXTRA_INCOME', 'EXPENSE', etc.
 }
 
-const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpen, onClose }) => {
-    const { salesHistory, employees, cashMovements, expenses, user } = usePharmaStore();
-    const { currentLocation } = useLocationStore();
+const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpen, onClose, locationId, initialPaymentMethod }) => {
+    // Stores
+    const { employees, user, currentLocationId: pharmaLocationId, currentShift } = usePharmaStore();
+    const { currentLocation: storeLocation } = useLocationStore();
+    const activeLocationId = locationId || storeLocation?.id || pharmaLocationId;
     const { hardware } = useSettingsStore();
+
+    // Local State
     const [adminPin, setAdminPin] = useState('');
     const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [isValidatingPin, setIsValidatingPin] = useState(false);
+
+    // Data State
+    const [transactions, setTransactions] = useState<any[]>([]); // Mixed types
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     const [isExporting, setIsExporting] = useState(false);
 
     // Filters
     const [searchTerm, setSearchTerm] = useState('');
-    const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
-    const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+    const [filterType, setFilterType] = useState('ALL'); // Consolidated filter (Payment Method OR Transaction Type)
+    const [startDate, setStartDate] = useState(() => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    });
+    const [endDate, setEndDate] = useState(() => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    });
 
     // Detail View
-    const [selectedSale, setSelectedSale] = useState<SaleTransaction | null>(null);
+    const [selectedItem, setSelectedItem] = useState<any | null>(null);
+    const [isLoadingDetails, setIsLoadingDetails] = useState(false); // NEW
     const [isReturnsModalOpen, setIsReturnsModalOpen] = useState(false);
 
-    const handleLogin = () => {
-        const admin = employees.find(e => (e.role === 'ADMIN' || e.role === 'MANAGER') && e.access_pin === adminPin);
-        if (admin) {
-            setIsAuthenticated(true);
-            toast.success('Acceso autorizado');
-        } else {
-            toast.error('PIN inválido');
-            setAdminPin('');
+    // 1. Authenticate with PIN
+    const handleLogin = async () => {
+        if (!adminPin) return;
+
+        setIsValidatingPin(true);
+        try {
+            const result = await validateSupervisorPin(adminPin, 'SALES_HISTORY_VIEW', user?.id);
+
+            if (result.success) {
+                setIsAuthenticated(true);
+                toast.success(`Acceso autorizado: ${result.supervisorName || 'Supervisor'}`);
+            } else {
+                toast.error(result.error || 'PIN inválido');
+                setAdminPin('');
+            }
+        } catch (err) {
+            toast.error('Error de validación');
+            console.error(err);
+        } finally {
+            setIsValidatingPin(false);
         }
     };
 
-    const filteredSales = useMemo(() => {
-        const start = new Date(startDate).setHours(0, 0, 0, 0);
-        const end = new Date(endDate).setHours(23, 59, 59, 999);
+    // 2. Fetch Unified History
+    const fetchHistory = useCallback(async () => {
+        console.log('🔍 [Frontend] fetchHistory triggered. Auth:', isAuthenticated, 'Loc:', activeLocationId);
 
-        return salesHistory.filter(sale => {
-            const matchesDate = sale.timestamp >= start && sale.timestamp <= end;
-            const matchesSearch =
-                sale.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (sale.customer?.fullName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (sale.dte_folio || '').includes(searchTerm);
+        if (!isAuthenticated || !activeLocationId) return;
 
-            return matchesDate && matchesSearch;
-        }).sort((a, b) => b.timestamp - a.timestamp);
-    }, [salesHistory, searchTerm, startDate, endDate]);
+        setIsLoading(true);
+        setError(null);
 
-    const handleReprint = (sale: SaleTransaction) => {
-        printSaleTicket(sale, currentLocation?.config, hardware);
-        toast.success('Reimprimiendo ticket...');
+        try {
+            // Determine params based on filterType
+            // filterType can be: 'ALL', 'CASH', 'DEBIT', 'CREDIT', 'TRANSFER', 'EXTRA_INCOME', 'EXPENSE', 'WITHDRAWAL'
+
+            // If filterType is a MOVEMENT type, we pass it as 'paymentMethod' (abusing the param slightly or handling in backend)
+            // Implementation detail: getCashMovementHistory uses `paymentMethod` param.
+            // If usage requires distinct separation, we rely on `getCashMovementHistory` logic.
+            // Based on earlier analysis, `getCashMovementHistory` filters sales by payment_method, but hides movements if payment_method != CASH.
+            // We need to ensure we can fetch JUST movements if requested.
+            // The unified endpoint might need tweak if "EXPENSE" isn't a payment method.
+            // Let's assume for now we pass it and backend handles or ignores if not matching Sale methods.
+            // Actually, looking at `getCashMovementHistory`:
+            // It has `paymentMethod` and hides movements if `paymentMethod` is not 'CASH'.
+            // It does NOT seem to have a `type` filter explicitly exposed in schema?
+            // Wait, schema has `paymentMethod`.
+            // If I want to show "Expenses", I probably need to fetch ALL and filter locally OR update backend.
+            // Let's try passing 'ALL' to backend and filtering locally if needed, OR relies on Search Term?
+            // Actually, if I pass 'CASH', I get Cash Sales + Movements.
+            // If I pass 'DEBIT', I get Debit Sales.
+            // Users want to filter specifically "INGRESOS" (Extra Income) or "SALIDAS" (Expense).
+            // I might need to filter client-side if the backend doesn't support strict type filtering yet.
+            // Let's pass 'ALL' if it's a movement type to get everything, then filter in frontend? 
+            // Better: Let's assume standard fetching and client-side filter for now to guarantee functionality without backend risks.
+
+            const isMovementFilter = ['EXTRA_INCOME', 'EXPENSE', 'WITHDRAWAL'].includes(filterType);
+            const backendPaymentMethod = isMovementFilter ? undefined : (filterType === 'ALL' ? undefined : filterType);
+
+            // Ensure we cover the full day in local time
+            // We construct the dates to be explicitly 00:00:00 to 23:59:59 in the local environment
+            // This prevents the backend from receiving a UTC-midnight-started date that might cut off evening transactions in negative timezones (like Chile -3/-4)
+            // Manual parse to fix timezone UTC issue
+            const [sY, sM, sD] = startDate.split('-').map(Number);
+            const start = new Date(sY, sM - 1, sD, 0, 0, 0, 0);
+
+            const [eY, eM, eD] = endDate.split('-').map(Number);
+            const end = new Date(eY, eM - 1, eD, 23, 59, 59, 999);
+
+            const result = await getCashMovementHistory({
+                terminalId: undefined, // specific terminal or all in location? usually all
+                sessionId: undefined, // Removed restriction to allow viewing history across sessions/days
+                startDate: start,
+                endDate: end,
+                paymentMethod: backendPaymentMethod,
+                term: searchTerm.trim() || undefined,
+                page: 1,
+                pageSize: 100 // Reasonable limit
+            });
+
+            if (result.success && result.data) {
+                let data = result.data.movements;
+
+                // Client-side filtering for specific Movement Types if backend didn't handle it
+                if (filterType === 'EXTRA_INCOME') {
+                    data = data.filter((t: any) => t.type === 'EXTRA_INCOME');
+                } else if (filterType === 'EXPENSE') {
+                    data = data.filter((t: any) => t.type === 'EXPENSE' || t.type === 'WITHDRAWAL');
+                }
+
+                setTransactions(data);
+            } else {
+                setError(result.error || 'Error al cargar historial');
+            }
+        } catch (err) {
+            console.error(err);
+            setError('Error de conexión');
+        } finally {
+            setIsLoading(false);
+        }
+    }, [isAuthenticated, activeLocationId, startDate, endDate, searchTerm, filterType, currentShift?.id]);
+
+    // Trigger fetch on auth or filter changes
+    useEffect(() => {
+        if (isOpen && isAuthenticated) {
+            const timeoutId = setTimeout(() => {
+                fetchHistory();
+            }, 500);
+            return () => clearTimeout(timeoutId);
+        }
+    }, [isOpen, isAuthenticated, fetchHistory]);
+
+    // Reset state on close
+    useEffect(() => {
+        if (isOpen) {
+            setAdminPin('');
+            setTransactions([]);
+            setSelectedItem(null);
+            setFilterType(initialPaymentMethod || 'ALL');
+        } else {
+            setIsAuthenticated(false);
+            setAdminPin('');
+            setTransactions([]);
+            setSelectedItem(null);
+            setFilterType('ALL');
+        }
+    }, [isOpen, initialPaymentMethod]);
+
+    const handleReprint = (item: any) => {
+        if (item.type === 'SALE') {
+            printSaleTicket(item as SaleTransaction, storeLocation?.config, hardware);
+            toast.success('Reimprimiendo ticket...');
+        } else {
+            toast.info('Reimpresión de movimientos de caja no disponible');
+        }
     };
 
     const handleExport = async () => {
         setIsExporting(true);
-        try {
-            const startDateISO = new Date(startDate).toISOString();
-            const endDateISO = new Date(endDate).toISOString();
+        toast.info('Generando Excel...');
 
-            // V2: RBAC automático, firma simplificada
-            const result = await exportSalesHistorySecure({
-                startDate: startDateISO,
-                endDate: endDateISO,
-                locationId: user?.role === 'MANAGER' || user?.role === 'ADMIN' ? undefined : user?.assigned_location_id,
+        try {
+            // Manual parse to fix timezone UTC issue
+            const [sY, sM, sD] = startDate.split('-').map(Number);
+            const start = new Date(sY, sM - 1, sD, 0, 0, 0, 0);
+
+            const [eY, eM, eD] = endDate.split('-').map(Number);
+            const end = new Date(eY, eM - 1, eD, 23, 59, 59, 999);
+
+            const { exportCashMovementHistory } = await import('@/actions/cash-management-v2');
+            const result = await exportCashMovementHistory({
+                terminalId: undefined,
+                sessionId: undefined,
+                startDate: start,
+                endDate: end,
+                paymentMethod: filterType === 'ALL' ? undefined : (['EXTRA_INCOME', 'EXPENSE', 'WITHDRAWAL'].includes(filterType) ? undefined : filterType),
+                term: searchTerm.trim() || undefined,
             });
 
-            if (result.success && result.data) {
-                const link = document.createElement('a');
-                link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${result.data}`;
-                link.download = result.filename || 'reporte_ventas.xlsx';
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                toast.success('Informe exportado correctamente');
-            } else {
-                toast.error('Error al generar el informe: ' + (result.error || 'Desconocido'));
+            if (!result.success || !result.data) {
+                throw new Error(result.error || 'Error obteniendo datos');
             }
 
-        } catch (error) {
-            toast.error('Error en exportación');
+            let data = result.data;
+            if (['EXTRA_INCOME', 'EXPENSE', 'WITHDRAWAL'].includes(filterType)) {
+                data = data.filter(item => item.type === filterType);
+            }
+
+            if (data.length === 0) {
+                toast.info('No hay datos para exportar');
+                setIsExporting(false);
+                return;
+            }
+
+            // --- 1. CALCULATE TOTALS ---
+            const totals: Record<string, number> = {
+                'CASH': 0, 'DEBIT': 0, 'CREDIT': 0, 'TRANSFER': 0, 'CHECK': 0, 'OTHER': 0,
+                'EXTRA_INCOME': 0, 'EXPENSE': 0
+            };
+
+            data.forEach(item => {
+                const amount = Number(item.amount) || 0;
+                if (item.type === 'SALE') {
+                    const method = item.payment_method || 'OTHER';
+                    totals[method] = (totals[method] || 0) + amount;
+                } else if (item.type === 'EXTRA_INCOME') {
+                    totals['EXTRA_INCOME'] += amount;
+                } else if (['EXPENSE', 'WITHDRAWAL'].includes(item.type)) {
+                    totals['EXPENSE'] += amount;
+                }
+            });
+
+            const totalSales = totals['CASH'] + totals['DEBIT'] + totals['CREDIT'] + totals['TRANSFER'] + totals['CHECK'] + totals['OTHER'];
+
+            // --- 2. PREPARE SHEETS ---
+
+            // Sheet 1: RESUMEN
+            const summaryRows = [
+                { Concepto: 'RESUMEN DEL PERIODO', Monto: '' },
+                { Concepto: `${startDate} al ${endDate}`, Monto: '' },
+                { Concepto: '', Monto: '' },
+                { Concepto: 'VENTAS POR MEDIO PAGO', Monto: '' },
+                { Concepto: 'Efectivo', Monto: totals['CASH'] },
+                { Concepto: 'Débito', Monto: totals['DEBIT'] },
+                { Concepto: 'Crédito', Monto: totals['CREDIT'] },
+                { Concepto: 'Transferencia', Monto: totals['TRANSFER'] },
+                { Concepto: 'Cheque', Monto: totals['CHECK'] },
+                { Concepto: 'Otro', Monto: totals['OTHER'] },
+                { Concepto: 'TOTAL VENTAS', Monto: totalSales },
+                { Concepto: '', Monto: '' },
+                { Concepto: 'MOVIMIENTOS DE CAJA', Monto: '' },
+                { Concepto: 'Ingresos Extras (+)', Monto: totals['EXTRA_INCOME'] },
+                { Concepto: 'Gastos / Retiros (-)', Monto: totals['EXPENSE'] },
+                { Concepto: 'FLUJO NETO (Ing - Gas)', Monto: totals['EXTRA_INCOME'] - totals['EXPENSE'] },
+            ];
+
+            // Sheet 2: DETALLE
+            const detailRows = data.map(item => {
+                const isSale = item.type === 'SALE';
+                const method = item.payment_method || 'OTHER';
+                const amount = Number(item.amount) || 0;
+
+                return {
+                    Fecha: new Date(item.timestamp).toLocaleDateString(),
+                    Hora: new Date(item.timestamp).toLocaleTimeString(),
+                    Tipo: isSale ? 'VENTA' : (item.type === 'EXTRA_INCOME' ? 'INGRESO' : 'GASTO/RETIRO'),
+                    Descripción: item.reason,
+                    Usuario: item.user_name || 'Sistema',
+                    Cliente: item.customer_name || (isSale ? 'Anónimo' : '-'),
+                    Documento: item.dte_folio || '-',
+                    'Total Origen': amount, // Columna de referencia
+                    'Efectivo': (isSale && method === 'CASH') ? amount : 0,
+                    'Débito': (isSale && method === 'DEBIT') ? amount : 0,
+                    'Crédito': (isSale && method === 'CREDIT') ? amount : 0,
+                    'Transferencia': (isSale && method === 'TRANSFER') ? amount : 0,
+                    'Ingreso (+)': item.type === 'EXTRA_INCOME' ? amount : 0,
+                    'Salida (-)': ['EXPENSE', 'WITHDRAWAL'].includes(item.type) ? amount : 0
+                };
+            });
+
+            // --- 3. GENERATE FILES ---
+            const XLSX = await import('xlsx');
+            const workbook = XLSX.utils.book_new();
+
+            // Add Summary Sheet
+            const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+            // Adjust column width
+            wsSummary['!cols'] = [{ wch: 30 }, { wch: 15 }];
+            XLSX.utils.book_append_sheet(workbook, wsSummary, "Resumen");
+
+            // Add Detail Sheet
+            const wsDetail = XLSX.utils.json_to_sheet(detailRows);
+            wsDetail['!cols'] = [
+                { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 40 }, // Desc
+                { wch: 20 }, { wch: 20 }, { wch: 10 }, // Doc
+                { wch: 12 }, // Total
+                { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, // Methods
+                { wch: 12 }, { wch: 12 } // In/Out
+            ];
+            XLSX.utils.book_append_sheet(workbook, wsDetail, "Detalle Historial");
+
+            XLSX.writeFile(workbook, `Historial_${startDate}_${endDate}.xlsx`);
+            toast.success('Historial descargado con éxito');
+
+        } catch (error: any) {
             console.error(error);
+            toast.error('Error al exportar: ' + error.message);
         } finally {
             setIsExporting(false);
         }
     };
 
+    // Helper to get Icon and Color based on type
+    const getTypeConfig = (item: any) => {
+        if (item.type === 'SALE') {
+            return {
+                icon: <FileText size={16} />,
+                color: 'text-blue-600',
+                bg: 'bg-blue-50',
+                label: 'VENTA',
+                amountColor: 'text-blue-700'
+            };
+        } else if (item.type === 'EXTRA_INCOME') {
+            return {
+                icon: <TrendingUp size={16} />,
+                color: 'text-emerald-600',
+                bg: 'bg-emerald-50',
+                label: 'INGRESO',
+                amountColor: 'text-emerald-700'
+            };
+        } else if (['EXPENSE', 'WITHDRAWAL'].includes(item.type)) {
+            return {
+                icon: <TrendingDown size={16} />,
+                color: 'text-rose-600',
+                bg: 'bg-rose-50',
+                label: 'GASTO',
+                amountColor: 'text-rose-700'
+            };
+        } else {
+            return {
+                icon: <DollarSign size={16} />,
+                color: 'text-slate-600',
+                bg: 'bg-slate-50',
+                label: item.type,
+                amountColor: 'text-slate-700'
+            };
+        }
+    };
+
     if (!isOpen) return null;
 
+    // LOGIN SCREEN (Unchanged)
     if (!isAuthenticated) {
         return (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
-                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden p-6 text-center">
+            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden p-6 text-center animate-in zoom-in-95 duration-200">
                     <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto text-red-600 mb-4">
                         <Lock size={32} />
                     </div>
                     <h2 className="text-xl font-bold text-slate-800 mb-2">Acceso Restringido</h2>
-                    <p className="text-slate-500 mb-6">Ingrese PIN de Administrador para ver el historial.</p>
+                    <p className="text-slate-500 mb-6">Ingrese PIN de Supervisor/Admin para ver el historial.</p>
 
                     <input
                         type="password"
@@ -113,27 +382,43 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
                         onChange={(e) => setAdminPin(e.target.value)}
                         className="w-full text-center text-2xl tracking-[0.5em] p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none font-mono mb-6"
                         placeholder="••••"
-                        maxLength={4}
+                        maxLength={8}
                         autoFocus
+                        onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                        disabled={isValidatingPin}
                     />
 
                     <div className="flex gap-3">
-                        <button onClick={onClose} className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors">Cancelar</button>
-                        <button onClick={handleLogin} className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl transition-colors">Entrar</button>
+                        <button onClick={onClose} className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors">
+                            Cancelar
+                        </button>
+                        <button
+                            onClick={handleLogin}
+                            disabled={isValidatingPin || adminPin.length < 4}
+                            className="flex-1 py-3 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-colors flex justify-center items-center gap-2"
+                        >
+                            {isValidatingPin ? <Loader2 className="animate-spin" size={20} /> : 'Entrar'}
+                        </button>
                     </div>
                 </div>
             </div>
         );
     }
 
+    // MAIN SCREEN
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col overflow-hidden">
                 {/* Header */}
                 <div className="bg-slate-900 p-6 flex justify-between items-center shrink-0">
-                    <h2 className="text-2xl font-bold text-white flex items-center gap-3">
-                        <FileText className="text-cyan-400" /> Historial de Transacciones
-                    </h2>
+                    <div>
+                        <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                            <FileText className="text-cyan-400" /> Historial de Transacciones
+                        </h2>
+                        <p className="text-slate-400 text-sm mt-1 flex items-center gap-2">
+                            <Lock size={12} /> Acceso Seguro • {storeLocation?.name || 'Sucursal'}
+                        </p>
+                    </div>
                     <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
                         <X size={28} />
                     </button>
@@ -145,7 +430,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
                         <Search className="text-slate-400 ml-2" size={20} />
                         <input
                             type="text"
-                            placeholder="Buscar por ID, Cliente o Folio..."
+                            placeholder="Buscar..."
                             className="w-full outline-none text-slate-700 font-medium"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
@@ -169,137 +454,271 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
                         />
                     </div>
 
-                    <div className="bg-cyan-100 text-cyan-800 px-4 py-2 rounded-xl font-bold text-sm">
-                        Total: {filteredSales.length} ventas
+                    <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-slate-200 shadow-sm">
+                        <select
+                            value={filterType}
+                            onChange={(e) => setFilterType(e.target.value)}
+                            className="outline-none text-slate-700 font-medium bg-transparent cursor-pointer"
+                        >
+                            <option value="ALL">Todo</option>
+                            <option value="CASH">Ventas Efectivo</option>
+                            <option value="DEBIT">Ventas Débito</option>
+                            <option value="CREDIT">Ventas Crédito</option>
+                            <option value="TRANSFER">Ventas Transf.</option>
+                            <option className="font-bold text-emerald-600" value="EXTRA_INCOME">➕ Ingresos Extras</option>
+                            <option className="font-bold text-red-600" value="EXPENSE">➖ Gastos / Retiros</option>
+                        </select>
                     </div>
+
+                    <button
+                        onClick={() => fetchHistory()}
+                        className="p-3 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 transition-colors"
+                        title="Recargar"
+                    >
+                        <RefreshCw size={20} className={isLoading ? "animate-spin" : ""} />
+                    </button>
 
                     <button
                         onClick={handleExport}
                         disabled={isExporting}
                         className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-emerald-700 disabled:opacity-50 transition-colors shadow-sm ml-auto"
                     >
-                        {isExporting ? 'Generando...' : <><Download size={18} /> Exportar Reporte</>}
+                        {isExporting ? 'Exportando...' : <><Download size={18} /> Excel</>}
                     </button>
                 </div>
 
                 {/* Content */}
                 <div className="flex flex-1 overflow-hidden">
-                    {/* List */}
-                    <div className={`${selectedSale ? 'w-1/2 border-r border-slate-200' : 'w-full'} overflow-y-auto p-4 transition-all duration-300`}>
-                        <div className="space-y-3">
-                            {filteredSales.map(sale => (
-                                <div
-                                    key={sale.id}
-                                    onClick={() => setSelectedSale(sale)}
-                                    className={`p-4 rounded-xl border cursor-pointer transition-all hover:shadow-md ${selectedSale?.id === sale.id ? 'bg-cyan-50 border-cyan-300 ring-1 ring-cyan-300' : 'bg-white border-slate-100 hover:border-cyan-200'}`}
-                                >
-                                    <div className="flex justify-between items-start mb-2">
-                                        <div>
-                                            <span className="text-xs font-bold text-slate-400 block mb-1">{new Date(sale.timestamp).toLocaleString()}</span>
-                                            <h3 className="font-bold text-slate-800 text-sm">{sale.id}</h3>
+                    {/* LIST */}
+                    <div className={`${selectedItem ? 'w-1/2 border-r border-slate-200 hidden md:block' : 'w-full'} overflow-y-auto p-4 transition-all duration-300`}>
+                        {isLoading && transactions.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+                                <Loader2 className="animate-spin mb-4" size={48} />
+                                <p>Cargando registros...</p>
+                            </div>
+                        ) : error ? (
+                            <div className="flex flex-col items-center justify-center h-64 text-red-500">
+                                <AlertCircle size={48} className="mb-4" />
+                                <p className="font-bold">{error}</p>
+                            </div>
+                        ) : transactions.length === 0 ? (
+                            <div className="text-center py-12 text-slate-400">
+                                <Search size={48} className="mx-auto mb-4 opacity-20" />
+                                <p>No se encontraron registros</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                {transactions.map(item => {
+                                    const conf = getTypeConfig(item);
+                                    return (
+                                        <div
+                                            key={item.id}
+                                            onClick={async () => {
+                                                if (item.type === 'SALE') {
+                                                    setIsLoadingDetails(true);
+                                                    setSelectedItem(item); // Optimistic / Placeholder
+                                                    try {
+                                                        const details = await getSaleDetailsSecure(item.id);
+                                                        if (details) {
+                                                            setSelectedItem((prev: any) => prev?.id === item.id ? { ...prev, ...details } : prev);
+                                                        } else {
+                                                            toast.error('No se pudieron cargar los detalles');
+                                                        }
+                                                    } catch (e) {
+                                                        console.error(e);
+                                                    } finally {
+                                                        setIsLoadingDetails(false);
+                                                    }
+                                                } else {
+                                                    setSelectedItem(item);
+                                                }
+                                            }}
+                                            className={`p-4 rounded-xl border cursor-pointer transition-all hover:shadow-md ${selectedItem?.id === item.id ? 'bg-slate-50 border-slate-300 ring-1 ring-slate-300' : 'bg-white border-slate-100 hover:border-slate-200'}`}
+                                        >
+                                            <div className="flex justify-between items-start mb-2">
+                                                <div>
+                                                    <span className="text-xs font-bold text-slate-400 block mb-1">
+                                                        {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {new Date(item.timestamp).toLocaleDateString()}
+                                                    </span>
+                                                    <h3 className="font-bold text-slate-800 text-sm truncate max-w-[200px]">
+                                                        {item.type === 'SALE' ? `Venta #${item.reason?.split('#')[1] || item.id.slice(0, 6)}` : item.type === 'EXTRA_INCOME' ? 'Ingreso Extra' : 'Gasto / Retiro'}
+                                                    </h3>
+                                                </div>
+                                                <span className={`px-2 py-1 rounded text-xs font-bold ${conf.color} ${conf.bg}`}>
+                                                    {conf.label}
+                                                </span>
+                                            </div>
+
+                                            <div className="flex justify-between items-center">
+                                                <div className="flex flex-col gap-1">
+                                                    <div className="flex items-center gap-2 text-xs text-slate-500">
+                                                        <User size={14} />
+                                                        <span className="truncate max-w-[140px]">{item.user_name || 'Sistema'}</span>
+                                                    </div>
+                                                    {item.reason && item.type !== 'SALE' && (
+                                                        <div className="text-xs text-slate-500 italic truncate max-w-[200px]">
+                                                            "{item.reason.replace(/^(EXPENSE|EXTRA_INCOME|WITHDRAWAL): /, '')}"
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="text-right">
+                                                    <span className={`text-lg font-extrabold block ${conf.amountColor}`}>
+                                                        ${Number(item.amount).toLocaleString()}
+                                                    </span>
+                                                    {item.payment_method && item.payment_method !== 'CASH' && (
+                                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 uppercase">
+                                                            {item.payment_method}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </div>
-                                        <span className={`px-2 py-1 rounded text-xs font-bold ${sale.dte_status === 'CONFIRMED_DTE' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                                            {sale.dte_status === 'CONFIRMED_DTE' ? `BOL: ${sale.dte_folio}` : 'VOUCHER'}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between items-center">
-                                        <div className="flex items-center gap-2 text-xs text-slate-500">
-                                            <User size={14} />
-                                            <span>{sale.customer?.fullName || 'Cliente Anónimo'}</span>
-                                        </div>
-                                        <span className="text-lg font-extrabold text-emerald-600">${sale.total.toLocaleString()}</span>
-                                    </div>
-                                </div>
-                            ))}
-                            {filteredSales.length === 0 && (
-                                <div className="text-center py-12 text-slate-400">
-                                    <Search size={48} className="mx-auto mb-4 opacity-20" />
-                                    <p>No se encontraron ventas</p>
-                                </div>
-                            )}
-                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
 
-                    {/* Detail View */}
-                    {selectedSale && (
-                        <div className="w-1/2 flex flex-col bg-slate-50 h-full overflow-hidden animate-in slide-in-from-right duration-300">
+                    {/* DETAIL VIEW */}
+                    {selectedItem && (
+                        <div className={`w-full md:w-1/2 flex flex-col bg-slate-50 h-full overflow-hidden absolute md:relative inset-0 md:inset-auto z-10 animate-in slide-in-from-right duration-300`}>
                             <div className="p-6 overflow-y-auto flex-1">
                                 <div className="flex justify-between items-start mb-6">
                                     <div>
-                                        <h2 className="text-xl font-bold text-slate-800">Detalle de Venta</h2>
-                                        <p className="text-sm text-slate-500">{selectedSale.id}</p>
+                                        <h2 className="text-xl font-bold text-slate-800">Detalle de {selectedItem.type === 'SALE' ? 'Venta' : 'Caja'}</h2>
+                                        <p className="text-sm text-slate-500 break-all">{selectedItem.id}</p>
                                     </div>
-                                    <button onClick={() => setSelectedSale(null)} className="md:hidden text-slate-400"><X /></button>
+                                    <button onClick={() => setSelectedItem(null)} className="md:hidden text-slate-400"><X /></button>
                                 </div>
 
                                 <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6">
                                     <div className="grid grid-cols-2 gap-4 text-sm">
                                         <div>
-                                            <p className="text-slate-400 mb-1">Fecha</p>
-                                            <p className="font-bold text-slate-800">{new Date(selectedSale.timestamp).toLocaleString()}</p>
+                                            <p className="text-slate-400 mb-1">Fecha y Hora</p>
+                                            <p className="font-bold text-slate-800">{new Date(selectedItem.timestamp).toLocaleString()}</p>
                                         </div>
                                         <div>
-                                            <p className="text-slate-400 mb-1">Método Pago</p>
-                                            <p className="font-bold text-slate-800">{selectedSale.payment_method}</p>
+                                            <p className="text-slate-400 mb-1">Usuario</p>
+                                            <p className="font-bold text-slate-800">{selectedItem.user_name || selectedItem.seller_name || 'N/A'}</p>
                                         </div>
-                                        <div>
-                                            <p className="text-slate-400 mb-1">Vendedor</p>
-                                            <p className="font-bold text-slate-800">{employees.find(e => e.id === selectedSale.seller_id)?.name || selectedSale.seller_id}</p>
+
+                                        {/* NEW: Customer Info */}
+                                        <div className="col-span-2 bg-slate-50 p-3 rounded border border-slate-100 mb-2">
+                                            <p className="text-slate-400 text-xs mb-1 uppercase tracking-wider font-bold">Cliente</p>
+                                            <div className="flex justify-between items-center">
+                                                <div>
+                                                    <p className="font-bold text-slate-800 text-sm">{selectedItem.customer_name || 'Cliente Anónimo'}</p>
+                                                    {selectedItem.customer_rut && <p className="text-xs text-slate-500">{selectedItem.customer_rut}</p>}
+                                                </div>
+                                                {selectedItem.queueTicket ? (
+                                                    <span className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-bold border border-indigo-200">
+                                                        🎟️ Totem: {selectedItem.queueTicket.number}
+                                                    </span>
+                                                ) : selectedItem.customer_rut ? (
+                                                    <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs font-bold border border-emerald-200">
+                                                        👤 Base de Datos
+                                                    </span>
+                                                ) : (
+                                                    <span className="px-2 py-1 bg-slate-200 text-slate-600 rounded text-xs font-bold">
+                                                        👻 Anónimo
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
-                                        <div>
-                                            <p className="text-slate-400 mb-1">Documento</p>
-                                            <p className="font-bold text-slate-800">{selectedSale.dte_folio || 'N/A'}</p>
-                                        </div>
+
+                                        {selectedItem.type === 'SALE' ? (
+                                            <>
+                                                <div>
+                                                    <p className="text-slate-400 mb-1">Método Pago</p>
+                                                    <p className="font-bold text-slate-800">{selectedItem.payment_method}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-slate-400 mb-1">Documento</p>
+                                                    <p className="font-bold text-slate-800">{selectedItem.dte_folio || 'Voucher'}</p>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div className="col-span-2">
+                                                <p className="text-slate-400 mb-1">Motivo / Descripción</p>
+                                                <p className="font-bold text-slate-800">{selectedItem.reason}</p>
+                                            </div>
+                                        )}
+
+                                        {selectedItem.authorized_by_name && (
+                                            <div className="col-span-2 bg-amber-50 p-2 rounded border border-amber-100">
+                                                <p className="text-amber-800 text-xs font-bold">Autorizado por: {selectedItem.authorized_by_name}</p>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 
-                                <h3 className="font-bold text-slate-700 mb-3">Productos</h3>
-                                <div className="space-y-2 mb-6">
-                                    {selectedSale.items.map((item, idx) => (
-                                        <div key={idx} className="flex justify-between items-center p-3 bg-white rounded-lg border border-slate-100">
-                                            <div>
-                                                <p className="font-bold text-slate-800 text-sm">{item.name}</p>
-                                                <p className="text-xs text-slate-500">{item.quantity} x ${item.price.toLocaleString()}</p>
-                                            </div>
-                                            <p className="font-bold text-slate-800">${(item.price * item.quantity).toLocaleString()}</p>
+                                {selectedItem.type === 'SALE' && selectedItem.items && (
+                                    <>
+                                        <h3 className="font-bold text-slate-700 mb-3">Productos</h3>
+                                        <div className="space-y-2 mb-6">
+                                            {selectedItem.items.map((item: any, idx: number) => (
+                                                <div key={idx} className="flex justify-between items-center p-3 bg-white rounded-lg border border-slate-100">
+                                                    <div>
+                                                        <p className="font-bold text-slate-800 text-sm">{item.name || 'Desconocido'}</p>
+                                                        <p className="text-xs text-slate-500">{(item.quantity || 0)} x ${(item.price || 0).toLocaleString()}</p>
+                                                    </div>
+                                                    <p className="font-bold text-slate-800">${((item.price || 0) * (item.quantity || 0)).toLocaleString()}</p>
+                                                </div>
+                                            ))}
                                         </div>
-                                    ))}
-                                </div>
+                                    </>
+                                )}
+
+                                {selectedItem.type === 'SALE' && isLoadingDetails && !selectedItem.items && (
+                                    <div className="py-8 text-center text-slate-400 flex flex-col items-center">
+                                        <Loader2 className="animate-spin mb-2" />
+                                        <p className="text-xs">Cargando productos...</p>
+                                    </div>
+                                )}
 
                                 <div className="flex justify-between items-center p-4 bg-slate-900 text-white rounded-xl mb-6">
-                                    <span className="font-medium">Total Pagado</span>
-                                    <span className="text-2xl font-bold text-emerald-400">${selectedSale.total.toLocaleString()}</span>
+                                    <span className="font-medium">Total</span>
+                                    <span className={`text-2xl font-bold ${selectedItem.type === 'EXPENSE' || selectedItem.type === 'WITHDRAWAL' ? 'text-rose-400' : 'text-emerald-400'}`}>
+                                        ${Number(selectedItem.amount).toLocaleString()}
+                                    </span>
                                 </div>
                             </div>
 
-                            <div className="p-4 bg-white border-t border-slate-200 flex gap-3 shrink-0">
-                                <button
-                                    onClick={() => handleReprint(selectedSale)}
-                                    className="flex-1 py-3 bg-cyan-600 hover:bg-cyan-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-colors"
-                                >
-                                    <Printer size={20} /> Reimprimir Ticket
-                                </button>
-                                <button
-                                    onClick={() => setIsReturnsModalOpen(true)}
-                                    className="flex-1 py-3 bg-red-100 hover:bg-red-200 text-red-700 font-bold rounded-xl flex items-center justify-center gap-2 transition-colors"
-                                >
-                                    <RotateCcw size={20} /> Devolución
-                                </button>
-                            </div>
+                            {selectedItem.type === 'SALE' && (
+                                <div className="p-4 bg-white border-t border-slate-200 flex gap-3 shrink-0">
+                                    <button
+                                        onClick={() => handleReprint(selectedItem)}
+                                        disabled={selectedItem.status === 'VOIDED'}
+                                        className="flex-1 py-3 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-colors"
+                                    >
+                                        <Printer size={20} /> Reimprimir
+                                    </button>
+                                    <button
+                                        onClick={() => setIsReturnsModalOpen(true)}
+                                        disabled={selectedItem.status === 'VOIDED'}
+                                        className="flex-1 py-3 bg-red-100 hover:bg-red-200 disabled:opacity-50 text-red-700 font-bold rounded-xl flex items-center justify-center gap-2 transition-colors"
+                                    >
+                                        <RotateCcw size={20} /> Devolución
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
             </div>
 
-            {selectedSale && (
-                <ReturnsModal
-                    isOpen={isReturnsModalOpen}
-                    onClose={() => setIsReturnsModalOpen(false)}
-                    sale={selectedSale}
-                />
-            )}
+            {
+                selectedItem && selectedItem.type === 'SALE' && (
+                    <ReturnsModal
+                        isOpen={isReturnsModalOpen}
+                        onClose={() => setIsReturnsModalOpen(false)}
+                        sale={selectedItem as SaleTransaction}
+                    />
+                )
+            }
         </div>
     );
 };
 
 export default TransactionHistoryModal;
+

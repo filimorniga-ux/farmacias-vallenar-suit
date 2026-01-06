@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useVirtualizer, VirtualItem } from '@tanstack/react-virtual';
+import { createPortal } from 'react-dom';
 import { usePOSKeyboard } from '../../hooks/usePOSKeyboard'; // Hook "God Mode"
 import { createQuoteSecure } from '../../actions/quotes-v2';
 import { usePharmaStore } from '../store/useStore';
@@ -37,12 +38,14 @@ import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { formatProductLabel } from '../../domain/logic/productDisplay';
 // useSettingsStore moved to useCheckout hook
 import { applyPromotions } from '../../domain/logic/promotionEngine';
-import MobileActionScroll from './ui/MobileActionScroll';
+
 
 // NEW MODULAR IMPORTS
 import { PaymentModal } from './pos/Payment';
 import { Cart } from './pos/Cart';
+
 import { validateSupervisorPin } from '../../actions/auth-v2';
+import { POSHeaderActions } from './pos/POSHeaderActions';
 
 // Helper: Formatear número con separadores de miles (puntos)
 const formatWithThousands = (value: string | number): string => {
@@ -69,24 +72,73 @@ const POSMainScreen: React.FC = () => {
         // are now accessed via useCheckout hook in PaymentModal
     } = usePharmaStore();
 
+
     const {
         currentShift,
         currentLocationId,
-        currentTerminalId, // Added missing destructuring
+        currentTerminalId,
         user
     } = usePharmaStore();
 
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
     const { currentLocation } = useLocationStore();
+    console.log('🔍 [POSMainScreen] Current Location (Store):', currentLocation?.id, 'Current Location (Pharma):', currentLocationId);
 
     // 🚀 Load inventory when location is available
     useEffect(() => {
-        if (currentLocationId && inventory.length === 0) {
+        if (currentLocationId) {
+            // Force fetch on mount/location change to ensure freshness
+            // We ignore inventory.length to recover from stale empty states
             console.log('🔄 [POS] Loading inventory for location:', currentLocationId);
             fetchInventory(currentLocationId);
         }
-    }, [currentLocationId, fetchInventory, inventory.length]);
+    }, [currentLocationId, fetchInventory]);
 
     // NOTE: enable_sii_integration, hardware now accessed via useCheckout hook in PaymentModal
+
+    // ------------------------------------------------------------------
+    // 🔄 SESSION RECOVERY: Persist session across reloads
+    // ------------------------------------------------------------------
+    useEffect(() => {
+        const checkActiveSession = async () => {
+            // Only if we have a terminal selected but NO active shift in memory
+            if (currentTerminalId && !currentShift) {
+                try {
+                    // Check server for open session
+                    const { getCashDrawerStatus } = await import('../../actions/cash-management-v2');
+                    const status = await getCashDrawerStatus(currentTerminalId);
+
+                    if (status.success && status.data?.isOpen && status.data.sessionId) {
+                        console.log('🔄 [POS] Recovering active session:', status.data.sessionId);
+
+                        // Reconstruct minimal shift object for store
+                        const recoveredShift: any = {
+                            id: status.data.sessionId,
+                            terminal_id: currentTerminalId,
+                            user_id: status.data.cashierId || user?.id || '',
+                            opening_amount: Number(status.data.openingAmount || 0),
+                            start_time: status.data.openedAt ? new Date(status.data.openedAt).getTime() : Date.now(),
+                            status: 'ACTIVE' // Force active locally
+                        };
+
+                        // Hydrate store
+                        usePharmaStore.getState().resumeShift(recoveredShift);
+                        toast.success('Sesión recuperada', {
+                            description: `Cajero: ${status.data.cashierName || 'Usuario'}`
+                        });
+                    }
+                } catch (error) {
+                    console.error('Failed to recover session', error);
+                }
+            }
+        };
+
+        checkActiveSession();
+    }, [currentTerminalId, currentShift, user?.id]);
 
     const metrics = getShiftMetrics();
     const [isEditBaseModalOpen, setIsEditBaseModalOpen] = useState(false);
@@ -298,6 +350,7 @@ const POSMainScreen: React.FC = () => {
         }
     }, [clinicalAnalysis.status]);
 
+
     // Check for Restricted Items (R/RR/RCH)
     const isRestricted = (item: CartItem) => {
         const inventoryItem = inventory.find(i => i.id === item.id);
@@ -382,7 +435,7 @@ const POSMainScreen: React.FC = () => {
         }
 
         try {
-            const result = await validateSupervisorPin(supervisorPin, 'UPDATE_BASE_AMOUNT');
+            const result = await validateSupervisorPin(supervisorPin, 'UPDATE_BASE_AMOUNT', user?.id);
             if (result.success) {
                 updateOpeningAmount(parseFormattedNumber(newBaseAmount));
                 setIsEditBaseModalOpen(false);
@@ -440,10 +493,27 @@ const POSMainScreen: React.FC = () => {
         }
     };
 
-
+    // --- MISSING LOCATION STATE RENDER ---
+    if (!currentLocationId) {
+        return (
+            <div className="h-screen w-full bg-slate-100 flex flex-col items-center justify-center p-4">
+                <div className="bg-white p-8 md:p-12 rounded-3xl shadow-xl max-w-lg w-full text-center border border-slate-200">
+                    <div className="w-24 h-24 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <CornerDownLeft size={48} className="text-amber-500" />
+                    </div>
+                    <h1 className="text-2xl md:text-3xl font-bold text-slate-800 mb-2">Sucursal No Detectada</h1>
+                    <p className="text-slate-500 mb-8 text-lg">Seleccione una sucursal para operar el POS.</p>
+                    <a href="/app" className="block w-full py-4 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-lg transition-all">
+                        Volver al Dashboard
+                    </a>
+                </div>
+            </div>
+        );
+    }
 
     // --- BLOCKED STATE RENDER ---
     if (!currentShift || currentShift.status === 'CLOSED') {
+        // ... (existing blocked state)
         return (
             <div className="h-screen w-full bg-slate-900 flex flex-col items-center justify-center p-4 relative overflow-hidden">
                 <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
@@ -480,30 +550,60 @@ const POSMainScreen: React.FC = () => {
         <div className="flex h-[calc(100vh-80px)] bg-slate-100 overflow-hidden">
 
             {/* COL 1: Búsqueda (Fixed 350px Desktop, 100% Mobile Catalog View) */}
-            <div className={`w - full md: w - [350px] flex - col p - 4 md: p - 6 md: pr - 3 gap - 4 h - full ${mobileView === 'CART' ? 'hidden md:flex' : 'flex'} `}>
+            <div className={`w-full md:w-[350px] flex-col p-4 md:p-6 md:pr-3 gap-4 h-full ${mobileView === 'CART' ? 'hidden md:flex' : 'flex'}`}>
+                {/* ... (existing content logic is fine, we just want to replace the container logic if needed, but here we cover lines 82-607, so we need to be careful with the huge replacement) */}
+                {/* Wait, I cannot replace 500 lines efficiently if they haven't changed. */}
+                {/* I should target smaller chunks. */}
+
+
                 <div className="bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col h-full overflow-hidden">
-                    <div className="p-4 md:p-6 border-b border-slate-100">
+                    {/* Search Bar Portal Logic */}
+                    {mounted && document.getElementById('header-search-portal') && createPortal(
+                        <div className="w-full relative group">
+                            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400 group-focus-within:text-cyan-600 transition-colors" size={20} />
+                            <input
+                                type="text"
+                                ref={searchInputRef}
+                                placeholder="Buscar o Escanear (COT-...)"
+                                className="w-full pl-11 pr-12 py-2.5 bg-slate-100/50 hover:bg-slate-100 focus:bg-white rounded-xl border border-transparent focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 outline-none transition-all text-base font-medium"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                onKeyDown={handleKeyDownInput}
+                            />
+                            <button
+                                onClick={() => setSearchTerm('')}
+                                className={`absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-all ${searchTerm ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                            >
+                                <X size={14} />
+                            </button>
+                        </div>,
+                        document.getElementById('header-search-portal')!
+                    )}
+
+                    {/* Mobile Search - Visible only on mobile since Portal is desktop only target */}
+                    <div className="p-4 md:hidden border-b border-slate-100">
                         <div className="relative flex items-center gap-2">
                             <div className="relative flex-1">
                                 <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400" size={24} />
                                 <input
                                     type="text"
-                                    ref={searchInputRef}
-                                    placeholder="Buscar o Escanear (COT-...)"
-                                    className="w-full pl-12 pr-12 py-4 bg-white rounded-2xl border-2 border-slate-100 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 outline-none transition-all text-lg font-medium shadow-sm"
+                                    placeholder="Buscar o Escanear"
+                                    className="w-full pl-12 pr-4 py-3 bg-white rounded-2xl border border-slate-200 outline-none"
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
-                                    onKeyDown={handleKeyDownInput} // Use Smart Handler
                                 />
-                                <button
-                                    onClick={() => setIsScannerOpen(true)}
-                                    className="absolute right-3 top-1/2 transform -translate-y-1/2 md:hidden p-2 text-slate-400 hover:text-cyan-600"
-                                >
-                                    <ScanBarcode size={24} />
-                                </button>
                             </div>
                         </div>
-                        <p className="text-xs text-slate-400 mt-2 text-center hidden md:block">Escanee producto o cotización</p>
+                    </div>
+
+                    {/* List Header (Desktop Only now that search is gone) */}
+                    <div className="hidden md:flex p-3 bg-slate-50/50 border-b border-slate-100 justify-between items-center">
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                            {filteredInventory.length} Productos
+                        </span>
+                        <div className="flex gap-2">
+                            {/* Optional: Filters could go here */}
+                        </div>
                     </div>
 
                     <div
@@ -513,7 +613,7 @@ const POSMainScreen: React.FC = () => {
                         {searchTerm ? (
                             <div
                                 style={{
-                                    height: `${rowVirtualizer.getTotalSize()} px`,
+                                    height: `${rowVirtualizer.getTotalSize()}px`,
                                     width: '100%',
                                     position: 'relative',
                                     contain: 'strict'
@@ -524,17 +624,18 @@ const POSMainScreen: React.FC = () => {
                                     const item = filteredInventory[virtualRow.index];
                                     const isSelected = virtualRow.index === selectedIndex;
 
+                                    if (!item) return null; // Guard
+
                                     return (
                                         <div
                                             key={virtualRow.key}
                                             data-index={virtualRow.index}
                                             ref={rowVirtualizer.measureElement}
-                                            className={`absolute top - 0 left - 0 w - full p - 2 transition - all duration - 75 ${isSelected
+                                            className={`absolute top-0 left-0 w-full p-2 transition-all duration-75 ${isSelected
                                                 ? 'bg-amber-50 border-l-4 border-amber-500 shadow-sm z-10 scale-[1.01]'
                                                 : 'hover:bg-slate-50 border-l-4 border-transparent'
-                                                } `}
+                                                }`}
                                             style={{
-                                                height: `${virtualRow.size} px`,
                                                 transform: `translateY(${virtualRow.start}px)`,
                                             }}
                                             onClick={() => {
@@ -543,10 +644,10 @@ const POSMainScreen: React.FC = () => {
                                             }}
                                         >
                                             <div
-                                                className={`p - 3 rounded - xl border transition - all group h - full cursor - pointer relative ${isSelected
+                                                className={`p-3 rounded-xl border transition-all group h-full cursor-pointer relative ${isSelected
                                                     ? 'bg-cyan-50 border-cyan-500 shadow-md ring-2 ring-cyan-200 z-10 scale-[1.02]'
                                                     : 'bg-white border-slate-100 hover:border-cyan-200'
-                                                    } `}
+                                                    }`}
                                             >
                                                 <h3 className="font-bold text-slate-800 text-sm leading-tight mb-1 group-hover:text-cyan-600">
                                                     {item.name}
@@ -569,7 +670,7 @@ const POSMainScreen: React.FC = () => {
                                                                 <Scissors size={16} />
                                                             </button>
                                                         )}
-                                                        <span className={`text - [10px] px - 1.5 py - 0.5 rounded ${item.stock_actual > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'} `}>Stock: {item.stock_actual}</span>
+                                                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${item.stock_actual > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>Stock: {item.stock_actual}</span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -604,10 +705,10 @@ const POSMainScreen: React.FC = () => {
             )}
 
             {/* COL 2: Carrito y Pago (Always visible on Desktop, Toggled on Mobile) */}
-            <div className={`fixed inset - 0 z - 50 bg - slate - 100 md:static md: bg - transparent md: z - auto md:flex md: flex - 1 flex - col p - 4 md: p - 6 md: pl - 0 gap - 4 ${mobileView === 'CART' ? 'flex' : 'hidden'} `}>
+            <div className={`fixed inset-0 z-50 bg-slate-100 md:static md:bg-transparent md:z-auto md:flex md:flex-1 flex-col p-4 md:p-6 md:pl-0 gap-4 ${mobileView === 'CART' ? 'flex' : 'hidden'} md:flex`}>
                 {/* QueueWidget se movió al header del carrito */}
 
-                <div className={`flex - 1 rounded - 3xl shadow - xl border border - slate - 200 overflow - hidden flex flex - col h - full transition - colors ${isQuoteMode ? 'bg-amber-50 border-amber-200' : 'bg-white'} `}>
+                <div className={`flex-1 rounded-3xl shadow-xl border border-slate-200 overflow-hidden flex flex-col h-full transition-colors ${isQuoteMode ? 'bg-amber-50 border-amber-200' : 'bg-white'} `}>
                     {/* Header */}
                     <div className="p-4 md:p-6 border-b border-slate-100 flex flex-col md:flex-row md:justify-between md:items-center bg-slate-50/50 gap-4">
                         <div className="flex items-center gap-4 justify-between md:justify-start w-full md:w-auto">
@@ -620,125 +721,104 @@ const POSMainScreen: React.FC = () => {
                                     <TrendingDown className="rotate-90" size={24} />
                                 </button>
 
-                                <div className={`p - 2 md: p - 3 rounded - 2xl hidden md:block ${isQuoteMode ? 'bg-amber-100 text-amber-700' : 'bg-cyan-100 text-cyan-700'} `}>
+                                <div className={`p-2 md:p-3 rounded-2xl hidden md:block ${isQuoteMode ? 'bg-amber-100 text-amber-700' : 'bg-cyan-100 text-cyan-700'} `}>
                                     {isQuoteMode ? <FileText size={28} /> : <ShoppingCart size={28} />}
                                 </div>
-                                <div>
+                                <div className="flex flex-col">
                                     <h1 className="text-xl md:text-2xl font-extrabold text-slate-800 flex items-center gap-2">
                                         {isQuoteMode ? 'Cotización' : 'Carrito'}
-                                        {isQuoteMode && <span className="text-xs bg-amber-200 text-amber-800 px-2 py-1 rounded-full">MODO COTIZACIÓN</span>}
                                     </h1>
-                                    <div className="flex items-center gap-2 mt-1">
+                                    {isQuoteMode ? (
+                                        <span className="text-xs font-bold text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full w-fit">MODO COTIZACIÓN</span>
+                                    ) : (
+                                        <p className="text-xs font-medium text-slate-400">Resumen de venta</p>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* UNIFIED HEADER ACTIONS (Teleported to Header) */}
+                            {mounted && document.getElementById('header-actions-portal') && createPortal(
+                                <div className="flex items-center gap-3">
+                                    {/* 1. Queue Widget */}
+                                    <QueueWidget />
+
+                                    {/* 2. Divider */}
+                                    <div className="h-8 w-px bg-slate-200 mx-1 hidden lg:block" />
+
+                                    {/* 3. Client Selector */}
+                                    <div className="flex items-center gap-2">
                                         {currentCustomer ? (
-                                            <div className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg border border-emerald-100">
-                                                <User size={14} />
-                                                <span className="text-xs font-bold">{currentCustomer.fullName}</span>
+                                            <div className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-xl border border-emerald-100 shadow-sm transition-all hover:shadow-md cursor-pointer group" onClick={() => setIsCustomerSelectModalOpen(true)}>
+                                                <User size={16} />
+                                                <div className="flex flex-col">
+                                                    <span className="text-[10px] uppercase font-bold text-emerald-500 leading-none">Cliente</span>
+                                                    <span className="text-xs font-bold leading-none">{currentCustomer.fullName.split(' ')[0]}</span>
+                                                </div>
                                                 <button
-                                                    onClick={() => setCustomer(null)}
-                                                    className="p-0.5 hover:bg-emerald-200 rounded-full"
+                                                    onClick={(e) => { e.stopPropagation(); setCustomer(null); }}
+                                                    className="p-1 hover:bg-emerald-200 rounded-full ml-1 transition-colors"
                                                 >
                                                     <X size={12} />
                                                 </button>
                                             </div>
                                         ) : (
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-xs text-slate-400 font-bold hidden md:inline">👤 Cliente: Anónimo</span>
-                                                <button
-                                                    onClick={() => setIsCustomerSelectModalOpen(true)}
-                                                    className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded-md hover:bg-slate-200 transition"
-                                                >
-                                                    + CLIENTE
-                                                </button>
-                                            </div>
+                                            <button
+                                                onClick={() => setIsCustomerSelectModalOpen(true)}
+                                                className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 text-slate-600 rounded-xl border border-slate-200 hover:bg-slate-100 hover:border-slate-300 transition-all shadow-sm"
+                                            >
+                                                <User size={16} className="text-slate-400" />
+                                                <div className="flex flex-col items-start">
+                                                    <span className="text-[10px] uppercase font-bold text-slate-400 leading-none">Cliente</span>
+                                                    <span className="text-xs font-bold leading-none">Anónimo</span>
+                                                </div>
+                                                <Plus size={12} className="ml-1 text-slate-400" />
+                                            </button>
                                         )}
                                     </div>
-                                </div>
+
+                                    {/* 4. Divider */}
+                                    <div className="h-8 w-px bg-slate-200 mx-1 hidden lg:block" />
+
+                                    {/* 5. Actions */}
+                                    <POSHeaderActions
+                                        shiftStatus={currentShift?.status}
+                                        shiftId={currentShift?.id}
+                                        operatorName={user?.name}
+                                        locationName={currentLocation?.name}
+                                        onHandover={() => setIsHandoverModalOpen(true)}
+                                        onMovement={() => setCashModalMode('MOVEMENT')}
+                                        onAudit={() => setCashModalMode('AUDIT')}
+                                        onCloseTurn={() => setCashModalMode('CLOSE')}
+                                        onOpenTurn={() => setIsShiftModalOpen(true)}
+                                        onHistory={() => setIsHistoryModalOpen(true)}
+                                        onQuote={() => setIsQuoteMode(!isQuoteMode)}
+                                        isQuoteMode={isQuoteMode}
+                                        onManualItem={() => setIsManualItemModalOpen(true)}
+                                        onClearCart={clearCart}
+                                    />
+                                </div>,
+                                document.getElementById('header-actions-portal')!
+                            )}
+
+                            {/* Fallback for Mobile (Render inline if no portal target or is mobile) */}
+                            <div className="lg:hidden">
+                                <POSHeaderActions
+                                    shiftStatus={currentShift?.status}
+                                    shiftId={currentShift?.id}
+                                    operatorName={user?.name}
+                                    locationName={currentLocation?.name}
+                                    onHandover={() => setIsHandoverModalOpen(true)}
+                                    onMovement={() => setCashModalMode('MOVEMENT')}
+                                    onAudit={() => setCashModalMode('AUDIT')}
+                                    onCloseTurn={() => setCashModalMode('CLOSE')}
+                                    onOpenTurn={() => setIsShiftModalOpen(true)}
+                                    onHistory={() => setIsHistoryModalOpen(true)}
+                                    onQuote={() => setIsQuoteMode(!isQuoteMode)}
+                                    isQuoteMode={isQuoteMode}
+                                    onManualItem={() => setIsManualItemModalOpen(true)}
+                                    onClearCart={clearCart}
+                                />
                             </div>
-
-                            {/* Queue Widget - Ultra Compact */}
-                            <QueueWidget />
-
-                            {/* Shift Status Badge */}
-                            <div className={`px - 2 md: px - 4 py - 1 md: py - 2 rounded - lg font - bold text - [10px] md: text - sm flex items - center gap - 2 flex - shrink - 0 ${currentShift?.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} `}>
-                                <div className={`w - 2 h - 2 rounded - full ${currentShift?.status === 'ACTIVE' ? 'bg-green-500 animate-pulse' : 'bg-red-500'} `} />
-                                <span className="hidden md:inline">{currentShift?.status === 'ACTIVE' ? `TURNO #${currentShift.id.slice(-6)} - ABIERTO` : 'CAJA CERRADA'}</span>
-                                <span className="md:hidden">{currentShift?.status === 'ACTIVE' ? `#${currentShift.id.slice(-6)} ` : 'CERRADO'}</span>
-                            </div>
-                        </div>
-                        <div className="flex gap-2 md:gap-3 overflow-hidden w-full md:w-auto">
-                            <MobileActionScroll className="w-full md:w-auto justify-end">
-                                {currentShift?.status === 'ACTIVE' ? (
-                                    <>
-                                        <button
-                                            onClick={() => setIsHandoverModalOpen(true)}
-                                            className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-slate-800 border border-slate-700 font-bold transition-colors whitespace-nowrap shadow-lg shadow-black/10"
-                                        >
-                                            <RefreshCw size={20} />
-                                            <span className="hidden lg:inline">Cambio Turno</span>
-                                        </button>
-                                        <button
-                                            onClick={() => setCashModalMode('MOVEMENT')}
-                                            className="flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-blue-100 font-bold transition-colors whitespace-nowrap"
-                                        >
-                                            <TrendingDown size={20} />
-                                            <span className="hidden lg:inline">Ingreso/Gasto</span>
-                                        </button>
-                                        <button
-                                            onClick={() => setCashModalMode('AUDIT')}
-                                            className="flex items-center gap-2 bg-purple-50 text-purple-700 px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-purple-100 font-bold transition-colors whitespace-nowrap"
-                                        >
-                                            <Lock size={20} />
-                                            <span className="hidden lg:inline">Arqueo</span>
-                                        </button>
-                                        <button
-                                            onClick={() => setCashModalMode('CLOSE')}
-                                            className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-slate-700 font-bold transition-colors whitespace-nowrap"
-                                        >
-                                            <Lock size={20} />
-                                            <span className="hidden lg:inline">Cerrar Turno</span>
-                                        </button>
-                                    </>
-                                ) : (
-                                    <button
-                                        onClick={() => setIsShiftModalOpen(true)}
-                                        className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-green-700 font-bold transition-colors whitespace-nowrap animate-pulse"
-                                    >
-                                        <Lock size={20} />
-                                        <span className="hidden lg:inline">Abrir Turno</span>
-                                    </button>
-                                )}
-
-                                <div className="w-px h-8 bg-slate-200 mx-2 hidden md:block"></div>
-
-                                <button
-                                    onClick={() => setIsHistoryModalOpen(true)}
-                                    className="flex items-center gap-2 bg-slate-100 text-slate-600 px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-slate-200 font-bold transition-colors whitespace-nowrap"
-                                >
-                                    <FileText size={20} />
-                                    <span className="hidden lg:inline">Historial</span>
-                                </button>
-                                <button
-                                    onClick={() => setIsQuoteMode(!isQuoteMode)}
-                                    className={`flex items - center gap - 2 px - 4 py - 2 md: px - 5 md: py - 3 rounded - full font - bold transition - colors whitespace - nowrap ${isQuoteMode ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'} `}
-                                >
-                                    <FileText size={20} />
-                                    <span className="hidden lg:inline">{isQuoteMode ? 'Salir Cotiz.' : 'Cotizar'}</span>
-                                </button>
-                                <button
-                                    onClick={() => setIsManualItemModalOpen(true)}
-                                    className="flex items-center gap-2 bg-purple-100 text-purple-700 px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-purple-200 font-bold transition-colors whitespace-nowrap"
-                                >
-                                    <Plus size={20} />
-                                    <span className="hidden lg:inline">Manual</span>
-                                </button>
-                                <button
-                                    onClick={clearCart}
-                                    className="flex items-center gap-2 bg-red-50 text-red-600 px-4 py-2 md:px-5 md:py-3 rounded-full hover:bg-red-100 font-bold transition-colors whitespace-nowrap"
-                                >
-                                    <X size={20} />
-                                    <span className="hidden lg:inline">Limpiar</span>
-                                </button>
-                            </MobileActionScroll>
                         </div>
                     </div>
 
@@ -1048,6 +1128,7 @@ const POSMainScreen: React.FC = () => {
             <TransactionHistoryModal
                 isOpen={isHistoryModalOpen}
                 onClose={() => setIsHistoryModalOpen(false)}
+                locationId={currentLocation?.id}
             />
 
             <ShiftHandoverModal

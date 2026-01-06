@@ -614,7 +614,8 @@ export async function verifySessionSecure(
  */
 export async function validateSupervisorPin(
     pin: string,
-    action: string = 'SUPERVISOR_AUTH'
+    action: string = 'SUPERVISOR_AUTH',
+    preferredUserId?: string
 ): Promise<{
     success: boolean;
     supervisorId?: string;
@@ -645,8 +646,15 @@ export async function validateSupervisorPin(
             return { success: false, error: 'No hay supervisores configurados' };
         }
 
+        // Sort to prioritize preferred user
+        const sortedSupervisors = supervisors.rows.sort((a, b) => {
+            if (a.id === preferredUserId) return -1;
+            if (b.id === preferredUserId) return 1;
+            return 0;
+        });
+
         // Try to match PIN with any supervisor
-        for (const supervisor of supervisors.rows) {
+        for (const supervisor of sortedSupervisors) {
             let pinValid = false;
 
             if (supervisor.access_pin_hash) {
