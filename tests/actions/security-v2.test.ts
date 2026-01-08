@@ -231,7 +231,7 @@ describe.skip('Security V2 - Account Unlocking', () => {
         ]);
 
         const bcrypt = await import('bcryptjs');
-        vi.mocked(bcrypt.compare).mockResolvedValueOnce(false);
+        vi.mocked(bcrypt.compare).mockImplementationOnce(async () => false);
 
         const result = await securityV2.unlockAccountSecure(
             'user-uuid-9999',
@@ -407,7 +407,7 @@ function createMockClient(queryResults: any[] = []) {
 
             return Promise.resolve({ rows: [], rowCount: 0 });
         }),
-        release: vi.fn()
+        release: vi.fn().mockImplementation(() => { })
     };
 
     vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);

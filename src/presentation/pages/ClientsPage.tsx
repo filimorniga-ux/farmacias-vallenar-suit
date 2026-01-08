@@ -1,22 +1,51 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { usePharmaStore } from '../store/useStore';
 import { AdvancedExportModal } from '../components/common/AdvancedExportModal';
-import { generateCustomerReportSecure } from '../../actions/customer-export-v2';
-import { Download, Search, User, MessageCircle, Star, Calendar, Plus, Edit, Trash2, History, X, Save, AlertTriangle } from 'lucide-react';
+import { generateCustomerReportSecure, generateCustomerHistoryReportSecure } from '../../actions/customer-export-v2';
+import { getCustomerHistorySecure } from '../../actions/customers-v2';
+import { Download, Search, User, MessageCircle, Star, Calendar, Plus, Edit, Trash2, History, X, Save, AlertTriangle, RefreshCw, Loader2 } from 'lucide-react';
 import { Customer, SaleTransaction } from '../../domain/types';
 import { toast } from 'sonner';
 
 const ClientsPage: React.FC = () => {
-    const { customers, addCustomer, updateCustomer, deleteCustomer, salesHistory } = usePharmaStore();
+    const { customers, fetchCustomers, addCustomer, updateCustomer, deleteCustomer, salesHistory } = usePharmaStore();
+
+    // Fetch customers from DB on mount
+    useEffect(() => {
+        fetchCustomers();
+    }, [fetchCustomers]);
     const [searchTerm, setSearchTerm] = useState('');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
     const [viewingHistory, setViewingHistory] = useState<Customer | null>(null);
     const [deletingCustomer, setDeletingCustomer] = useState<Customer | null>(null);
 
+    // History State
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const [fetchedHistory, setFetchedHistory] = useState<SaleTransaction[]>([]);
+
+    useEffect(() => {
+        if (viewingHistory) {
+            setHistoryLoading(true);
+            getCustomerHistorySecure(viewingHistory.id)
+                .then(res => {
+                    if (res.success && res.data) {
+                        setFetchedHistory(res.data);
+                    } else {
+                        toast.error(res.error || 'No se pudo cargar el historial completo');
+                    }
+                })
+                .catch((err) => toast.error(`Error de conexión: ${err.message}`))
+                .finally(() => setHistoryLoading(false));
+        } else {
+            setFetchedHistory([]);
+        }
+    }, [viewingHistory]);
+
     // Export State
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
+    const [exportType, setExportType] = useState<'SUMMARY' | 'HISTORY'>('SUMMARY');
 
     const exportItems = useMemo(() => customers.map(c => ({
         id: c.id,
@@ -27,21 +56,52 @@ const ClientsPage: React.FC = () => {
     const handleExport = async (startDate: Date, endDate: Date, selectedIds?: string[]) => {
         setIsExporting(true);
         try {
-            // V2: Nuevo formato de parámetros
-            const result = await generateCustomerReportSecure({
+            let result;
+            const params = {
                 startDate: startDate.toISOString(),
                 endDate: endDate.toISOString(),
-                customerIds: selectedIds
-            });
+                customerIds: selectedIds || []
+            };
+
+            if (exportType === 'HISTORY') {
+                result = await generateCustomerHistoryReportSecure(params);
+            } else {
+                result = await generateCustomerReportSecure(params);
+            }
+
             if (result.success && result.data) {
                 const link = document.createElement('a');
                 link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${result.data}`;
-                link.download = result.filename || `Reporte_Clientes_${startDate.toISOString().split('T')[0]}_${endDate.toISOString().split('T')[0]}.xlsx`;
+                link.download = result.filename || `Reporte_${exportType}_${startDate.toISOString().split('T')[0]}.xlsx`;
                 link.click();
                 toast.success('Reporte descargado exitosamente');
                 setIsExportModalOpen(false);
             } else {
                 toast.error(result.error || 'Error al generar reporte');
+            }
+        } catch (error) {
+            toast.error('Error de conexión');
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
+    const handleExportHistory = async () => {
+        if (!viewingHistory) return;
+        setIsExporting(true);
+        try {
+            const result = await generateCustomerHistoryReportSecure({
+                customerIds: [viewingHistory.id]
+            });
+
+            if (result.success && result.data) {
+                const link = document.createElement('a');
+                link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${result.data}`;
+                link.download = result.filename || `Historial_${viewingHistory.fullName.replace(/\s+/g, '_')}.xlsx`;
+                link.click();
+                toast.success('Historial descargado exitosamente');
+            } else {
+                toast.error(result.error || 'Error al generar historial');
             }
         } catch (error) {
             toast.error('Error de conexión');
@@ -71,10 +131,8 @@ const ClientsPage: React.FC = () => {
 
     const customerHistory = useMemo(() => {
         if (!viewingHistory) return [];
-        return salesHistory
-            .filter(sale => sale.customer?.id === viewingHistory.id)
-            .sort((a, b) => b.timestamp - a.timestamp);
-    }, [salesHistory, viewingHistory]);
+        return fetchedHistory; // Already sorted by backend
+    }, [fetchedHistory, viewingHistory]);
 
     const openWhatsApp = (phone?: string) => {
         if (!phone) return;
@@ -98,7 +156,7 @@ const ClientsPage: React.FC = () => {
         });
     };
 
-    const handleSave = (e: React.FormEvent) => {
+    const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!formData.rut || !formData.fullName) {
             toast.error('RUT y Nombre son obligatorios');
@@ -110,9 +168,14 @@ const ClientsPage: React.FC = () => {
             toast.success('Cliente actualizado');
             setEditingCustomer(null);
         } else {
-            addCustomer(formData as Customer);
-            toast.success('Cliente creado');
-            setIsAddModalOpen(false);
+            const result = await addCustomer(formData as Customer);
+            if (result) {
+                toast.success('Cliente creado exitosamente');
+                setIsAddModalOpen(false);
+                // Refresh list from DB to ensure consistency
+                await fetchCustomers();
+            }
+            // Error toast is shown by addCustomer if it fails
         }
     };
 
@@ -154,13 +217,22 @@ const ClientsPage: React.FC = () => {
                             </p>
                         </div>
                     </div>
-                    <button
-                        onClick={() => setIsExportModalOpen(true)}
-                        className="px-6 py-4 bg-white text-slate-700 font-bold rounded-2xl border border-slate-200 hover:bg-slate-50 transition shadow-sm flex items-center gap-2"
-                    >
-                        <Download size={20} />
-                        Exportar Excel
-                    </button>
+                    <div className="flex bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                        <button
+                            onClick={() => { setExportType('SUMMARY'); setIsExportModalOpen(true); }}
+                            className="px-4 py-4 text-slate-700 font-bold hover:bg-slate-50 transition flex items-center gap-2 border-r border-slate-200"
+                        >
+                            <Download size={20} />
+                            Resumen Clientes
+                        </button>
+                        <button
+                            onClick={() => { setExportType('HISTORY'); setIsExportModalOpen(true); }}
+                            className="px-4 py-4 text-slate-700 font-bold hover:bg-slate-50 transition flex items-center gap-2"
+                        >
+                            <History size={20} />
+                            Historial Detallado
+                        </button>
+                    </div>
                     <button
                         onClick={handleOpenAdd}
                         className="px-6 py-4 bg-cyan-600 text-white font-bold rounded-2xl hover:bg-cyan-700 transition shadow-lg flex items-center gap-2"
@@ -387,12 +459,27 @@ const ClientsPage: React.FC = () => {
                                 <h2 className="text-xl font-bold text-slate-800">Historial de Compras</h2>
                                 <p className="text-slate-500">{viewingHistory.fullName}</p>
                             </div>
-                            <button onClick={() => setViewingHistory(null)} className="text-slate-400 hover:text-slate-600">
-                                <X size={24} />
-                            </button>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={handleExportHistory}
+                                    disabled={isExporting}
+                                    className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition flex items-center gap-2 disabled:opacity-50"
+                                >
+                                    {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                                    Exportar
+                                </button>
+                                <button onClick={() => setViewingHistory(null)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
+                                    <X size={24} />
+                                </button>
+                            </div>
                         </div>
                         <div className="flex-1 overflow-y-auto p-6">
-                            {customerHistory.length === 0 ? (
+                            {historyLoading ? (
+                                <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                                    <Loader2 size={48} className="animate-spin mb-4 text-cyan-500" />
+                                    <p>Cargando historial...</p>
+                                </div>
+                            ) : customerHistory.length === 0 ? (
                                 <div className="text-center py-12 text-slate-400">
                                     <History size={48} className="mx-auto mb-4 opacity-50" />
                                     <p>No hay compras registradas</p>
@@ -464,7 +551,7 @@ const ClientsPage: React.FC = () => {
                 isOpen={isExportModalOpen}
                 onClose={() => setIsExportModalOpen(false)}
                 onExport={handleExport}
-                title="Exportar Reporte de Clientes"
+                title={exportType === 'SUMMARY' ? "Exportar Resumen de Clientes" : "Exportar Historial de Compras"}
                 items={exportItems}
                 itemLabel="Clientes"
                 isLoading={isExporting}

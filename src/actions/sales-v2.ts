@@ -1010,7 +1010,7 @@ export async function getSalesHistorySecure(params: {
             try {
                 await query(`
                     INSERT INTO audit_log (
-                        user_id, location_id, action_code, entity_type, details
+                        user_id, location_id, action_code, entity_type, metadata
                     ) VALUES ($1, $2, 'SALES_HISTORY_VIEW', 'REPORT', $3)
                  `, [authorizedUserId || null, locationId || null, JSON.stringify({ filters })]);
             } catch (e) { console.error('Audit fail', e); }
@@ -1105,15 +1105,17 @@ export async function getSalesHistory(params?: {
     startDate?: string;
     endDate?: string;
     locationId?: string;
-}): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    offset?: number;
+}): Promise<{ success: boolean; data?: any[]; total?: number; error?: string }> {
     try {
-        const { limit = 100, sessionId, startDate, endDate, locationId } = params || {};
+        const { limit = 100, sessionId, startDate, endDate, locationId, offset = 0 } = params || {};
 
         // Delegate to Secure Function for consistency and security
         // Utiliza cookies para determinar el usuario (userId, role) automáticamente
         const result = await getSalesHistorySecure({
             filters: {
                 limit,
+                offset,
                 sessionId,
                 startDate: startDate || '', // getSalesHistorySecure handles empty strings
                 endDate: endDate || ''
@@ -1128,7 +1130,7 @@ export async function getSalesHistory(params?: {
             return { success: false, error: result.error };
         }
 
-        return { success: true, data: result.data };
+        return { success: true, data: result.data, total: result.total };
     } catch (error: any) {
         logger.error({ err: error }, 'Error in getSalesHistory (wrapper)');
         return { success: false, error: error.message };

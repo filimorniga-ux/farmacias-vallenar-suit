@@ -59,7 +59,12 @@ export const useLocationStore = create<LocationState>()(
                         const { getPublicLocationsSecure } = await import('@/actions/public-network-v2');
                         const res = await getPublicLocationsSecure();
                         if (res.success && res.data) {
-                            set({ locations: res.data });
+                            set({
+                                locations: res.data.map(l => ({
+                                    ...l,
+                                    associated_kiosks: [] // Default value for public fetch
+                                }))
+                            });
                             console.log('📍 [LocationStore] Public locations updated:', res.data.length);
                         } else {
                             console.error('📍 [LocationStore] Public fetch failed:', res.error);

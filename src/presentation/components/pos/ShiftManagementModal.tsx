@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { usePharmaStore } from '../../store/useStore';
-import { X, User, DollarSign, Monitor, Lock, MapPin, LockKeyhole, ArrowRight, RotateCcw } from 'lucide-react';
+import { X, User, DollarSign, Monitor, Lock, MapPin, LockKeyhole, ArrowRight, RotateCcw, AlertTriangle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 // V2: Funciones atómicas seguras
@@ -93,11 +93,25 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                 if (res.success && res.data) {
                     const available = res.data.filter((t: any) => t.status !== 'OPEN');
                     setOpenableTerminals(available as Terminal[]);
+
+                    // AUTO-SELECT LOGIC: Si el usuario ya tiene un turno abierto aquí, seleccionar esa caja
+                    const myActiveTerminal = res.data.find((t: any) =>
+                        t.status === 'OPEN' && t.current_cashier_id === user?.id
+                    );
+
+                    if (myActiveTerminal) {
+                        console.log('🔄 Auto-selecting active terminal:', myActiveTerminal.name);
+                        setSelectedTerminal(myActiveTerminal.id);
+                    } else {
+                        setSelectedTerminal(''); // Reset only if no active session found
+                    }
                 } else {
                     setOpenableTerminals([]);
+                    setSelectedTerminal('');
                 }
             }).catch(() => {
                 setOpenableTerminals([]);
+                setSelectedTerminal('');
             });
 
             // 2. Ensure Store has terminals for this location (Fallback for Dropdown) by re-fetching
@@ -106,12 +120,10 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                 console.log(`⚠️ No terminals in store for ${selectedLocation}, fetching...`);
                 fetchTerminals(selectedLocation);
             }
-
-            setSelectedTerminal(''); // Reset terminal when location changes
         } else {
             setOpenableTerminals([]);
         }
-    }, [selectedLocation, terminals.length]);
+    }, [selectedLocation, terminals.length, user?.id]);
 
     // Filter terminals from STORE for display (Show ALL, even occupied ones)
     const displayTerminals = terminals.filter(t => t.location_id === selectedLocation);
@@ -212,6 +224,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     // If I match User ID but NOT token -> It's an orphan/ghost session (opened on another device or cache cleared).
     const isMySession = isUserMatch && isSessionMatch;
 
+    const isCorruptSession = isActiveSession && !selectedTerminalData?.session_id;
     const isGhostSession = isUserMatch && !isSessionMatch; // New State: It's me, but not THIS device.
     const isOtherSession = isActiveSession && !isUserMatch;
 
@@ -221,8 +234,26 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
 
     const handleResumeSession = () => {
         if (!selectedTerminalData || !selectedTerminalData.session_id) {
-            toast.error('Datos de sesión corruptos. Intente forzar cierre.');
+            console.error('❌ CRITICAL: Corrupt Session Data in Resume Turn', {
+                selectedTerminalId: selectedTerminal,
+                foundTerminalData: selectedTerminalData ? 'FOUND' : 'NULL',
+                sessionId: selectedTerminalData?.session_id,
+                currentUserId: user?.id,
+                terminalDump: selectedTerminalData
+            });
+            toast.error(`Datos de sesión corruptos. Intente forzar cierre.`);
             return;
+        }
+
+        // Restore localStorage session (Critical for Page Reload/Crash Recovery)
+        if (typeof window !== 'undefined') {
+            try {
+                localStorage.setItem('pos_session_id', selectedTerminalData.session_id);
+                localStorage.setItem('current_location_id', selectedLocation);
+                console.log('🔄 Session token restored to localStorage');
+            } catch (e) {
+                console.error('Failed to restore session token', e);
+            }
         }
 
         resumeShift({
@@ -239,6 +270,20 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
         onClose();
         router.push('/pos');
     };
+
+    // AUTO-RESUME EFFECT: Si detectamos que es mi sesión y tengo el token local, entrar directo.
+    useEffect(() => {
+        let timer: NodeJS.Timeout;
+        if (isMySession && isActiveSession) {
+            // Pequeño delay para que la UI se renderice y el usuario vea "Retomando..."
+            // y para asegurar que los estados estables se han propagado
+            timer = setTimeout(() => {
+                console.log('⚡️ Auto-Restoring Session based on LocalStorage Match');
+                handleResumeSession();
+            }, 600);
+        }
+        return () => clearTimeout(timer);
+    }, [isMySession, isActiveSession]);
 
     if (!isOpen) return null;
 
@@ -400,18 +445,39 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                                             </button>
                                         ) : (
                                             <div className="space-y-3">
-                                                {/* GHOST / ZOMBIE SESSION WARNING */}
-                                                {isGhostSession && (
-                                                    <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-sm text-amber-800 mb-2">
+                                                {/* CORRUPTION STATE HANDLING */}
+                                                {isCorruptSession && (
+                                                    <div className="bg-red-50 border border-red-200 p-3 rounded-lg text-sm text-red-800 mb-2">
                                                         <div className="font-bold flex items-center gap-2">
-                                                            <Monitor size={16} /> Sesión en otro dispositivo
+                                                            <AlertTriangle size={16} /> Error de Integridad
                                                         </div>
-                                                        <p className="text-xs mt-1 text-amber-700">
-                                                            Esta caja figura abierta por ti, pero <strong>no en este dispositivo</strong>.
-                                                            Si dejaste la sesión abierta en otro PC/Móvil, ciérrala allá.
-                                                            Si es un error, libera la caja.
+                                                        <p className="text-xs mt-1 text-red-700">
+                                                            Esta sesión no tiene un ID válido (Datos corruptos). Debe liberar la caja para poder usarla.
                                                         </p>
                                                     </div>
+                                                )}
+
+                                                {/* GHOST / ZOMBIE SESSION WARNING */}
+                                                {!isCorruptSession && isGhostSession && (
+                                                    <>
+                                                        <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-sm text-amber-800 mb-2">
+                                                            <div className="font-bold flex items-center gap-2">
+                                                                <Monitor size={16} /> Sesión recuperable
+                                                            </div>
+                                                            <p className="text-xs mt-1 text-amber-700">
+                                                                Esta caja figura abierta por ti en el servidor, pero no en este dispositivo (posible corte de luz o recarga).
+                                                            </p>
+                                                        </div>
+
+                                                        {/* RESUME BUTTON */}
+                                                        <button
+                                                            onClick={handleResumeSession}
+                                                            disabled={isForceLoading}
+                                                            className="w-full py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-xl shadow-lg shadow-cyan-500/30 flex items-center justify-center gap-2 transition-all transform hover:scale-[1.02] mb-3"
+                                                        >
+                                                            <RotateCcw size={20} /> RETOMAR MI TURNO
+                                                        </button>
+                                                    </>
                                                 )}
 
                                                 {/* EMERGENCY MODE: Allow Force Close for authenticated users if things go wrong */}
@@ -421,7 +487,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                                                         disabled={isForceLoading}
                                                         className={`w-full py-4 text-white font-extrabold rounded-xl shadow-lg flex items-center justify-center gap-2 animate-pulse ${isGhostSession ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-200' : 'bg-red-600 hover:bg-red-700 shadow-red-200'}`}
                                                     >
-                                                        {isForceLoading ? 'LIBERANDO...' : (isGhostSession ? '🔓 LIBERAR MI CAJA' : '🔓 LIBERAR CAJA (ADMIN)')}
+                                                        {isForceLoading ? 'LIBERANDO...' : (isCorruptSession ? '🔧 REPARAR CAJA (Liberar)' : (isGhostSession ? '🔓 LIBERAR MI CAJA' : '🔓 LIBERAR CAJA (ADMIN)'))}
                                                     </button>
                                                 ) : (
                                                     <p className="text-red-500 font-bold text-center">Inicie sesión para liberar</p>

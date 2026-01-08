@@ -47,6 +47,16 @@ vi.mock('next/cache', () => ({
     revalidatePath: vi.fn(),
 }));
 
+vi.mock('next/headers', () => ({
+    cookies: () => ({
+        get: (key: string) => {
+            if (key === 'user_id') return { value: 'test-user-id' };
+            if (key === 'user_role') return { value: 'ADMIN' };
+            return undefined;
+        },
+    }),
+}));
+
 vi.mock('uuid', () => ({
     v4: vi.fn(() => 'test-uuid-12345'),
 }));
@@ -56,9 +66,9 @@ vi.mock('bcryptjs', () => ({
 }));
 
 // Import after mocks
-import { 
-    createSaleSecure, 
-    voidSaleSecure, 
+import {
+    createSaleSecure,
+    voidSaleSecure,
     refundSaleSecure,
     getSalesHistory,
     getSessionSalesSummary
@@ -190,11 +200,13 @@ describe('Sales V2 - createSaleSecure', () => {
         mockQuery
             .mockResolvedValueOnce({}) // BEGIN
             .mockResolvedValueOnce({ rows: [{ id: 'session-1' }] }) // Session check
-            .mockResolvedValueOnce({ rows: [{ 
-                id: validSaleParams.items[0].batch_id, 
-                quantity_real: 1, // Only 1 available, but requesting 2
-                sku: 'PARA-500' 
-            }] }); // Stock check with insufficient quantity
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: validSaleParams.items[0].batch_id,
+                    quantity_real: 1, // Only 1 available, but requesting 2
+                    sku: 'PARA-500'
+                }]
+            }); // Stock check with insufficient quantity
 
         const result = await createSaleSecure(validSaleParams);
 
@@ -307,17 +319,21 @@ describe('Sales V2 - voidSaleSecure', () => {
 
         mockQuery
             .mockResolvedValueOnce({}) // BEGIN
-            .mockResolvedValueOnce({ rows: [{ 
-                id: 'supervisor-1', 
-                name: 'Admin', 
-                role: 'ADMIN',
-                access_pin_hash: 'hashed'
-            }] }) // Supervisor found
-            .mockResolvedValueOnce({ rows: [{ 
-                id: validVoidParams.saleId,
-                status: 'VOIDED', // Already voided
-                total_amount: 5980
-            }] }); // Sale check
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'supervisor-1',
+                    name: 'Admin',
+                    role: 'ADMIN',
+                    access_pin_hash: 'hashed'
+                }]
+            }) // Supervisor found
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: validVoidParams.saleId,
+                    status: 'VOIDED', // Already voided
+                    total_amount: 5980
+                }]
+            }); // Sale check
 
         const result = await voidSaleSecure(validVoidParams);
 
@@ -330,12 +346,14 @@ describe('Sales V2 - voidSaleSecure', () => {
 
         mockQuery
             .mockResolvedValueOnce({}) // BEGIN
-            .mockResolvedValueOnce({ rows: [{ 
-                id: 'supervisor-1', 
-                name: 'Admin', 
-                role: 'ADMIN',
-                access_pin_hash: 'hashed'
-            }] }) // Supervisor found
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'supervisor-1',
+                    name: 'Admin',
+                    role: 'ADMIN',
+                    access_pin_hash: 'hashed'
+                }]
+            }) // Supervisor found
             .mockResolvedValueOnce({ rows: [] }); // Sale not found
 
         const result = await voidSaleSecure(validVoidParams);
@@ -396,16 +414,20 @@ describe('Sales V2 - refundSaleSecure', () => {
 
         mockQuery
             .mockResolvedValueOnce({}) // BEGIN
-            .mockResolvedValueOnce({ rows: [{ 
-                id: 'supervisor-1', 
-                name: 'Admin', 
-                role: 'ADMIN',
-                access_pin_hash: 'hashed'
-            }] }) // Supervisor found
-            .mockResolvedValueOnce({ rows: [{ 
-                id: validRefundParams.saleId,
-                status: 'VOIDED'
-            }] }); // Voided sale
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'supervisor-1',
+                    name: 'Admin',
+                    role: 'ADMIN',
+                    access_pin_hash: 'hashed'
+                }]
+            }) // Supervisor found
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: validRefundParams.saleId,
+                    status: 'VOIDED'
+                }]
+            }); // Voided sale
 
         const result = await refundSaleSecure(validRefundParams);
 
@@ -431,10 +453,12 @@ describe('Sales V2 - getSalesHistory', () => {
         const { query } = await import('@/lib/db');
         (query as any)
             .mockResolvedValueOnce({ rows: [{ count: '25' }] }) // Count
-            .mockResolvedValueOnce({ rows: [
-                { id: 'sale-1', total_amount: 5000 },
-                { id: 'sale-2', total_amount: 3000 }
-            ] }); // Data
+            .mockResolvedValueOnce({
+                rows: [
+                    { id: 'sale-1', total_amount: 5000 },
+                    { id: 'sale-2', total_amount: 3000 }
+                ]
+            }); // Data
 
         const result = await getSalesHistory({ limit: 10, offset: 0 });
 
@@ -449,8 +473,8 @@ describe('Sales V2 - getSalesHistory', () => {
             .mockResolvedValueOnce({ rows: [{ count: '5' }] })
             .mockResolvedValueOnce({ rows: [] });
 
-        await getSalesHistory({ 
-            locationId: VALID_LOCATION_ID 
+        await getSalesHistory({
+            locationId: VALID_LOCATION_ID
         });
 
         // Check that location filter was applied
@@ -494,16 +518,20 @@ describe('Sales V2 - getSessionSalesSummary', () => {
     it('should return summary with sales by payment method', async () => {
         const { query } = await import('@/lib/db');
         (query as any)
-            .mockResolvedValueOnce({ rows: [{ 
-                total_sales: '10',
-                total_amount: '50000',
-                voided_count: '1',
-                refunded_sales_amount: '5000'
-            }] })
-            .mockResolvedValueOnce({ rows: [
-                { payment_method: 'CASH', total: '30000' },
-                { payment_method: 'DEBIT', total: '20000' }
-            ] })
+            .mockResolvedValueOnce({
+                rows: [{
+                    total_sales: '10',
+                    total_amount: '50000',
+                    voided_count: '1',
+                    refunded_sales_amount: '5000'
+                }]
+            })
+            .mockResolvedValueOnce({
+                rows: [
+                    { payment_method: 'CASH', total: '30000' },
+                    { payment_method: 'DEBIT', total: '20000' }
+                ]
+            })
             .mockResolvedValueOnce({ rows: [{ refunded_amount: '2500' }] });
 
         const result = await getSessionSalesSummary(VALID_SESSION_ID);
@@ -560,11 +588,13 @@ describe('Sales V2 - Security Features', () => {
         mockQuery
             .mockResolvedValueOnce({}) // BEGIN
             .mockResolvedValueOnce({ rows: [{ id: 'session-1' }] }) // Session
-            .mockResolvedValueOnce({ rows: [{ 
-                id: VALID_BATCH_ID,
-                quantity_real: 100,
-                sku: 'TEST'
-            }] }) // Stock
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: VALID_BATCH_ID,
+                    quantity_real: 100,
+                    sku: 'TEST'
+                }]
+            }) // Stock
             .mockResolvedValueOnce({}) // Insert sale
             .mockResolvedValueOnce({}) // Insert item
             .mockResolvedValueOnce({}) // Update stock

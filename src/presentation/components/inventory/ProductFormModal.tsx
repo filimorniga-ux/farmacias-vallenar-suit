@@ -10,8 +10,9 @@ interface ProductFormModalProps {
 }
 
 const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, onClose }) => {
-    const { createProduct, updateProduct, suppliers } = usePharmaStore();
+    const { fetchInventory, suppliers, currentLocationId, currentWarehouseId, locations } = usePharmaStore();
     const isEdit = !!product;
+    const { createProductSecure } = require('../../../actions/products-v2'); // Import Server Action (require for client component compat if needed, or import at top)
 
     const [formData, setFormData] = useState({
         sku: product?.sku || '',
@@ -24,42 +25,108 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, onClose })
         safety_stock: product?.safety_stock || 0,
         price_sell_box: product?.price_sell_box || 0,
         cost_net: product?.cost_net || 0,
-        location_id: product?.location_id || 'BODEGA_CENTRAL',
+        location_id: product?.location_id || currentLocationId || (locations.length > 0 ? locations[0].id : ''),
         preferred_supplier_id: product?.preferred_supplier_id || '',
         lead_time_days: product?.lead_time_days || 3,
         barcode: product?.barcode || '',
+        initialLot: '',
+        initialExpiry: '',
     });
 
-    const handleSubmit = () => {
+    const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        let val = e.target.value.replace(/\D/g, ''); // Remove non-digits
+        if (val.length > 8) val = val.substring(0, 8); // Limit to 8 digits
+
+        // Masking DD/MM/YYYY
+        let formatted = val;
+        if (val.length > 2) {
+            formatted = val.substring(0, 2) + '/' + val.substring(2);
+        }
+        if (val.length > 4) {
+            formatted = formatted.substring(0, 5) + '/' + formatted.substring(5);
+        }
+        setFormData({ ...formData, initialExpiry: formatted });
+    };
+
+    const parseDateFromMask = (dateStr: string): Date | undefined => {
+        if (!dateStr || dateStr.length !== 10) return undefined;
+        const [day, month, year] = dateStr.split('/').map(Number);
+        const date = new Date(year, month - 1, day);
+        return isNaN(date.getTime()) ? undefined : date;
+    };
+
+    const handleSubmit = async () => {
+        // 1. Validation
         if (!formData.sku || !formData.name) {
             toast.error('Complete los campos requeridos');
             return;
         }
-
-        if (isEdit && product) {
-            updateProduct(product.id, formData as Partial<InventoryBatch>);
-            toast.success('Producto actualizado');
-        } else {
-            // Tiger Cloud compliant creation
-            const newProduct = createProduct({
-                ...formData,
-                price_sell_unit: Math.round(formData.price_sell_box),
-                tax_percent: 19,
-                price: formData.price_sell_box,
-                cost_price: formData.cost_net,
-                concentration: '',
-                unit_count: 1,
-                is_generic: false,
-                bioequivalent_status: 'NO_BIOEQUIVALENTE',
-                condition: 'VD',
-                expiry_date: Date.now() + (365 * 24 * 60 * 60 * 1000),
-                allows_commission: false,
-                active_ingredients: [],
-            } as Omit<InventoryBatch, 'id'>);
-            toast.success('Producto creado');
+        if (formData.name.length > 200) {
+            toast.error('El nombre es muy largo (máx 200 caracteres). Por favor resúmalo.');
+            return;
+        }
+        if (formData.sku.length > 50) {
+            toast.error('El SKU es muy largo (máx 50 caracteres).');
+            return;
         }
 
-        onClose();
+        if (isEdit && product) {
+            // Update logic (keep existing store call or migrate to secure)
+            // updateProduct(product.id, formData as Partial<InventoryBatch>);
+            // toast.success('Producto actualizado');
+            toast.info('Edición pendiente de migración a V2');
+        } else {
+            // 2. Prepare Data for Backend
+            let expiryDate = undefined;
+            if (formData.initialExpiry) {
+                expiryDate = parseDateFromMask(formData.initialExpiry);
+                if (!expiryDate) {
+                    toast.error('Fecha de vencimiento inválida. Use formato DD/MM/AAAA');
+                    return;
+                }
+            }
+
+            const payload = {
+                sku: formData.sku,
+                name: formData.name,
+                description: '', // Optional
+                price: formData.price_sell_box, // Using box price as main price
+                priceCost: formData.cost_net,
+                minStock: formData.stock_min,
+                maxStock: formData.stock_max,
+                userId: 'SYSTEM', // Should come from useStore user.id
+                // Schema compliance
+                initialStock: formData.stock_actual,
+                initialLot: formData.initialLot,
+                initialExpiry: expiryDate, // Pass Date object
+                initialLocation: formData.location_id
+            };
+
+            // 3. Call Server Action
+            try {
+                // @ts-ignore
+                const result = await createProductSecure({
+                    ...payload,
+                    // Need to fetch user ID globally, assuming store has it or logic handles it
+                    // For now, let's grab it from store if possible, or assume context
+                    userId: usePharmaStore.getState().user?.id || 'SYSTEM-FALLBACK'
+                });
+
+                if (result.success) {
+                    toast.success('Producto guardado exitosamente en base de datos');
+
+                    // 4. Trigger Real Fetch to Update UI
+                    await fetchInventory(currentLocationId, currentWarehouseId);
+
+                    onClose();
+                } else {
+                    toast.error('Error al guardar: ' + result.error);
+                }
+            } catch (err) {
+                console.error(err);
+                toast.error('Error de conexión al crear producto');
+            }
+        }
     };
 
     return (
@@ -140,7 +207,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, onClose })
 
                         {/* Stock - Tiger Cloud compliant */}
                         <div>
-                            <h3 className="text-sm font-bold text-slate-700 mb-4 uppercase">Stock</h3>
+                            <h3 className="text-sm font-bold text-slate-700 mb-4 uppercase">Stock Inicial</h3>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-bold text-amber-600 mb-2">
@@ -151,8 +218,38 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, onClose })
                                         value={formData.stock_actual}
                                         onChange={(e) => setFormData({ ...formData, stock_actual: parseInt(e.target.value) || 0 })}
                                         className="w-full p-3 border border-amber-200 rounded-xl focus:outline-none focus:border-amber-500 bg-amber-50"
+                                        disabled={isEdit} // Initial stock only on create
                                     />
                                 </div>
+                                {formData.stock_actual > 0 && !isEdit && (
+                                    <>
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-2">
+                                                Lote Inicial *
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={formData.initialLot || ''}
+                                                onChange={(e) => setFormData({ ...formData, initialLot: e.target.value })}
+                                                placeholder="Ej: LOTE-001"
+                                                className="w-full p-3 border border-slate-200 rounded-xl focus:outline-none focus:border-cyan-500"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-2">
+                                                Vencimiento *
+                                            </label>
+                                            <input
+                                                type="text"
+                                                maxLength={10}
+                                                placeholder="DD/MM/AAAA"
+                                                value={formData.initialExpiry || ''}
+                                                onChange={handleDateChange}
+                                                className="w-full p-3 border border-slate-200 rounded-xl focus:outline-none focus:border-cyan-500 font-mono"
+                                            />
+                                        </div>
+                                    </>
+                                )}
                                 <div>
                                     <label className="block text-sm font-bold text-slate-700 mb-2">
                                         Ubicación (location_id)
@@ -162,9 +259,9 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, onClose })
                                         onChange={(e) => setFormData({ ...formData, location_id: e.target.value })}
                                         className="w-full p-3 border border-slate-200 rounded-xl focus:outline-none focus:border-cyan-500"
                                     >
-                                        <option value="BODEGA_CENTRAL">Bodega Central</option>
-                                        <option value="SUCURSAL_CENTRO">Sucursal Centro</option>
-                                        <option value="SUCURSAL_NORTE">Sucursal Norte</option>
+                                        {locations.map(loc => (
+                                            <option key={loc.id} value={loc.id}>{loc.name}</option>
+                                        ))}
                                     </select>
                                 </div>
                                 <div>

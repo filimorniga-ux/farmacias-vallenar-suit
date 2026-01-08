@@ -33,13 +33,29 @@ import { randomUUID } from 'crypto';
 
 const UUIDSchema = z.string().uuid('ID inválido');
 
-// Chilean RUT format: 12345678-9
+// Chilean RUT - Flexible format (accepts with or without dots/dashes)
 const RUTSchema = z.string()
-    .regex(/^\d{7,8}-[\dkK]$/, 'Formato RUT inválido (ej: 12345678-9)')
+    .min(7, 'RUT muy corto')
+    .max(12, 'RUT muy largo')
+    .transform((rut) => {
+        // Normalize RUT: remove dots and spaces, ensure dash before last char
+        const cleaned = rut.replace(/\./g, '').replace(/\s/g, '').toUpperCase();
+        if (cleaned.includes('-')) return cleaned;
+        // If no dash, add it before last character
+        if (cleaned.length >= 2) {
+            return cleaned.slice(0, -1) + '-' + cleaned.slice(-1);
+        }
+        return cleaned;
+    })
+    .refine((rut) => {
+        // Validate format after normalization
+        return /^\d{7,8}-[\dK]$/.test(rut);
+    }, { message: 'Formato RUT inválido (ej: 12345678-9)' })
     .refine((rut) => {
         // Validate verification digit
-        const [number, dv] = rut.split('-');
-        return validateRUTDigit(number, dv);
+        const parts = rut.split('-');
+        if (parts.length !== 2 || !parts[0] || !parts[1]) return false;
+        return validateRUTDigit(parts[0], parts[1]);
     }, { message: 'Dígito verificador de RUT inválido' });
 
 const EmailSchema = z.string()
@@ -56,6 +72,7 @@ const CreateCustomerSchema = z.object({
     tags: z.array(z.string()).default([]),
     healthTags: z.array(z.string()).default([]),
     notes: z.string().max(500).optional(),
+    registrationSource: z.string().default('POS'),
 });
 
 const UpdateCustomerSchema = z.object({
@@ -117,7 +134,7 @@ async function hashRUT(rut: string): Promise<string> {
 }
 
 /**
- * Insert audit log
+ * Insert audit log (non-blocking, failures don't break main operation)
  */
 async function insertCustomerAudit(client: any, params: {
     actionCode: string;
@@ -126,25 +143,33 @@ async function insertCustomerAudit(client: any, params: {
     oldValues?: Record<string, any>;
     newValues?: Record<string, any>;
 }): Promise<void> {
-    // Remove sensitive PII from audit
-    const sanitize = (values?: Record<string, any>) => {
-        if (!values) return null;
-        const { rut, email, phone, address, ...safe } = values;
-        return safe;
-    };
+    try {
+        // Remove sensitive PII from audit
+        const sanitize = (values?: Record<string, any>) => {
+            if (!values) return null;
+            const { rut, email, phone, address, ...safe } = values;
+            return safe;
+        };
 
-    await client.query(`
-        INSERT INTO audit_log (
-            user_id, action_code, entity_type, entity_id,
-            old_values, new_values, created_at
-        ) VALUES ($1, $2, 'CUSTOMER', $3, $4::jsonb, $5::jsonb, NOW())
-    `, [
-        params.userId,
-        params.actionCode,
-        params.customerId,
-        params.oldValues ? JSON.stringify(sanitize(params.oldValues)) : null,
-        JSON.stringify(sanitize(params.newValues))
-    ]);
+        // Use NULL for system-generated actions instead of 'SYSTEM' string
+        const userId = params.userId === 'SYSTEM' ? null : params.userId;
+
+        await client.query(`
+            INSERT INTO audit_log (
+                user_id, action_code, entity_type, entity_id,
+                old_values, new_values, created_at
+            ) VALUES ($1::uuid, $2, 'CUSTOMER', $3, $4::jsonb, $5::jsonb, NOW())
+        `, [
+            userId,
+            params.actionCode,
+            params.customerId,
+            params.oldValues ? JSON.stringify(sanitize(params.oldValues)) : null,
+            JSON.stringify(sanitize(params.newValues))
+        ]);
+    } catch (error) {
+        // Audit failures should not break the main operation
+        console.warn('[CUSTOMERS-V2] Audit insert failed (non-critical):', error);
+    }
 }
 
 // ============================================================================
@@ -159,14 +184,19 @@ export async function createCustomerSecure(data: z.infer<typeof CreateCustomerSc
     data?: { id: string };
     error?: string;
 }> {
+    console.log('[CUSTOMERS-V2] createCustomerSecure called with:', JSON.stringify(data));
+
     // 1. Validate input
     const validated = CreateCustomerSchema.safeParse(data);
     if (!validated.success) {
+        console.error('[CUSTOMERS-V2] Validation failed:', validated.error.issues);
         return {
             success: false,
             error: validated.error.issues[0]?.message || 'Datos inválidos'
         };
     }
+
+    console.log('[CUSTOMERS-V2] Validation passed, normalized RUT:', validated.data.rut);
 
     const client = await pool.connect();
 
@@ -189,7 +219,7 @@ export async function createCustomerSecure(data: z.infer<typeof CreateCustomerSc
         const createResult = await client.query(`
             INSERT INTO customers (
                 id, rut, name, phone, email, address,
-                tags, loyalty_points, status, health_tags, notes,
+                tags, loyalty_points, status, health_tags, source,
                 created_at, updated_at
             ) VALUES (
                 $1, $2, $3, $4, $5, $6,
@@ -204,25 +234,28 @@ export async function createCustomerSecure(data: z.infer<typeof CreateCustomerSc
             validated.data.phone || null,
             validated.data.email || null,
             validated.data.address || null,
-            JSON.stringify(validated.data.tags),
-            JSON.stringify(validated.data.healthTags),
-            validated.data.notes || null
+            validated.data.tags.length > 0 ? `{${validated.data.tags.join(',')}}` : '{}',
+            validated.data.healthTags.length > 0 ? `{${validated.data.healthTags.join(',')}}` : '{}',
+            validated.data.registrationSource || 'POS'
         ]);
 
-        // 4. Audit (minimal PII)
-        await insertCustomerAudit(client, {
-            actionCode: 'CUSTOMER_CREATED',
-            userId: 'SYSTEM', // or from session
-            customerId,
-            newValues: {
-                name: validated.data.fullName,
-                status: 'ACTIVE'
-            }
-        });
+        console.log('[CUSTOMERS-V2] INSERT completed, customerId:', customerId);
 
+        // COMMIT transaction FIRST (before audit - audit failures shouldn't block customer creation)
+        console.log('[CUSTOMERS-V2] Committing transaction...');
         await client.query('COMMIT');
+        console.log('[CUSTOMERS-V2] Transaction committed successfully!');
 
         revalidatePath('/clientes');
+
+        // 4. Audit (AFTER commit, non-blocking) - uses separate connection
+        // This way audit FK errors don't corrupt the main transaction
+        insertCustomerAudit(client, {
+            actionCode: 'CUSTOMER_CREATED',
+            userId: 'SYSTEM',
+            customerId,
+            newValues: { name: validated.data.fullName, status: 'ACTIVE' }
+        }).catch(() => { }); // Fire and forget
 
         return {
             success: true,
@@ -568,7 +601,7 @@ export async function deleteCustomerSecure(customerId: string, userId: string): 
 /**
  * 📋 Get Customers (Paginated, Filtered)
  */
-export async function getCustomersSecure(filters?: z.infer<typeof GetCustomersSchema>): Promise<{
+export async function getCustomersSecure(filters?: z.input<typeof GetCustomersSchema>): Promise<{
     success: boolean;
     data?: {
         customers: any[];
@@ -643,10 +676,19 @@ export async function getCustomersSecure(filters?: z.infer<typeof GetCustomersSc
 
         const totalPages = Math.ceil(total / validated.data.pageSize);
 
+        // Map DB fields to frontend Customer type
+        const mappedCustomers = customersResult.rows.map((c: any) => ({
+            ...c,
+            fullName: c.name, // Map 'name' from DB to 'fullName' for frontend
+            totalPoints: c.loyalty_points || 0,
+            lastVisit: c.last_visit ? new Date(c.last_visit).getTime() : Date.now(),
+            total_spent: 0, // Not tracked in this query, could be added via JOIN if needed
+        }));
+
         return {
             success: true,
             data: {
-                customers: customersResult.rows,
+                customers: mappedCustomers,
                 total,
                 page: validated.data.page,
                 pageSize: validated.data.pageSize,
@@ -659,6 +701,88 @@ export async function getCustomersSecure(filters?: z.infer<typeof GetCustomersSc
         return {
             success: false,
             error: error.message || 'Error obteniendo clientes'
+        };
+    }
+}
+
+/**
+ * 📜 Get Customer Purchase History
+ */
+export async function getCustomerHistorySecure(customerId: string): Promise<{
+    success: boolean;
+    data?: any[];
+    error?: string;
+}> {
+    const validated = UUIDSchema.safeParse(customerId);
+    if (!validated.success) {
+        return { success: false, error: 'ID inválido' };
+    }
+
+    try {
+        // 1. Get Customer RUT first
+        const customerRes = await pool.query(`
+            SELECT rut FROM customers WHERE id = $1
+        `, [validated.data]);
+
+        if (customerRes.rows.length === 0) {
+            return { success: false, error: 'Cliente no encontrado' };
+        }
+
+        const customerRut = customerRes.rows[0].rut;
+
+        // 2. Fetch transactions using RUT
+        // Sales are stored with customer_rut, not customer_id in the new schema
+        const historyRes = await pool.query(`
+            SELECT 
+                s.id,
+                s.timestamp,
+                s.total_amount as total,
+                s.status,
+                s.payment_method,
+                s.location_id as branch_id,
+                s.dte_type as dte_code,
+                COALESCE(
+                    (
+                        SELECT json_agg(json_build_object(
+                            'name', si.product_name,
+                            'quantity', si.quantity,
+                            'price', si.unit_price,
+                            'batch_id', si.batch_id,
+                            'sku', 'UNKNOWN', 
+                            'allows_commission', false
+                        ))
+                        FROM sale_items si
+                        WHERE si.sale_id = s.id
+                    ),
+                    '[]'::json
+                ) as items
+            FROM sales s
+            WHERE s.customer_rut = $1
+            ORDER BY s.timestamp DESC
+        `, [customerRut]);
+
+        // Map to SaleTransaction type
+        const transactions = historyRes.rows.map(row => ({
+            id: row.id,
+            timestamp: typeof row.timestamp === 'string' ? new Date(row.timestamp).getTime() : new Date(row.timestamp).getTime(),
+            total: Number(row.total),
+            status: row.status,
+            payment_method: row.payment_method,
+            branch_id: row.branch_id,
+            items: row.items || [],
+            dte_code: row.dte_code
+        }));
+
+        return {
+            success: true,
+            data: transactions
+        };
+
+    } catch (error: any) {
+        console.error('[CUSTOMERS-V2] History fetch error:', error);
+        return {
+            success: false,
+            error: `Error: ${error.message || 'Error desconocido'}`
         };
     }
 }

@@ -1,4 +1,5 @@
 'use server';
+import { debugLog } from '@/lib/debug-logger';
 
 /**
  * ============================================================================
@@ -83,6 +84,7 @@ const QuoteHistorySchema = z.object({
     status: z.enum(['PENDING', 'CONVERTED', 'EXPIRED', 'CANCELLED']).optional(),
     startDate: z.date().optional(),
     endDate: z.date().optional(),
+    searchCode: z.string().optional(),
     page: z.number().int().min(1).default(1),
     pageSize: z.number().int().min(1).max(100).default(50),
 });
@@ -115,17 +117,54 @@ const DISCOUNT_THRESHOLDS = {
 /**
  * Get session from headers
  */
+/**
+ * Get session from headers or cookies (Robust Fallback)
+ */
 async function getSession(): Promise<{ user?: { id: string; role: string } } | null> {
     try {
         const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const userRole = headersList.get('x-user-role');
+        const cookieStore = await import('next/headers').then(mod => mod.cookies()); // Dynamic import to avoid build issues
 
-        if (!userId || !userRole) {
-            return null;
+        // 1. Try Headers (Client-side explicit)
+        const headerUserId = headersList.get('x-user-id');
+        const headerUserRole = headersList.get('x-user-role');
+
+        if (headerUserId && headerUserRole) {
+            return { user: { id: headerUserId, role: headerUserRole } };
         }
 
-        return { user: { id: userId, role: userRole } };
+        // 2. Try Secure Session Token (Best Practice)
+        const sessionToken = cookieStore.get('session_token')?.value;
+        if (sessionToken) {
+            const res = await pool.query(
+                `SELECT u.id as "userId", u.role
+                 FROM sessions s
+                 JOIN users u ON s.user_id = u.id
+                 WHERE s.token = $1 AND s.expires_at > NOW()`,
+                [sessionToken]
+            );
+
+            if ((res.rowCount || 0) > 0) {
+                const row = res.rows[0];
+                return { user: { id: row.userId, role: row.role } };
+            }
+        }
+
+        // 3. Fallback: Auth-V2 Cookies
+        const cookieUserId = cookieStore.get('user_id')?.value;
+        if (cookieUserId) {
+            const res = await pool.query(
+                `SELECT id, role FROM users WHERE id = $1 AND is_active = true`,
+                [cookieUserId]
+            );
+
+            if ((res.rowCount || 0) > 0) {
+                const user = res.rows[0];
+                return { user: { id: user.id, role: user.role } };
+            }
+        }
+
+        return null;
     } catch {
         return null;
     }
@@ -214,26 +253,22 @@ async function insertQuoteAudit(
         notes?: string;
     }
 ): Promise<void> {
-    try {
-        await client.query(`
+    await client.query(`
             INSERT INTO audit_log (
                 user_id, action_code, entity_type, entity_id,
                 old_values, new_values, justification, created_at
             ) VALUES ($1, $2, 'QUOTE', $3, $4::jsonb, $5::jsonb, $6, NOW())
         `, [
-            params.userId,
-            params.actionCode,
-            params.quoteId,
-            params.oldValues ? JSON.stringify(params.oldValues) : null,
-            JSON.stringify({
-                ...params.newValues,
-                authorized_by: params.authorizedById,
-            }),
-            params.notes || null
-        ]);
-    } catch (error) {
-        logger.warn({ error }, '[Quotes] Audit log failed');
-    }
+        params.userId,
+        params.actionCode,
+        params.quoteId,
+        params.oldValues ? JSON.stringify(params.oldValues) : null,
+        JSON.stringify({
+            ...params.newValues,
+            authorized_by: params.authorizedById,
+        }),
+        params.notes || null
+    ]);
 }
 
 // ============================================================================
@@ -265,7 +300,8 @@ export async function createQuoteSecure(
     const client = await pool.connect();
 
     try {
-        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+        await client.query('BEGIN'); // Default Read Committed
+        debugLog(`[Quotes] Starting transaction for user ${session.user.id}`);
 
         // Calculate totals
         let subtotal = 0;
@@ -280,17 +316,25 @@ export async function createQuoteSecure(
 
         const total = subtotal - totalDiscount;
 
+        // 1. Get next sequence value for code
+        const seqRes = await client.query("SELECT nextval('quotes_code_seq') as seq");
+        const seqNum = seqRes.rows[0].seq;
+        const currentYear = new Date().getFullYear();
+        const seqStr = seqNum.toString().padStart(6, '0');
+        const quoteCode = `COT-${currentYear}-${seqStr}`;
+        debugLog(`[Quotes] Generated code: ${quoteCode}`);
+
         // Create quote
         const quoteId = randomUUID();
-        const quoteCode = generateQuoteCode();
         const expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + validDays);
+        debugLog(`[Quotes] Inserting quote header: ${quoteId}`);
 
         await client.query(`
             INSERT INTO quotes (
                 id, code, customer_id, customer_name, customer_phone, customer_email,
                 subtotal, discount, total, status, notes, valid_until,
-                created_by, created_at, location_id, terminal_id
+                user_id, created_at, location_id, terminal_id
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PENDING', $10, $11, $12, NOW(), $13, $14)
         `, [
             quoteId,
@@ -304,13 +348,13 @@ export async function createQuoteSecure(
             total,
             notes || null,
             expiresAt,
-            expiresAt,
             session.user.id,
             validated.data.locationId,
             validated.data.terminalId || null
         ]);
 
         // Insert items
+        debugLog(`[Quotes] Inserting ${items.length} items...`);
         for (const item of items) {
             const itemId = randomUUID();
             const itemSubtotal = item.unitPrice * item.quantity;
@@ -319,7 +363,7 @@ export async function createQuoteSecure(
 
             await client.query(`
                 INSERT INTO quote_items (
-                    id, quote_id, product_id, sku, name,
+                    id, quote_id, product_id, sku, product_name,
                     quantity, unit_price, discount_percent, subtotal, total
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             `, [
@@ -337,6 +381,7 @@ export async function createQuoteSecure(
         }
 
         // Audit
+        debugLog('📝 [Quotes] Auditing...');
         await insertQuoteAudit(client, {
             userId: session.user.id,
             quoteId,
@@ -350,7 +395,28 @@ export async function createQuoteSecure(
             }
         });
 
+        // Verify INSIDE transaction
+        const inTxRes = await client.query('SELECT id FROM quotes WHERE id = $1', [quoteId]);
+        debugLog(`[Quotes] In-TX Check: ${inTxRes.rows.length > 0 ? 'FOUND' : 'NOT FOUND'}`);
+
         await client.query('COMMIT');
+        debugLog('✅ [Quotes] Transaction COMMITTED');
+
+        // Verify with SAME client after commit
+        const afterCommitClientRes = await client.query('SELECT id FROM quotes WHERE id = $1', [quoteId]);
+        debugLog(`[Quotes] Client-After-Commit Check: ${afterCommitClientRes.rows.length > 0 ? 'FOUND' : 'NOT FOUND'}`);
+
+        // VERIFY PERSISTENCE (Pool)
+        try {
+            const verifyRes = await pool.query('SELECT id FROM quotes WHERE id = $1', [quoteId]);
+            if (verifyRes.rows.length > 0) {
+                debugLog('✅ [Quotes] Pool Check SUCCESS: Quote found in DB.');
+            } else {
+                debugLog('❌ [Quotes] Pool Check FAILED: Quote NOT found in DB after commit!');
+            }
+        } catch (e) {
+            console.error('❌ [Quotes] Verification query failed:', e);
+        }
 
         logger.info({ quoteId, quoteCode, total }, '📝 [Quotes] Quote created');
         revalidatePath('/cotizaciones');
@@ -359,9 +425,9 @@ export async function createQuoteSecure(
 
     } catch (error: any) {
         await client.query('ROLLBACK');
+        debugLog(`❌ [Quotes] Transaction ROLLBACK: ${error.message}`);
         logger.error({ error }, '[Quotes] Create quote error');
         return { success: false, error: error.message || 'Error creando cotización' };
-
     } finally {
         client.release();
     }
@@ -968,18 +1034,50 @@ export async function getQuoteHistory(
 
         // Fetch quotes
         params.push(pageSize, offset);
+        // Filter by User / Location (Security)
+        // If not admin, restrict to own quotes or branch quotes
+        // For now, let's enforce: User can see quotes created by them, OR created at their current location
+        let userFilter = '';
+        const queryParams: any[] = [pageSize, offset]; // Changed from limit, offset to pageSize, offset
+        let currentParamIndex = 3; // Adjusted paramIndex for the new query structure
+
+        // Add status filter
+        if (status) {
+            userFilter += ` AND q.status = $${currentParamIndex}`;
+            queryParams.push(status);
+            currentParamIndex++;
+        }
+
+        if (customerId) {
+            userFilter += ` AND q.customer_id = $${currentParamIndex}`;
+            queryParams.push(customerId);
+            currentParamIndex++;
+        }
+
+        if (startDate) {
+            userFilter += ` AND q.created_at >= $${currentParamIndex}`;
+            queryParams.push(startDate);
+            currentParamIndex++;
+        }
+
+        if (endDate) {
+            userFilter += ` AND q.created_at <= $${currentParamIndex}`;
+            queryParams.push(endDate);
+            currentParamIndex++;
+        }
+
         const quotesRes = await query(`
             SELECT 
                 q.*,
-                u.name as created_by_name,
-                c.name as customer_display_name
+                (SELECT COUNT(*) FROM quote_items WHERE quote_id = q.id) as items_count,
+                u.name as creator_name
             FROM quotes q
             LEFT JOIN users u ON q.created_by = u.id
             LEFT JOIN customers c ON q.customer_id = c.id
-            WHERE ${whereClause}
+            WHERE 1=1 ${userFilter}
             ORDER BY q.created_at DESC
-            LIMIT $${paramIndex++} OFFSET $${paramIndex}
-        `, params);
+            LIMIT $1 OFFSET $2
+        `, queryParams); // Using queryParams for the new query
 
         return {
             success: true,
@@ -1036,7 +1134,7 @@ export async function retrieveQuoteSecure(
                 u.name as created_by_name,
                 c.name as customer_display_name
             FROM quotes q
-            LEFT JOIN users u ON q.created_by = u.id
+            LEFT JOIN users u ON q.user_id = u.id
             LEFT JOIN customers c ON q.customer_id = c.id
             WHERE q.id = $1
         `, [quoteId]);
@@ -1115,5 +1213,139 @@ export async function retrieveQuoteSecure(
     } catch (error: any) {
         logger.error({ error, quoteId }, '[Quotes] Retrieve quote error');
         return { success: false, error: 'Error obteniendo cotización' };
+    }
+}
+
+// ============================================================================
+// HISTORY & PRINTING
+// ============================================================================
+
+// ... inside getQuotesSecure
+export async function getQuotesSecure(
+    filters: z.infer<typeof QuoteHistorySchema>
+): Promise<{ success: boolean; data?: any[]; total?: number; error?: string }> {
+    const session = await getSession();
+    if (!session?.user) return { success: false, error: 'No autenticado' };
+    console.log('[QuotesHistory] Fetching for User:', session.user.id);
+
+    const { page, pageSize, startDate, endDate, customerId, status, searchCode } = filters;
+    const offset = (page - 1) * pageSize;
+
+    try {
+        const conditions: string[] = [];
+        const params: any[] = [];
+        let idx = 1;
+
+        if (status) {
+            conditions.push(`q.status = $${idx++}`);
+            params.push(status);
+        }
+
+        // Search by Code (Partial Match)
+        if (searchCode && searchCode.trim().length > 0) {
+            conditions.push(`q.code ILIKE $${idx++}`);
+            params.push(`%${searchCode.trim()}%`);
+        }
+
+        // Filter by current user
+        if (session?.user?.id) {
+            conditions.push(`q.user_id = $${idx++}`);
+            params.push(session.user.id);
+        }
+
+        if (customerId) {
+            conditions.push(`q.customer_id = $${idx++}`);
+            params.push(customerId);
+        }
+
+        if (startDate) {
+            conditions.push(`q.created_at >= $${idx++}`);
+            params.push(startDate);
+        }
+
+        if (endDate) {
+            // Set end date to end of day
+            const eod = new Date(endDate);
+            eod.setHours(23, 59, 59, 999);
+            conditions.push(`q.created_at <= $${idx++}`);
+            params.push(eod);
+        }
+
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+        // Count total
+        const countRes = await pool.query(
+            `SELECT COUNT(*) FROM quotes q ${whereClause}`,
+            params
+        );
+        const total = parseInt(countRes.rows[0].count);
+
+        // Fetch paginated
+        const res = await pool.query(`
+            SELECT 
+                q.id, q.code, q.total, q.created_at, q.valid_until, q.status,
+                q.customer_name, q.customer_phone, q.customer_email,
+                u.name as creator_name
+            FROM quotes q
+            LEFT JOIN users u ON q.user_id = u.id
+            ${whereClause}
+            ORDER BY q.created_at DESC
+            LIMIT $${idx++} OFFSET $${idx++}
+        `, [...params, pageSize, offset]);
+
+        return { success: true, data: res.rows, total };
+    } catch (error: any) {
+        logger.error({ error }, '[Quotes] Get history error');
+        return { success: false, error: 'Error obteniendo historial' };
+    }
+}
+
+/**
+ * 🖨️ Get Full Quote Details (for Printing)
+ */
+export async function getQuoteDetailsSecure(quoteId: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    console.log('[Quotes] getQuoteDetailsSecure calling with ID:', quoteId);
+
+    // Validate UUID
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!quoteId || !uuidRegex.test(quoteId)) {
+        console.error('[Quotes] Invalid UUID provided:', quoteId);
+        return { success: false, error: 'ID de cotización inválido' };
+    }
+
+    try {
+        // Fetch Header
+        const headerRes = await pool.query(`
+            SELECT 
+                q.*,
+                u.name as creator_name,
+                l.name as location_name,
+                l.address as location_address
+            FROM quotes q
+            LEFT JOIN users u ON q.user_id = u.id
+            LEFT JOIN locations l ON q.location_id::uuid = l.id
+            WHERE q.id = $1::uuid
+        `, [quoteId]);
+
+        if (headerRes.rowCount === 0) return { success: false, error: 'Cotización no encontrada' };
+        const quote = headerRes.rows[0];
+
+        // Fetch Items
+        const itemsRes = await pool.query(`
+            SELECT * FROM quote_items WHERE quote_id = $1::uuid
+        `, [quoteId]);
+
+        return {
+            success: true,
+            data: {
+                ...quote,
+                items: itemsRes.rows
+            }
+        };
+
+    } catch (error: any) {
+        console.error('❌ [Quotes] Get Details Error RAW:', error);
+        logger.error({ error }, '[Quotes] Get details error');
+        return { success: false, error: 'Error obteniendo detalles: ' + (error.message || 'Unknown') };
     }
 }

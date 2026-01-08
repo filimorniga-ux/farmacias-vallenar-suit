@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 import { usePharmaStore } from '../../store/useStore';
 import { InventoryBatch } from '../../../domain/types';
 import { toast } from 'sonner';
+import { deleteProductSecure } from '../../../actions/delete-product';
 
 interface ProductDeleteConfirmProps {
     product: InventoryBatch;
@@ -11,18 +12,43 @@ interface ProductDeleteConfirmProps {
 }
 
 const ProductDeleteConfirm: React.FC<ProductDeleteConfirmProps> = ({ product, onClose, onConfirm }) => {
-    const { deleteProduct, reorderConfigs } = usePharmaStore();
+    const { deleteProduct, reorderConfigs, user } = usePharmaStore();
+    const [isDeleting, setIsDeleting] = useState(false);
 
     const hasStock = product.stock_actual > 0;
     const hasReorderConfig = reorderConfigs.some(
         c => c.sku === product.sku && c.location_id === product.location_id
     );
 
-    const handleDelete = () => {
-        deleteProduct(product.id);
-        toast.success(`Producto ${product.name} eliminado`);
-        onConfirm();
-        onClose();
+    const handleDelete = async () => {
+        if (!user?.id) {
+            toast.error('Usuario no autenticado');
+            return;
+        }
+
+        setIsDeleting(true);
+
+        try {
+            // Delete from database first
+            const result = await deleteProductSecure(product.id, user.id);
+
+            if (!result.success) {
+                toast.error(result.error || 'Error al eliminar producto');
+                setIsDeleting(false);
+                return;
+            }
+
+            // Update local store
+            deleteProduct(product.id);
+
+            toast.success(`Producto ${product.name} eliminado correctamente`);
+            onConfirm();
+            onClose();
+        } catch (error: any) {
+            toast.error(error.message || 'Error al eliminar producto');
+        } finally {
+            setIsDeleting(false);
+        }
     };
 
     return (
@@ -101,9 +127,10 @@ const ProductDeleteConfirm: React.FC<ProductDeleteConfirmProps> = ({ product, on
                         </button>
                         <button
                             onClick={handleDelete}
-                            className="px-6 py-2 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition"
+                            disabled={isDeleting}
+                            className="px-6 py-2 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            Eliminar Producto
+                            {isDeleting ? 'Eliminando...' : 'Eliminar Producto'}
                         </button>
                     </div>
                 </div>

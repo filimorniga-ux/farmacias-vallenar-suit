@@ -887,7 +887,7 @@ export async function getCashDrawerStatus(
  * 📜 Get Cash Movement History
  */
 export async function getCashMovementHistory(
-    filters?: z.infer<typeof CashHistorySchema>
+    filters?: z.input<typeof CashHistorySchema>
 ): Promise<{
     success: boolean;
     data?: {
@@ -1240,7 +1240,7 @@ export async function getShiftMetricsSecure(
  * 📥 Export Cash Movement History (Detailed, High Limit)
  */
 export async function exportCashMovementHistory(
-    filters?: z.infer<typeof CashHistorySchema>
+    filters?: z.input<typeof CashHistorySchema>
 ): Promise<{
     success: boolean;
     data?: any[];

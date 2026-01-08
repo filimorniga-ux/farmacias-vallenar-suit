@@ -10,9 +10,10 @@ interface CustomerSelectModalProps {
 }
 
 const CustomerSelectModal: React.FC<CustomerSelectModalProps> = ({ isOpen, onClose }) => {
-    const { customers, setCustomer, addCustomer } = usePharmaStore();
+    const { customers, setCustomer, addCustomer, fetchCustomers } = usePharmaStore();
     const [searchTerm, setSearchTerm] = useState('');
     const [isRegistering, setIsRegistering] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
 
     // New Customer Form State
     const [newRut, setNewRut] = useState('');
@@ -29,11 +30,13 @@ const CustomerSelectModal: React.FC<CustomerSelectModalProps> = ({ isOpen, onClo
             setNewRut('');
             setNewName('');
             setNewPhone('');
+            // Fetch customers from DB when modal opens
+            fetchCustomers();
         }
-    }, [isOpen]);
+    }, [isOpen, fetchCustomers]);
 
     const filteredCustomers = useMemo(() => {
-        if (!searchTerm) return [];
+        if (!searchTerm) return customers.slice(0, 10); // Show first 10 if no search
         const term = searchTerm.toLowerCase();
         return customers.filter(c =>
             (c.fullName || '').toLowerCase().includes(term) ||
@@ -47,15 +50,14 @@ const CustomerSelectModal: React.FC<CustomerSelectModalProps> = ({ isOpen, onClo
         onClose();
     };
 
-    const handleQuickRegister = () => {
+    const handleQuickRegister = async () => {
         if (!newRut || !newName) {
             toast.error('RUT y Nombre son obligatorios');
             return;
         }
 
-        // Basic RUT validation could go here
-
-        addCustomer({
+        setIsLoading(true);
+        const result = await addCustomer({
             rut: newRut,
             fullName: newName,
             phone: newPhone,
@@ -65,9 +67,12 @@ const CustomerSelectModal: React.FC<CustomerSelectModalProps> = ({ isOpen, onClo
             tags: [],
             total_spent: 0
         });
+        setIsLoading(false);
 
-        toast.success('Cliente registrado y asignado');
-        onClose();
+        if (result) {
+            toast.success('Cliente registrado y asignado');
+            onClose();
+        }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {

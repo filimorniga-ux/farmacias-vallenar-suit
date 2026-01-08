@@ -66,3 +66,39 @@ export const indexedDBStorage: StateStorage = {
         }
     },
 };
+
+export const indexedDBWithLocalStorageFallback: StateStorage = {
+    getItem: async (name: string): Promise<string | null> => {
+        const value = await indexedDBStorage.getItem(name);
+        if (value !== null) {
+            return value;
+        }
+        if (typeof window === 'undefined') {
+            return null;
+        }
+        try {
+            const fallbackValue = window.localStorage.getItem(name);
+            if (fallbackValue !== null) {
+                await indexedDBStorage.setItem(name, fallbackValue);
+                window.localStorage.removeItem(name);
+                return fallbackValue;
+            }
+        } catch (e) {
+            console.warn('Error reading localStorage fallback:', e);
+        }
+        return null;
+    },
+    setItem: async (name: string, value: string): Promise<void> => {
+        await indexedDBStorage.setItem(name, value);
+    },
+    removeItem: async (name: string): Promise<void> => {
+        await indexedDBStorage.removeItem(name);
+        if (typeof window !== 'undefined') {
+            try {
+                window.localStorage.removeItem(name);
+            } catch (e) {
+                console.warn('Error removing localStorage fallback:', e);
+            }
+        }
+    },
+};

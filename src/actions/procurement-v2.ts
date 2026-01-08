@@ -781,7 +781,8 @@ export async function getPurchaseOrderHistory(filters?: {
 export async function generateRestockSuggestionSecure(
     supplierId: string,
     daysToCover: number = 15,
-    analysisWindow: number = 30
+    analysisWindow: number = 30,
+    locationId?: string
 ): Promise<{
     success: boolean;
     data?: any[];
@@ -802,6 +803,21 @@ export async function generateRestockSuggestionSecure(
     }
 
     try {
+        // Parametros para la query
+        const queryParams: any[] = [supplierValidated.data, analysisWindow];
+        let paramIndex = 3;
+
+        // Filtro de ubicación para Stock y Ventas
+        let locationFilterStock = '';
+        let locationFilterSales = '';
+
+        if (locationId) {
+            locationFilterStock = `AND warehouse_id = $${paramIndex}`;
+            locationFilterSales = `AND s.location_id = $${paramIndex}`;
+            queryParams.push(locationId);
+            paramIndex++;
+        }
+
         const sql = `
             WITH 
             TargetProducts AS (
@@ -810,6 +826,7 @@ export async function generateRestockSuggestionSecure(
                     p.name as product_name, 
                     p.sku as product_sku, 
                     p.image_url,
+                    p.min_stock as safety_stock,
                     ps.last_cost, 
                     ps.supplier_sku
                 FROM products p
@@ -821,16 +838,30 @@ export async function generateRestockSuggestionSecure(
                     product_id, 
                     SUM(quantity_real) as total_stock
                 FROM inventory_batches
+                WHERE  quantity_real > 0
+                ${locationFilterStock}
                 GROUP BY product_id
+            ),
+            IncomingStock AS (
+                SELECT 
+                    poi.product_id,
+                    SUM(poi.quantity_ordered - COALESCE(poi.quantity_received, 0)) as incoming
+                FROM purchase_order_items poi
+                JOIN purchase_orders po ON poi.purchase_order_id = po.id
+                WHERE po.status = 'APPROVED'
+                ${locationId ? `AND po.target_warehouse_id = $${queryParams.length}` : ''} 
+                GROUP BY poi.product_id
             ),
             SalesHistory AS (
                 SELECT 
-                    si.product_id, 
+                    ib.product_id, 
                     SUM(si.quantity) as total_sold
                 FROM sale_items si
                 JOIN sales s ON si.sale_id = s.id
-                WHERE s.created_at >= NOW() - ($2 || ' days')::INTERVAL
-                GROUP BY si.product_id
+                JOIN inventory_batches ib ON si.batch_id = ib.id
+                WHERE s.timestamp >= NOW() - ($2 || ' days')::INTERVAL
+                ${locationFilterSales}
+                GROUP BY ib.product_id
             )
             SELECT 
                 tp.product_id,
@@ -840,38 +871,119 @@ export async function generateRestockSuggestionSecure(
                 tp.last_cost as unit_cost,
                 tp.supplier_sku,
                 COALESCE(cs.total_stock, 0) as current_stock,
-                (COALESCE(sh.total_sold, 0)::FLOAT / $2::FLOAT) as daily_velocity,
-                GREATEST(
-                    0, 
-                    ROUND(
-                        ((COALESCE(sh.total_sold, 0)::FLOAT / $2::FLOAT) * $3::FLOAT) - COALESCE(cs.total_stock, 0)
-                    )
-                ) as suggested_quantity
+                COALESCE(incs.incoming, 0) as incoming_stock,
+                COALESCE(tp.safety_stock, 0) as safety_stock,
+                (COALESCE(sh.total_sold, 0)::FLOAT / $2::FLOAT) as daily_velocity
             FROM TargetProducts tp
             LEFT JOIN CurrentStock cs ON tp.product_id = cs.product_id
+            LEFT JOIN IncomeStock incs ON tp.product_id = incs.product_id -- Typo fix in CTE name below
+            LEFT JOIN SalesHistory sh ON tp.product_id = sh.product_id
+            LEFT JOIN IncomingStock incs ON tp.product_id = incs.product_id
+            ORDER BY tp.product_name ASC
+        `;
+
+        // Correct query construction
+        const finalSql = `
+            WITH 
+            TargetProducts AS (
+                SELECT 
+                    p.id as product_id, 
+                    p.name as product_name, 
+                    p.sku as product_sku, 
+                    p.image_url,
+                    p.min_stock as safety_stock,
+                    ps.last_cost, 
+                    ps.supplier_sku
+                FROM products p
+                JOIN product_suppliers ps ON p.id = ps.product_id
+                WHERE ps.supplier_id = $1
+            ),
+            CurrentStock AS (
+                SELECT 
+                    product_id, 
+                    SUM(quantity_real) as total_stock
+                FROM inventory_batches
+                WHERE quantity_real > 0
+                ${locationFilterStock}
+                GROUP BY product_id
+            ),
+            IncomingStock AS (
+                SELECT 
+                    poi.product_id,
+                    SUM(poi.quantity_ordered - COALESCE(poi.quantity_received, 0)) as incoming
+                FROM purchase_order_items poi
+                JOIN purchase_orders po ON poi.purchase_order_id = po.id
+                WHERE po.status = 'APPROVED'
+                ${locationId ? `AND po.target_warehouse_id = $${queryParams.length}` : ''}
+                GROUP BY poi.product_id
+            ),
+            SalesHistory AS (
+                SELECT 
+                    ib.product_id, 
+                    SUM(si.quantity) as total_sold
+                FROM sale_items si
+                JOIN sales s ON si.sale_id = s.id
+                JOIN inventory_batches ib ON si.batch_id = ib.id
+                WHERE s.timestamp >= NOW() - ($2 || ' days')::INTERVAL
+                ${locationFilterSales}
+                GROUP BY ib.product_id
+            )
+            SELECT 
+                tp.product_id,
+                tp.product_name,
+                tp.product_sku as sku,
+                tp.image_url,
+                tp.last_cost as unit_cost,
+                tp.supplier_sku,
+                COALESCE(cs.total_stock, 0) as current_stock,
+                COALESCE(incs.incoming, 0) as incoming_stock,
+                COALESCE(tp.safety_stock, 0) as safety_stock,
+                (COALESCE(sh.total_sold, 0)::FLOAT / $2::FLOAT) as daily_velocity
+            FROM TargetProducts tp
+            LEFT JOIN CurrentStock cs ON tp.product_id = cs.product_id
+            LEFT JOIN IncomingStock incs ON tp.product_id = incs.product_id
             LEFT JOIN SalesHistory sh ON tp.product_id = sh.product_id
             ORDER BY tp.product_name ASC
         `;
 
-        const res = await pool.query(sql, [supplierValidated.data, analysisWindow, daysToCover]);
+        const res = await pool.query(finalSql, queryParams);
 
-        const suggestions = res.rows.map(row => ({
-            product_id: row.product_id,
-            product_name: row.product_name,
-            sku: row.sku,
-            image_url: row.image_url,
-            current_stock: Number(row.current_stock),
-            daily_velocity: Number(Number(row.daily_velocity).toFixed(2)),
-            suggested_quantity: Number(row.suggested_quantity),
-            unit_cost: Number(row.unit_cost),
-            supplier_sku: row.supplier_sku,
-            total_estimated: Number(row.suggested_quantity) * Number(row.unit_cost)
-        }));
+        // Calculate Formula in JS for precision control
+        // Suggested = CEIL(Velocity * (DaysToCover + LeadTime) + Safety - Stock - Incoming)
+        const suggestions = res.rows.map(row => {
+            const velocity = Number(row.daily_velocity);
+            const stock = Number(row.current_stock);
+            const incoming = Number(row.incoming_stock);
+            const safety = Number(row.safety_stock);
+            const leadTime = 0; // Default or fetch from product/supplier if available
+
+            const required = (velocity * (daysToCover + leadTime)) + safety;
+            const netNeeds = required - stock - incoming;
+
+            const suggested = Math.max(0, Math.ceil(netNeeds));
+
+            return {
+                product_id: row.product_id,
+                product_name: row.product_name,
+                sku: row.sku,
+                image_url: row.image_url,
+                current_stock: stock,
+                incoming_stock: incoming,
+                safety_stock: safety,
+                daily_velocity: Number(velocity.toFixed(3)),
+                suggested_quantity: suggested,
+                days_coverage: velocity > 0 ? (stock / velocity).toFixed(1) : '∞',
+                unit_cost: Number(row.unit_cost),
+                supplier_sku: row.supplier_sku,
+                total_estimated: suggested * Number(row.unit_cost),
+                reason: `Venta Diaria: ${velocity.toFixed(2)} | Cobertura meta: ${daysToCover}d | Stock: ${stock} | En Camino: ${incoming}`
+            };
+        });
 
         return { success: true, data: suggestions };
 
     } catch (error: any) {
         console.error('[PROCUREMENT-V2] MRP error:', error);
-        return { success: false, error: 'Error generando sugerencias' };
+        return { success: false, error: 'Error generando sugerencias: ' + error.message };
     }
 }

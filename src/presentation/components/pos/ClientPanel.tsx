@@ -51,10 +51,10 @@ const ClientPanel: React.FC = () => {
         setIsSearching(false);
     };
 
-    const handleCreateClient = () => {
+    const handleCreateClient = async () => {
         if (!newClientName) return;
 
-        const newCustomer = addCustomer({
+        const newCustomer = await addCustomer({
             rut: rutInput,
             fullName: newClientName,
             phone: newClientPhone,
@@ -65,7 +65,9 @@ const ClientPanel: React.FC = () => {
             total_spent: 0
         });
 
-        setCustomer(newCustomer);
+        if (newCustomer) {
+            setCustomer(newCustomer);
+        }
         setIsCreateModalOpen(false);
         setNewClientName('');
         setNewClientPhone('');

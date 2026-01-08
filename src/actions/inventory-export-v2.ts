@@ -44,15 +44,40 @@ const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
 // HELPERS
 // ============================================================================
 
+import { cookies } from 'next/headers';
+
 async function getSession(): Promise<{ userId: string; role: string; locationId?: string; userName?: string } | null> {
     try {
+        // 1. Try headers first (Middleware)
         const headersList = await headers();
         const userId = headersList.get('x-user-id');
         const role = headersList.get('x-user-role');
-        const locationId = headersList.get('x-user-location');
-        const userName = headersList.get('x-user-name');
-        if (!userId || !role) return null;
-        return { userId, role, locationId: locationId || undefined, userName: userName || undefined };
+
+        if (userId && role) {
+            return {
+                userId,
+                role,
+                locationId: headersList.get('x-user-location') || undefined,
+                userName: headersList.get('x-user-name') || undefined
+            };
+        }
+
+        // 2. Fallback to Cookies (Direct Server Action)
+        const cookieStore = await cookies();
+        const cookieUserId = cookieStore.get('user_id')?.value;
+        const cookieRole = cookieStore.get('user_role')?.value;
+
+        if (cookieUserId && cookieRole) {
+            return {
+                userId: cookieUserId,
+                role: cookieRole,
+                // Optional: You might want to store location/name in cookies too if needed for export metadata
+                locationId: undefined,
+                userName: undefined
+            };
+        }
+
+        return null;
     } catch {
         return null;
     }

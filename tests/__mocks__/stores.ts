@@ -22,9 +22,27 @@ export const mockInventory: InventoryBatch[] = [
         stock_actual: 100,
         expiry_date: Date.now() + 30 * 24 * 60 * 60 * 1000, // 30 days
         is_fractionable: false,
-        condition: 'V',
-        batch_number: 'BATCH001',
+        condition: 'VD',
+        lot_number: 'BATCH001',
         location_id: 'loc-1',
+        concentration: '500mg',
+        unit_count: 1,
+        is_generic: true,
+        bioequivalent_status: 'BIOEQUIVALENTE',
+        brand: 'Generico',
+        administration_route: 'ORAL',
+        stock_min: 10,
+        stock_max: 1000,
+        cost_net: 1000,
+        cost_price: 1000,
+        tax_percent: 19,
+        price_sell_box: 1500,
+        price_sell_unit: 1500,
+        category: 'MEDICAMENTO',
+        allows_commission: false,
+        active_ingredients: ['Paracetamol'],
+        safety_stock: 5,
+        lead_time_days: 2
     },
     {
         id: 'prod-2',
@@ -36,9 +54,27 @@ export const mockInventory: InventoryBatch[] = [
         stock_actual: 50,
         expiry_date: Date.now() + 60 * 24 * 60 * 60 * 1000, // 60 days
         is_fractionable: true,
-        condition: 'V',
-        batch_number: 'BATCH002',
+        condition: 'VD',
+        lot_number: 'BATCH002',
         location_id: 'loc-1',
+        concentration: '400mg',
+        unit_count: 1,
+        is_generic: true,
+        bioequivalent_status: 'BIOEQUIVALENTE',
+        brand: 'Generico',
+        administration_route: 'ORAL',
+        stock_min: 10,
+        stock_max: 1000,
+        cost_net: 1500,
+        cost_price: 1500,
+        tax_percent: 19,
+        price_sell_box: 2500,
+        price_sell_unit: 2500,
+        category: 'MEDICAMENTO',
+        allows_commission: false,
+        active_ingredients: ['Ibuprofeno'],
+        safety_stock: 5,
+        lead_time_days: 2
     },
     {
         id: 'prod-3',
@@ -51,8 +87,26 @@ export const mockInventory: InventoryBatch[] = [
         expiry_date: Date.now() + 15 * 24 * 60 * 60 * 1000, // 15 days - expires sooner
         is_fractionable: false,
         condition: 'R', // Restricted
-        batch_number: 'BATCH003',
+        lot_number: 'BATCH003',
         location_id: 'loc-1',
+        concentration: '500mg',
+        unit_count: 1,
+        is_generic: true,
+        bioequivalent_status: 'BIOEQUIVALENTE',
+        brand: 'Generico',
+        administration_route: 'ORAL',
+        stock_min: 10,
+        stock_max: 1000,
+        cost_net: 2000,
+        cost_price: 2000,
+        tax_percent: 19,
+        price_sell_box: 3500,
+        price_sell_unit: 3500,
+        category: 'MEDICAMENTO',
+        allows_commission: false,
+        active_ingredients: ['Amoxicilina'],
+        safety_stock: 5,
+        lead_time_days: 2
     },
 ];
 
@@ -80,16 +134,24 @@ export const mockCustomer: Customer = {
     email: 'juan@example.com',
     phone: '+56912345678',
     totalPoints: 500,
-    totalPurchases: 10,
+    registrationSource: 'POS',
+    lastVisit: Date.now(),
+    total_spent: 10000,
+    tags: [],
+    status: 'ACTIVE',
+    name: 'Juan Pérez',
+    age: 30,
+    health_tags: []
 };
 
 export const mockShift: CashShift = {
     id: 'shift-1',
-    terminal_id: 'term-1',
     user_id: 'user-1',
-    status: 'ACTIVE',
+    openedBy: 'user-1',
+    shiftNumber: 1,
+    status: 'OPEN',
     opening_amount: 50000,
-    opened_at: Date.now() - 3600000, // 1 hour ago
+    start_time: Date.now() - 3600000, // 1 hour ago
 };
 
 export const mockUser: EmployeeProfile = {
@@ -99,8 +161,8 @@ export const mockUser: EmployeeProfile = {
     role: 'CASHIER',
     access_pin: '1234',
     status: 'ACTIVE',
-    job_title: 'Cajero',
-    current_status: 'AVAILABLE',
+    job_title: 'CAJERO_VENDEDOR',
+    current_status: 'IN',
 };
 
 // =====================================================
@@ -113,7 +175,7 @@ export const createMockPharmaStore = (overrides = {}) => ({
     currentCustomer: null as Customer | null,
     currentShift: mockShift,
     user: mockUser,
-    
+
     // Actions
     addToCart: vi.fn(),
     removeFromCart: vi.fn(),
@@ -122,7 +184,7 @@ export const createMockPharmaStore = (overrides = {}) => ({
     redeemPoints: vi.fn().mockReturnValue(true),
     calculateDiscountValue: vi.fn((points: number) => Math.floor(points * 0.1)),
     retrieveQuote: vi.fn().mockResolvedValue(false),
-    
+
     ...overrides,
 });
 

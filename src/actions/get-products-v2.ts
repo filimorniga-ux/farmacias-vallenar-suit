@@ -73,7 +73,7 @@ export async function getProductsSecure(
 
         const sql = `
             SELECT 
-                p.id, p.sku, p.name, COALESCE(p.description, '') as description,
+                p.id, p.sku, p.name, '' as description,
                 COALESCE(p.format, 'Unidad') as format, l.name as location_name,
                 ${canSeeStock ? 'COALESCE(SUM(ib.quantity_real), 0) as stock,' : ''}
                 COALESCE(MAX(ib.sale_price), MAX(p.price_sell_box), 0) as price
@@ -81,7 +81,7 @@ export async function getProductsSecure(
             LEFT JOIN inventory_batches ib ON p.id::text = ib.product_id::text AND ib.location_id::text = $2
             LEFT JOIN locations l ON l.id::text = $2
             WHERE (p.name ILIKE $1 OR p.sku ILIKE $1 OR ib.barcode = $3)
-            GROUP BY p.id, p.sku, p.name, l.name, p.description, p.format
+            GROUP BY p.id, p.sku, p.name, l.name, p.format
             LIMIT 20
         `;
 
