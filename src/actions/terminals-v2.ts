@@ -39,7 +39,7 @@ const CloseTerminalSchema = z.object({
 
 const ForceCloseSchema = z.object({
     terminalId: z.string().uuid({ message: "ID de terminal inválido" }),
-    adminUserId: z.string().min(1, { message: "ID de administrador requerido" }),
+    adminUserId: z.string().min(1, { message: "ID de administrador requerido" }), // Can be UUID or 'SYSTEM_AUTOHEAL'
     justification: z.string().min(10, { message: "Justificación requerida (mínimo 10 caracteres)" })
 });
 
@@ -69,7 +69,8 @@ const ERROR_MESSAGES = {
 async function insertAuditLog(
     client: any,
     params: {
-        userId: string;
+        userId: string | null;
+        userName?: string;
         terminalId: string;
         sessionId?: string;
         locationId?: string;
@@ -82,18 +83,29 @@ async function insertAuditLog(
     }
 ) {
     try {
+        // Handle non-UUID userId (e.g. SYSTEM_AUTOHEAL)
+        let finalUserId = params.userId;
+        let finalUserName = params.userName;
+
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (finalUserId && !uuidRegex.test(finalUserId)) {
+            if (!finalUserName) finalUserName = finalUserId;
+            finalUserId = null;
+        }
+
         await client.query(`
             INSERT INTO audit_log (
-                user_id, terminal_id, session_id, location_id,
+                user_id, user_name, terminal_id, session_id, location_id,
                 action_code, entity_type, entity_id,
                 old_values, new_values, justification
             ) VALUES (
-                $1::uuid, $2::uuid, $3::uuid, $4::uuid,
-                $5, $6, $7,
-                $8::jsonb, $9::jsonb, $10
+                $1::uuid, $2, $3::uuid, $4::uuid, $5::uuid,
+                $6, $7, $8,
+                $9::jsonb, $10::jsonb, $11
             )
         `, [
-            params.userId || null,
+            finalUserId || null,
+            finalUserName || null,
             params.terminalId || null,
             params.sessionId || null,
             params.locationId || null,
@@ -687,7 +699,7 @@ export async function closeTerminalAtomic(
  * @param adminUserId - ID del administrador que fuerza el cierre
  * @param justification - Motivo del cierre forzado (mín. 10 caracteres)
  */
-export async function forceCloseTerminalAtomic(
+export async function forceCloseTerminalSecure(
     terminalId: string,
     adminUserId: string,
     justification: string
@@ -898,7 +910,7 @@ export async function getTerminalStatusAtomic(terminalId: string) {
     try {
         const result = await query(`
             SELECT 
-                t.id, t.name, t.status, t.location_id,
+                t.id, t.name, t.status, t.location_id, t.module_number,
                 t.current_cashier_id,
                 u.name as cashier_name,
                 s.id as session_id,
@@ -943,7 +955,7 @@ export async function getTerminalsByLocationSecure(locationId?: string): Promise
         let sql = `
             SELECT 
                 t.id, t.name, t.location_id, t.status,
-                t.current_cashier_id, t.config, t.is_active,
+                t.current_cashier_id, t.config, t.is_active, t.module_number,
                 l.name as location_name,
                 u.name as current_cashier_name
             FROM terminals t
@@ -980,16 +992,18 @@ export async function getTerminalsByLocationSecure(locationId?: string): Promise
 const UpdateTerminalSchema = z.object({
     terminalId: z.string().uuid(),
     name: z.string().min(1).max(100).optional(),
+    module_number: z.string().max(20).optional(),
     type: z.enum(['POS', 'KIOSK', 'SELF_SERVICE']).optional(),
     printer_config: z.record(z.string(), z.any()).optional(),
 });
+
 
 /**
  * Actualiza un terminal con RBAC y auditoría.
  */
 export async function updateTerminalSecure(
     terminalId: string,
-    data: { name?: string; type?: string; printer_config?: Record<string, any> }
+    data: { name?: string; module_number?: string; type?: string; printer_config?: Record<string, any> }
 ): Promise<{ success: boolean; error?: string }> {
     const validation = UpdateTerminalSchema.safeParse({ terminalId, ...data });
     if (!validation.success) {
@@ -1024,6 +1038,10 @@ export async function updateTerminalSecure(
         if (data.name !== undefined) {
             updates.push(`name = $${paramIndex++}`);
             values.push(data.name);
+        }
+        if (data.module_number !== undefined) {
+            updates.push(`module_number = $${paramIndex++}`);
+            values.push(data.module_number);
         }
         if (data.type !== undefined) {
             updates.push(`type = $${paramIndex++}`);
@@ -1139,6 +1157,6 @@ export async function deleteTerminalSecure(
 // Alias para mantener compatibilidad con imports existentes
 export { openTerminalAtomic as openTerminal };
 export { closeTerminalAtomic as closeTerminal };
-export { forceCloseTerminalAtomic as forceCloseTerminalShift };
+export { forceCloseTerminalSecure as forceCloseTerminalShift };
 export { updateTerminalSecure as updateTerminal };
-export { deleteTerminalSecure as deleteTerminal };
+/* export { deleteTerminalSecure as deleteTerminal }; // Moved to network-v2 */

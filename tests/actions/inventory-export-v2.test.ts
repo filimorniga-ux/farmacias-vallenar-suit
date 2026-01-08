@@ -22,7 +22,8 @@ describe.skip('Inventory Export V2 - RBAC', () => {
 
         const result = await inventoryExportV2.exportStockMovementsSecure({
             startDate: '2024-01-01',
-            endDate: '2024-01-31'
+            endDate: '2024-01-31',
+            limit: 1000
         });
 
         expect(result.success).toBe(false);

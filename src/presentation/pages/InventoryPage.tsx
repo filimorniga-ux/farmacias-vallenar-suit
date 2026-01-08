@@ -4,7 +4,7 @@ import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
 import {
     Filter, Download, Upload, AlertTriangle, Search, Plus, FileSpreadsheet,
-    ChevronDown, ChevronUp, MoreHorizontal, History, RefreshCcw, Package, ScanBarcode, ArrowRightLeft, Edit, Trash2
+    ChevronDown, ChevronUp, MoreHorizontal, History, RefreshCcw, Package, ScanBarcode, ArrowRightLeft, Edit, Trash2, Zap
 } from 'lucide-react';
 import { MobileScanner } from '../../components/shared/MobileScanner';
 import StockEntryModal from '../components/inventory/StockEntryModal';
@@ -12,12 +12,14 @@ import StockTransferModal from '../components/inventory/StockTransferModal';
 import InventoryEditModal from '../components/inventory/InventoryEditModal';
 import BulkImportModal from '../components/inventory/BulkImportModal';
 import InventoryExportModal from '../components/inventory/InventoryExportModal';
+import QuickStockModal from '../components/inventory/QuickStockModal';
+import ProductDeleteConfirm from '../components/inventory/ProductDeleteConfirm';
 import { hasPermission } from '../../domain/security/roles';
 import MobileActionScroll from '../components/ui/MobileActionScroll';
 import { toast } from 'sonner';
 
 const InventoryPage: React.FC = () => {
-    const { inventory, user, currentLocationId, setCurrentLocation } = usePharmaStore();
+    const { inventory, user, currentLocationId, setCurrentLocation, fetchInventory } = usePharmaStore();
     const { locations } = useLocationStore();
     const activeLocation = locations.find(l => l.id === currentLocationId);
     const [searchTerm, setSearchTerm] = useState('');
@@ -28,7 +30,21 @@ const InventoryPage: React.FC = () => {
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [isQuickStockModalOpen, setIsQuickStockModalOpen] = useState(false);
     const [editingItem, setEditingItem] = useState<any>(null);
+    const [deletingItem, setDeletingItem] = useState<any>(null);
+    const formatSku = (sku?: string) => {
+        if (!sku) return '---';
+        if (sku.startsWith('AUTO-') || sku.startsWith('TEMP-')) return '---';
+        return sku;
+    };
+
+    // 🚀 Force Inventory Load on Mount (Fix for Navigation Bug)
+    useEffect(() => {
+        if (currentLocationId) {
+            fetchInventory(currentLocationId);
+        }
+    }, [currentLocationId, fetchInventory]);
 
     // Nuclear Delete State
     const [isNuclearModalOpen, setIsNuclearModalOpen] = useState(false);
@@ -41,6 +57,7 @@ const InventoryPage: React.FC = () => {
     // Permissions
     const canManageInventory = hasPermission(user, 'MANAGE_INVENTORY');
     const canDelete = user?.role === 'MANAGER' || user?.role === 'ADMIN';
+    const canQuickAdjust = user?.role === 'MANAGER' || user?.role === 'ADMIN' || user?.role === 'GERENTE_GENERAL';
 
     // Smart Filters
     const [filters, setFilters] = useState({
@@ -133,10 +150,14 @@ const InventoryPage: React.FC = () => {
     // Virtualization
     const parentRef = React.useRef<HTMLDivElement>(null);
 
+    // FIX: Memoize functions to prevent virtualizer thrashing
+    const estimateSize = React.useCallback(() => isMobile ? 220 : 60, [isMobile]);
+    const getScrollElement = React.useCallback(() => parentRef.current, []);
+
     const rowVirtualizer = useVirtualizer({
         count: filteredInventory.length,
-        getScrollElement: () => parentRef.current,
-        estimateSize: () => isMobile ? 220 : 60, // Dynamic height based on view
+        getScrollElement,
+        estimateSize,
         overscan: 5,
     });
 
@@ -196,6 +217,14 @@ const InventoryPage: React.FC = () => {
                             <p className="text-slate-500 font-medium">
                                 WMS & Control de Stock
                             </p>
+
+                            {/* Product Count Badge */}
+                            <div className="flex items-center gap-2 px-3 py-1 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full shadow-md">
+                                <Package size={14} className="text-white" />
+                                <span className="text-xs font-bold text-white">
+                                    {filteredInventory.length} artículo{filteredInventory.length !== 1 ? 's' : ''}
+                                </span>
+                            </div>
 
                             {/* Location Selector */}
                             <div className="relative group z-20">
@@ -365,7 +394,7 @@ const InventoryPage: React.FC = () => {
                                             <div className="flex justify-between items-start">
                                                 <div>
                                                     <h3 className="font-bold text-slate-800 text-lg">{item.name || 'Sin Nombre'}</h3>
-                                                    <p className="text-xs text-slate-500 font-mono">{item.sku || '---'}</p>
+                                                    <p className="text-xs text-slate-500 font-mono">{formatSku(item.sku)}</p>
                                                     <p className="text-xs text-slate-400">{item.laboratory || 'Laboratorio N/A'}</p>
                                                 </div>
                                                 <div className="flex gap-1 flex-wrap justify-end max-w-[100px]">
@@ -397,6 +426,14 @@ const InventoryPage: React.FC = () => {
 
                                             {/* Footer Actions */}
                                             <div className="flex gap-3 mt-1">
+                                                {canQuickAdjust && (
+                                                    <button
+                                                        onClick={() => { setEditingItem(item); setIsQuickStockModalOpen(true); }}
+                                                        className="flex-1 h-12 bg-green-50 text-green-600 font-bold rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-transform"
+                                                    >
+                                                        <Zap size={20} /> Ajuste
+                                                    </button>
+                                                )}
                                                 {canManageInventory && (
                                                     <button
                                                         onClick={() => { setEditingItem(item); setIsEditModalOpen(true); }}
@@ -406,7 +443,10 @@ const InventoryPage: React.FC = () => {
                                                     </button>
                                                 )}
                                                 {canDelete && (
-                                                    <button className="h-12 w-12 bg-slate-50 text-slate-400 rounded-xl flex items-center justify-center hover:text-red-600 hover:bg-red-50 active:scale-95 transition-all">
+                                                    <button
+                                                        onClick={() => setDeletingItem(item)}
+                                                        className="h-12 w-12 bg-slate-50 text-slate-400 rounded-xl flex items-center justify-center hover:text-red-600 hover:bg-red-50 active:scale-95 transition-all"
+                                                    >
                                                         <Trash2 size={20} />
                                                     </button>
                                                 )}
@@ -418,7 +458,7 @@ const InventoryPage: React.FC = () => {
                                             <div className="p-4 w-[30%]">
                                                 <div className="font-bold text-slate-800 text-lg">{item.name || 'Sin Nombre'}</div>
                                                 <div className="text-sm text-slate-500 font-bold">{item.dci || ''}</div>
-                                                <div className="text-xs text-slate-400 font-mono mt-1">{item.sku || '---'}</div>
+                                                <div className="text-xs text-slate-400 font-mono mt-1">{formatSku(item.sku)}</div>
                                             </div>
                                             <div className="p-4 w-[20%]">
                                                 <div className="text-sm font-bold text-slate-700">{item.laboratory || '---'}</div>
@@ -440,8 +480,8 @@ const InventoryPage: React.FC = () => {
                                                     <span className={`text-xs font-bold ${item.stock_actual <= (item.stock_min || 5) ? 'text-red-500' : 'text-slate-400'}`}>
                                                         Min: {item.stock_min || 5}
                                                     </span>
-                                                    <span className={`text-xs mt-1 px-1.5 py-0.5 rounded ${new Date(item.expiry_date).getTime() - Date.now() < 1000 * 60 * 60 * 24 * 90 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>
-                                                        Vence: {new Date(item.expiry_date).toLocaleDateString()}
+                                                    <span className={`text-xs mt-1 px-1.5 py-0.5 rounded ${item.expiry_date && new Date(item.expiry_date).getTime() - Date.now() < 1000 * 60 * 60 * 24 * 90 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>
+                                                        Vence: {item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : '---'}
                                                     </span>
                                                 </div>
                                             </div>
@@ -459,17 +499,31 @@ const InventoryPage: React.FC = () => {
                                                 </div>
                                             </div>
                                             <div className="p-4 w-[10%]">
-                                                <div className="flex items-center justify-center gap-2">
+                                                <div className="flex items-center justify-center gap-1">
+                                                    {canQuickAdjust && (
+                                                        <button
+                                                            onClick={() => { setEditingItem(item); setIsQuickStockModalOpen(true); }}
+                                                            className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                                                            title="Ajuste Rápido de Stock"
+                                                        >
+                                                            <Zap size={16} />
+                                                        </button>
+                                                    )}
                                                     {canManageInventory && (
                                                         <button
                                                             onClick={() => { setEditingItem(item); setIsEditModalOpen(true); }}
                                                             className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                            title="Editar Producto"
                                                         >
                                                             <Edit size={16} />
                                                         </button>
                                                     )}
                                                     {canDelete && (
-                                                        <button className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                                                        <button
+                                                            onClick={() => setDeletingItem(item)}
+                                                            className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                            title="Eliminar Producto"
+                                                        >
                                                             <Trash2 size={16} />
                                                         </button>
                                                     )}
@@ -519,6 +573,8 @@ const InventoryPage: React.FC = () => {
             <BulkImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} />
 
             <InventoryExportModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} />
+
+            <QuickStockModal isOpen={isQuickStockModalOpen} onClose={() => { setIsQuickStockModalOpen(false); setEditingItem(null); }} product={editingItem} />
 
             {/* Nuclear Delete Modal */}
             {
@@ -594,6 +650,18 @@ const InventoryPage: React.FC = () => {
                     </div>
                 )
             }
+
+            {/* Product Delete Confirmation Modal */}
+            {deletingItem && (
+                <ProductDeleteConfirm
+                    product={deletingItem}
+                    onClose={() => setDeletingItem(null)}
+                    onConfirm={() => {
+                        setDeletingItem(null);
+                        fetchInventory(currentLocationId);
+                    }}
+                />
+            )}
         </div>
     );
 };

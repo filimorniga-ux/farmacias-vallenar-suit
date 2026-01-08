@@ -884,53 +884,106 @@ export async function getInventorySecure(
         return { success: false, error: 'ID de ubicación inválido' };
     }
 
-    try {
-        const sql = `
-            SELECT 
-                p.id as product_id,
-                p.sku,
-                p.name,
-                p.dci,
-                p.category,
-                p.units_per_box,
-                p.price_sell_box, 
-                p.format,
-                
-                ib.id as batch_id,
-                ib.location_id,
-                ib.warehouse_id,
-                ib.lot_number,
-                ib.expiry_date as batch_expiry,
-                ib.quantity_real as stock_actual,
-                ib.unit_cost,
-                ib.sale_price as batch_price,
-                ib.stock_min,
-                ib.stock_max
 
+    try {
+        // UNION: Get both new products AND legacy inventory (22,980 items)
+        const sql = `
+            -- New products (from products table)
+            SELECT 
+                p.id::text as product_id,
+                p.id::text as batch_id,
+                p.sku::text,
+                p.name::text,
+                p.dci::text,
+                p.laboratory::text,
+                p.isp_register::text,
+                p.format::text,
+                p.units_per_box,
+                p.is_bioequivalent,
+                p.price as price_sell_box,
+                p.price_sell_box as price_sell_box_alt,
+                p.price_sell_unit,
+                p.cost_net,
+                p.cost_price,
+                p.tax_percent,
+                p.stock_actual,
+                p.stock_total,
+                p.stock_minimo_seguridad as stock_min,
+                p.location_id::text,
+                p.es_frio,
+                p.comisionable,
+                p.condicion_venta::text as condition,
+                NULL::text as lot_number,
+                NULL::timestamp as expiry_date_ts,
+                'products' as source
+            FROM products p
+            WHERE (p.location_id::text = $1 OR p.location_id IS NULL)
+            
+            UNION ALL
+            
+            -- Legacy inventory (real schema - 22,980 items)
+            SELECT 
+                ib.product_id::text,
+                ib.id::text as batch_id,
+                ib.sku::text,
+                ib.name::text,
+                NULL::text as dci,
+                NULL::text as laboratory,
+                NULL::text as isp_register,
+                NULL::text as format,
+                1 as units_per_box,
+                false as is_bioequivalent,
+                COALESCE(ib.sale_price, 0) as price_sell_box,
+                COALESCE(ib.price_sell_box, 0) as price_sell_box_alt,
+                COALESCE(ib.sale_price, 0) as price_sell_unit,
+                COALESCE(ib.cost_net, 0) as cost_net,
+                COALESCE(ib.unit_cost, 0) as cost_price,
+                19 as tax_percent,
+                COALESCE(ib.quantity_real, 0) as stock_actual,
+                COALESCE(ib.quantity_real, 0) as stock_total,
+                COALESCE(ib.stock_min, 5) as stock_min,
+                ib.location_id::text,
+                false as es_frio,
+                false as comisionable,
+                'VD'::text as condition,
+                ib.lot_number::text,
+                ib.expiry_date::timestamp as expiry_date_ts,
+                'inventory_batches' as source
             FROM inventory_batches ib
-            JOIN products p ON ib.product_id::text = p.id
             WHERE ib.location_id::text = $1
-            ORDER BY p.name ASC
+            
+            ORDER BY name ASC
         `;
 
         const res = await query(sql, [locationId]);
 
         const inventory = res.rows.map(row => ({
-            id: row.batch_id,
+            id: row.batch_id || row.product_id,
+            product_id: row.product_id,
             sku: row.sku,
             name: row.name,
             dci: row.dci,
-            category: row.category || 'MEDICAMENTO',
-            location_id: row.location_id,
-            warehouse_id: row.warehouse_id,
+            laboratory: row.laboratory,
+            isp_register: row.isp_register,
+            category: 'MEDICAMENTO', // Default for now
+            location_id: row.location_id || locationId,
             stock_actual: Number(row.stock_actual) || 0,
+            stock_total: Number(row.stock_total) || 0,
             stock_min: Number(row.stock_min) || 5,
-            price: Number(row.batch_price) || Number(row.price_sell_box) || 0,
-            cost_price: Number(row.unit_cost) || 0,
-            expiry_date: row.batch_expiry ? new Date(row.batch_expiry).getTime() : null,
-            lot_number: row.lot_number,
+            price: Number(row.price_sell_box) || 0,
+            price_sell_box: Number(row.price_sell_box) || 0,
+            price_sell_unit: Number(row.price_sell_unit) || 0,
+            cost_price: Number(row.cost_net) || Number(row.cost_price) || 0,
+            cost_net: Number(row.cost_net) || 0,
+            tax_percent: Number(row.tax_percent) || 19,
             format: row.format,
-            units_per_box: row.units_per_box
+            units_per_box: row.units_per_box || 1,
+            is_bioequivalent: row.is_bioequivalent || false,
+            condition: row.condition || 'VD',
+            allows_commission: row.comisionable || false,
+            expiry_date: row.expiry_date_ts ? new Date(row.expiry_date_ts).getTime() : null,
+            lot_number: row.lot_number,
+            _source: row.source // For debugging
         }));
 
         return { success: true, data: inventory };
@@ -1009,6 +1062,189 @@ export async function getRecentMovementsSecure(
     } catch (error: any) {
         logger.error({ err: error }, 'Error fetching movements');
         return { success: false, error: error.message };
+    }
+}
+
+// =====================================================
+// ⚡ QUICK STOCK ADJUSTMENT (MANAGER ONLY)
+// =====================================================
+
+/**
+ * ⚡ Ajuste rápido de stock - Solo para gerentes
+ * Valida sesión desde cookies, no requiere PIN para ajustes pequeños
+ */
+export async function quickStockAdjustSecure(params: {
+    batchId: string;
+    adjustment: number;
+    reason?: string;
+    pin: string;
+}): Promise<{ success: boolean; newQuantity?: number; productName?: string; error?: string }> {
+
+    // 1. Validar sesión desde cookies
+    const { cookies } = await import('next/headers');
+    const cookieStore = await cookies();
+    const userId = cookieStore.get('user_id')?.value;
+
+    if (!userId) {
+        return { success: false, error: 'No autenticado' };
+    }
+
+    // 2. Validar input básico
+    const { batchId, adjustment, reason, pin } = params;
+
+    if (!batchId || typeof adjustment !== 'number' || adjustment === 0) {
+        return { success: false, error: 'Datos inválidos: se requiere batchId y cantidad distinta de 0' };
+    }
+
+    if (!pin) {
+        return { success: false, error: 'Se requiere PIN de autorización' };
+    }
+
+    // 3. Verificar umbral - ajustes > 100 requieren función completa (que usa otra lógica)
+    // Aunque ahora pedimos PIN aquí también, mantenemos la separación para ajustes masivos si se desea,
+    // o permitimos todo si el PIN es válido. 
+    // Por simplicidad y seguridad, mantendremos el límite de "ajuste rápido" en 100 para evitar errores de dedo masivos.
+    if (Math.abs(adjustment) > AUTHORIZATION_THRESHOLDS.STOCK_ADJUSTMENT) {
+        return {
+            success: false,
+            error: `El ajuste rápido está limitado a ${AUTHORIZATION_THRESHOLDS.STOCK_ADJUSTMENT} unidades. Use la edición completa para ajustes mayores.`
+        };
+    }
+
+    const { pool } = await import('@/lib/db');
+    const { v4: uuidv4 } = await import('uuid');
+    const client = await pool.connect();
+
+    try {
+        logger.info({ batchId, adjustment, userId: userId }, '⚡ [Inventory] Quick stock adjust');
+
+        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        // 4. Validar PIN y Rol de Gerente
+        // Usamos validateSupervisorPin que ya verifica contra hash bcrypt o texto plano legacy
+        // y filtra por roles autorizados.
+        const MANAGER_ROLES = ['GERENTE_GENERAL', 'ADMIN', 'MANAGER'];
+        const authResult = await validateSupervisorPin(client, pin, MANAGER_ROLES);
+
+        if (!authResult.valid || !authResult.authorizedBy) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'PIN inválido o usuario no autorizado' };
+        }
+
+        // Verificar que el usuario del PIN coincide con la sesión (opcional, pero recomendado para auditoría exacta)
+        // O permitimos que un gerente autorice a otro usuario? 
+        // El requerimiento es "autorizacion solo del gerente".
+        // Si el usuario logueado es cajero, pero viene un gerente y pone su PIN, ¿debería funcionar?
+        // El código anterior validaba el rol del usuario de la sesión.
+        // Aquí validamos el rol del dueño del PIN.
+        // Usaremos el usuario del PIN para la auditoría de "authorized_by" y el de sesión para "user_id".
+
+        const authorizedUser = authResult.authorizedBy;
+
+        logger.info({ batchId, adjustment, userId, authorizedBy: authorizedUser.id }, '⚡ [Inventory] Quick stock adjust');
+
+        // 5. Obtener y bloquear lote
+        const batchRes = await client.query(`
+            SELECT id, sku, name, quantity_real, location_id, warehouse_id
+            FROM inventory_batches 
+            WHERE id = $1
+            FOR UPDATE NOWAIT
+        `, [batchId]);
+
+        if (batchRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'Lote no encontrado' };
+        }
+
+        const batch = batchRes.rows[0];
+        const currentQuantity = Number(batch.quantity_real);
+        const newQuantity = currentQuantity + adjustment;
+
+        // 6. Validar stock resultante
+        if (newQuantity < 0) {
+            await client.query('ROLLBACK');
+            return {
+                success: false,
+                error: `Stock insuficiente. Actual: ${currentQuantity}, Ajuste: ${adjustment}`
+            };
+        }
+
+        // 7. Aplicar ajuste
+        await client.query(`
+            UPDATE inventory_batches 
+            SET quantity_real = $1, updated_at = NOW() 
+            WHERE id = $2
+        `, [newQuantity, batchId]);
+
+        // 8. Registrar movimiento
+        const movementId = uuidv4();
+        const DEFAULT_REASON = adjustment > 0 ? 'Entrada rápida de stock' : 'Salida rápida de stock';
+        const adjustmentReason = reason || DEFAULT_REASON;
+
+        await client.query(`
+            INSERT INTO stock_movements (
+                id, sku, product_name, location_id, movement_type, 
+                quantity, stock_before, stock_after, 
+                timestamp, user_id, notes, batch_id, reference_type
+            ) VALUES (
+                $1::uuid, $2, $3, $4::uuid, 'ADJUSTMENT', 
+                $5, $6, $7, 
+                NOW(), $8, $9, $10::uuid, 'QUICK_ADJUSTMENT'
+            )
+        `, [
+            movementId,
+            batch.sku,
+            batch.name,
+            batch.warehouse_id || batch.location_id,
+            adjustment,
+            currentQuantity,
+            newQuantity,
+            userId, // Usuario de la sesión registra la acción
+            adjustmentReason,
+            batchId
+        ]);
+
+        // 9. Auditoría
+        await insertInventoryAudit(client, {
+            userId,
+            authorizedById: authorizedUser.id, // Usuario del PIN autoriza
+            locationId: batch.location_id,
+            actionCode: 'QUICK_STOCK_ADJUSTED',
+            entityType: 'INVENTORY_BATCH',
+            entityId: batchId,
+            quantity: adjustment,
+            oldValues: { quantity_real: currentQuantity },
+            newValues: { quantity_real: newQuantity },
+            description: `${adjustmentReason}. Autorizado por: ${authorizedUser.name}`
+        });
+
+        await client.query('COMMIT');
+
+        logger.info({ batchId, adjustment, newQuantity, by: authorizedUser.name }, '✅ Quick stock adjust completed');
+        revalidatePath('/inventory');
+
+        return {
+            success: true,
+            newQuantity,
+            productName: batch.name
+        };
+
+    } catch (error: any) {
+        await client.query('ROLLBACK');
+
+        if (error.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
+            return { success: false, error: 'Producto bloqueado por otro proceso. Intente de nuevo.' };
+        }
+
+        if (error.code === ERROR_CODES.SERIALIZATION_FAILURE) {
+            return { success: false, error: 'Conflicto de concurrencia. Por favor reintente.' };
+        }
+
+        logger.error({ err: error }, '❌ Quick stock adjust failed');
+        return { success: false, error: error.message || 'Error ajustando stock' };
+
+    } finally {
+        client.release();
     }
 }
 

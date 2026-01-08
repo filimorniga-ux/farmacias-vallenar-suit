@@ -31,13 +31,53 @@ const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
 
 async function getSession(): Promise<{ userId: string; role: string; userName?: string } | null> {
     try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        const userName = headersList.get('x-user-name');
-        if (!userId || !role) return null;
-        return { userId, role, userName: userName || undefined };
-    } catch {
+        const { cookies } = await import('next/headers');
+        const cookieStore = await cookies();
+        const sessionToken = cookieStore.get('session_token')?.value;
+
+        // 1. Try Secure Session Token (Best Practice)
+        if (sessionToken) {
+            const res = await query(
+                `SELECT u.id as "userId", u.role, u.name as "userName"
+                 FROM sessions s
+                 JOIN users u ON s.user_id = u.id
+                 WHERE s.token = $1 AND s.expires_at > NOW()`,
+                [sessionToken]
+            );
+
+            if ((res.rowCount || 0) > 0) {
+                const row = res.rows[0];
+                return {
+                    userId: row.userId,
+                    role: row.role,
+                    userName: row.userName || undefined
+                };
+            }
+        }
+
+        // 2. Fallback: Auth-V2 Cookies (user_id + user_role)
+        const userId = cookieStore.get('user_id')?.value;
+        if (userId) {
+            const res = await query(
+                `SELECT id, role, name 
+                 FROM users 
+                 WHERE id = $1 AND is_active = true`,
+                [userId]
+            );
+
+            if ((res.rowCount || 0) > 0) {
+                const user = res.rows[0];
+                return {
+                    userId: user.id,
+                    role: user.role,
+                    userName: user.name || undefined
+                };
+            }
+        }
+
+        return null; // No valid session found
+    } catch (error) {
+        console.error('[Customer Export] getSession error:', error);
         return null;
     }
 }
@@ -79,33 +119,33 @@ export async function generateCustomerReportSecure(
     try {
         const { startDate, endDate, customerIds } = params;
 
-        // Obtener clientes
+        // Obtener clientes (usando nombres de columnas correctos de la DB)
         let customersRes;
         if (customerIds && customerIds.length > 0) {
-            customersRes = await query('SELECT * FROM customers WHERE id = ANY($1) ORDER BY "fullName" ASC', [customerIds]);
+            customersRes = await query('SELECT * FROM customers WHERE id = ANY($1) ORDER BY name ASC', [customerIds]);
         } else {
-            customersRes = await query('SELECT * FROM customers ORDER BY "fullName" ASC LIMIT 5000');
+            customersRes = await query('SELECT * FROM customers WHERE status != \'DELETED\' ORDER BY name ASC LIMIT 5000');
         }
 
-        // Obtener ventas del período
+        // Obtener ventas del período (usando customer_rut ya que no hay customer_id)
         const salesRes = await query(`
-            SELECT customer_id, SUM(total_amount) as total, COUNT(*) as count, MAX(timestamp) as last_purchase
+            SELECT customer_rut, SUM(total_amount) as total, COUNT(*) as count, MAX(timestamp) as last_purchase
             FROM sales 
             WHERE timestamp >= $1::timestamp AND timestamp <= $2::timestamp
-              AND customer_id IS NOT NULL
-            GROUP BY customer_id
+              AND customer_rut IS NOT NULL AND customer_rut != ''
+            GROUP BY customer_rut
         `, [startDate, endDate]);
 
-        const salesMap = new Map(salesRes.rows.map((r: any) => [r.customer_id, r]));
+        const salesMap = new Map(salesRes.rows.map((r: any) => [r.customer_rut, r]));
 
         const data = customersRes.rows.map((cust: any) => {
-            const stats = salesMap.get(cust.id) || { total: 0, count: 0 };
+            const stats = salesMap.get(cust.rut) || { total: 0, count: 0 }; // Match by RUT
             return {
                 rut: maskRut(cust.rut), // ENMASCARADO
-                name: cust.fullName,
+                name: cust.name || cust.fullName || '-', // Use 'name' from DB
                 phone: cust.phone || '-',
                 email: cust.email || '-',
-                totalPoints: cust.totalPoints || 0,
+                totalPoints: cust.loyalty_points || cust.totalPoints || 0, // Use 'loyalty_points' from DB
                 purchaseCount: Number(stats.count || 0),
                 totalAmount: Number(stats.total || 0),
             };
@@ -139,8 +179,9 @@ export async function generateCustomerReportSecure(
         };
 
     } catch (error: any) {
+        console.error('[Export] Customer report error:', error);
         logger.error({ error }, '[Export] Customer report error');
-        return { success: false, error: 'Error generando reporte' };
+        return { success: false, error: 'Error generando reporte: ' + (error.message || 'Unknown') };
     }
 }
 
@@ -212,5 +253,138 @@ export async function exportLoyaltyReportSecure(): Promise<{
     } catch (error: any) {
         logger.error({ error }, '[Export] Loyalty report error');
         return { success: false, error: 'Error generando reporte' };
+    }
+}
+
+// ============================================================================
+// EXPORT CUSTOMER HISTORY REPORT
+// ============================================================================
+
+/**
+ * 📜 Reporte Detallado de Historial de Compras (MANAGER+)
+ */
+export async function generateCustomerHistoryReportSecure(
+    params: { customerIds: string[]; startDate?: string; endDate?: string }
+): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
+    const session = await getSession();
+    if (!session) {
+        return { success: false, error: 'No autenticado' };
+    }
+
+    if (!MANAGER_ROLES.includes(session.role)) {
+        return { success: false, error: 'Acceso denegado' };
+    }
+
+    try {
+        const { customerIds, startDate, endDate } = params;
+
+        // 1. Get Customers
+        const customersRes = await query(`
+            SELECT id, rut, name, phone, email, loyalty_points as "totalPoints" 
+            FROM customers 
+            WHERE id = ANY($1)
+        `, [customerIds]);
+
+        if (customersRes.rowCount === 0) {
+            return { success: false, error: 'Clientes no encontrados' };
+        }
+
+        const customers = customersRes.rows;
+        const customerRuts = customers.map(c => c.rut);
+
+        // 2. Build Date Filter
+        let dateFilter = '';
+        const queryParams: any[] = [customerRuts];
+        let paramIndex = 2;
+
+        if (startDate) {
+            dateFilter += ` AND s.timestamp >= $${paramIndex++}::timestamp`;
+            queryParams.push(startDate);
+        }
+        if (endDate) {
+            dateFilter += ` AND s.timestamp <= $${paramIndex++}::timestamp`;
+            queryParams.push(endDate);
+        }
+
+        // 3. Get Sales with Items (Joined)
+        // Note: Using subquery or join to get items
+        const salesRes = await query(`
+            SELECT 
+                s.id as sale_id,
+                s.timestamp,
+                s.total_amount,
+                s.status,
+                s.payment_method,
+                s.customer_rut,
+                si.product_name,
+                si.quantity,
+                si.unit_price,
+                si.total_price,
+                si.batch_id
+            FROM sales s
+            LEFT JOIN sale_items si ON s.id = si.sale_id
+            WHERE s.customer_rut = ANY($1)
+            ${dateFilter}
+            ORDER BY s.timestamp DESC
+        `, queryParams);
+
+        // 4. Generate Excel
+        const excel = new ExcelService();
+        // We'll use a custom generation here since ExcelService might be limited to single sheet or specific format
+        // But assuming ExcelService can handle basic data generation, we might need to extend it or use it creatively.
+        // For now, let's assume we want a single flattened sheet for simplicity and compatibility with standard ExcelService
+        // OR we can try to use raw exceljs if we had access, but we are inside an action.
+        // Let's stick to ExcelService's generateReport pattern but flatten the data for a detailed view.
+
+        const flattenedData = salesRes.rows.map((row: any) => {
+            const customer = customers.find(c => c.rut === row.customer_rut);
+            return {
+                date: new Date(row.timestamp).toLocaleDateString() + ' ' + new Date(row.timestamp).toLocaleTimeString(),
+                customer: customer ? customer.name : row.customer_rut,
+                rut: maskRut(row.customer_rut),
+                saleId: row.sale_id.slice(0, 8),
+                status: row.status,
+                product: row.product_name,
+                qty: row.quantity,
+                price: row.unit_price,
+                total: row.total_price,
+                payment: row.payment_method
+            };
+        });
+
+        const buffer = await excel.generateReport({
+            title: 'Historial Detallado de Compras',
+            subtitle: `Generado: ${new Date().toLocaleDateString()}`,
+            sheetName: 'Detalle Ventas',
+            creator: session.userName,
+            columns: [
+                { header: 'Fecha', key: 'date', width: 20 },
+                { header: 'Cliente', key: 'customer', width: 25 },
+                { header: 'RUT', key: 'rut', width: 12 },
+                { header: 'ID Venta', key: 'saleId', width: 10 },
+                { header: 'Estado', key: 'status', width: 10 },
+                { header: 'Producto', key: 'product', width: 30 },
+                { header: 'Cant', key: 'qty', width: 8 },
+                { header: 'P.Unit', key: 'price', width: 10 },
+                { header: 'Total', key: 'total', width: 10 },
+                { header: 'Pago', key: 'payment', width: 10 },
+            ],
+            data: flattenedData,
+        });
+
+        await auditExport(session.userId, 'CUSTOMER_HISTORY', {
+            customers: customerIds?.length || 'ALL',
+            rows: flattenedData.length
+        });
+
+        return {
+            success: true,
+            data: buffer.toString('base64'),
+            filename: `Historial_Compras_${new Date().toISOString().split('T')[0]}.xlsx`,
+        };
+
+    } catch (error: any) {
+        logger.error({ error }, '[Export] History report error');
+        return { success: false, error: 'Error generando historial: ' + error.message };
     }
 }

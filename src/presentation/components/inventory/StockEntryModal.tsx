@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, ScanBarcode, Save, Package, Calendar, AlertTriangle, CheckCircle2, Camera } from 'lucide-react';
 import { InventoryBatch } from '../../../domain/types';
 import { usePharmaStore } from '../../store/useStore';
+import { useNetworkStatus } from '../../../hooks/useNetworkStatus';
 import { toast } from 'sonner';
 import CameraScanner from '../ui/CameraScanner';
 
@@ -11,7 +12,18 @@ interface StockEntryModalProps {
 }
 
 const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) => {
-    const { inventory, updateStock, addNewProduct } = usePharmaStore();
+    const {
+        inventory,
+        updateStock,
+        addNewProduct,
+        currentLocationId,
+        currentWarehouseId,
+        user,
+        fetchInventory,
+        locations,
+        fetchLocations
+    } = usePharmaStore();
+    const { isOnline } = useNetworkStatus();
     const [activeTab, setActiveTab] = useState<'SCAN' | 'CREATE'>('SCAN');
     const [step, setStep] = useState<'SCAN' | 'DETAILS' | 'NEW_PRODUCT'>('SCAN');
     const [scannedSku, setScannedSku] = useState('');
@@ -40,11 +52,16 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
     const expiryInputRef = useRef<HTMLInputElement>(null);
     const qtyInputRef = useRef<HTMLInputElement>(null);
 
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
     useEffect(() => {
         if (isOpen) {
             resetFlow();
+            if (locations.length === 0) {
+                fetchLocations();
+            }
         }
-    }, [isOpen]);
+    }, [isOpen, locations.length, fetchLocations]);
 
     const handleCameraScan = (decodedText: string) => {
         setScannedSku(decodedText);
@@ -76,7 +93,8 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
             stock_max: 100,
             is_bioequivalent: false,
             format: 'Comprimidos',
-            unit_format_string: 'Unidad'
+            unit_format_string: 'Unidad',
+            location_id: currentLocationId || ''
         });
         if (activeTab === 'SCAN') {
             setTimeout(() => scanInputRef.current?.focus(), 100);
@@ -104,14 +122,17 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
         e.preventDefault();
         if (!selectedProduct || !quantity) return;
 
-        // Parse Expiry (DDMMAA -> Timestamp)
+
+        // Parse Expiry (MM/YYYY -> Timestamp)
         let expiryTimestamp = Date.now();
-        if (expiry.length === 6) {
-            const day = parseInt(expiry.substring(0, 2));
-            const month = parseInt(expiry.substring(2, 4)) - 1;
-            const year = 2000 + parseInt(expiry.substring(4, 6));
-            expiryTimestamp = new Date(year, month, day).getTime();
+        const cleanExpiry = expiry.replace(/\//g, '');
+        if (cleanExpiry.length === 6) {
+            const month = parseInt(cleanExpiry.substring(0, 2)) - 1;
+            const year = parseInt(cleanExpiry.substring(2, 6));
+            const lastDay = new Date(year, month + 1, 0).getDate();
+            expiryTimestamp = new Date(year, month, lastDay).getTime();
         }
+
 
         // Update Stock (In a real app, this would create a batch entry)
         updateStock(selectedProduct.id, parseInt(quantity));
@@ -127,71 +148,145 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
         return Math.round(((price - cost) / price) * 100);
     };
 
-    const handleNewProductSave = (e: React.FormEvent) => {
+    const handleNewProductSave = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (isSubmitting) return;
+
         // Validate mandatory fields
         if (!newProductData.name || !newProductData.dci || !newProductData.isp_register) {
             toast.error('Faltan campos obligatorios (Nombre, DCI, Registro ISP)');
             return;
         }
 
-        // Parse Expiry for Initial Lot
-        let expiryTimestamp = Date.now() + 31536000000; // Default +1 year
-        if (expiry.length === 6) {
-            const day = parseInt(expiry.substring(0, 2));
-            const month = parseInt(expiry.substring(2, 4)) - 1;
-            const year = 2000 + parseInt(expiry.substring(4, 6));
-            expiryTimestamp = new Date(year, month, day).getTime();
+        if (newProductData.name.length > 200) {
+            toast.error('El nombre es muy largo (máx 200 caracteres)');
+            return;
         }
 
-        const newProduct: InventoryBatch = {
-            id: `BATCH-${Date.now()}`,
-            sku: scannedSku,
-            name: newProductData.name!,
-            dci: newProductData.dci!,
-            laboratory: newProductData.laboratory || 'GENERICO',
-            isp_register: newProductData.isp_register!,
-            format: newProductData.format || 'Comprimido',
-            units_per_box: Number(newProductData.units_per_package) || 1,
-            is_bioequivalent: newProductData.is_bioequivalent || false,
+        if (scannedSku && scannedSku.length > 50) {
+            toast.error('El SKU es muy largo (máx 50 caracteres)');
+            return;
+        }
 
-            // Legacy / Aliases
-            active_ingredient: newProductData.dci!,
-            unit_format_string: newProductData.unit_format_string || 'Unidad',
-            units_per_package: Number(newProductData.units_per_package) || 1,
-            bioequivalent: newProductData.is_bioequivalent || false,
-            bioequivalent_status: newProductData.is_bioequivalent ? 'BIOEQUIVALENTE' : 'NO_BIOEQUIVALENTE',
+        setIsSubmitting(true);
+        try {
 
-            // Financials
-            price: Number(newProductData.price_sell_box) || 0,
-            cost_price: Number(newProductData.cost_net) || 0,
-            cost_net: Number(newProductData.cost_net) || 0,
-            tax_percent: 19,
-            price_sell_box: Number(newProductData.price_sell_box) || 0,
-            price_sell_unit: Number(newProductData.price_sell_unit) || 0,
+            // Parse Expiry for Initial Lot (MM/YYYY format like "08/2026")
+            let expiryTimestamp = Date.now() + 31536000000; // Default +1 year
+            const cleanExpiry = expiry.replace(/\//g, ''); // Remove slash
+            if (cleanExpiry.length === 6) {
+                const month = parseInt(cleanExpiry.substring(0, 2)) - 1; // Month (0-indexed)
+                const year = parseInt(cleanExpiry.substring(2, 6)); // Full year (2026)
+                // Set to last day of the month
+                const lastDay = new Date(year, month + 1, 0).getDate();
+                expiryTimestamp = new Date(year, month, lastDay).getTime();
+            }
 
-            // Logistics & Stock
-            stock_actual: Number(quantity) || 0, // Initial Stock
-            stock_min: Number(newProductData.stock_min) || 5,
-            stock_max: Number(newProductData.stock_max) || 100,
-            expiry_date: expiryTimestamp,
-            lot_number: lot || 'S/L', // Initial Lot
+            const effectiveSku = (scannedSku || newProductData.sku || '').trim();
 
-            location_id: 'BODEGA_CENTRAL', // Default
-            aisle: newProductData.aisle || '',
+            const selectedLocationId =
+                newProductData.location_id ||
+                currentLocationId ||
+                currentWarehouseId ||
+                (locations.length > 0 ? locations[0].id : 'BODEGA_CENTRAL');
 
-            condition: (newProductData.condition as any) || 'VD',
-            category: newProductData.category || 'MEDICAMENTO',
-            allows_commission: false,
-            active_ingredients: [newProductData.dci!],
-            is_generic: false,
-            concentration: newProductData.concentration || '',
-            unit_count: Number(newProductData.units_per_package) || 1,
-        };
+            // Use Nil UUID if user is missing to pass Zod validation, but audit will show unknown
+            const validUserId = user?.id || '00000000-0000-0000-0000-000000000000';
 
-        addNewProduct(newProduct);
-        toast.success('Producto Maestro Creado y Stock Inicial Ingresado');
-        resetFlow();
+            const newProduct: InventoryBatch = {
+                id: `BATCH-${Date.now()}`,
+                sku: effectiveSku,
+                name: newProductData.name!,
+                dci: newProductData.dci!,
+                laboratory: newProductData.laboratory || 'GENERICO',
+                isp_register: newProductData.isp_register!,
+                format: newProductData.format || 'Comprimido',
+                units_per_box: Number(newProductData.units_per_package) || 1,
+                is_bioequivalent: newProductData.is_bioequivalent || false,
+
+                // Legacy / Aliases
+                active_ingredient: newProductData.dci!,
+                unit_format_string: newProductData.unit_format_string || 'Unidad',
+                units_per_package: Number(newProductData.units_per_package) || 1,
+                bioequivalent: newProductData.is_bioequivalent || false,
+                bioequivalent_status: newProductData.is_bioequivalent ? 'BIOEQUIVALENTE' : 'NO_BIOEQUIVALENTE',
+
+                // Financials
+                price: Number(newProductData.price_sell_box) || 0,
+                cost_price: Number(newProductData.cost_net) || 0,
+                cost_net: Number(newProductData.cost_net) || 0,
+                tax_percent: 19,
+                price_sell_box: Number(newProductData.price_sell_box) || 0,
+                price_sell_unit: Number(newProductData.price_sell_unit) || 0,
+
+                // Logistics & Stock
+                stock_actual: Number(quantity) || 0, // Initial Stock
+                stock_min: Number(newProductData.stock_min) || 5,
+                stock_max: Number(newProductData.stock_max) || 100,
+                expiry_date: expiryTimestamp,
+                lot_number: lot || 'S/L', // Initial Lot
+
+                location_id: selectedLocationId,
+                aisle: newProductData.aisle || '',
+
+                condition: (newProductData.condition as any) || 'VD',
+                category: newProductData.category || 'MEDICAMENTO',
+                allows_commission: false,
+                active_ingredients: [newProductData.dci!],
+                is_generic: false,
+                concentration: newProductData.concentration || '',
+                unit_count: Number(newProductData.units_per_package) || 1,
+            };
+
+            const payload = {
+                sku: newProduct.sku,
+                name: newProduct.name,
+                dci: newProduct.dci || newProductData.dci,
+                laboratory: newProduct.laboratory || newProductData.laboratory,
+                isp_register: newProduct.isp_register || newProductData.isp_register,
+                format: newProduct.format || newProductData.format,
+                units_per_box: Number(newProduct.units_per_box) || Number(newProductData.units_per_package) || 1,
+                is_bioequivalent: newProduct.is_bioequivalent || newProductData.is_bioequivalent || false,
+                condicion_venta: (newProduct.condition || newProductData.condition || 'VD') as 'VD' | 'R' | 'RR' | 'RCH',
+                description: '',
+                price: Number(newProduct.price_sell_box) || 0,
+                priceCost: Number(newProduct.cost_net) || 0,
+                minStock: Number(newProduct.stock_min) || 0,
+                maxStock: Number(newProduct.stock_max) || 0,
+                requiresPrescription: false,
+                isColdChain: false,
+                userId: validUserId,
+                initialStock: Number(newProduct.stock_actual) || 0,
+                initialLot: lot || newProduct.lot_number || 'S/L',
+                initialExpiry: expiryTimestamp ? new Date(expiryTimestamp) : new Date(newProduct.expiry_date),
+                initialLocation: newProduct.location_id
+            };
+
+            if (!isOnline) {
+                addNewProduct(newProduct);
+                import('../../../lib/store/outboxStore').then(({ useOutboxStore }) => {
+                    useOutboxStore.getState().addToOutbox('PRODUCT_CREATE', payload);
+                });
+                toast.warning('Producto guardado localmente (sin conexión)');
+                resetFlow();
+                return;
+            }
+
+            const { createProductSecure } = await import('../../../actions/products-v2');
+            const result = await createProductSecure(payload as any);
+            if (result.success) {
+                toast.success('Producto guardado correctamente');
+                await fetchInventory(currentLocationId, currentWarehouseId);
+                resetFlow();
+            } else {
+                toast.error('Error al guardar producto: ' + (result as any).error);
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error('Error inesperado al crear producto');
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     if (!isOpen) return null;
@@ -311,14 +406,20 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
                                 </div>
 
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-500 mb-1">Vencimiento (DDMMAA)</label>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Vencimiento (MM/AAAA)</label>
                                     <input
                                         type="text"
                                         className="w-full p-3 border border-slate-200 rounded-xl font-mono"
                                         value={expiry}
-                                        onChange={e => setExpiry(e.target.value)}
-                                        placeholder="311225"
-                                        maxLength={6}
+                                        onChange={e => {
+                                            let value = e.target.value.replace(/\D/g, '');
+                                            if (value.length >= 2) {
+                                                value = value.slice(0, 2) + '/' + value.slice(2, 6);
+                                            }
+                                            setExpiry(value);
+                                        }}
+                                        placeholder="08/2026"
+                                        maxLength={7}
                                     />
                                 </div>
 
@@ -342,6 +443,19 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
                                     A. Identificación y Norma
                                 </h4>
                                 <div className="grid grid-cols-12 gap-3">
+                                    <div className="col-span-4">
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">SKU / Código Barra</label>
+                                        <div className="relative">
+                                            <input
+                                                type="text"
+                                                className="w-full p-2 pl-8 border border-slate-200 rounded-lg font-mono text-sm uppercase focus:border-cyan-500 outline-none"
+                                                value={scannedSku || ''}
+                                                onChange={e => setScannedSku(e.target.value.toUpperCase())}
+                                                placeholder="Generar Automático"
+                                            />
+                                            <ScanBarcode className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                        </div>
+                                    </div>
                                     <div className="col-span-8">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Nombre Comercial *</label>
                                         <input
@@ -527,10 +641,27 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
                                         </datalist>
                                     </div>
                                     <div className="col-span-6">
-                                        <label className="block text-xs font-bold text-slate-500 mb-1">Ubicación Física *</label>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Ubicación (Sucursal) *</label>
+                                        <select
+                                            className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white"
+                                            value={newProductData.location_id || currentLocationId}
+                                            onChange={e => setNewProductData({ ...newProductData, location_id: e.target.value })}
+                                        >
+                                            {locations.map(loc => (
+                                                <option key={loc.id} value={loc.id}>{loc.name}</option>
+                                            ))}
+                                            {locations.length === 0 && currentLocationId && (
+                                                <option value={currentLocationId}>Sucursal actual</option>
+                                            )}
+                                            {locations.length === 0 && !currentLocationId && (
+                                                <option value="BODEGA_CENTRAL">Bodega Central</option>
+                                            )}
+                                        </select>
+                                    </div>
+                                    <div className="col-span-6">
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Pasillo / Estante</label>
                                         <input
                                             type="text"
-                                            required
                                             className="w-full p-2 border border-slate-200 rounded-lg text-sm"
                                             value={newProductData.aisle || ''}
                                             onChange={e => setNewProductData({ ...newProductData, aisle: e.target.value })}
@@ -568,14 +699,20 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
                                         />
                                     </div>
                                     <div className="col-span-4">
-                                        <label className="block text-xs font-bold text-cyan-700 mb-1">Vencimiento</label>
+                                        <label className="block text-xs font-bold text-cyan-700 mb-1">Vencimiento (MM/AAAA)</label>
                                         <input
                                             type="text"
                                             className="w-full p-2 border border-cyan-200 rounded-lg text-sm bg-white font-mono"
                                             value={expiry}
-                                            onChange={e => setExpiry(e.target.value)}
-                                            placeholder="DDMMAA"
-                                            maxLength={6}
+                                            onChange={e => {
+                                                let value = e.target.value.replace(/\D/g, '');
+                                                if (value.length >= 2) {
+                                                    value = value.slice(0, 2) + '/' + value.slice(2, 6);
+                                                }
+                                                setExpiry(value);
+                                            }}
+                                            placeholder="08/2026"
+                                            maxLength={7}
                                         />
                                     </div>
                                     <div className="col-span-4">
@@ -593,9 +730,10 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
 
                             <button
                                 type="submit"
-                                className="w-full py-4 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition shadow-lg flex items-center justify-center gap-2"
+                                disabled={isSubmitting}
+                                className={`w-full py-4 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition shadow-lg flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-50 cursor-wait' : ''}`}
                             >
-                                <Save size={20} /> Crear Ficha e Ingresar Stock
+                                <Save size={20} /> {isSubmitting ? 'Guardando...' : 'Crear Ficha e Ingresar Stock'}
                             </button>
                         </form>
                     )}

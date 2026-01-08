@@ -378,12 +378,12 @@ const QueueKioskPage: React.FC = () => {
                     timestamp: new Date(res.ticket.created_at).getTime()
                 }, printerConfig);
 
-                // Auto-reset after 10s
+                // Auto-reset after 3s (thermal printers are fast)
                 setTimeout(() => {
                     setStep('WELCOME');
                     setTicket(null);
                     resetForm();
-                }, 10000);
+                }, 3000);
             } else {
                 console.error('[Totem] Ticket creation failed. Full response:', JSON.stringify(res, null, 2));
                 toast.error(`Error al generar ticket: ${res.error || 'Desconocido'}`);

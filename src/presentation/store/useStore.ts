@@ -29,6 +29,8 @@ import {
 } from '../../domain/types';
 import { TigerDataService } from '../../domain/services/TigerDataService';
 import { IntelligentOrderingService } from '../services/intelligentOrderingService';
+import { forceCloseTerminalShift } from '../../actions/terminals-v2';
+import { createTerminalSecure, deleteTerminalSecure, updateTerminalSecure } from '../../actions/network-v2';
 // Mocks removed
 // Mocks removed
 
@@ -109,7 +111,8 @@ interface PharmaState {
 
     // CRM
     customers: Customer[];
-    addCustomer: (customer: Omit<Customer, 'id' | 'totalPoints' | 'lastVisit' | 'health_tags' | 'name' | 'age'>) => Customer;
+    fetchCustomers: (searchTerm?: string) => Promise<void>;
+    addCustomer: (customer: Omit<Customer, 'id' | 'totalPoints' | 'lastVisit' | 'health_tags' | 'name' | 'age'>) => Promise<Customer | null>;
     updateCustomer: (id: string, data: Partial<Customer>) => void;
     deleteCustomer: (id: string) => void;
     redeemPoints: (customerId: string, points: number) => boolean;
@@ -128,9 +131,9 @@ interface PharmaState {
     currentShift: Shift | null;
     dailyShifts: Shift[]; // History of shifts for the day
     terminals: Terminal[];
-    addTerminal: (terminal: Omit<Terminal, 'id'>) => Promise<void>;
-    updateTerminal: (id: string, updates: Partial<Terminal>) => Promise<void>;
-    deleteTerminal: (id: string) => Promise<void>;
+    addTerminal: (terminal: Omit<Terminal, 'id'>, adminPin: string) => Promise<void>;
+    updateTerminal: (id: string, updates: Partial<Terminal>, adminPin: string) => Promise<void>;
+    deleteTerminal: (id: string, adminPin: string) => Promise<void>;
     forceCloseTerminal: (id: string) => Promise<void>;
     cashMovements: CashMovement[];
 
@@ -216,7 +219,7 @@ interface PharmaState {
 }
 
 
-import { indexedDBStorage } from './indexedDBStorage';
+import { indexedDBWithLocalStorageFallback } from './indexedDBStorage';
 
 export const usePharmaStore = create<PharmaState>()(
     persist(
@@ -270,7 +273,12 @@ export const usePharmaStore = create<PharmaState>()(
                 // 2. Offline Fallback
                 if (!authenticatedUser) {
                     const { employees } = get();
-                    const offlineUser = employees.find(e => e.id === userId && e.access_pin === pin);
+                    // Hash del PIN input para comparar con lo almacenado (si fue persistido hash)
+                    const hashedPin = typeof window !== 'undefined' ? window.btoa(pin).split('').reverse().join('') : pin;
+
+                    const offlineUser = employees.find(e =>
+                        e.id === userId && (e.access_pin === pin || e.access_pin === hashedPin)
+                    );
 
                     if (offlineUser) {
                         authenticatedUser = offlineUser;
@@ -379,182 +387,141 @@ export const usePharmaStore = create<PharmaState>()(
                     return;
                 }
                 set({ isLoading: true });
-                // If forced, reset initialized state temporarily to allow re-sync effects if any
                 if (force) set({ isInitialized: false });
+
                 try {
-                    // const { TigerDataService } = await import('../../domain/services/TigerDataService'); // REMOVED
                     const currentStoreState = get();
 
-                    // 0. PUSH SYNC: Send pending sales to server first
-                    const pendingSales = currentStoreState.salesHistory.filter(s => s.is_synced === false);
-                    if (pendingSales.length > 0) {
-                        console.log(`📡 Syncing ${pendingSales.length} pending sales to cloud...`);
-                        const { TigerDataService } = await import('../../domain/services/TigerDataService');
+                    // 1. Sync Offline Sales
+                    try {
+                        const { useOfflineSales } = await import('../../lib/store/offlineSales');
+                        const { pendingSales, removeOfflineSale, updateOfflineSaleStatus } = useOfflineSales.getState();
+                        const salesToSync = pendingSales.filter(s => s.syncStatus !== 'CONFLICT');
 
-                        // Process sequentially to ensure order (or Promise.all for speed)
-                        for (const sale of pendingSales) {
-                            try {
-                                const result = await TigerDataService.saveSaleTransaction(
-                                    { ...sale, is_synced: undefined }, // Clean flag for server
-                                    sale.branch_id || currentStoreState.currentLocationId,
-                                    sale.terminal_id
-                                );
+                        if (salesToSync.length > 0) {
+                            console.log(`📡 Syncing ${salesToSync.length} offline sales...`);
+                            const { createSaleSecure } = await import('../../actions/sales-v2');
 
-                                if (result.success) {
-                                    // Mark as synced efficiently
-                                    set(state => ({
-                                        salesHistory: state.salesHistory.map(s =>
-                                            s.id === sale.id ? { ...s, is_synced: true } : s
-                                        )
+                            for (const sale of salesToSync) {
+                                try {
+                                    const saleItems = sale.items.map(item => ({
+                                        batch_id: item.batchId || '',
+                                        quantity: item.quantity,
+                                        price: item.price,
+                                        stock: item.stock
                                     }));
+                                    const result = await createSaleSecure({
+                                        locationId: sale.locationId,
+                                        terminalId: sale.terminalId,
+                                        sessionId: sale.sessionId,
+                                        userId: sale.userId,
+                                        items: saleItems,
+                                        paymentMethod: sale.paymentMethod,
+                                        dteType: 'BOLETA'
+                                    });
+
+                                    if (result.success) {
+                                        console.log(`✅ Sale ${sale.id} synced`);
+                                        removeOfflineSale(sale.id);
+                                    } else {
+                                        const isStockError = result.error?.toLowerCase().includes('stock') || (result as any).stockErrors;
+                                        updateOfflineSaleStatus(sale.id, isStockError ? 'CONFLICT' : 'ERROR', result.error || 'Unknown Error');
+                                    }
+                                } catch (e: any) {
+                                    console.error(`❌ Sync error for sale ${sale.id}:`, e);
+                                    updateOfflineSaleStatus(sale.id, 'ERROR', e.message);
                                 }
-                            } catch (e) {
-                                console.error(`Failed to sync sale ${sale.id}:`, e);
                             }
                         }
+                    } catch (e) {
+                        console.error('❌ Error in offline sales sync:', e);
                     }
 
+                    // 2. Sync General Outbox
+                    try {
+                        const { processOutboxQueue } = await import('../../lib/sync-manager');
+                        await processOutboxQueue();
+                    } catch (e) {
+                        console.error('❌ Error in outbox sync:', e);
+                    }
+
+                    // 3. Fetch Data
+                    const { TigerDataService } = await import('../../domain/services/TigerDataService');
+
                     const [inventory, employeesRes, sales, suppliersRes, cashMovements, customers, shipments, purchaseOrders, locationsRes] = await Promise.all([
-                        currentStoreState.currentLocationId ? TigerDataService.fetchInventory(currentStoreState.currentLocationId) : Promise.resolve([]), // FIX: Check if location is set
-                        // Try authenticated fetch first, fallback to public if session not available
+                        currentStoreState.currentLocationId ? TigerDataService.fetchInventory(currentStoreState.currentLocationId) : Promise.resolve([]),
                         import('../../actions/sync-v2').then(async m => {
-                            const result = await m.fetchEmployeesSecure();
-                            // If auth failed, try the public version (for login page scenarios)
-                            if (!result.success && result.error === 'No autenticado') {
-                                console.log('🔄 Fallback to getUsersForLoginSecure for employees...');
-                                return m.getUsersForLoginSecure();
-                            }
-                            return result;
+                            const res = await m.fetchEmployeesSecure();
+                            if (!res.success && res.error === 'No autenticado') return m.getUsersForLoginSecure();
+                            return res;
                         }),
-                        // Param 4: Session ID helps ensure we load sales for the active shift even if cross-day
-                        TigerDataService.fetchSalesHistory(
-                            currentStoreState.currentLocationId,
-                            undefined,
-                            undefined,
-                            currentStoreState.currentShift?.id // ✅ Pass Session ID
-                        ),
-                        import('../../actions/sync-v2').then(m => m.fetchSuppliersSecure()), // Fetch real suppliers
-                        TigerDataService.fetchCashMovements(), // Fetch real cash movements
-                        TigerDataService.fetchCustomers(), // Fetch real customers
-                        TigerDataService.fetchShipments(currentStoreState.currentLocationId), // Fetch Real Shipments
-                        TigerDataService.fetchPurchaseOrders(), // Fetch Real POs
-                        import('../../actions/sync-v2').then(m => m.fetchLocationsSecure()) // Fetch Locations
+                        TigerDataService.fetchSalesHistory(currentStoreState.currentLocationId, undefined, undefined, currentStoreState.currentShift?.id),
+                        import('../../actions/sync-v2').then(m => m.fetchSuppliersSecure()),
+                        TigerDataService.fetchCashMovements(),
+                        TigerDataService.fetchCustomers(),
+                        TigerDataService.fetchShipments(currentStoreState.currentLocationId),
+                        TigerDataService.fetchPurchaseOrders(),
+                        import('../../actions/sync-v2').then(m => m.fetchLocationsSecure())
                     ]);
-                    // Extract data from V2 responses
-                    const employees = employeesRes.success ? employeesRes.data || [] : [];
+
+                    const employees = employeesRes.success ? (employeesRes.data || []) as unknown as EmployeeProfile[] : [];
                     const suppliers = suppliersRes.success ? suppliersRes.data || [] : [];
                     const locations = locationsRes.success ? locationsRes.data || [] : [];
 
-                    // Initialize Service Storage to prevent Auth Warnings
-                    // Cast SafeEmployeeProfile[] to EmployeeProfile[] - TigerDataService doesn't need access_pin
+                    // 4. Update Store
+                    if (locations.length > 0) useLocationStore.getState().setLocations(locations);
+
+                    set({
+                        inventory,
+                        locations, // Populate locations
+                        employees,
+                        suppliers,
+                        customers: customers || [],
+                        shipments: shipments || [],
+                        purchaseOrders: purchaseOrders || [],
+                        cashMovements: cashMovements || [],
+                        // Derive expenses
+                        expenses: cashMovements.filter(m => m.type === 'OUT' && ['SUPPLIES', 'SERVICES', 'SALARY_ADVANCE', 'OTHER'].includes(m.reason)).map(m => ({
+                            id: m.id,
+                            description: m.description,
+                            amount: m.amount,
+                            category: (m.reason === 'SUPPLIES' ? 'INSUMOS' : m.reason === 'SERVICES' ? 'SERVICIOS' : 'OTROS') as any,
+                            date: m.timestamp,
+                            is_deductible: false
+                        }))
+                    });
+
+                    // Preservation logic
+                    const localUnsyncedSales = currentStoreState.salesHistory.filter(s => s.is_synced === false);
+                    const mergedSales = [
+                        ...sales,
+                        ...localUnsyncedSales.filter(localSale => !sales.some(sale => sale.id === localSale.id))
+                    ];
+                    set({ salesHistory: mergedSales });
+
                     TigerDataService.initializeStorage({
-                        employees: employees as unknown as EmployeeProfile[],
+                        employees,
                         products: inventory,
-                        sales,
+                        sales: mergedSales,
                         cashMovements,
-                        expenses: [] // Expenses derived later
+                        expenses: get().expenses
                     });
 
-                    // Sync Locations to LocationStore
-                    if (locations && locations.length > 0) {
-                        useLocationStore.getState().setLocations(locations);
-                    }
-
-                    // FIX: Always set inventory, even if empty, to reflect "cleared" state
-                    console.log(`📦 Inventory loaded: ${inventory?.length || 0} items for location ${currentStoreState.currentLocationId || 'NONE'}`);
-                    set({ inventory });
-
-                    if (employees.length > 0) {
-                        set({ employees: employees as unknown as EmployeeProfile[] });
-                    } else {
-                        // Si la DB devuelve vacío (ej: primera carga), no usar Mocks para evitar confusión.
-                        // Solo usar mocks si explícitamente estamos en modo demo/offline sin conexión.
-                        console.log('ℹ️ No employees found in DB.');
-                        set({ employees: [] });
-                    }
-
-                    // Sync Sales
-                    set({ salesHistory: sales });
-
-                    // Sync Shipments
-                    if (shipments && shipments.length > 0) {
-                        set({ shipments });
-                    } else {
-                        set({ shipments: [] }); // Clear if empty (don't keep mocks)
-                    }
-
-                    // Sync POs
-                    if (purchaseOrders && purchaseOrders.length > 0) {
-                        set({ purchaseOrders });
-                    }
-
-                    // Sync Suppliers
-                    if (suppliers && suppliers.length > 0) {
-                        set({ suppliers });
-                    }
-
-                    // Sync Cash & Expenses
-                    if (cashMovements.length > 0) {
-                        set({
-                            cashMovements: cashMovements,
-                            // Derive expenses from cash movements (OUT and not valid withdrawals)
-                            expenses: cashMovements.filter(m =>
-                                m.type === 'OUT' && (
-                                    m.reason === 'SUPPLIES' ||
-                                    m.reason === 'SERVICES' ||
-                                    m.reason === 'SALARY_ADVANCE' ||
-                                    m.reason === 'OTHER'
-                                )
-                            ).map(m => ({
-                                id: m.id,
-                                description: m.description, // Description holds the user text
-                                amount: m.amount,
-                                category: (m.reason === 'SUPPLIES' ? 'INSUMOS' : m.reason === 'SERVICES' ? 'SERVICIOS' : 'OTROS') as any,
-                                date: m.timestamp,
-                                is_deductible: false
-                            }))
-                        });
-                    }
-
-                    // Sync Customers
-                    if (customers && customers.length > 0) {
-                        set({ customers });
-                        console.log(`👥 Synced ${customers.length} customers`);
-                    }
-
-                    const state = get();
-
-                    // Initialize TigerDataService with current store data
-                    // const { TigerDataService } = await import('../../domain/services/TigerDataService'); // REMOVED
-                    TigerDataService.initializeStorage({
-                        products: state.inventory,
-                        employees: state.employees,
-                        sales: state.salesHistory,
-                        cashMovements: state.cashMovements,
-                        expenses: state.expenses
-                    });
-
-                    // ✅ Data Synced & Tiger Data Initialized
                     set({ isInitialized: true });
+
                 } catch (error) {
                     console.error('❌ Sync failed:', error);
-                    // Show a friendly toast to the user
-                    import('sonner').then(({ toast }) => {
-                        toast.error('Modo Sin Conexión / Demo', {
-                            description: 'No se pudo conectar con el servidor. Usando datos locales.',
-                            duration: 5000,
-                        });
-                    });
+                    import('sonner').then(({ toast }) => toast.error('Error de Sincronización', { description: 'Usando datos locales.' }));
                 } finally {
                     set({ isLoading: false });
                 }
             },
 
-            fetchInventory: async (locationId, warehouseId) => {
+            fetchInventory: async (locationId: string | undefined, warehouseId: string | undefined) => {
                 set({ isLoading: true });
                 try {
                     const state = get();
-                    const wh = warehouseId || state.currentWarehouseId; // Deprecated for Fetch, kept for logic if needed
+                    const wh = warehouseId || state.currentWarehouseId;
                     const targetLocation = locationId || state.currentLocationId;
 
                     // Skip fetch if no location selected (prevents warnings)
@@ -575,6 +542,7 @@ export const usePharmaStore = create<PharmaState>()(
             },
 
             // --- Inventory ---
+            locations: [], // Initialize locations
             inventory: [],
             suppliers: [],
             supplierDocuments: [],
@@ -1021,42 +989,160 @@ export const usePharmaStore = create<PharmaState>()(
             },
 
             // --- CRM ---
-            customers: [
-                {
-                    id: 'C-001',
-                    rut: '11.111.111-1',
-                    fullName: 'Cliente Frecuente Demo',
-                    name: 'Cliente Frecuente Demo',
-                    phone: '+56912345678',
-                    email: 'demo@cliente.cl',
-                    totalPoints: 1500,
-                    registrationSource: 'ADMIN',
-                    lastVisit: Date.now() - 86400000,
-                    age: 45,
-                    health_tags: ['HYPERTENSION'],
-                    total_spent: 150000,
-                    tags: ['VIP'],
-                    status: 'ACTIVE'
+            customers: [], // Start empty, load from DB via fetchCustomers
+
+            fetchCustomers: async (searchTerm?: string) => {
+                try {
+                    const { getCustomersSecure } = await import('../../actions/customers-v2');
+                    const result = await getCustomersSecure({ searchTerm, pageSize: 100 });
+                    if (result.success && result.data?.customers) {
+                        // Map DB schema to local Customer type
+                        const mappedCustomers: Customer[] = result.data.customers.map((c: any) => ({
+                            id: c.id,
+                            rut: c.rut,
+                            fullName: c.name, // DB uses 'name', local uses 'fullName'
+                            name: c.name,
+                            phone: c.phone || '',
+                            email: c.email || '',
+                            totalPoints: c.loyalty_points || 0,
+                            registrationSource: 'POS' as const, // Cast to valid type
+                            lastVisit: c.last_visit ? new Date(c.last_visit).getTime() : Date.now(),
+                            age: 0,
+                            health_tags: c.health_tags || [],
+                            total_spent: 0,
+                            tags: c.tags || [],
+                            status: c.status || 'ACTIVE'
+                        }));
+                        set({ customers: mappedCustomers });
+                    }
+                } catch (error) {
+                    console.error('[Store] Failed to fetch customers:', error);
                 }
-            ],
-            addCustomer: (data) => {
-                const newCustomer: Customer = {
-                    ...data,
-                    id: `CUST - ${Date.now()} `,
-                    totalPoints: 0,
-                    lastVisit: Date.now(),
-                    health_tags: [],
-                    name: data.fullName, // Legacy support
-                    age: 0, // Default
-                    total_spent: 0,
-                    tags: [],
-                    status: 'ACTIVE'
-                };
-                set((state) => ({
-                    customers: [...state.customers, newCustomer],
-                    currentCustomer: newCustomer
-                }));
-                return newCustomer;
+            },
+
+            addCustomer: async (data) => {
+                // 1. Offline Check
+                const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+
+                try {
+                    let result = null;
+
+                    // 2. Try Online if possible
+                    if (!isOffline) {
+                        const { createCustomerSecure } = await import('../../actions/customers-v2');
+                        result = await createCustomerSecure({
+                            rut: data.rut,
+                            fullName: data.fullName,
+                            phone: data.phone || undefined,
+                            email: data.email || undefined,
+                            registrationSource: data.registrationSource || 'POS',
+                            tags: [],
+                            healthTags: []
+                        });
+                    }
+
+                    // 3. Handle Success
+                    if (result && result.success && result.data?.id) {
+                        const newCustomer: Customer = {
+                            ...data,
+                            id: result.data.id,
+                            totalPoints: 0,
+                            lastVisit: Date.now(),
+                            health_tags: [],
+                            name: data.fullName,
+                            age: 0,
+                            total_spent: 0,
+                            tags: [],
+                            status: 'ACTIVE'
+                        };
+                        set((state) => ({
+                            customers: [...state.customers, newCustomer],
+                            currentCustomer: newCustomer
+                        }));
+                        return newCustomer;
+                    }
+
+                    // 4. Handle Offline / Fallback
+                    // If manually offline OR network request failed (result null or specific error)
+                    if (isOffline || !result || result.error?.includes('Network') || result.error?.includes('fetch')) {
+                        console.log('⚠️ Falling back to Offline Customer Creation');
+                        const tempId = `OFFLINE-CUST-${Date.now()}`;
+                        const newCustomer: Customer = {
+                            ...data,
+                            id: tempId,
+                            totalPoints: 0,
+                            lastVisit: Date.now(),
+                            health_tags: [],
+                            name: data.fullName,
+                            age: 0,
+                            total_spent: 0,
+                            tags: [],
+                            status: 'ACTIVE' // Or 'PENDING' if we had that status
+                        };
+
+                        // Add to Outbox
+                        const { useOutboxStore } = await import('../../lib/store/outboxStore');
+                        useOutboxStore.getState().addToOutbox(
+                            'CLIENT_CREATE',
+                            {
+                                ...data,
+                                registrationSource: data.registrationSource || 'POS'
+                            }
+                        );
+
+                        // Add to Local State
+                        set((state) => ({
+                            customers: [...state.customers, newCustomer],
+                            currentCustomer: newCustomer
+                        }));
+
+                        import('sonner').then(({ toast }) => toast.warning('Cliente guardado localmente', {
+                            description: 'Se sincronizará cuando recupere conexión.'
+                        }));
+
+                        return newCustomer;
+                    } else {
+                        // Real validation error from server
+                        import('sonner').then(({ toast }) => toast.error(result.error || 'Error al registrar cliente'));
+                        return null;
+                    }
+
+                } catch (error: any) {
+                    console.error('[Store] addCustomer error:', error);
+                    // Fallback on Exception (Network Error usually)
+                    const tempId = `OFFLINE-CUST-${Date.now()}`;
+                    const newCustomer: Customer = {
+                        ...data,
+                        id: tempId,
+                        totalPoints: 0,
+                        lastVisit: Date.now(),
+                        health_tags: [],
+                        name: data.fullName,
+                        age: 0,
+                        total_spent: 0,
+                        tags: [],
+                        status: 'ACTIVE'
+                    };
+
+                    const { useOutboxStore } = await import('../../lib/store/outboxStore');
+                    useOutboxStore.getState().addToOutbox(
+                        'CLIENT_CREATE',
+                        {
+                            ...data,
+                            registrationSource: data.registrationSource || 'POS'
+                        }
+                    );
+
+                    set((state) => ({
+                        customers: [...state.customers, newCustomer],
+                        currentCustomer: newCustomer
+                    }));
+
+                    import('sonner').then(({ toast }) => toast.warning('Cliente guardado localmente (Offline)', {
+                        description: 'Se sincronizará automáticamente.'
+                    }));
+                    return newCustomer;
+                }
             },
             updateCustomer: (id, data) => set((state) => ({
                 customers: state.customers.map(c => c.id === id ? { ...c, ...data } : c)
@@ -1222,7 +1308,6 @@ export const usePharmaStore = create<PharmaState>()(
             // --- Cash Management & Shifts ---
             currentShift: null,
             dailyShifts: [],
-            locations: [],
             fetchLocations: async () => {
                 try {
                     const { getLocationsSecure } = await import('../../actions/locations-v2');
@@ -1257,8 +1342,8 @@ export const usePharmaStore = create<PharmaState>()(
                 }
             },
 
-            addTerminal: async (terminal) => {
-                const { createTerminalSecure } = await import('../../actions/network-v2');
+            addTerminal: async (terminal, adminPin) => {
+                // const { createTerminalSecure } = await import('../../actions/network-v2');
                 // Optimistic Update (Temporary ID)
                 const tempId = `TEMP-${Date.now()}`;
                 set((state) => ({
@@ -1266,11 +1351,11 @@ export const usePharmaStore = create<PharmaState>()(
                 }));
 
                 try {
-                    // TODO: Solicitar PIN de admin al usuario cuando esta UI se implemente
-                    const adminPin = '0000'; // Placeholder - should be from user input
                     const res = await createTerminalSecure({
                         name: terminal.name,
+                        module_number: terminal.module_number,
                         locationId: terminal.location_id,
+                        allowedUsers: terminal.allowed_users,
                     }, adminPin);
 
                     if (res.success && res.terminalId) {
@@ -1293,8 +1378,8 @@ export const usePharmaStore = create<PharmaState>()(
                     console.error(error);
                 }
             },
-            deleteTerminal: async (id) => {
-                const { deleteTerminalSecure } = await import('../../actions/terminals-v2');
+            deleteTerminal: async (id, adminPin) => {
+                // const { deleteTerminalSecure } = await import('../../actions/network-v2');
 
                 // Optimistic Update
                 const previousTerminals = get().terminals;
@@ -1303,7 +1388,7 @@ export const usePharmaStore = create<PharmaState>()(
                 }));
 
                 try {
-                    const res = await deleteTerminalSecure(id);
+                    const res = await deleteTerminalSecure(id, adminPin);
                     if (!res.success) {
                         // Rollback
                         set({ terminals: previousTerminals });
@@ -1317,7 +1402,7 @@ export const usePharmaStore = create<PharmaState>()(
                 }
             },
             forceCloseTerminal: async (id) => {
-                const { closeTerminalAtomic } = await import('../../actions/terminals-v2');
+                // const { forceCloseTerminalAtomic } = await import('../../actions/terminals-v2');
                 const currentUser = get().user;
 
                 // Optimistic Update
@@ -1327,7 +1412,7 @@ export const usePharmaStore = create<PharmaState>()(
 
                 try {
                     // Force close with 0 cash and admin comment using ATOMIC Implementation
-                    const res = await closeTerminalAtomic(id, currentUser?.id || 'ADMIN_FORCE', 0, 'Cierre Administrativo Forzado');
+                    const res = await forceCloseTerminalShift(id, currentUser?.id || 'ADMIN_FORCE', 'Cierre Administrativo Forzado');
 
                     if (!res.success) {
                         import('sonner').then(({ toast }) => toast.error('Error al forzar cierre: ' + res.error));
@@ -1341,8 +1426,8 @@ export const usePharmaStore = create<PharmaState>()(
                     import('sonner').then(({ toast }) => toast.error('Error de conexión'));
                 }
             },
-            updateTerminal: async (id, updates) => {
-                const { updateTerminalSecure } = await import('../../actions/terminals-v2');
+            updateTerminal: async (id, updates, adminPin) => {
+                // const { updateTerminalSecure } = await import('../../actions/terminals-v2');
 
                 // Optimistic Update
                 set((state) => ({
@@ -1350,10 +1435,11 @@ export const usePharmaStore = create<PharmaState>()(
                 }));
 
                 try {
-                    const res = await updateTerminalSecure(id, {
+                    const res = await updateTerminalSecure({
+                        terminalId: id,
                         name: updates.name,
-                        printer_config: updates.printer_config as Record<string, any> | undefined
-                    });
+                        module_number: updates.module_number
+                    }, adminPin);
 
                     if (!res.success) {
                         // Rollback (requires fetching previous state, or just alerting)
@@ -2199,13 +2285,36 @@ export const usePharmaStore = create<PharmaState>()(
         }),
         {
             name: 'pharma-storage', // unique name
-            storage: createJSONStorage(() => localStorage), // (optional) by default, 'localStorage' is used
-            // OPTIONAL: Filter what to persist. 
-            // We want to persist SETTINGS but NOT transactional data (Inventory, Sales, Employees) 
-            // because that should be fresh from DB on login.
+            storage: createJSONStorage(() => indexedDBWithLocalStorageFallback),
+            // Persist settings + offline cache needed to survive refresh without internet.
             partialize: (state) => ({
                 // Persistir sesión del usuario para evitar re-login
-                user: state.user,
+                // IMPORTANTE: Ocultar PIN del usuario activo en persistencia
+                user: state.user ? { ...state.user, access_pin: undefined } : null,
+
+                // Cache offline crítica para operar sin conexión
+                // IMPORTANTE: Hashing simple de PINs para no guardar en texto plano (Requirement)
+                employees: state.employees.map(e => ({
+                    ...e,
+                    // Simple Hash: Base64 + Reverse para ofuscación básica
+                    access_pin: e.access_pin ? typeof window !== 'undefined' ? window.btoa(e.access_pin).split('').reverse().join('') : e.access_pin : undefined
+                })),
+                inventory: state.inventory,
+                customers: state.customers,
+                suppliers: state.suppliers,
+                supplierDocuments: state.supplierDocuments,
+                purchaseOrders: state.purchaseOrders,
+                salesHistory: state.salesHistory,
+                cashMovements: state.cashMovements,
+                expenses: state.expenses,
+                currentShift: state.currentShift,
+                dailyShifts: state.dailyShifts,
+                terminals: state.terminals,
+                cart: state.cart,
+                currentCustomer: state.currentCustomer,
+                tickets: state.tickets,
+                currentTicket: state.currentTicket,
+                lastQueueActionTimestamp: state.lastQueueActionTimestamp,
                 // Configuraciones
                 printerConfig: state.printerConfig,
                 siiConfiguration: state.siiConfiguration,

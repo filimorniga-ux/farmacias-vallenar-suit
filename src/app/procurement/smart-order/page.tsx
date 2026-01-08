@@ -14,10 +14,11 @@ const GERENTE_THRESHOLD = 1000000;
 
 export default function SmartOrderPage() {
     const router = useRouter();
-    const { user } = usePharmaStore();
+    const { user, locations, currentLocationId } = usePharmaStore();
 
     // filters
     const [supplierId, setSupplierId] = useState('');
+    const [locationId, setLocationId] = useState('');
     const [suppliers, setSuppliers] = useState<{ id: string, name: string }[]>([]);
     const [daysToCover, setDaysToCover] = useState(15);
     const [analysisWindow, setAnalysisWindow] = useState(30);
@@ -34,7 +35,10 @@ export default function SmartOrderPage() {
 
     useEffect(() => {
         loadSuppliers();
-    }, []);
+        if (currentLocationId) {
+            setLocationId(currentLocationId);
+        }
+    }, [currentLocationId]);
 
     const loadSuppliers = async () => {
         const res = await getSuppliersListSecure();
@@ -49,7 +53,7 @@ export default function SmartOrderPage() {
         setSuggestions([]);
 
         try {
-            const res = await generateRestockSuggestionSecure(supplierId, daysToCover, analysisWindow);
+            const res = await generateRestockSuggestionSecure(supplierId, daysToCover, analysisWindow, locationId);
             if (res.success && res.data) {
                 setSuggestions(res.data);
                 const initial: Record<string, number> = {};
@@ -174,7 +178,19 @@ export default function SmartOrderPage() {
             </div>
 
             {/* Config Panel */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-5 gap-6 items-end">
+                <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700">Sucursal</label>
+                    <select
+                        className="w-full p-2 border rounded-lg bg-slate-50"
+                        value={locationId}
+                        onChange={(e) => setLocationId(e.target.value)}
+                    >
+                        <option value="">-- Todas --</option>
+                        {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                    </select>
+                </div>
+
                 <div className="space-y-2">
                     <label className="text-sm font-medium text-slate-700">Proveedor</label>
                     <select

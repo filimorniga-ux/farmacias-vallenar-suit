@@ -59,13 +59,13 @@ describe.skip('Quotes V2 - Discount Thresholds', () => {
 describe.skip('Quotes V2 - Quote Creation', () => {
     it('should create quote with items', async () => {
         createMockClient([{ rows: [], rowCount: 1 }, { rows: [], rowCount: 1 }, { rows: [], rowCount: 0 }]);
-        const result = await quotesV2.createQuoteSecure({ items: [mockItem], validDays: 7 });
+        const result = await quotesV2.createQuoteSecure({ items: [mockItem], validDays: 7, locationId: 'loc-mock-123' });
         expect(result.success).toBe(true);
         expect(result.quoteCode).toContain('COT-');
     });
 
     it('should reject empty items', async () => {
-        const result = await quotesV2.createQuoteSecure({ items: [], validDays: 7 });
+        const result = await quotesV2.createQuoteSecure({ items: [], validDays: 7, locationId: 'loc-mock-123' });
         expect(result.success).toBe(false);
         expect(result.error).toContain('item');
     });

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Search, ShoppingCart, Trash2, CreditCard, Banknote, Receipt, Printer, Plus, Minus, Wifi, WifiOff, RefreshCw, AlertCircle } from 'lucide-react';
+import { Search, ShoppingCart, Trash2, CreditCard, Banknote, Receipt, Printer, Plus, Minus, Wifi, WifiOff, RefreshCw, AlertCircle, FileText } from 'lucide-react';
 import { emitirBoleta, DTE } from '@/lib/sii-mock';
 import TicketBoleta from '@/components/ticket/TicketBoleta';
 import RouteGuard from '@/components/auth/RouteGuard';
@@ -10,6 +10,7 @@ import { useOfflineSales } from '@/lib/store/offlineSales';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { cn } from '@/lib/utils';
 import { SyncStatusBadge } from '@/presentation/components/ui/SyncStatusBadge';
+import QuoteHistoryModal from '@/presentation/components/quotes/QuoteHistoryModal';
 import { useAuthStore } from '@/lib/store/useAuthStore'; // Use centralized auth store
 import { usePharmaStore } from '@/presentation/store/useStore'; // Use centralized pharma store for context
 
@@ -18,6 +19,7 @@ import { getActiveSession } from '@/actions/terminals-v2';
 import { findBestBatchSecure } from '@/actions/inventory-v2';
 import { createSaleSecure } from '@/actions/sales-v2';
 import { getProductsSecure } from '@/actions/get-products-v2';
+import { searchProductsLocal, findBestBatchLocal } from '@/lib/inventory-utils';
 
 export default function CajaPage() {
     const [searchTerm, setSearchTerm] = useState('');
@@ -26,6 +28,7 @@ export default function CajaPage() {
     const [showTicketModal, setShowTicketModal] = useState(false);
     const [syncing, setSyncing] = useState(false);
     const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'DEBIT' | 'CREDIT'>('CASH');
+    const [showQuoteHistory, setShowQuoteHistory] = useState(false);
 
     // Session State
     const [sessionId, setSessionId] = useState<string | null>(null);
@@ -37,7 +40,7 @@ export default function CajaPage() {
     const [isSearching, setIsSearching] = useState(false);
 
     const { cart, addToCart, removeFromCart, updateQuantity, clearCart, getCartTotal } = useCartStore();
-    const { pendingSales, addOfflineSale, clearOfflineSales } = useOfflineSales();
+    const { pendingSales, addOfflineSale, removeOfflineSale } = useOfflineSales();
     const isOnline = useNetworkStatus();
 
     // Auth & Context
@@ -119,18 +122,38 @@ export default function CajaPage() {
         }
     }, [isHydrated, effectiveTerminalId]);
 
-    // 2. Búsqueda de Productos (Debounced or on Enter)
+    // 2. Búsqueda de Productos (Hybrid: Online -> Offline Fallback)
     useEffect(() => {
         const timer = setTimeout(async () => {
             if (searchTerm.trim().length >= 2 && effectiveLocationId) {
                 setIsSearching(true);
                 try {
-                    const res = await getProductsSecure(searchTerm, effectiveLocationId);
-                    if (res.success && res.data) {
-                        setSearchResults(res.data);
+                    // Try Online First
+                    if (isOnline) {
+                        const res = await getProductsSecure(searchTerm, effectiveLocationId);
+                        if (res.success && res.data) {
+                            setSearchResults(res.data);
+                            return; // Success
+                        }
+                    }
+
+                    // Fallback to Local Search (if offline or API failed/returned empty but we have local data?)
+                    // Actually, if online returns empty, it usually means no results. But if offline, we MUST use local.
+                    if (!isOnline) {
+                        const localInventory = usePharmaStore.getState().inventory;
+                        const localResults = searchProductsLocal(searchTerm, localInventory);
+                        setSearchResults(localResults);
+                    } else {
+                        // If online and no results (and no error caught), keeps empty from previous step or clears
+                        // If here, means res.success false or no data.
+                        setSearchResults([]);
                     }
                 } catch (err) {
-                    console.error('Search error:', err);
+                    console.error('Search error, trying local:', err);
+                    // Fallback on error
+                    const localInventory = usePharmaStore.getState().inventory;
+                    const localResults = searchProductsLocal(searchTerm, localInventory);
+                    setSearchResults(localResults);
                 } finally {
                     setIsSearching(false);
                 }
@@ -140,9 +163,10 @@ export default function CajaPage() {
         }, 500);
 
         return () => clearTimeout(timer);
-    }, [searchTerm, currentLocationId]);
+    }, [searchTerm, currentLocationId, isOnline]);
 
-    // 3. Agregar al Carrito (Resolviendo Batch)
+
+    // 3. Agregar al Carrito (Resolviendo Batch con Fallback)
     const handleAddToCart = async (product: any) => {
         if (!effectiveLocationId) {
             alert('Error: Sin ubicación seleccionada');
@@ -151,22 +175,39 @@ export default function CajaPage() {
 
         setIsProcessing(true);
         try {
-            // Find best batch (FIFO)
-            const batchRes = await findBestBatchSecure(product.sku, effectiveLocationId);
+            let bestBatch = null;
 
-            if (batchRes.success && batchRes.batch) {
+            // Strategy: Try Server Action if Online, else Local
+            if (isOnline) {
+                const batchRes = await findBestBatchSecure(product.sku, effectiveLocationId);
+                if (batchRes.success && batchRes.batch) {
+                    bestBatch = batchRes.batch;
+                }
+            }
+
+            // If no internet or server failed (bestBatch still null), try local
+            if (!bestBatch) {
+                const localInventory = usePharmaStore.getState().inventory;
+                const localRes = findBestBatchLocal(product.sku, localInventory);
+                if (localRes.success && localRes.batch) {
+                    bestBatch = localRes.batch;
+                    if (!isOnline) console.log('⚠️ batch resolved locally');
+                }
+            }
+
+            if (bestBatch) {
                 addToCart({
                     id: product.id, // Keep product ID for display
-                    batchId: batchRes.batch.id, // Store real batch ID
+                    batchId: bestBatch.id, // Store real batch ID
                     name: product.name,
-                    price: batchRes.batch.price, // Use real batch price
-                    stock: batchRes.batch.quantity,
+                    price: bestBatch.price, // Use real batch price
+                    stock: bestBatch.quantity,
                     requiresPrescription: false // TODO: Add to DB schema
                 });
                 setSearchTerm(''); // Clear search to be ready for next scan
                 setSearchResults([]);
             } else {
-                alert(batchRes.error || 'Sin stock disponible');
+                alert('Sin stock disponible (ni en servidor ni local)');
             }
         } catch (err) {
             console.error(err);
@@ -175,6 +216,7 @@ export default function CajaPage() {
             setIsProcessing(false);
         }
     };
+
 
     const total = getCartTotal();
 
@@ -235,8 +277,16 @@ export default function CajaPage() {
                 }
             } else {
                 // Offline Fallback
-                addOfflineSale(cart, total);
-                alert('Sin conexión. Venta guardada localmente.');
+                addOfflineSale({
+                    items: cart,
+                    total,
+                    locationId: effectiveLocationId,
+                    terminalId: effectiveTerminalId,
+                    sessionId,
+                    userId: String(user.id),
+                    paymentMethod
+                });
+                import('sonner').then(({ toast }) => toast.warning('Sin conexión. Venta guardada localmente.'));
                 clearCart();
             }
 
@@ -249,9 +299,36 @@ export default function CajaPage() {
     };
 
     const handleSync = async () => {
-        // Implement sync logic
-        alert('Sincronización manual no implementada en esta vista aún.');
+        if (!isOnline) {
+            alert('No hay conexión para sincronizar.');
+            return;
+        }
+        if (pendingSales.length === 0) {
+            // Maybe just refresh data if no sales?
+        }
+
+        setSyncing(true);
+        try {
+            await usePharmaStore.getState().syncData({ force: true });
+
+            // Check if queue cleared
+            if (useOfflineSales.getState().pendingSales.length === 0) {
+                import('sonner').then(({ toast }) => toast.success('Sincronización completada'));
+            }
+        } catch (error) {
+            console.error('Error al sincronizar:', error);
+            import('sonner').then(({ toast }) => toast.error('Error sincronizando datos'));
+        } finally {
+            setSyncing(false);
+        }
     };
+
+
+    useEffect(() => {
+        if (isOnline && pendingSales.length > 0 && !syncing) {
+            handleSync();
+        }
+    }, [isOnline, pendingSales.length, syncing]);
 
     const handlePrint = () => {
         window.print();
@@ -289,9 +366,25 @@ export default function CajaPage() {
                         </div>
 
                         <div className="flex items-center gap-4">
+                            <div className="relative group">
+                                <button className="flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium transition-colors">
+                                    <span>Gestión</span>
+                                </button>
+                                <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-100 hidden group-hover:block z-50 overflow-hidden">
+                                    <button
+                                        onClick={() => setShowQuoteHistory(true)}
+                                        className="w-full text-left px-4 py-3 hover:bg-slate-50 text-slate-700 flex items-center gap-2"
+                                    >
+                                        <FileText size={16} />
+                                        Historial Cotizaciones
+                                    </button>
+                                </div>
+                            </div>
                             <SyncStatusBadge />
                         </div>
                     </div>
+
+                    <QuoteHistoryModal isOpen={showQuoteHistory} onClose={() => setShowQuoteHistory(false)} />
 
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 

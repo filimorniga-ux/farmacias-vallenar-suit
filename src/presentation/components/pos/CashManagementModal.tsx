@@ -186,8 +186,10 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
         setIsRetrying(false);
 
         try {
+            const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+
             // Use treasury-v2 secure function if we have session data
-            if (currentShift?.terminal_id && currentShift?.id) {
+            if (currentShift?.terminal_id && currentShift?.id && !isOffline) {
                 const treasuryType = movementType === 'OUT'
                     ? (reason === 'WITHDRAWAL' ? 'WITHDRAWAL' : 'EXPENSE')
                     : 'EXTRA_INCOME';
@@ -261,7 +263,24 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                 await loadServerMetrics();
 
             } else {
-                // Fallback to legacy for non-terminal contexts
+                // Fallback to legacy for non-terminal contexts OR OFFLINE
+                if (isOffline && currentShift?.id) {
+                    import('../../../lib/store/outboxStore').then(({ useOutboxStore }) => {
+                        useOutboxStore.getState().addToOutbox(
+                            'CASH_MOVEMENT',
+                            {
+                                sessionId: currentShift.id,
+                                userId: user?.id || 'SYSTEM',
+                                amount: numAmount,
+                                type: movementType,
+                                reason: `${reason}: ${description}`,
+                                authorizationPin: authPin
+                            }
+                        );
+                    });
+                    toast.warning('Movimiento guardado localmente (Offline)');
+                }
+
                 registerCashMovement({
                     type: movementType,
                     amount: numAmount,
@@ -344,8 +363,43 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
             onClose();
 
         } catch (error) {
-            console.error('Error en movimiento de caja:', error);
-            toast.error('Error procesando movimiento');
+            console.error('Error en movimiento de caja fallback:', error);
+
+            // OFFLINE FALLBACK ON ERROR
+            if (currentShift?.id && user?.id) {
+                import('../../../lib/store/outboxStore').then(({ useOutboxStore }) => {
+                    useOutboxStore.getState().addToOutbox(
+                        'CASH_MOVEMENT',
+                        {
+                            sessionId: currentShift.id,
+                            userId: user.id || 'SYSTEM',
+                            amount: numAmount,
+                            type: movementType,
+                            reason: `${reason}: ${description}`,
+                            authorizationPin: authPin
+                        }
+                    );
+                });
+
+                registerCashMovement({
+                    type: movementType,
+                    amount: numAmount,
+                    reason: reason,
+                    description: description,
+                    evidence_url: evidence || undefined,
+                    is_cash: true
+                });
+
+                toast.warning('Guardado localmente por error de red');
+                setAmount('');
+                setDescription('');
+                setEvidence(null);
+                setAuthPin('');
+                setShowPinInput(false);
+                onClose();
+            } else {
+                toast.error('Error procesando movimiento');
+            }
         } finally {
             setIsSubmitting(false);
         }

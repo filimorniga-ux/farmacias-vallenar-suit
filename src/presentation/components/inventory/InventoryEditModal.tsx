@@ -5,6 +5,7 @@ import { usePharmaStore } from '../../store/useStore';
 import { toast } from 'sonner';
 // V2: Funciones seguras
 import { createBatchSecure } from '../../../actions/inventory-v2';
+import { updateProductSecure } from '../../../actions/products-v2';
 
 interface InventoryEditModalProps {
     isOpen: boolean;
@@ -13,7 +14,7 @@ interface InventoryEditModalProps {
 }
 
 const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose, product }) => {
-    const { updateProduct, inventory, updateBatchDetails, addNewProduct, user, fetchInventory } = usePharmaStore();
+    const { inventory, updateBatchDetails, addNewProduct, user, fetchInventory } = usePharmaStore();
     const [formData, setFormData] = useState<Partial<InventoryBatch>>({});
     const [activeBatches, setActiveBatches] = useState<InventoryBatch[]>([]);
     const [newTag, setNewTag] = useState('');
@@ -25,8 +26,13 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
 
     useEffect(() => {
         if (product) {
+            const normalizedSku =
+                product.sku.startsWith('AUTO-') || product.sku.startsWith('TEMP-')
+                    ? ''
+                    : product.sku;
             setFormData({
                 ...product,
+                sku: normalizedSku,
                 contraindications: product.contraindications || [],
                 therapeutic_tags: product.therapeutic_tags || []
             });
@@ -37,21 +43,40 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
 
     if (!isOpen || !product) return null;
 
-    const handleSave = () => {
-        if (product.id) {
-            // SKU Validation
-            if (formData.sku !== product.sku) {
-                const skuExists = inventory.some(i => i.sku === formData.sku && i.id !== product.id);
-                if (skuExists) {
-                    toast.error('El SKU ya existe en otro producto');
-                    return;
-                }
+    const handleSave = async () => {
+        if (!product.id) return;
+
+        const rawSku = (formData.sku || '').trim();
+        if (rawSku && rawSku.length > 50) {
+            toast.error('El SKU es muy largo (máx 50 caracteres)');
+            return;
+        }
+
+        try {
+            const formDataAny = formData as any;
+            const result = await updateProductSecure({
+                productId: product.id,
+                sku: rawSku || undefined,
+                name: formData.name,
+                description: formDataAny.description,
+                minStock: formData.stock_min,
+                maxStock: formData.stock_max,
+                requiresPrescription: formDataAny.requires_prescription,
+                isColdChain: formDataAny.is_cold_chain,
+                userId: user?.id || '00000000-0000-0000-0000-000000000000'
+            });
+
+            if (!result.success) {
+                toast.error(result.error || 'Error al actualizar producto');
+                return;
             }
 
-            // Update the main product
-            updateProduct(product.id, formData);
             toast.success('Producto actualizado correctamente');
+            await fetchInventory();
             onClose();
+        } catch (error) {
+            console.error(error);
+            toast.error('Error de conexión al actualizar producto');
         }
     };
 
@@ -271,6 +296,17 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
                                             </select>
                                         </div>
                                     </div>
+                                    <div className="flex items-center pt-2">
+                                        <label className="flex items-center gap-2 cursor-pointer bg-slate-50 px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-100 transition w-full">
+                                            <input
+                                                type="checkbox"
+                                                className="w-5 h-5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                                                checked={formData.is_bioequivalent || false}
+                                                onChange={e => setFormData({ ...formData, is_bioequivalent: e.target.checked })}
+                                            />
+                                            <span className="text-sm font-bold text-slate-600">Es Bioequivalente</span>
+                                        </label>
+                                    </div>
                                 </div>
                             </section>
 
@@ -404,7 +440,7 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
                                                     <label className="text-[10px] font-bold text-slate-400 uppercase">N° Lote</label>
                                                     <input
                                                         type="text"
-                                                        value={batch.id} // Usually Batch Number is separate, but using ID for now
+                                                        value={batch.lot_number || 'S/L'}
                                                         readOnly
                                                         className="block w-full text-sm font-bold text-slate-700 bg-transparent outline-none"
                                                     />

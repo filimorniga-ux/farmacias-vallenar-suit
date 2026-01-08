@@ -33,8 +33,15 @@ import { randomUUID } from 'crypto';
 const UUIDSchema = z.string().uuid('ID inválido');
 
 const CreateProductSchema = z.object({
-    sku: z.string().min(3, 'SKU mínimo 3 caracteres').max(50),
+    sku: z.string().max(50).optional().or(z.literal('')),
     name: z.string().min(2, 'Nombre mínimo 2 caracteres').max(200),
+    dci: z.string().max(150).optional(),
+    laboratory: z.string().max(100).optional(),
+    isp_register: z.string().max(50).optional(),
+    format: z.string().max(50).optional(),
+    units_per_box: z.number().int().min(1).optional(),
+    is_bioequivalent: z.boolean().optional(),
+    condicion_venta: z.enum(['VD', 'R', 'RR', 'RCH']).optional(),
     description: z.string().max(1000).optional(),
     categoryId: UUIDSchema.optional(),
     brandId: UUIDSchema.optional(),
@@ -45,10 +52,16 @@ const CreateProductSchema = z.object({
     requiresPrescription: z.boolean().optional(),
     isColdChain: z.boolean().optional(),
     userId: UUIDSchema,
+    // Initial Stock (Optional)
+    initialStock: z.number().int().min(0).optional(),
+    initialLot: z.string().optional(),
+    initialExpiry: z.coerce.date().optional(),
+    initialLocation: z.string().optional(),
 });
 
 const UpdateProductSchema = z.object({
     productId: UUIDSchema,
+    sku: z.string().min(3).max(50).optional().or(z.literal('')),
     name: z.string().min(2).max(200).optional(),
     description: z.string().max(1000).optional(),
     categoryId: UUIDSchema.optional(),
@@ -210,10 +223,13 @@ export async function createProductSecure(data: z.infer<typeof CreateProductSche
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
+        const rawSku = (validated.data.sku || '').trim();
+        const sku = rawSku.length >= 3 ? rawSku : `AUTO-${randomUUID()}`;
+
         // Check SKU uniqueness
         const existingRes = await client.query(
             'SELECT id FROM products WHERE sku = $1',
-            [validated.data.sku]
+            [sku]
         );
 
         if (existingRes.rows.length > 0) {
@@ -224,35 +240,89 @@ export async function createProductSecure(data: z.infer<typeof CreateProductSche
         const productId = randomUUID();
 
         await client.query(`
-            INSERT INTO products (
-                id, sku, name, description, category_id, brand_id,
-                price, price_cost, min_stock, max_stock,
-                requires_prescription, is_cold_chain,
-                is_active, created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, NOW(), NOW())
+            INSERT INTO products (\n                id, sku, name, dci, laboratory, isp_register, format,
+                units_per_box, is_bioequivalent,
+                price, price_sell_box, price_sell_unit,
+                cost_net, cost_price, tax_percent,
+                stock_minimo_seguridad, stock_total, stock_actual,
+                location_id, es_frio, comisionable, condicion_venta
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7,
+                $8, $9,
+                $10, $11, $12,
+                $13, $14, $15,
+                $16, $17, $18,
+                $19, $20, $21, $22
+            )
         `, [
             productId,
-            validated.data.sku,
+            sku,
             validated.data.name,
-            validated.data.description || null,
-            validated.data.categoryId || null,
-            validated.data.brandId || null,
+            validated.data.dci || null,
+            validated.data.laboratory || null,
+            validated.data.isp_register || null,
+            validated.data.format || null,
+            validated.data.units_per_box || 1,
+            validated.data.is_bioequivalent || false,
             validated.data.price,
-            validated.data.priceCost || 0,
-            validated.data.minStock || 0,
-            validated.data.maxStock || 999999,
-            validated.data.requiresPrescription || false,
-            validated.data.isColdChain || false
+            validated.data.price, // price_sell_box
+            validated.data.price, // price_sell_unit
+            validated.data.priceCost || 0, // cost_net
+            validated.data.priceCost || 0, // cost_price
+            19, // tax_percent
+            validated.data.minStock || 0, // stock_minimo_seguridad
+            validated.data.initialStock || 0, // stock_total
+            validated.data.initialStock || 0, // stock_actual
+            validated.data.initialLocation || null, // location_id
+            validated.data.isColdChain || false, // es_frio
+            false, // comisionable
+            validated.data.condicion_venta || 'VD'
         ]);
+
+        // Create initial batch in inventory_batches if stock is provided
+        if (validated.data.initialStock && validated.data.initialStock > 0) {
+            const batchId = randomUUID();
+
+            await client.query(`
+                INSERT INTO inventory_batches (
+                    id, product_id, sku, name, location_id, warehouse_id,
+                    quantity_real, expiry_date, lot_number,
+                    cost_net, unit_cost, price_sell_box, sale_price,
+                    stock_min, stock_max, updated_at
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6,
+                    $7, $8, $9,
+                    $10, $11, $12, $13,
+                    $14, $15, NOW()
+                )
+            `, [
+                batchId,
+                productId,
+                sku,
+                validated.data.name,
+                validated.data.initialLocation || null,
+                null, // warehouse_id - can be set later
+                validated.data.initialStock,
+                validated.data.initialExpiry || null,
+                validated.data.initialLot || 'S/L',
+                validated.data.priceCost || 0,
+                validated.data.priceCost || 0,
+                validated.data.price,
+                validated.data.price,
+                validated.data.minStock || 0,
+                validated.data.maxStock || 100
+            ]);
+        }
 
         await insertProductAudit(client, {
             actionCode: 'PRODUCT_CREATED',
             userId: validated.data.userId,
             productId,
             newValues: {
-                sku: validated.data.sku,
+                sku,
                 name: validated.data.name,
-                price: validated.data.price
+                price: validated.data.price,
+                initial_stock: validated.data.initialStock || 0
             }
         });
 
@@ -307,6 +377,22 @@ export async function updateProductSecure(data: z.infer<typeof UpdateProductSche
         let paramIndex = 1;
 
         // Build update dynamically
+        const rawSku = (validated.data.sku || '').trim();
+        if (rawSku && rawSku !== current.sku) {
+            const skuRes = await client.query(
+                'SELECT id FROM products WHERE sku = $1',
+                [rawSku]
+            );
+            if (skuRes.rows.length > 0) {
+                await client.query('ROLLBACK');
+                return { success: false, error: 'SKU ya existe' };
+            }
+            oldValues.sku = current.sku;
+            newValues.sku = rawSku;
+            updates.push(`sku = $${paramIndex++}`);
+            params.push(rawSku);
+        }
+
         if (validated.data.name && validated.data.name !== current.name) {
             oldValues.name = current.name;
             newValues.name = validated.data.name;
@@ -314,25 +400,11 @@ export async function updateProductSecure(data: z.infer<typeof UpdateProductSche
             params.push(validated.data.name);
         }
 
-        if (validated.data.description !== undefined && validated.data.description !== current.description) {
-            oldValues.description = current.description;
-            newValues.description = validated.data.description;
-            updates.push(`description = $${paramIndex++}`);
-            params.push(validated.data.description);
-        }
-
-        if (validated.data.minStock !== undefined && validated.data.minStock !== current.min_stock) {
-            oldValues.min_stock = current.min_stock;
-            newValues.min_stock = validated.data.minStock;
-            updates.push(`min_stock = $${paramIndex++}`);
+        if (validated.data.minStock !== undefined && validated.data.minStock !== current.stock_minimo_seguridad) {
+            oldValues.stock_minimo_seguridad = current.stock_minimo_seguridad;
+            newValues.stock_minimo_seguridad = validated.data.minStock;
+            updates.push(`stock_minimo_seguridad = $${paramIndex++}`);
             params.push(validated.data.minStock);
-        }
-
-        if (validated.data.maxStock !== undefined && validated.data.maxStock !== current.max_stock) {
-            oldValues.max_stock = current.max_stock;
-            newValues.max_stock = validated.data.maxStock;
-            updates.push(`max_stock = $${paramIndex++}`);
-            params.push(validated.data.maxStock);
         }
 
         if (updates.length > 0) {

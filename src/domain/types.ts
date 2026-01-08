@@ -279,6 +279,7 @@ export interface Terminal {
     status: 'OPEN' | 'CLOSED';
     allowed_users?: string[]; // IDs of employees allowed to use this terminal. Empty = All.
     current_cashier_id?: string; // If OPEN, who is using it
+    module_number?: string; // NEW: Physical counter number (e.g. '05', 'C-1')
     // Telementry
     current_cashier_name?: string;
     opened_at?: number;

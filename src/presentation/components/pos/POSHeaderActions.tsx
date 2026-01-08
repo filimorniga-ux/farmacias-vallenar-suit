@@ -33,6 +33,8 @@ interface POSHeaderActionsProps {
     onOpenTurn: () => void;
 
     onHistory: () => void;
+    onShiftHistory: () => void;
+    onQuoteHistory: () => void;
     onQuote: () => void;
     isQuoteMode: boolean;
     onManualItem: () => void;
@@ -50,6 +52,8 @@ export const POSHeaderActions: React.FC<POSHeaderActionsProps> = ({
     onCloseTurn,
     onOpenTurn,
     onHistory,
+    onShiftHistory,
+    onQuoteHistory,
     onQuote,
     isQuoteMode,
     onManualItem,
@@ -200,6 +204,16 @@ export const POSHeaderActions: React.FC<POSHeaderActionsProps> = ({
                                             icon={Box}
                                             label="Historial de Ventas"
                                             onClick={onHistory}
+                                        />
+                                        <MenuItem
+                                            icon={FileText}
+                                            label="Historial Cotizaciones"
+                                            onClick={onQuoteHistory}
+                                        />
+                                        <MenuItem
+                                            icon={RefreshCw}
+                                            label="Historial de Turnos"
+                                            onClick={onShiftHistory}
                                         />
                                         <MenuItem
                                             icon={DollarSign}

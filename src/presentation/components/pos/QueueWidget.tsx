@@ -21,7 +21,9 @@ const QueueWidget: React.FC = () => {
         setCurrentTicket,
         refreshQueueStatus,
         callNextTicket,
-        completeAndNextTicket
+        completeAndNextTicket,
+        terminals,
+        fetchTerminals
     } = usePharmaStore();
 
     const [loading, setLoading] = useState(false);
@@ -31,9 +33,15 @@ const QueueWidget: React.FC = () => {
     // Polling using Store Action
     useEffect(() => {
         refreshQueueStatus();
+        if (currentLocationId && terminals.length === 0) {
+            fetchTerminals(currentLocationId);
+        }
         const interval = setInterval(refreshQueueStatus, 5000);
         return () => clearInterval(interval);
-    }, [refreshQueueStatus]);
+    }, [refreshQueueStatus, currentLocationId, terminals.length, fetchTerminals]);
+
+    const currentTerminal = terminals.find(t => t.id === currentTerminalId);
+    const moduleDisplay = currentTerminal?.module_number ? `MOD ${currentTerminal.module_number}` : '';
 
     // Actions
     const handleCallNext = async (e?: React.MouseEvent) => {
@@ -46,6 +54,12 @@ const QueueWidget: React.FC = () => {
         setLoading(true);
         try {
             const ticket = await callNextTicket(currentTerminalId);
+
+            // DEBUG: Show what IDs we are using
+            toast('DEBUG POS', {
+                description: `Loc: ${currentLocationId?.substring(0, 6)}... | Term: ${currentTerminalId?.substring(0, 6)}...`
+            });
+
             if (ticket) {
                 toast.success(`🔔 ${ticket.number}`, { duration: 2000 });
             } else {
@@ -119,12 +133,18 @@ const QueueWidget: React.FC = () => {
 
     const handleNoShow = async () => {
         if (!currentTicket) return;
-        // Removed confirm() as requested
         setLoading(true);
         try {
             await cancelTicketSecure(currentTicket.id, 'No se presentó');
             toast.info('Marcado No Show', { duration: 1500 });
             setCurrentTicket(null);
+            await refreshQueueStatus(); // Force update display
+
+            // Auto-advance to next ticket
+            // We adding a small delay to allow the display to briefly clear or update
+            setTimeout(() => {
+                handleCallNext();
+            }, 500);
         } finally {
             setLoading(false);
         }
@@ -187,7 +207,10 @@ const QueueWidget: React.FC = () => {
 
                 {/* Label */}
                 <div className="flex flex-col items-start leading-none mr-1">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Fila</span>
+                    <div className="flex items-center gap-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Fila</span>
+                        {moduleDisplay && <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-1 rounded">{moduleDisplay}</span>}
+                    </div>
                     <span className={`text-sm font-bold ${hasTicket ? 'text-indigo-700' : 'text-slate-700'}`}>
                         {currentTicket ? currentTicket.number : 'Gestión'}
                     </span>

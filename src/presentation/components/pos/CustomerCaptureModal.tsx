@@ -73,13 +73,13 @@ const CustomerCaptureModal: React.FC<CustomerCaptureModalProps> = ({ isOpen, onC
         }
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (foundCustomer) {
             onConfirm(foundCustomer.rut);
         } else if (isNewCustomer && name) {
             // Register new
-            const newCust = addCustomer({
+            const newCust = await addCustomer({
                 rut,
                 fullName: name,
                 phone,
@@ -89,7 +89,9 @@ const CustomerCaptureModal: React.FC<CustomerCaptureModalProps> = ({ isOpen, onC
                 tags: [],
                 total_spent: 0
             });
-            onConfirm(newCust.rut);
+            if (newCust) {
+                onConfirm(newCust.rut);
+            }
         }
     };
 

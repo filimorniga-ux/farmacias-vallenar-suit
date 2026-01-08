@@ -1,57 +1,42 @@
 
-import { Pool } from 'pg';
-import dotenv from 'dotenv';
+import { pool } from '@/lib/db';
 
-dotenv.config();
-
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }
-});
-
-(async () => {
+async function fixQuotesSchema() {
     const client = await pool.connect();
     try {
-        console.log('🔄 Checking for missing columns...');
+        console.log('🔄 Checking quotes table schema...');
 
-        // 1. Check sale_items.product_name
-        const itemRes = await client.query(`
-            SELECT column_name FROM information_schema.columns 
-            WHERE table_name = 'sale_items' AND column_name = 'product_name'
-        `);
-
-        if (itemRes.rowCount === 0) {
-            console.log('➕ Adding product_name to sale_items...');
-            await client.query(`
-                ALTER TABLE sale_items 
-                ADD COLUMN product_name TEXT;
-            `);
-            console.log('✅ Added product_name.');
-        } else {
-            console.log('✅ product_name already exists.');
+        // Add customer_name
+        try {
+            await client.query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS customer_name TEXT`);
+            console.log('✅ Added customer_name');
+        } catch (e: any) {
+            console.error('⚠️ Error adding customer_name:', e.message);
         }
 
-        // 2. Check sales.queue_ticket_id
-        const saleRes = await client.query(`
-            SELECT column_name FROM information_schema.columns 
-            WHERE table_name = 'sales' AND column_name = 'queue_ticket_id'
-        `);
-
-        if (saleRes.rowCount === 0) {
-            console.log('➕ Adding queue_ticket_id to sales...');
-            await client.query(`
-                ALTER TABLE sales 
-                ADD COLUMN queue_ticket_id UUID;
-            `);
-            console.log('✅ Added queue_ticket_id.');
-        } else {
-            console.log('✅ queue_ticket_id already exists.');
+        // Add customer_phone
+        try {
+            await client.query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(50)`);
+            console.log('✅ Added customer_phone');
+        } catch (e: any) {
+            console.error('⚠️ Error adding customer_phone:', e.message);
         }
 
-    } catch (err) {
-        console.error('❌ Migration failed:', err);
+        // Add customer_email
+        try {
+            await client.query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS customer_email VARCHAR(255)`);
+            console.log('✅ Added customer_email');
+        } catch (e: any) {
+            console.error('⚠️ Error adding customer_email:', e.message);
+        }
+
+        console.log('🎉 Schema update complete!');
+    } catch (error) {
+        console.error('❌ Fatal error:', error);
     } finally {
         client.release();
-        await pool.end();
+        process.exit(0);
     }
-})();
+}
+
+fixQuotesSchema();

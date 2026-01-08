@@ -29,8 +29,10 @@ export const TerminalSettings: React.FC = () => {
 
     // Form State
     const [name, setName] = useState('');
+    const [moduleNumber, setModuleNumber] = useState('');
     const [locationId, setLocationId] = useState('');
     const [allowedUsers, setAllowedUsers] = useState<string[]>([]); // Array of IDs
+    const [adminPin, setAdminPin] = useState('');
 
     // Initial Load
     useEffect(() => {
@@ -72,17 +74,21 @@ export const TerminalSettings: React.FC = () => {
     const openCreateModal = () => {
         setEditingTerminal(null);
         setName('');
+        setModuleNumber('');
         // Default to the currently viewing location, or fallback to the first active one
         setLocationId(selectedViewLocationId || activeLocations[0]?.id || '');
         setAllowedUsers([]);
+        setAdminPin('');
         setIsModalOpen(true);
     };
 
     const openEditModal = (t: Terminal) => {
         setEditingTerminal(t);
         setName(t.name);
+        setModuleNumber(t.module_number || '');
         setLocationId(t.location_id);
         setAllowedUsers(t.allowed_users || []);
+        setAdminPin('');
         setIsModalOpen(true);
     };
 
@@ -92,17 +98,19 @@ export const TerminalSettings: React.FC = () => {
         if (editingTerminal) {
             await updateTerminal(editingTerminal.id, {
                 name,
+                module_number: moduleNumber,
                 location_id: locationId,
                 allowed_users: allowedUsers
-            });
+            }, adminPin);
         } else {
             await addTerminal({
                 name,
+                module_number: moduleNumber,
                 location_id: locationId,
                 status: 'CLOSED', // Default
                 allowed_users: allowedUsers,
                 printer_config: undefined // Optional
-            });
+            }, adminPin);
         }
         setIsModalOpen(false);
 
@@ -211,7 +219,8 @@ export const TerminalSettings: React.FC = () => {
                                     <button
                                         onClick={() => {
                                             if (window.confirm('¿Estás seguro de eliminar esta caja? Esta acción no se puede deshacer.')) {
-                                                usePharmaStore.getState().deleteTerminal(terminal.id);
+                                                const pin = window.prompt("Ingrese PIN de Administrador para confirmar eliminación:");
+                                                if (pin) usePharmaStore.getState().deleteTerminal(terminal.id, pin);
                                             }
                                         }}
                                         className="p-2 bg-white text-slate-600 hover:text-red-600 rounded-lg shadow-sm border border-slate-100"
@@ -240,6 +249,11 @@ export const TerminalSettings: React.FC = () => {
                             <div className="flex items-center gap-2 text-sm text-slate-500 mb-4">
                                 <MapPin size={14} />
                                 <span>{locationName}</span>
+                                {terminal.module_number && (
+                                    <span className="ml-2 px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-md text-xs font-bold border border-indigo-200">
+                                        Módulo {terminal.module_number}
+                                    </span>
+                                )}
                             </div>
 
                             <div className="flex items-center justify-between pt-4 border-t border-slate-200">
@@ -290,6 +304,16 @@ export const TerminalSettings: React.FC = () => {
                                         />
                                     </div>
                                     <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-2">N° Módulo (Opcional)</label>
+                                        <input
+                                            type="text"
+                                            value={moduleNumber}
+                                            onChange={e => setModuleNumber(e.target.value)}
+                                            className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                                            placeholder="Ej: 05, B-1"
+                                        />
+                                    </div>
+                                    <div>
                                         <label className="block text-sm font-bold text-slate-700 mb-2">Sucursal</label>
                                         <select
                                             value={locationId}
@@ -329,6 +353,18 @@ export const TerminalSettings: React.FC = () => {
                                             );
                                         })}
                                     </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">PIN Administrador (Requerido)</label>
+                                    <input
+                                        type="password"
+                                        value={adminPin}
+                                        onChange={e => setAdminPin(e.target.value)}
+                                        className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-mono tracking-widest"
+                                        placeholder="••••"
+                                        required
+                                    />
                                 </div>
 
                                 <div className="flex justify-end pt-4 border-t border-slate-100">

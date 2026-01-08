@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 // V2: Funciones seguras
-import { getLocationsSecure, getWarehousesSecure } from '@/actions/locations-v2';
+import { getLocationsSecure, getWarehousesByLocationSecure } from '@/actions/locations-v2'; // Changed import
 import { exportInventoryReportSecure } from '@/actions/inventory-export-v2';
 import { usePharmaStore } from '@/presentation/store/useStore';
 
@@ -26,8 +26,7 @@ export function InventoryExportForm() {
                 if (res.success && res.data) setLocations(res.data.map((l: any) => ({ id: l.id, name: l.name })));
             });
         } else {
-            // If not manager, just set current location as the only option (for logic consistency)
-            // Or easier: Just don't fetch list, logic handles effective ID.
+            // If not manager, just set current location as the only option
             setSelectedLocation(currentLocationId);
         }
     }, [isManagerial, currentLocationId]);
@@ -36,9 +35,18 @@ export function InventoryExportForm() {
         // Fetch warehouses for the selected location (or current location if constrained)
         const locId = isManagerial ? selectedLocation : currentLocationId;
         if (locId) {
-            // V2: getWarehousesSecure retorna { success, data }
-            getWarehousesSecure().then((res) => {
-                if (res.success && res.data) setWarehouses(res.data.map((w: any) => ({ id: w.id, name: w.name })));
+            setLoading(true);
+            getWarehousesByLocationSecure(locId).then((res) => {
+                setLoading(false);
+                if (res.success && res.data) {
+                    setWarehouses(res.data);
+                    // UX Improvement: Auto-select if only one warehouse
+                    if (res.data.length === 1) {
+                        setSelectedWarehouse(res.data[0].id);
+                    }
+                } else {
+                    setWarehouses([]);
+                }
             });
         } else {
             setWarehouses([]);

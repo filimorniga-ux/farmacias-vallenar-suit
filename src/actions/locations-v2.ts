@@ -908,3 +908,38 @@ export async function getWarehousesSecure(): Promise<{ success: boolean; data?: 
     return { success: true, data: warehouses };
 }
 
+
+/**
+ * 🏭 Get Warehouses for a specific Location (for Export/Operations)
+ * Queries the real 'warehouses' table, not locations with type=WAREHOUSE
+ */
+export async function getWarehousesByLocationSecure(
+    locationId: string
+): Promise<{ success: boolean; data?: { id: string; name: string }[]; error?: string }> {
+    try {
+        const { query } = await import('@/lib/db');
+        const UUIDSchema = z.string().uuid();
+
+        if (!UUIDSchema.safeParse(locationId).success) {
+            return { success: false, error: 'ID de ubicación inválido' };
+        }
+
+        const res = await query(`
+            SELECT id, name 
+            FROM warehouses 
+            WHERE location_id = $1 AND is_active = true
+            ORDER BY name ASC
+        `, [locationId]);
+
+        return {
+            success: true,
+            data: res.rows.map((row: any) => ({
+                id: row.id,
+                name: row.name
+            }))
+        };
+    } catch (error: any) {
+        logger.error({ error }, '[Locations] Get warehouses by location error');
+        return { success: false, error: 'Error obteniendo bodegas' };
+    }
+}

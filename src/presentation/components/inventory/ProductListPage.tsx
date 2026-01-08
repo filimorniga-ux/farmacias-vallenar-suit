@@ -133,7 +133,7 @@ const ProductListPage: React.FC = () => {
                                             <tr key={product.id} className="hover:bg-slate-50 transition">
                                                 <td className="p-4">
                                                     <div className="font-bold text-slate-800">{product.name}</div>
-                                                    <div className="text-xs text-slate-400 font-mono">{product.sku}</div>
+                                                    <div className="text-xs text-slate-400 font-mono">{formatSku(product.sku)}</div>
                                                 </td>
                                                 <td className="p-4">
                                                     <span className="text-sm text-slate-600">{product.category}</span>
@@ -214,3 +214,8 @@ const ProductListPage: React.FC = () => {
 };
 
 export default ProductListPage;
+    const formatSku = (sku?: string) => {
+        if (!sku) return '---';
+        if (sku.startsWith('AUTO-') || sku.startsWith('TEMP-')) return '---';
+        return sku;
+    };

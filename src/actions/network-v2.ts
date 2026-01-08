@@ -46,6 +46,7 @@ const UpdateLocationSchema = z.object({
 
 const CreateTerminalSchema = z.object({
     name: z.string().min(2).max(50),
+    module_number: z.string().max(20).optional(),
     locationId: UUIDSchema,
     allowedUsers: z.array(UUIDSchema).optional(),
 });
@@ -53,9 +54,12 @@ const CreateTerminalSchema = z.object({
 const UpdateTerminalSchema = z.object({
     terminalId: UUIDSchema,
     name: z.string().min(2).max(50).optional(),
+    module_number: z.string().max(20).optional(),
     allowedUsers: z.array(UUIDSchema).optional(),
     isActive: z.boolean().optional(),
 });
+
+
 
 // ============================================================================
 // CONSTANTS
@@ -389,7 +393,7 @@ export async function createTerminalSecure(
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { name, locationId, allowedUsers } = validated.data;
+    const { name, module_number, locationId, allowedUsers } = validated.data;
     const client = await pool.connect();
 
     try {
@@ -412,14 +416,14 @@ export async function createTerminalSecure(
         // Crear terminal
         const terminalId = randomUUID();
         await client.query(`
-            INSERT INTO terminals (id, location_id, name, status, is_active, allowed_users, created_at)
-            VALUES ($1, $2, $3, 'CLOSED', true, $4, NOW())
-        `, [terminalId, locationId, name, allowedUsers || []]);
+            INSERT INTO terminals (id, location_id, name, module_number, status, is_active, allowed_users, created_at)
+            VALUES ($1, $2, $3, $4, 'CLOSED', true, $5, NOW())
+        `, [terminalId, locationId, name, module_number || null, allowedUsers || []]);
 
         // Auditar
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at)
-            VALUES ($1, 'TERMINAL_CREATED', 'TERMINAL', $2, $3::jsonb, NOW())
+            VALUES ($1, 'TERMINAL_CREATE', 'TERMINAL', $2, $3::jsonb, NOW())
         `, [authResult.admin!.id, terminalId, JSON.stringify({
             name,
             location_id: locationId,
@@ -457,7 +461,7 @@ export async function updateTerminalSecure(
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { terminalId, name, allowedUsers, isActive } = validated.data;
+    const { terminalId, name, module_number, allowedUsers, isActive } = validated.data;
     const client = await pool.connect();
 
     try {
@@ -484,6 +488,7 @@ export async function updateTerminalSecure(
         let idx = 1;
 
         if (name) { updates.push(`name = $${idx++}`); params.push(name); }
+        if (module_number !== undefined) { updates.push(`module_number = $${idx++}`); params.push(module_number); }
         if (allowedUsers !== undefined) { updates.push(`allowed_users = $${idx++}`); params.push(allowedUsers); }
         if (isActive !== undefined) { updates.push(`is_active = $${idx++}`); params.push(isActive); }
 
@@ -493,7 +498,7 @@ export async function updateTerminalSecure(
         // Auditar
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, new_values, created_at)
-            VALUES ($1, 'TERMINAL_UPDATED', 'TERMINAL', $2, $3::jsonb, $4::jsonb, NOW())
+            VALUES ($1, 'TERMINAL_UPDATE', 'TERMINAL', $2, $3::jsonb, $4::jsonb, NOW())
         `, [authResult.admin!.id, terminalId, JSON.stringify({
             name: prev.name,
             is_active: prev.is_active,
@@ -508,7 +513,7 @@ export async function updateTerminalSecure(
     } catch (error: any) {
         await client.query('ROLLBACK');
         logger.error({ error }, '[Network] Update terminal error');
-        return { success: false, error: 'Error actualizando terminal' };
+        return { success: false, error: 'Error actualizando terminal: ' + (error.message || error) };
     } finally {
         client.release();
     }
@@ -554,7 +559,7 @@ export async function deleteTerminalSecure(
         // Auditar
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, created_at)
-            VALUES ($1, 'TERMINAL_DELETED', 'TERMINAL', $2, NOW())
+            VALUES ($1, 'TERMINAL_DELETE', 'TERMINAL', $2, NOW())
         `, [authResult.admin!.id, terminalId]);
 
         await client.query('COMMIT');

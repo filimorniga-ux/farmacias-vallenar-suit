@@ -21,6 +21,7 @@ import CashOutModal from './pos/CashOutModal';
 import QuickFractionModal from './pos/QuickFractionModal';
 import ShiftManagementModal from './pos/ShiftManagementModal';
 import { ShiftHandoverModal } from './pos/ShiftHandoverModal'; // New Import
+import { ShiftHistoryModal } from './pos/ShiftHistoryModal'; // New Import
 import TransactionHistoryModal from './pos/TransactionHistoryModal';
 import QueueWidget from './pos/QueueWidget';
 import CameraScanner from './ui/CameraScanner';
@@ -46,6 +47,7 @@ import { Cart } from './pos/Cart';
 
 import { validateSupervisorPin } from '../../actions/auth-v2';
 import { POSHeaderActions } from './pos/POSHeaderActions';
+import QuoteHistoryModal from './quotes/QuoteHistoryModal';
 
 // Helper: Formatear número con separadores de miles (puntos)
 const formatWithThousands = (value: string | number): string => {
@@ -62,6 +64,7 @@ const parseFormattedNumber = (formatted: string): number => {
 };
 
 const POSMainScreen: React.FC = () => {
+    const [showQuoteHistory, setShowQuoteHistory] = useState(false);
     useKioskGuard(true); // Enable Kiosk Lock
     const {
         inventory, cart, addToCart, addManualItem, removeFromCart, clearCart,
@@ -165,7 +168,9 @@ const POSMainScreen: React.FC = () => {
     const [isQuickFractionModalOpen, setIsQuickFractionModalOpen] = useState(false);
     const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
     const [isHandoverModalOpen, setIsHandoverModalOpen] = useState(false); // New State
+    const [isShiftHistoryModalOpen, setIsShiftHistoryModalOpen] = useState(false); // New State
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+    const [isQuoteHistoryOpen, setIsQuoteHistoryOpen] = useState(false);
     const [isScannerOpen, setIsScannerOpen] = useState(false);
 
     // Modular Cash Management States
@@ -374,7 +379,7 @@ const POSMainScreen: React.FC = () => {
             try {
                 // Prepare quote data
                 const quoteData = {
-                    customerId: currentCustomer?.id || null, // Allow generic quote
+                    customerId: (currentCustomer?.id && currentCustomer.id.length > 10) ? currentCustomer.id : null, // Ensure valid UUID or null
                     customerName: currentCustomer?.fullName || undefined,
                     items: cartWithDiscounts.map(item => ({
                         productId: item.id,
@@ -389,19 +394,42 @@ const POSMainScreen: React.FC = () => {
                     validDays: 7, // Default valid days
                 };
 
+                console.log('📝 [POS] Creating Quote Payload:', JSON.stringify(quoteData, null, 2)); // DEBUG
                 const result = await createQuoteSecure(quoteData);
 
                 if (result.success && result.quoteCode) {
                     toast.success(`Cotización Guardada: ${result.quoteCode} `, {
                         duration: 5000,
-                        description: 'Código copiado al portapapeles'
+                        description: 'Código copiado al portapapeles. Imprimiendo...'
                     });
-                    // Verify clipboard is available
+
+                    // AUTO-ADVANCE QUEUE LOGIC
+                    const currentTicket = usePharmaStore.getState().currentTicket;
+                    if (currentTicket && user?.id && currentTerminalId) {
+                        try {
+                            // We attempt to complete current ticket and call next
+                            // We use the store action to keep UI in sync
+                            const { completeAndNextTicket } = usePharmaStore.getState();
+                            completeAndNextTicket(currentTerminalId, currentTicket.id).then((res) => {
+                                if (res.nextTicket) {
+                                    toast.success(`🔔 Siguiente: ${res.nextTicket.number}`);
+                                } else {
+                                    toast.info('Fila completada / Sin más tickets');
+                                }
+                            });
+                        } catch (e) {
+                            console.error('[POS] Auto-advance error:', e);
+                        }
+                    }
+
+                    // Trigger Print (Open History Modal)
+                    setShowQuoteHistory(true);
+
                     if (navigator.clipboard) {
                         navigator.clipboard.writeText(result.quoteCode).catch(() => { });
                     }
                     clearCart();
-                    setIsQuoteMode(false); // Exit quote mode
+                    setIsQuoteMode(false);
                 } else {
                     toast.error(result.error || 'Error al guardar cotización');
                 }
@@ -791,6 +819,11 @@ const POSMainScreen: React.FC = () => {
                                         onCloseTurn={() => setCashModalMode('CLOSE')}
                                         onOpenTurn={() => setIsShiftModalOpen(true)}
                                         onHistory={() => setIsHistoryModalOpen(true)}
+                                        onShiftHistory={() => setIsShiftHistoryModalOpen(true)} // Added missing prop
+                                        onQuoteHistory={() => {
+                                            console.log('📜 [POS] Abriendo Historial Cotizaciones'); // Debug
+                                            setIsQuoteHistoryOpen(true);
+                                        }}
                                         onQuote={() => setIsQuoteMode(!isQuoteMode)}
                                         isQuoteMode={isQuoteMode}
                                         onManualItem={() => setIsManualItemModalOpen(true)}
@@ -813,6 +846,8 @@ const POSMainScreen: React.FC = () => {
                                     onCloseTurn={() => setCashModalMode('CLOSE')}
                                     onOpenTurn={() => setIsShiftModalOpen(true)}
                                     onHistory={() => setIsHistoryModalOpen(true)}
+                                    onShiftHistory={() => setIsShiftHistoryModalOpen(true)}
+                                    onQuoteHistory={() => setShowQuoteHistory(true)}
                                     onQuote={() => setIsQuoteMode(!isQuoteMode)}
                                     isQuoteMode={isQuoteMode}
                                     onManualItem={() => setIsManualItemModalOpen(true)}
@@ -1012,6 +1047,11 @@ const POSMainScreen: React.FC = () => {
             </div>
 
             {/* Modals */}
+            <QuoteHistoryModal
+                isOpen={showQuoteHistory}
+                onClose={() => setShowQuoteHistory(false)}
+            />
+
             <PrescriptionModal
                 isOpen={isPrescriptionModalOpen}
                 onCancel={() => setIsPrescriptionModalOpen(false)}
@@ -1037,6 +1077,11 @@ const POSMainScreen: React.FC = () => {
             <CashOutModal
                 isOpen={isCashOutModalOpen}
                 onClose={() => setIsCashOutModalOpen(false)}
+            />
+
+            <ShiftHistoryModal
+                isOpen={isShiftHistoryModalOpen}
+                onClose={() => setIsShiftHistoryModalOpen(false)}
             />
 
             <QuickFractionModal
@@ -1162,6 +1207,11 @@ const POSMainScreen: React.FC = () => {
                 </button>
             </div>
 
+
+            <QuoteHistoryModal
+                isOpen={isQuoteHistoryOpen}
+                onClose={() => setIsQuoteHistoryOpen(false)}
+            />
         </div>
     );
 };
