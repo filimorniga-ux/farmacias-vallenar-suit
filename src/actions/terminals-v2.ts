@@ -845,68 +845,6 @@ export async function forceCloseTerminalSecure(
 }
 
 // =====================================================
-// FUNCIÓN: GET ACTIVE SESSION (Non-blocking)
-// =====================================================
-
-/**
-* Obtiene la sesión activa de un terminal (si existe)
-* 
-* @param terminalId - UUID del terminal
-*/
-export async function getActiveSession(terminalId: string): Promise<{
-    success: boolean;
-    data?: {
-        sessionId: string;
-        userId: string;
-        openedAt: Date;
-        openingAmount: number;
-        terminalName: string;
-    };
-    error?: string
-}> {
-    try {
-        const { pool } = await import('@/lib/db');
-        const client = await pool.connect();
-
-        try {
-            const res = await client.query(`
-            SELECT 
-                s.id, s.user_id, s.opened_at, s.opening_amount,
-                t.name as terminal_name
-            FROM cash_register_sessions s
-            JOIN terminals t ON s.terminal_id = t.id
-            WHERE s.terminal_id = $1 
-            AND s.closed_at IS NULL
-            AND s.status = 'OPEN'
-            LIMIT 1
-        `, [terminalId]);
-
-            if (res.rows.length === 0) {
-                return { success: false, error: 'No hay sesión activa' };
-            }
-
-            const row = res.rows[0];
-            return {
-                success: true,
-                data: {
-                    sessionId: row.id,
-                    userId: row.user_id,
-                    openedAt: row.opened_at,
-                    openingAmount: Number(row.opening_amount),
-                    terminalName: row.terminal_name
-                }
-            };
-
-        } finally {
-            client.release();
-        }
-    } catch (error: any) {
-        logger.error({ error, terminalId }, 'Error fetching active session');
-        return { success: false, error: 'Error al consultar sesión' };
-    }
-}
-
-// =====================================================
 // FUNCIÓN: OBTENER ESTADO DEL TERMINAL
 // =====================================================
 
