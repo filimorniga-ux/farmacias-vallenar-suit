@@ -225,7 +225,7 @@ export default function AISettingsPage() {
 
     // Render
     return (
-        <RouteGuard allowedRoles={['ADMIN', 'GERENTE_GENERAL']}>
+        <RouteGuard allowedRoles={['ADMIN', 'GERENTE_GENERAL', 'MANAGER', 'QF']}>
             <div className="min-h-screen bg-gray-50 p-4 md:p-8">
                 <div className="max-w-4xl mx-auto">
                     {/* Header */}
@@ -252,8 +252,8 @@ export default function AISettingsPage() {
                         <div className="space-y-6">
                             {/* Status Card */}
                             <div className={`rounded-xl shadow-sm border p-4 ${isConfigured
-                                    ? 'bg-green-50 border-green-200'
-                                    : 'bg-yellow-50 border-yellow-200'
+                                ? 'bg-green-50 border-green-200'
+                                : 'bg-yellow-50 border-yellow-200'
                                 }`}>
                                 <div className="flex items-center gap-3">
                                     {isConfigured ? (
@@ -297,8 +297,8 @@ export default function AISettingsPage() {
                                                     type="button"
                                                     onClick={() => handleProviderChange(p.value as any)}
                                                     className={`p-4 rounded-lg border-2 text-left transition-all ${provider === p.value
-                                                            ? 'border-purple-500 bg-purple-50'
-                                                            : 'border-gray-200 hover:border-gray-300'
+                                                        ? 'border-purple-500 bg-purple-50'
+                                                        : 'border-gray-200 hover:border-gray-300'
                                                         }`}
                                                 >
                                                     <div className="flex items-center gap-3">
@@ -325,8 +325,8 @@ export default function AISettingsPage() {
                                                 onChange={(e) => handleApiKeyChange(e.target.value)}
                                                 placeholder={isConfigured ? '••••••••••••••••••••' : 'Ingrese su API Key'}
                                                 className={`w-full pr-20 rounded-lg border ${apiKeyError
-                                                        ? 'border-red-300 focus:ring-red-500 focus:border-red-500'
-                                                        : 'border-gray-300 focus:ring-purple-500 focus:border-purple-500'
+                                                    ? 'border-red-300 focus:ring-red-500 focus:border-red-500'
+                                                    : 'border-gray-300 focus:ring-purple-500 focus:border-purple-500'
                                                     } shadow-sm`}
                                                 autoComplete="off"
                                             />
