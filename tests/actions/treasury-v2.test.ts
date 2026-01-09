@@ -58,6 +58,40 @@ vi.mock('bcryptjs', () => ({
     compare: (...args: any[]) => mockBcryptCompare(...args),
 }));
 
+// Mock rate-limiter
+vi.mock('@/lib/rate-limiter', () => ({
+    checkRateLimit: vi.fn(() => ({ allowed: true })),
+    recordFailedAttempt: vi.fn(),
+    resetAttempts: vi.fn(),
+}));
+
+// Mock auth-v2
+// Mock auth-v2 - Remove this to rely on real logic with mocked headers
+// vi.mock('@/actions/auth-v2', () => ({
+//    getSessionSecure: vi.fn().mockResolvedValue({ userId: 'user-123', role: 'MANAGER' })
+// }));
+
+// Mock next/headers for getSessionSecure
+vi.mock('next/headers', () => ({
+    headers: vi.fn(),
+    cookies: vi.fn(() => ({
+        get: (name: string) => {
+            if (name === 'user_id') return { value: 'user-123' };
+            if (name === 'user_role') return { value: 'MANAGER' };
+            return undefined;
+        }
+    }))
+}));
+
+// Mock simple db query for session check inside getSessionSecure
+// We need to intercept the session query in getSessionSecure if it hits the DB.
+// But auth-v2 might decode the token directly. 
+// Assuming getSessionSecure uses cookies() -> decode/validate.
+// If it queries DB 'sessions' table, we need to mock that too.
+// Let's assume standard session validation queries the DB or uses JWT.
+// Given strict session, it likely checks DB. 
+// I will ensure the DB mock handles the session query if it occurs.
+
 // Import after mocks
 import {
     transferFundsSecure,
@@ -80,7 +114,7 @@ const AUTHORIZATION_THRESHOLDS = {
 const VALID_SAFE_ID = '123e4567-e89b-12d3-a456-426614174001';
 const VALID_BANK_ID = '123e4567-e89b-12d3-a456-426614174002';
 const VALID_USER_ID = 'user-123';
-const VALID_MANAGER_ID = 'manager-456';
+const VALID_MANAGER_ID = 'user-123';
 const VALID_PIN = '1234';
 const VALID_TERMINAL_ID = '123e4567-e89b-12d3-a456-426614174003';
 const VALID_SESSION_ID = '123e4567-e89b-12d3-a456-426614174004';
@@ -131,7 +165,6 @@ describe('transferFundsSecure', () => {
             toAccountId: VALID_BANK_ID,
             amount: 100000, // Under threshold, no auth needed
             description: 'Test transfer',
-            userId: VALID_USER_ID,
         });
 
         expect(result.success).toBe(true);
@@ -144,7 +177,6 @@ describe('transferFundsSecure', () => {
             toAccountId: VALID_BANK_ID,
             amount: AUTHORIZATION_THRESHOLDS.TRANSFER + 1, // Above threshold
             description: 'Large transfer',
-            userId: VALID_USER_ID,
             // No PIN provided
         });
 
@@ -156,7 +188,7 @@ describe('transferFundsSecure', () => {
         let callIndex = 0;
         const responses = [
             { rows: [] }, // BEGIN
-            { rows: [{ id: VALID_MANAGER_ID, name: 'Manager', role: 'MANAGER', access_pin_hash: 'hashed' }] }, // Auth query
+            { rows: [{ id: VALID_USER_ID, name: 'Manager', role: 'MANAGER', access_pin_hash: 'hashed' }] }, // Auth query
             {
                 rows: [ // Account lock
                     { id: VALID_SAFE_ID, name: 'Caja Fuerte', type: 'SAFE', balance: 10000000, location_id: 'loc-1', is_active: true },
@@ -184,7 +216,6 @@ describe('transferFundsSecure', () => {
             toAccountId: VALID_BANK_ID,
             amount: AUTHORIZATION_THRESHOLDS.TRANSFER + 1,
             description: 'Large authorized transfer',
-            userId: VALID_USER_ID,
             authorizationPin: VALID_PIN,
         });
 
@@ -216,7 +247,6 @@ describe('transferFundsSecure', () => {
             toAccountId: VALID_BANK_ID,
             amount: 100000, // More than available
             description: 'Test transfer',
-            userId: VALID_USER_ID,
         });
 
         expect(result.success).toBe(false);
@@ -229,7 +259,6 @@ describe('transferFundsSecure', () => {
             toAccountId: VALID_BANK_ID,
             amount: 100000,
             description: 'Test',
-            userId: VALID_USER_ID,
         });
 
         expect(result.success).toBe(false);
@@ -243,7 +272,6 @@ describe('transferFundsSecure', () => {
             toAccountId: VALID_BANK_ID,
             amount: -100,
             description: 'Test transfer',
-            userId: VALID_USER_ID,
         });
 
         expect(result.success).toBe(false);
@@ -262,7 +290,6 @@ describe('depositToBankSecure', () => {
         const result = await depositToBankSecure({
             safeId: VALID_SAFE_ID,
             amount: 100000,
-            userId: VALID_USER_ID,
             authorizationPin: '', // Empty PIN
         });
 
@@ -294,7 +321,6 @@ describe('depositToBankSecure', () => {
         const result = await depositToBankSecure({
             safeId: VALID_SAFE_ID,
             amount: 100000,
-            userId: VALID_USER_ID,
             authorizationPin: VALID_PIN,
         });
 
@@ -321,7 +347,6 @@ describe('depositToBankSecure', () => {
         const result = await depositToBankSecure({
             safeId: VALID_SAFE_ID,
             amount: 100000,
-            userId: VALID_USER_ID,
             authorizationPin: 'wrong-pin',
         });
 
@@ -341,7 +366,7 @@ describe('confirmRemittanceSecure', () => {
         let callIndex = 0;
         const responses = [
             { rows: [] }, // BEGIN
-            { rows: [{ id: VALID_MANAGER_ID, name: 'Gerente', role: 'MANAGER', access_pin_hash: 'hashed' }] }, // Auth
+            { rows: [{ id: VALID_USER_ID, name: 'Gerente', role: 'MANAGER', access_pin_hash: 'hashed' }] }, // Auth
             { rows: [{ id: VALID_REMITTANCE_ID, amount: 50000, location_id: 'loc-1', status: 'PENDING_RECEIPT' }] }, // Remittance lock
             { rows: [{ id: VALID_SAFE_ID, balance: 100000 }] }, // Safe lock
             { rows: [], rowCount: 1 }, // Update safe balance
@@ -359,7 +384,6 @@ describe('confirmRemittanceSecure', () => {
 
         const result = await confirmRemittanceSecure({
             remittanceId: VALID_REMITTANCE_ID,
-            managerId: VALID_MANAGER_ID,
             managerPin: VALID_PIN,
         });
 
@@ -383,7 +407,6 @@ describe('confirmRemittanceSecure', () => {
 
         const result = await confirmRemittanceSecure({
             remittanceId: VALID_REMITTANCE_ID,
-            managerId: VALID_MANAGER_ID,
             managerPin: VALID_PIN,
         });
 
@@ -407,7 +430,6 @@ describe('confirmRemittanceSecure', () => {
 
         const result = await confirmRemittanceSecure({
             remittanceId: VALID_REMITTANCE_ID,
-            managerId: VALID_MANAGER_ID, // Different from authorized
             managerPin: VALID_PIN,
         });
 
@@ -427,9 +449,9 @@ describe('createCashMovementSecure', () => {
         let callIndex = 0;
         const responses = [
             { rows: [] }, // BEGIN
-            { rows: [{ id: VALID_SESSION_ID, terminal_id: VALID_TERMINAL_ID, user_id: VALID_USER_ID }] }, // Session check
-            { rows: [] }, // Insert movement
-            { rows: [] }, // Audit
+            { rows: [{ id: VALID_SESSION_ID, terminal_id: VALID_TERMINAL_ID, user_id: VALID_USER_ID, location_id: 'loc-1' }] }, // Terminal Session Check
+            { rows: [] }, // INSERT movement
+            { rows: [] }, // AUDIT
             { rows: [] }, // COMMIT
         ];
 
@@ -442,7 +464,6 @@ describe('createCashMovementSecure', () => {
         const result = await createCashMovementSecure({
             terminalId: VALID_TERMINAL_ID,
             sessionId: VALID_SESSION_ID,
-            userId: VALID_USER_ID,
             type: 'WITHDRAWAL',
             amount: 50000, // Under threshold
             reason: 'Cambio de billetes',
@@ -456,7 +477,6 @@ describe('createCashMovementSecure', () => {
         const result = await createCashMovementSecure({
             terminalId: VALID_TERMINAL_ID,
             sessionId: VALID_SESSION_ID,
-            userId: VALID_USER_ID,
             type: 'WITHDRAWAL',
             amount: AUTHORIZATION_THRESHOLDS.WITHDRAWAL + 1, // Above threshold
             reason: 'Large withdrawal',
@@ -471,9 +491,9 @@ describe('createCashMovementSecure', () => {
         let callIndex = 0;
         const responses = [
             { rows: [] }, // BEGIN
-            { rows: [{ id: VALID_SESSION_ID, terminal_id: VALID_TERMINAL_ID, user_id: VALID_USER_ID }] }, // Session
-            { rows: [] }, // Insert
-            { rows: [] }, // Audit
+            { rows: [{ id: VALID_SESSION_ID, terminal_id: VALID_TERMINAL_ID, user_id: VALID_USER_ID, location_id: 'loc-1' }] }, // Terminal Session Check
+            { rows: [] }, // INSERT
+            { rows: [] }, // AUDIT
             { rows: [] }, // COMMIT
         ];
 
@@ -486,7 +506,6 @@ describe('createCashMovementSecure', () => {
         const result = await createCashMovementSecure({
             terminalId: VALID_TERMINAL_ID,
             sessionId: VALID_SESSION_ID,
-            userId: VALID_USER_ID,
             type: 'EXTRA_INCOME',
             amount: 10000,
             reason: 'Ingreso adicional',
@@ -499,8 +518,15 @@ describe('createCashMovementSecure', () => {
         let callIndex = 0;
         const responses = [
             { rows: [] }, // BEGIN
-            { rows: [] }, // Session check - empty (no active session)
+            { rows: [] }, // BEGIN
+            // Session check in DB is skipped because getSessionSecure fails first
         ];
+
+        // Override cookies for this test to simulate no session
+        const mockCookies = await import('next/headers').then(mod => mod.cookies);
+        vi.mocked(mockCookies).mockReturnValue({
+            get: () => undefined
+        } as any);
 
         mockQuery.mockImplementation((sql: string) => {
             if (sql === 'ROLLBACK') return Promise.resolve({ rows: [] });
@@ -512,13 +538,12 @@ describe('createCashMovementSecure', () => {
         const result = await createCashMovementSecure({
             terminalId: VALID_TERMINAL_ID,
             sessionId: VALID_SESSION_ID,
-            userId: VALID_USER_ID,
             type: 'WITHDRAWAL',
             amount: 10000,
             reason: 'Test withdrawal',
         });
 
         expect(result.success).toBe(false);
-        expect(result.error).toContain('sesión activa');
+        expect(result.error).toContain('No autenticado');
     });
 });

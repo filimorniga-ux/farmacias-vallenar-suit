@@ -8,7 +8,14 @@ import * as financialAccountsV2 from '@/actions/financial-accounts-v2';
 vi.mock('@/lib/db', () => ({ query: vi.fn(), pool: { connect: vi.fn() } }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('next/headers', () => ({
-    headers: vi.fn(async () => new Map([['x-user-id', 'user-1'], ['x-user-role', 'CASHIER']]))
+    headers: vi.fn(async () => new Map([['x-user-id', 'user-1'], ['x-user-role', 'CASHIER']])),
+    cookies: vi.fn(() => ({
+        get: (name: string) => {
+            if (name === 'user_id') return { value: 'user-1' };
+            if (name === 'user_role') return { value: 'CASHIER' };
+            return undefined;
+        }
+    }))
 }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
@@ -16,6 +23,7 @@ describe('Financial Accounts V2 - Authentication', () => {
     it('should require authentication for get', async () => {
         const mockHeaders = await import('next/headers');
         vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map() as any);
+        vi.mocked(mockHeaders.cookies).mockReturnValueOnce({ get: () => undefined } as any);
 
         const result = await financialAccountsV2.getFinancialAccountsSecure();
 

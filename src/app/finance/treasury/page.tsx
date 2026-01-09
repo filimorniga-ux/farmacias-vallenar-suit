@@ -74,7 +74,11 @@ export default function TreasuryPage() {
 
     // Load Data
     const loadTreasuryData = async () => {
-        if (!user?.assigned_location_id) return;
+        if (!user) return;
+        if (!user.assigned_location_id) {
+            setLoading(false);
+            return;
+        }
 
         setLoading(true);
         try {
@@ -165,7 +169,6 @@ export default function TreasuryPage() {
                 toAccountId: targetAccountId,
                 amount: Number(transferAmount),
                 description,
-                userId: user?.id || 'sys',
                 authorizationPin
             });
 
@@ -221,7 +224,6 @@ export default function TreasuryPage() {
         try {
             const result = await confirmRemittanceSecure({
                 remittanceId,
-                managerId: user?.id || 'sys',
                 managerPin
             });
 
@@ -255,6 +257,15 @@ export default function TreasuryPage() {
     // =====================================================
 
     if (!user) return <div className="p-8 text-center text-slate-500">Cargando perfil...</div>;
+
+    if (!user.assigned_location_id) {
+        return (
+            <div className="p-8 max-w-7xl mx-auto text-center space-y-4">
+                <h1 className="text-2xl font-bold text-slate-800">No tiene sucursal asignada</h1>
+                <p className="text-slate-500">Por favor solicite a su administrador que le asigne una sucursal para acceder a Tesorería.</p>
+            </div>
+        );
+    }
 
     const safeAccount = accounts.find(a => a.type === 'SAFE');
     const bankAccount = accounts.find(a => a.type === 'BANK');

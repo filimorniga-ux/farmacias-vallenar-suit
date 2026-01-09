@@ -14,6 +14,8 @@ export const TreasuryHistoryTab = () => {
 
     // Filters
     const [selectedLocation, setSelectedLocation] = useState<string>('ALL');
+    const [startDate, setStartDate] = useState<string>('');
+    const [endDate, setEndDate] = useState<string>('');
     const [searchTerm, setSearchTerm] = useState('');
 
     const fetchHistory = async () => {
@@ -21,7 +23,11 @@ export const TreasuryHistoryTab = () => {
         try {
             // V2: getRemittanceHistorySecure con parámetros opcionales
             const locId = selectedLocation === 'ALL' ? undefined : selectedLocation;
-            const res = await getRemittanceHistorySecure({ locationId: locId });
+            const res = await getRemittanceHistorySecure({
+                locationId: locId,
+                startDate: startDate || undefined,
+                endDate: endDate || undefined
+            });
             if (res.success && res.data) {
                 setHistory(res.data);
             } else {
@@ -37,7 +43,7 @@ export const TreasuryHistoryTab = () => {
 
     useEffect(() => {
         fetchHistory();
-    }, [selectedLocation]);
+    }, [selectedLocation, startDate, endDate]);
 
     const handleExport = async () => {
         setExporting(true);
@@ -45,8 +51,8 @@ export const TreasuryHistoryTab = () => {
             // V2: exportCashFlowSecure
             const today = new Date().toISOString().split('T')[0];
             const res = await exportCashFlowSecure({
-                startDate: today,
-                endDate: today,
+                startDate: startDate || today,
+                endDate: endDate || today,
                 locationId: selectedLocation === 'ALL' ? undefined : selectedLocation
             });
 
@@ -112,6 +118,22 @@ export const TreasuryHistoryTab = () => {
                                 <option key={loc.id} value={loc.id}>{loc.name}</option>
                             ))}
                         </select>
+                    </div>
+
+                    {/* Date Filters */}
+                    <div className="flex gap-2 w-full md:w-auto">
+                        <input
+                            type="date"
+                            className="border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
+                            value={startDate}
+                            onChange={(e) => setStartDate(e.target.value)}
+                        />
+                        <input
+                            type="date"
+                            className="border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
+                            value={endDate}
+                            onChange={(e) => setEndDate(e.target.value)}
+                        />
                     </div>
                 </div>
 

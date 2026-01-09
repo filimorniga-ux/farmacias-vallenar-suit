@@ -66,28 +66,24 @@ const TransferFundsSchema = z.object({
     toAccountId: UUIDSchema,
     amount: z.number().positive({ message: "El monto debe ser positivo" }),
     description: z.string().min(3, { message: "Descripción requerida (mínimo 3 caracteres)" }).max(500),
-    userId: z.string().min(1, { message: "ID de usuario requerido" }),
     authorizationPin: z.string().min(4, { message: "PIN de autorización requerido" }).optional(),
 });
 
 const DepositToBankSchema = z.object({
     safeId: UUIDSchema,
     amount: z.number().positive({ message: "El monto debe ser positivo" }),
-    userId: z.string().min(1),
     authorizationPin: z.string().min(4, { message: "PIN de autorización requerido" }),
     bankAccountId: UUIDSchema.optional(),
 });
 
 const ConfirmRemittanceSchema = z.object({
     remittanceId: UUIDSchema,
-    managerId: z.string().min(1),
     managerPin: z.string().min(4, { message: "PIN de gerente requerido" }),
 });
 
 const CashMovementSchema = z.object({
     terminalId: UUIDSchema,
     sessionId: UUIDSchema,
-    userId: z.string().min(1),
     type: z.enum(['WITHDRAWAL', 'EXTRA_INCOME', 'EXPENSE']),
     amount: z.number().positive({ message: "El monto debe ser positivo" }),
     reason: z.string().min(3, { message: "Motivo requerido" }).max(500),
@@ -192,6 +188,14 @@ async function getSession(): Promise<{ userId: string; role: string; locationId?
         logger.error({ error }, '[Treasury] getSession error');
         return null;
     }
+}
+
+/**
+ * Helper para obtener sesión segura (reemplaza getSession interno)
+ */
+async function getFullSessionSecure() {
+    const { getSessionSecure } = await import('@/actions/auth-v2');
+    return await getSessionSecure();
 }
 
 /**
@@ -340,18 +344,25 @@ export async function transferFundsSecure(params: {
     toAccountId: string;
     amount: number;
     description: string;
-    userId: string;
     authorizationPin?: string;
 }): Promise<{ success: boolean; transferId?: string; error?: string }> {
 
+    // 0. Obtener sesión segura
+    const session = await getFullSessionSecure();
+    if (!session || !session.userId) {
+        return { success: false, error: 'No autenticado' };
+    }
+    const userId = session.userId;
+
     // 1. Validación de entrada
+
     const validation = TransferFundsSchema.safeParse(params);
     if (!validation.success) {
         logger.warn({ error: validation.error.format() }, 'Invalid input for transferFundsSecure');
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    const { fromAccountId, toAccountId, amount, description, userId, authorizationPin } = params;
+    const { fromAccountId, toAccountId, amount, description, authorizationPin } = params;
 
     // 2. Verificar si requiere autorización
     const requiresAuthorization = amount > AUTHORIZATION_THRESHOLDS.TRANSFER;
@@ -505,8 +516,8 @@ export async function transferFundsSecure(params: {
 export async function depositToBankSecure(params: {
     safeId: string;
     amount: number;
-    userId: string;
     authorizationPin: string;
+
     bankAccountId?: string;
 }): Promise<{ success: boolean; depositId?: string; error?: string }> {
 
@@ -516,7 +527,14 @@ export async function depositToBankSecure(params: {
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    const { safeId, amount, userId, authorizationPin, bankAccountId } = params;
+    const { safeId, amount, authorizationPin, bankAccountId } = params;
+
+    // 1b. Obtener sesión segura
+    const session = await getFullSessionSecure();
+    if (!session || !session.userId) {
+        return { success: false, error: 'No autenticado' };
+    }
+    const userId = session.userId;
 
     const { pool } = await import('@/lib/db');
     const { v4: uuidv4 } = await import('uuid');
@@ -646,7 +664,6 @@ export async function depositToBankSecure(params: {
  */
 export async function confirmRemittanceSecure(params: {
     remittanceId: string;
-    managerId: string;
     managerPin: string;
 }): Promise<{ success: boolean; error?: string }> {
 
@@ -656,7 +673,13 @@ export async function confirmRemittanceSecure(params: {
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    const { remittanceId, managerId, managerPin } = params;
+    const { remittanceId, managerPin } = params;
+
+    const session = await getFullSessionSecure();
+    if (!session || !session.userId) {
+        return { success: false, error: 'No autenticado' };
+    }
+    const managerId = session.userId;
 
     const { pool } = await import('@/lib/db');
     const { v4: uuidv4 } = await import('uuid');
@@ -779,12 +802,18 @@ export async function confirmRemittanceSecure(params: {
 export async function createCashMovementSecure(params: {
     terminalId: string;
     sessionId: string;
-    userId: string;
     type: 'WITHDRAWAL' | 'EXTRA_INCOME' | 'EXPENSE';
     amount: number;
     reason: string;
     authorizationPin?: string;
 }): Promise<{ success: boolean; movementId?: string; error?: string }> {
+
+    // 0. Obtener sesión segurate
+    const session = await getFullSessionSecure();
+    if (!session || !session.userId) {
+        return { success: false, error: 'No autenticado' };
+    }
+    const userId = session.userId;
 
     // 1. Validación
     const validation = CashMovementSchema.safeParse(params);
@@ -792,7 +821,7 @@ export async function createCashMovementSecure(params: {
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    const { terminalId, sessionId, userId, type, amount, reason, authorizationPin } = params;
+    const { terminalId, sessionId, type, amount, reason, authorizationPin } = params;
 
     // 2. Verificar si requiere autorización (retiros > threshold)
     const requiresAuthorization = type === 'WITHDRAWAL' && amount > AUTHORIZATION_THRESHOLDS.WITHDRAWAL;
@@ -1052,14 +1081,13 @@ export interface RemittanceHistoryItem {
 export async function getRemittanceHistorySecure(
     params?: { startDate?: string; endDate?: string; locationId?: string }
 ): Promise<{ success: boolean; data?: RemittanceHistoryItem[]; error?: string }> {
-    const { headers } = await import('next/headers');
-    const headersList = await headers();
-    const userId = headersList.get('x-user-id');
-    const userRole = headersList.get('x-user-role');
 
-    if (!userId) {
+    // 1. Autenticación segura
+    const session = await getFullSessionSecure();
+    if (!session || !session.userId) {
         return { success: false, error: 'No autenticado' };
     }
+    const { userId, role: userRole } = session;
 
     // RBAC: MANAGER_ROLES
     const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'];
@@ -1075,7 +1103,7 @@ export async function getRemittanceHistorySecure(
                 u.name as cashier_name,
                 r.amount, r.cash_count_diff, r.status,
                 rec.name as receiver_name, r.notes, r.created_at
-            FROM remittances r
+            FROM treasury_remittances r
             JOIN locations l ON r.location_id = l.id
             LEFT JOIN terminals t ON r.terminal_id = t.id
             LEFT JOIN users u ON r.cashier_id = u.id

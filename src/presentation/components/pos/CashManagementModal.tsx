@@ -199,7 +199,6 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                     () => createCashMovementSecure({
                         terminalId: currentShift.terminal_id!,
                         sessionId: currentShift.id,
-                        userId: user?.id || 'SYSTEM',
                         type: treasuryType,
                         amount: numAmount,
                         reason: `${reason}: ${description}`,

@@ -59,7 +59,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
         { icon: Users, label: 'Recursos Humanos', path: '/hr', roles: ['MANAGER', 'ADMIN'], color: 'rose' as AppThemeColor },
         { icon: MapPin, label: 'Gestión de Red', path: '/network', roles: ['MANAGER', 'ADMIN'], color: 'slate' as AppThemeColor },
         { icon: Clock, label: 'Control Asistencia', path: '/access', roles: ['MANAGER', 'ADMIN'], color: 'sky' as AppThemeColor },
-        { icon: Landmark, label: 'Tesorería', path: '/finance/treasury', roles: ['MANAGER', 'ADMIN'], color: 'emerald' as AppThemeColor },
+        { icon: Landmark, label: 'Tesorería', path: '/finance/treasury', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'], color: 'emerald' as AppThemeColor },
         { icon: FileSpreadsheet, label: 'Cierre Mensual', path: '/finance/monthly-closing', roles: ['MANAGER', 'ADMIN'], color: 'indigo' as AppThemeColor },
         { icon: Settings, label: 'Configuración', path: '/settings', roles: ['MANAGER', 'ADMIN'], color: 'gray' as AppThemeColor },
     ];
