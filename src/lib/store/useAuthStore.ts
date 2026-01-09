@@ -13,8 +13,10 @@ interface AuthState {
     user: User | null;
     isAuthenticated: boolean;
     role: Role | null;
+    hasHydrated: boolean;
     login: (user: User) => void;
     logout: () => void;
+    setHasHydrated: (state: boolean) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -23,11 +25,16 @@ export const useAuthStore = create<AuthState>()(
             user: null,
             isAuthenticated: false,
             role: null,
+            hasHydrated: false,
             login: (user) => set({ user, isAuthenticated: true, role: user.role }),
             logout: () => set({ user: null, isAuthenticated: false, role: null }),
+            setHasHydrated: (state) => set({ hasHydrated: state }),
         }),
         {
             name: 'farmacias-vallenar-auth',
+            onRehydrateStorage: () => (state) => {
+                state?.setHasHydrated(true);
+            },
         }
     )
 );

@@ -11,12 +11,14 @@ interface RouteGuardProps {
 
 export default function RouteGuard({ children, allowedRoles }: RouteGuardProps) {
     const router = useRouter();
-    const { isAuthenticated, role } = useAuthStore();
+    const { isAuthenticated, role, hasHydrated } = useAuthStore();
     const [authorized, setAuthorized] = useState(false);
 
     useEffect(() => {
         // Wait for hydration (zustand persist)
         const checkAuth = () => {
+            if (!hasHydrated) return; // Wait for hydration to finish
+
             if (!isAuthenticated) {
                 router.push('/login');
                 return;
@@ -33,7 +35,7 @@ export default function RouteGuard({ children, allowedRoles }: RouteGuardProps) 
         };
 
         checkAuth();
-    }, [isAuthenticated, role, router, allowedRoles]);
+    }, [isAuthenticated, role, router, allowedRoles, hasHydrated]);
 
     if (!authorized) {
         return null; // Or a loading spinner
