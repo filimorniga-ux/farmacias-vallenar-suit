@@ -395,6 +395,34 @@ export interface SupplierDocument {
     related_po_id?: string; // Link to Purchase Order
 }
 
+export interface SupplierAccountDocument {
+    id: string;
+    supplier_id: string;
+    type: 'FACTURA' | 'NOTA_CREDITO';
+    invoice_number: string;
+    issue_date?: string;
+    due_date?: string;
+    amount: number;
+    status: 'PENDING' | 'PAID' | 'CANCELLED';
+    file_name: string;
+    file_mime: string;
+    file_size: number;
+    uploaded_by?: string;
+    uploaded_by_name?: string;
+    uploaded_at: string;
+}
+
+export interface SupplierCatalogFile {
+    id: string;
+    supplier_id: string;
+    file_name: string;
+    file_mime: string;
+    file_size: number;
+    uploaded_by?: string;
+    uploaded_by_name?: string;
+    uploaded_at: string;
+}
+
 export type POStatus = 'SUGGESTED' | 'DRAFT' | 'SENT' | 'PARTIAL' | 'RECEIVED' | 'COMPLETED' | 'CANCELLED';
 
 export interface CartItem {

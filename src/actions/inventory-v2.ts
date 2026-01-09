@@ -889,7 +889,7 @@ export async function getInventorySecure(
 
     if (!z.string().uuid().safeParse(locationId).success) {
         console.warn('⚠️ [Inventory v2] Invalid locationId provided to getInventorySecure:', locationId);
-        return { success: true, data: [] }; // Return empty instead of error to be smoother
+        return { success: false, error: 'ID de ubicación inválido' };
     }
 
 

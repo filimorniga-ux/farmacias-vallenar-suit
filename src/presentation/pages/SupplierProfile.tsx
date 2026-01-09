@@ -1,15 +1,37 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { usePharmaStore } from '../store/useStore';
 import {
-    ArrowLeft, Building2, Mail, Phone, Globe, MapPin,
-    FileText, CreditCard, History, Package, AlertCircle, CheckCircle, Clock
+    ArrowLeft, Building2, Mail, Phone, Globe,
+    FileText, CreditCard, History, Package
 } from 'lucide-react';
+import SupplierAccountUploadModal from '../components/suppliers/SupplierAccountUploadModal';
+import SupplierCatalogUploadModal from '../components/suppliers/SupplierCatalogUploadModal';
+import SupplierFilePreviewModal from '../components/suppliers/SupplierFilePreviewModal';
+import { toast } from 'sonner';
+import { SupplierAccountDocument, SupplierCatalogFile } from '../../domain/types';
 
 export const SupplierProfile = () => {
     const { id } = useParams();
-    const { suppliers, purchaseOrders, supplierDocuments } = usePharmaStore();
+    const { suppliers, purchaseOrders } = usePharmaStore();
     const [activeTab, setActiveTab] = useState<'PROFILE' | 'HISTORY' | 'ACCOUNT' | 'PRODUCTS'>('PROFILE');
+    const [accountDocs, setAccountDocs] = useState<SupplierAccountDocument[]>([]);
+    const [catalogFiles, setCatalogFiles] = useState<SupplierCatalogFile[]>([]);
+    const [accountSearch, setAccountSearch] = useState('');
+    const [accountFrom, setAccountFrom] = useState('');
+    const [accountTo, setAccountTo] = useState('');
+    const [catalogFrom, setCatalogFrom] = useState('');
+    const [catalogTo, setCatalogTo] = useState('');
+    const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
+    const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
+    const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+    const [previewTitle, setPreviewTitle] = useState('');
+    const [previewFileName, setPreviewFileName] = useState('');
+    const [previewFileMime, setPreviewFileMime] = useState('');
+    const [previewBase64, setPreviewBase64] = useState('');
+    const [previewDownload, setPreviewDownload] = useState<(() => void) | null>(null);
+    const [isLoadingAccount, setIsLoadingAccount] = useState(false);
+    const [isLoadingCatalog, setIsLoadingCatalog] = useState(false);
 
     const supplier = suppliers.find(s => s.id === id);
 
@@ -22,17 +44,148 @@ export const SupplierProfile = () => {
         );
     }
 
-    // --- Mock Data Helpers ---
     const supplierOrders = purchaseOrders.filter(po => po.supplier_id === id);
-    const supplierDocs = supplierDocuments.filter(d => d.supplier_id === id);
+    const totalDebt = useMemo(() => {
+        return accountDocs
+            .filter(d => d.type === 'FACTURA' && d.status === 'PENDING')
+            .reduce((sum, d) => sum + Number(d.amount || 0), 0);
+    }, [accountDocs]);
 
-    // Calculate Debt
-    const totalDebt = supplierDocs
-        .filter(d => d.type === 'FACTURA' && d.status === 'PENDING')
-        .reduce((sum, d) => sum + d.amount, 0);
+    const fetchAccountDocs = async (supplierId: string) => {
+        setIsLoadingAccount(true);
+        const { listSupplierAccountDocumentsSecure } = await import('@/actions/supplier-account-v2');
+        const result = await listSupplierAccountDocumentsSecure({ supplierId });
+        if (result.success && result.data) {
+            setAccountDocs(result.data as SupplierAccountDocument[]);
+        } else if (!result.success) {
+            toast.error(result.error || 'Error cargando cuenta corriente');
+        }
+        setIsLoadingAccount(false);
+    };
 
-    return (
-        <div className="min-h-screen bg-slate-50">
+    const fetchCatalogs = async (supplierId: string) => {
+        setIsLoadingCatalog(true);
+        const { listSupplierCatalogFilesSecure } = await import('@/actions/supplier-account-v2');
+        const result = await listSupplierCatalogFilesSecure({ supplierId });
+        if (result.success && result.data) {
+            setCatalogFiles(result.data as SupplierCatalogFile[]);
+        } else if (!result.success) {
+            toast.error(result.error || 'Error cargando catálogos');
+        }
+        setIsLoadingCatalog(false);
+    };
+
+    useEffect(() => {
+        if (!id) return;
+        fetchAccountDocs(id);
+        fetchCatalogs(id);
+    }, [id]);
+
+    const filteredAccountDocs = useMemo(() => {
+        return accountDocs.filter(doc => {
+            const matchesNumber = accountSearch
+                ? doc.invoice_number?.toLowerCase().includes(accountSearch.toLowerCase())
+                : true;
+            const uploadDate = doc.uploaded_at ? new Date(doc.uploaded_at).getTime() : 0;
+            const fromOk = accountFrom ? uploadDate >= new Date(accountFrom).getTime() : true;
+            const toOk = accountTo ? uploadDate <= new Date(accountTo).getTime() : true;
+            return matchesNumber && fromOk && toOk;
+        });
+    }, [accountDocs, accountSearch, accountFrom, accountTo]);
+
+    const filteredCatalogs = useMemo(() => {
+        return catalogFiles.filter(file => {
+            const uploadDate = file.uploaded_at ? new Date(file.uploaded_at).getTime() : 0;
+            const fromOk = catalogFrom ? uploadDate >= new Date(catalogFrom).getTime() : true;
+            const toOk = catalogTo ? uploadDate <= new Date(catalogTo).getTime() : true;
+            return fromOk && toOk;
+        });
+    }, [catalogFiles, catalogFrom, catalogTo]);
+
+    const handleDownloadAccountDoc = async (docId: string) => {
+        const { getSupplierAccountDocumentFileSecure } = await import('@/actions/supplier-account-v2');
+        const result = await getSupplierAccountDocumentFileSecure(docId);
+        if (!result.success || !result.data) {
+            toast.error(result.error || 'No se pudo descargar');
+            return;
+        }
+        const { base64, fileName, fileMime } = result.data;
+        const link = document.createElement('a');
+        link.href = `data:${fileMime};base64,${base64}`;
+        link.download = fileName;
+        link.click();
+    };
+
+    const handleDownloadCatalog = async (fileId: string) => {
+        const { getSupplierCatalogFileSecure } = await import('@/actions/supplier-account-v2');
+        const result = await getSupplierCatalogFileSecure(fileId);
+        if (!result.success || !result.data) {
+            toast.error(result.error || 'No se pudo descargar');
+            return;
+        }
+        const { base64, fileName, fileMime } = result.data;
+        const link = document.createElement('a');
+        link.href = `data:${fileMime};base64,${base64}`;
+        link.download = fileName;
+        link.click();
+    };
+
+    const handlePreviewAccountDoc = async (docId: string, title: string) => {
+        const { getSupplierAccountDocumentFileSecure } = await import('@/actions/supplier-account-v2');
+        const result = await getSupplierAccountDocumentFileSecure(docId);
+        if (!result.success || !result.data) {
+            toast.error(result.error || 'No se pudo abrir');
+            return;
+        }
+        setPreviewTitle(title);
+        setPreviewFileName(result.data.fileName);
+        setPreviewFileMime(result.data.fileMime);
+        setPreviewBase64(result.data.base64);
+        setPreviewDownload(() => () => handleDownloadAccountDoc(docId));
+        setIsPreviewOpen(true);
+    };
+
+    const handlePreviewCatalog = async (fileId: string, title: string) => {
+        const { getSupplierCatalogFileSecure } = await import('@/actions/supplier-account-v2');
+        const result = await getSupplierCatalogFileSecure(fileId);
+        if (!result.success || !result.data) {
+            toast.error(result.error || 'No se pudo abrir');
+            return;
+        }
+        setPreviewTitle(title);
+        setPreviewFileName(result.data.fileName);
+        setPreviewFileMime(result.data.fileMime);
+        setPreviewBase64(result.data.base64);
+        setPreviewDownload(() => () => handleDownloadCatalog(fileId));
+        setIsPreviewOpen(true);
+    };
+
+    const handleDeleteAccountDoc = async (docId: string, label: string) => {
+        if (!confirm(`¿Eliminar ${label}? Esta acción no se puede deshacer.`)) return;
+        const { deleteSupplierAccountDocumentSecure } = await import('@/actions/supplier-account-v2');
+        const result = await deleteSupplierAccountDocumentSecure(docId);
+        if (result.success) {
+            toast.success('Documento eliminado');
+            fetchAccountDocs(supplier.id);
+        } else {
+            toast.error(result.error || 'Error al eliminar documento');
+        }
+    };
+
+    const handleDeleteCatalog = async (fileId: string, label: string) => {
+        if (!confirm(`¿Eliminar ${label}? Esta acción no se puede deshacer.`)) return;
+        const { deleteSupplierCatalogFileSecure } = await import('@/actions/supplier-account-v2');
+        const result = await deleteSupplierCatalogFileSecure(fileId);
+        if (result.success) {
+            toast.success('Catálogo eliminado');
+            fetchCatalogs(supplier.id);
+        } else {
+            toast.error(result.error || 'Error al eliminar catálogo');
+        }
+    };
+
+        return (
+            <div className="min-h-screen bg-slate-50">
             {/* Header / Hero */}
             <div className="bg-white border-b border-slate-200 shadow-sm">
                 <div className="max-w-7xl mx-auto px-6 py-6">
@@ -244,28 +397,236 @@ export const SupplierProfile = () => {
 
                 {activeTab === 'ACCOUNT' && (
                     <div className="space-y-6">
-                        <div className="flex justify-end">
-                            <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm font-medium">
+                        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                                <div>
+                                    <label className="text-xs font-semibold text-slate-500 uppercase">Buscar N° Factura</label>
+                                    <input
+                                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                                        value={accountSearch}
+                                        onChange={(e) => setAccountSearch(e.target.value)}
+                                        placeholder="Ej: 12345"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold text-slate-500 uppercase">Desde</label>
+                                    <input
+                                        type="date"
+                                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                                        value={accountFrom}
+                                        onChange={(e) => setAccountFrom(e.target.value)}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold text-slate-500 uppercase">Hasta</label>
+                                    <input
+                                        type="date"
+                                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                                        value={accountTo}
+                                        onChange={(e) => setAccountTo(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setIsAccountModalOpen(true)}
+                                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm font-medium"
+                            >
                                 <PlusIcon /> Nueva Factura / NC
                             </button>
                         </div>
                         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                            <div className="p-8 text-center text-slate-500">
-                                <FileText size={48} className="mx-auto mb-4 text-slate-300" />
-                                <p>Módulo de Cuenta Corriente en construcción.</p>
-                                <p className="text-sm mt-2">Aquí se mostrarán Facturas y Notas de Crédito.</p>
-                            </div>
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
+                                    <tr>
+                                        <th className="px-6 py-4">Fecha Carga</th>
+                                        <th className="px-6 py-4">N° Documento</th>
+                                        <th className="px-6 py-4">Tipo</th>
+                                        <th className="px-6 py-4">Vencimiento</th>
+                                        <th className="px-6 py-4 text-right">Monto</th>
+                                        <th className="px-6 py-4">Estado</th>
+                                        <th className="px-6 py-4 text-center">Archivo</th>
+                                        <th className="px-6 py-4 text-center">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {isLoadingAccount ? (
+                                        <tr>
+                                            <td colSpan={8} className="px-6 py-12 text-center text-slate-500">
+                                                Cargando documentos...
+                                            </td>
+                                        </tr>
+                                    ) : filteredAccountDocs.length > 0 ? (
+                                        filteredAccountDocs.map(doc => (
+                                            <tr key={doc.id} className="hover:bg-slate-50">
+                                                <td className="px-6 py-4 text-slate-600">
+                                                    {doc.uploaded_at ? new Date(doc.uploaded_at).toLocaleDateString() : '-'}
+                                                </td>
+                                                <td className="px-6 py-4 font-medium text-slate-900">{doc.invoice_number}</td>
+                                                <td className="px-6 py-4 text-slate-600">{doc.type === 'FACTURA' ? 'Factura' : 'Nota Crédito'}</td>
+                                                <td className="px-6 py-4 text-slate-600">
+                                                    {doc.due_date ? new Date(doc.due_date).toLocaleDateString() : '-'}
+                                                </td>
+                                                <td className="px-6 py-4 text-right font-medium text-slate-900">
+                                                    ${Number(doc.amount || 0).toLocaleString()}
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <span className="px-2 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
+                                                        {doc.status === 'PENDING' ? 'Pendiente' : doc.status === 'PAID' ? 'Pagada' : 'Anulada'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <button
+                                                        onClick={() => handleDownloadAccountDoc(doc.id)}
+                                                        className="text-blue-600 hover:text-blue-800 font-medium text-xs"
+                                                    >
+                                                        Descargar
+                                                    </button>
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <button
+                                                        onClick={() => handlePreviewAccountDoc(doc.id, `Documento ${doc.invoice_number}`)}
+                                                        className="text-slate-600 hover:text-slate-800 font-medium text-xs mr-3"
+                                                    >
+                                                        Ver
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDeleteAccountDoc(doc.id, doc.invoice_number)}
+                                                        className="text-red-600 hover:text-red-800 font-medium text-xs"
+                                                    >
+                                                        Eliminar
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    ) : (
+                                        <tr>
+                                            <td colSpan={8} className="px-6 py-12 text-center text-slate-500">
+                                                No hay documentos registrados.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 )}
 
                 {activeTab === 'PRODUCTS' && (
-                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-center text-slate-500">
-                        <Package size={48} className="mx-auto mb-4 text-slate-300" />
-                        <p>Catálogo de productos del proveedor.</p>
+                    <div className="space-y-6">
+                        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                <div>
+                                    <label className="text-xs font-semibold text-slate-500 uppercase">Desde</label>
+                                    <input
+                                        type="date"
+                                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                                        value={catalogFrom}
+                                        onChange={(e) => setCatalogFrom(e.target.value)}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold text-slate-500 uppercase">Hasta</label>
+                                    <input
+                                        type="date"
+                                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                                        value={catalogTo}
+                                        onChange={(e) => setCatalogTo(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setIsCatalogModalOpen(true)}
+                                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2 text-sm font-medium"
+                            >
+                                <PlusIcon /> Subir Catálogo
+                            </button>
+                        </div>
+                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
+                                    <tr>
+                                        <th className="px-6 py-4">Fecha Carga</th>
+                                        <th className="px-6 py-4">Archivo</th>
+                                        <th className="px-6 py-4">Tipo</th>
+                                        <th className="px-6 py-4 text-right">Tamaño</th>
+                                        <th className="px-6 py-4 text-center">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {isLoadingCatalog ? (
+                                        <tr>
+                                            <td colSpan={5} className="px-6 py-12 text-center text-slate-500">
+                                                Cargando catálogos...
+                                            </td>
+                                        </tr>
+                                    ) : filteredCatalogs.length > 0 ? (
+                                        filteredCatalogs.map(file => (
+                                            <tr key={file.id} className="hover:bg-slate-50">
+                                                <td className="px-6 py-4 text-slate-600">
+                                                    {file.uploaded_at ? new Date(file.uploaded_at).toLocaleDateString() : '-'}
+                                                </td>
+                                                <td className="px-6 py-4 font-medium text-slate-900">{file.file_name}</td>
+                                                <td className="px-6 py-4 text-slate-600">{file.file_mime}</td>
+                                                <td className="px-6 py-4 text-right text-slate-600">
+                                                    {(file.file_size / 1024 / 1024).toFixed(2)} MB
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <button
+                                                        onClick={() => handlePreviewCatalog(file.id, 'Catálogo')}
+                                                        className="text-slate-600 hover:text-slate-800 font-medium text-xs mr-3"
+                                                    >
+                                                        Ver
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDownloadCatalog(file.id)}
+                                                        className="text-purple-600 hover:text-purple-800 font-medium text-xs"
+                                                    >
+                                                        Descargar
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDeleteCatalog(file.id, file.file_name)}
+                                                        className="text-red-600 hover:text-red-800 font-medium text-xs ml-3"
+                                                    >
+                                                        Eliminar
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    ) : (
+                                        <tr>
+                                            <td colSpan={5} className="px-6 py-12 text-center text-slate-500">
+                                                No hay catálogos cargados.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 )}
             </div>
+
+            <SupplierAccountUploadModal
+                isOpen={isAccountModalOpen}
+                supplierId={supplier.id}
+                onClose={() => setIsAccountModalOpen(false)}
+                onUploaded={() => fetchAccountDocs(supplier.id)}
+            />
+            <SupplierCatalogUploadModal
+                isOpen={isCatalogModalOpen}
+                supplierId={supplier.id}
+                onClose={() => setIsCatalogModalOpen(false)}
+                onUploaded={() => fetchCatalogs(supplier.id)}
+            />
+            <SupplierFilePreviewModal
+                isOpen={isPreviewOpen}
+                title={previewTitle}
+                fileName={previewFileName}
+                fileMime={previewFileMime}
+                base64={previewBase64}
+                onClose={() => setIsPreviewOpen(false)}
+                onDownload={() => previewDownload?.()}
+            />
         </div>
     );
 };

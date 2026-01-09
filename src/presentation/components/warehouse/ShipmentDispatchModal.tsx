@@ -63,6 +63,7 @@ const ShipmentDispatchModal: React.FC<ShipmentDispatchModalProps> = ({ isOpen, o
                 driver_name: transportData.driverName
             },
             items: selectedItems.map(i => ({
+                id: i.batch.id,
                 batchId: i.batch.id,
                 sku: i.batch.sku,
                 name: i.batch.name,
