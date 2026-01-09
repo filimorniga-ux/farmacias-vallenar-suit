@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import RouteGuard from '@/components/auth/RouteGuard';
-import { Save, Upload, Plus, Trash2, Edit, CheckCircle, AlertCircle, Building, Users, FileText, Shield, Activity, AlertTriangle, Building2 } from 'lucide-react';
+import { Save, Upload, Plus, Trash2, Edit, CheckCircle, AlertCircle, Building, Users, FileText, Shield, Activity, AlertTriangle, Building2, Bot } from 'lucide-react';
 import { useAuthStore, Role } from '@/lib/store/useAuthStore';
 import { autoBackupService } from '@/domain/services/AutoBackupService';
 import { toast } from 'sonner';
@@ -122,6 +122,13 @@ export default function SettingsPage() {
                             >
                                 <Activity size={18} />
                                 Diagnóstico
+                            </button>
+                            <button
+                                onClick={() => window.location.href = '/settings/ai'}
+                                className="flex-1 py-4 text-sm font-medium text-center flex items-center justify-center gap-2 transition-colors text-gray-500 hover:bg-purple-50 hover:text-purple-600"
+                            >
+                                <Bot size={18} />
+                                Inteligencia Artificial
                             </button>
                         </div>
 
