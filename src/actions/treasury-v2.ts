@@ -1263,3 +1263,548 @@ export async function getPendingRemittancesSecure(
 
 // NOTE: AUTHORIZATION_THRESHOLDS y AUTHORIZED_ROLES son constantes internas
 // Next.js 16 "use server" solo permite exportar async functions
+
+// =====================================================
+// ACCOUNTS PAYABLE (CUENTAS POR PAGAR)
+// =====================================================
+
+/**
+ * Schema de validación para crear cuenta por pagar
+ */
+const CreateAccountPayableSchema = z.object({
+    supplierId: UUIDSchema,
+    invoiceNumber: z.string().min(1, "Número de factura requerido").max(50),
+    invoiceType: z.enum(['FACTURA', 'BOLETA', 'NOTA_CREDITO', 'GUIA_DESPACHO']).default('FACTURA'),
+    issueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida (YYYY-MM-DD)"),
+    dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida (YYYY-MM-DD)").optional(),
+    netAmount: z.number().min(0, "Monto neto debe ser positivo"),
+    taxAmount: z.number().min(0).default(0),
+    totalAmount: z.number().positive("Monto total debe ser positivo"),
+    locationId: UUIDSchema.optional(),
+    purchaseOrderId: UUIDSchema.optional(),
+    expenseCategory: z.enum(['INVENTORY', 'SERVICES', 'RENT', 'PAYROLL', 'OTHER']).default('INVENTORY'),
+    notes: z.string().max(500).optional(),
+    userId: z.string().min(1, "ID de usuario requerido"),
+});
+
+const RegisterPaymentSchema = z.object({
+    accountPayableId: UUIDSchema,
+    amount: z.number().positive("Monto debe ser positivo"),
+    paymentMethod: z.enum(['TRANSFER', 'CHECK', 'CASH', 'CREDIT_NOTE']),
+    paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida").optional(),
+    referenceNumber: z.string().max(100).optional(),
+    bankAccountId: UUIDSchema.optional(),
+    notes: z.string().max(500).optional(),
+    userId: z.string().min(1, "ID de usuario requerido"),
+});
+
+/**
+ * 📝 Tipos exportados para Accounts Payable
+ */
+export interface AccountPayable {
+    id: string;
+    supplier_id: string;
+    supplier_name?: string;
+    supplier_rut?: string;
+    invoice_number: string;
+    invoice_type: string;
+    issue_date: string;
+    due_date?: string;
+    net_amount: number;
+    tax_amount: number;
+    total_amount: number;
+    paid_amount: number;
+    balance: number;
+    status: 'PENDING' | 'PARTIAL' | 'PAID' | 'OVERDUE' | 'CANCELLED' | 'DISPUTED';
+    expense_category: string;
+    location_id?: string;
+    created_at: string;
+}
+
+export interface AccountPayablePayment {
+    id: string;
+    account_payable_id: string;
+    payment_date: string;
+    amount: number;
+    payment_method: string;
+    reference_number?: string;
+    status: string;
+    created_at: string;
+}
+
+/**
+ * 📝 Crear cuenta por pagar
+ */
+export async function createAccountPayableSecure(
+    data: z.infer<typeof CreateAccountPayableSchema>
+): Promise<{ success: boolean; accountPayableId?: string; error?: string }> {
+    
+    const validated = CreateAccountPayableSchema.safeParse(data);
+    if (!validated.success) {
+        return { success: false, error: validated.error.issues[0]?.message || 'Datos inválidos' };
+    }
+
+    const {
+        supplierId, invoiceNumber, invoiceType, issueDate, dueDate,
+        netAmount, taxAmount, totalAmount, locationId, purchaseOrderId,
+        expenseCategory, notes, userId
+    } = validated.data;
+
+    try {
+        // Verificar que el proveedor existe
+        const supplierRes = await query(
+            'SELECT id, business_name FROM suppliers WHERE id = $1',
+            [supplierId]
+        );
+        
+        if (supplierRes.rows.length === 0) {
+            return { success: false, error: 'Proveedor no encontrado' };
+        }
+
+        // Verificar que no exista factura duplicada para este proveedor
+        const duplicateRes = await query(
+            'SELECT id FROM accounts_payable WHERE supplier_id = $1 AND invoice_number = $2 AND status != $3',
+            [supplierId, invoiceNumber, 'CANCELLED']
+        );
+        
+        if (duplicateRes.rows.length > 0) {
+            return { success: false, error: 'Ya existe una factura con este número para este proveedor' };
+        }
+
+        // Insertar cuenta por pagar
+        const insertRes = await query(`
+            INSERT INTO accounts_payable (
+                supplier_id, invoice_number, invoice_type, issue_date, due_date,
+                net_amount, tax_amount, total_amount, paid_amount,
+                location_id, purchase_order_id, expense_category, notes, 
+                created_by, status
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9, $10, $11, $12, $13, 'PENDING')
+            RETURNING id
+        `, [
+            supplierId, invoiceNumber, invoiceType, issueDate, dueDate || null,
+            netAmount, taxAmount, totalAmount,
+            locationId || null, purchaseOrderId || null, expenseCategory, notes || null,
+            userId
+        ]);
+
+        const accountPayableId = insertRes.rows[0].id;
+
+        // Auditar
+        await query(`
+            INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values)
+            VALUES ($1, 'AP_CREATED', 'ACCOUNT_PAYABLE', $2, $3::jsonb)
+        `, [userId, accountPayableId, JSON.stringify({
+            supplier_id: supplierId,
+            invoice_number: invoiceNumber,
+            total_amount: totalAmount
+        })]);
+
+        logger.info({ accountPayableId, supplierId, invoiceNumber }, '✅ Cuenta por pagar creada');
+        
+        revalidatePath('/finance/treasury');
+        revalidatePath('/finanzas');
+        
+        return { success: true, accountPayableId };
+
+    } catch (error: any) {
+        logger.error({ error, data: validated.data }, '❌ Error creando cuenta por pagar');
+        return { success: false, error: error.message || 'Error creando cuenta por pagar' };
+    }
+}
+
+/**
+ * 💰 Registrar pago a cuenta por pagar
+ */
+export async function registerAccountPayablePaymentSecure(
+    data: z.infer<typeof RegisterPaymentSchema>
+): Promise<{ success: boolean; paymentId?: string; newBalance?: number; error?: string }> {
+    
+    const validated = RegisterPaymentSchema.safeParse(data);
+    if (!validated.success) {
+        return { success: false, error: validated.error.issues[0]?.message || 'Datos inválidos' };
+    }
+
+    const {
+        accountPayableId, amount, paymentMethod, paymentDate,
+        referenceNumber, bankAccountId, notes, userId
+    } = validated.data;
+
+    try {
+        // Obtener cuenta por pagar
+        const apRes = await query(
+            'SELECT * FROM accounts_payable WHERE id = $1',
+            [accountPayableId]
+        );
+        
+        if (apRes.rows.length === 0) {
+            return { success: false, error: 'Cuenta por pagar no encontrada' };
+        }
+
+        const ap = apRes.rows[0];
+
+        // Validar que no esté cancelada o pagada
+        if (ap.status === 'CANCELLED') {
+            return { success: false, error: 'No se puede pagar una cuenta anulada' };
+        }
+        
+        if (ap.status === 'PAID') {
+            return { success: false, error: 'Esta cuenta ya está pagada completamente' };
+        }
+
+        // Validar que el pago no exceda el saldo
+        const currentBalance = Number(ap.total_amount) - Number(ap.paid_amount);
+        if (amount > currentBalance) {
+            return { success: false, error: `El pago excede el saldo pendiente ($${currentBalance.toLocaleString()})` };
+        }
+
+        // Insertar pago
+        const paymentRes = await query(`
+            INSERT INTO accounts_payable_payments (
+                account_payable_id, payment_date, amount, payment_method,
+                reference_number, bank_account_id, notes, created_by, status
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'COMPLETED')
+            RETURNING id
+        `, [
+            accountPayableId,
+            paymentDate || new Date().toISOString().split('T')[0],
+            amount,
+            paymentMethod,
+            referenceNumber || null,
+            bankAccountId || null,
+            notes || null,
+            userId
+        ]);
+
+        const paymentId = paymentRes.rows[0].id;
+
+        // Obtener nuevo balance (el trigger actualiza automáticamente)
+        const updatedRes = await query(
+            'SELECT balance, status FROM accounts_payable WHERE id = $1',
+            [accountPayableId]
+        );
+        const newBalance = Number(updatedRes.rows[0].balance);
+        const newStatus = updatedRes.rows[0].status;
+
+        // Auditar
+        await query(`
+            INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values)
+            VALUES ($1, 'AP_PAYMENT', 'ACCOUNT_PAYABLE', $2, $3::jsonb)
+        `, [userId, accountPayableId, JSON.stringify({
+            payment_id: paymentId,
+            amount,
+            payment_method: paymentMethod,
+            new_balance: newBalance,
+            new_status: newStatus
+        })]);
+
+        logger.info({ paymentId, accountPayableId, amount, newBalance }, '✅ Pago registrado');
+        
+        revalidatePath('/finance/treasury');
+        revalidatePath('/finanzas');
+        
+        return { success: true, paymentId, newBalance };
+
+    } catch (error: any) {
+        logger.error({ error, data: validated.data }, '❌ Error registrando pago');
+        return { success: false, error: error.message || 'Error registrando pago' };
+    }
+}
+
+/**
+ * 📋 Obtener lista de cuentas por pagar con filtros
+ */
+export async function getAccountsPayableSecure(
+    params?: {
+        supplierId?: string;
+        status?: string;
+        locationId?: string;
+        startDate?: string;
+        endDate?: string;
+        limit?: number;
+        offset?: number;
+    }
+): Promise<{ success: boolean; data?: AccountPayable[]; total?: number; error?: string }> {
+    
+    try {
+        const session = await getSession();
+        if (!session) {
+            return { success: false, error: 'No autorizado' };
+        }
+
+        // Solo gerentes pueden ver todas las cuentas
+        if (!MANAGER_ROLES.includes(session.role as any)) {
+            return { success: false, error: 'Acceso denegado' };
+        }
+
+        let whereClause = 'WHERE 1=1';
+        const sqlParams: any[] = [];
+
+        if (params?.supplierId) {
+            sqlParams.push(params.supplierId);
+            whereClause += ` AND ap.supplier_id = $${sqlParams.length}`;
+        }
+
+        if (params?.status) {
+            sqlParams.push(params.status);
+            whereClause += ` AND ap.status = $${sqlParams.length}`;
+        }
+
+        if (params?.locationId) {
+            sqlParams.push(params.locationId);
+            whereClause += ` AND ap.location_id = $${sqlParams.length}`;
+        }
+
+        if (params?.startDate) {
+            sqlParams.push(params.startDate);
+            whereClause += ` AND ap.issue_date >= $${sqlParams.length}`;
+        }
+
+        if (params?.endDate) {
+            sqlParams.push(params.endDate);
+            whereClause += ` AND ap.issue_date <= $${sqlParams.length}`;
+        }
+
+        // Obtener total
+        const countRes = await query(
+            `SELECT COUNT(*) FROM accounts_payable ap ${whereClause}`,
+            sqlParams
+        );
+        const total = parseInt(countRes.rows[0].count, 10);
+
+        // Obtener datos con paginación
+        const limit = Math.min(params?.limit || 50, 200);
+        const offset = params?.offset || 0;
+        sqlParams.push(limit, offset);
+
+        const dataRes = await query(`
+            SELECT 
+                ap.id, ap.supplier_id, 
+                COALESCE(s.fantasy_name, s.business_name) as supplier_name,
+                s.rut as supplier_rut,
+                ap.invoice_number, ap.invoice_type,
+                ap.issue_date, ap.due_date,
+                ap.net_amount, ap.tax_amount, ap.total_amount,
+                ap.paid_amount, ap.balance, ap.status,
+                ap.expense_category, ap.location_id,
+                ap.created_at
+            FROM accounts_payable ap
+            LEFT JOIN suppliers s ON ap.supplier_id = s.id
+            ${whereClause}
+            ORDER BY 
+                CASE ap.status 
+                    WHEN 'OVERDUE' THEN 1 
+                    WHEN 'PENDING' THEN 2 
+                    WHEN 'PARTIAL' THEN 3 
+                    ELSE 4 
+                END,
+                ap.due_date ASC NULLS LAST
+            LIMIT $${sqlParams.length - 1} OFFSET $${sqlParams.length}
+        `, sqlParams);
+
+        logger.info({ count: dataRes.rows.length, total }, '[Treasury] getAccountsPayableSecure');
+        
+        return { success: true, data: dataRes.rows, total };
+
+    } catch (error: any) {
+        logger.error({ error }, '❌ Error obteniendo cuentas por pagar');
+        return { success: false, error: 'Error obteniendo cuentas por pagar' };
+    }
+}
+
+/**
+ * 📊 Obtener resumen de cuentas por pagar (Dashboard)
+ */
+export async function getAccountsPayableSummarySecure(
+    locationId?: string
+): Promise<{
+    success: boolean;
+    data?: {
+        totalPending: number;
+        totalOverdue: number;
+        countPending: number;
+        countOverdue: number;
+        byCategory: { category: string; total: number }[];
+        aging: {
+            current: number;
+            days1_30: number;
+            days31_60: number;
+            days61_90: number;
+            over90: number;
+        };
+    };
+    error?: string;
+}> {
+    try {
+        const session = await getSession();
+        if (!session) {
+            return { success: false, error: 'No autorizado' };
+        }
+
+        const locationFilter = locationId ? 'AND location_id = $1' : '';
+        const params = locationId ? [locationId] : [];
+
+        // Total y conteo pendiente
+        const pendingRes = await query(`
+            SELECT 
+                COALESCE(SUM(balance), 0) as total,
+                COUNT(*) as count
+            FROM accounts_payable 
+            WHERE status IN ('PENDING', 'PARTIAL') ${locationFilter}
+        `, params);
+
+        // Total y conteo vencido
+        const overdueRes = await query(`
+            SELECT 
+                COALESCE(SUM(balance), 0) as total,
+                COUNT(*) as count
+            FROM accounts_payable 
+            WHERE status = 'OVERDUE' ${locationFilter}
+        `, params);
+
+        // Por categoría
+        const categoryRes = await query(`
+            SELECT 
+                expense_category as category,
+                COALESCE(SUM(balance), 0) as total
+            FROM accounts_payable 
+            WHERE status IN ('PENDING', 'PARTIAL', 'OVERDUE') ${locationFilter}
+            GROUP BY expense_category
+            ORDER BY total DESC
+        `, params);
+
+        // Aging
+        const agingRes = await query(`
+            SELECT 
+                COALESCE(SUM(CASE WHEN due_date >= CURRENT_DATE THEN balance ELSE 0 END), 0) as current,
+                COALESCE(SUM(CASE WHEN due_date < CURRENT_DATE AND due_date >= CURRENT_DATE - 30 THEN balance ELSE 0 END), 0) as days_1_30,
+                COALESCE(SUM(CASE WHEN due_date < CURRENT_DATE - 30 AND due_date >= CURRENT_DATE - 60 THEN balance ELSE 0 END), 0) as days_31_60,
+                COALESCE(SUM(CASE WHEN due_date < CURRENT_DATE - 60 AND due_date >= CURRENT_DATE - 90 THEN balance ELSE 0 END), 0) as days_61_90,
+                COALESCE(SUM(CASE WHEN due_date < CURRENT_DATE - 90 THEN balance ELSE 0 END), 0) as over_90
+            FROM accounts_payable 
+            WHERE status IN ('PENDING', 'PARTIAL', 'OVERDUE') ${locationFilter}
+        `, params);
+
+        const aging = agingRes.rows[0];
+
+        return {
+            success: true,
+            data: {
+                totalPending: Number(pendingRes.rows[0].total),
+                totalOverdue: Number(overdueRes.rows[0].total),
+                countPending: parseInt(pendingRes.rows[0].count, 10),
+                countOverdue: parseInt(overdueRes.rows[0].count, 10),
+                byCategory: categoryRes.rows.map(r => ({
+                    category: r.category,
+                    total: Number(r.total)
+                })),
+                aging: {
+                    current: Number(aging.current),
+                    days1_30: Number(aging.days_1_30),
+                    days31_60: Number(aging.days_31_60),
+                    days61_90: Number(aging.days_61_90),
+                    over90: Number(aging.over_90)
+                }
+            }
+        };
+
+    } catch (error: any) {
+        logger.error({ error }, '❌ Error obteniendo resumen de cuentas por pagar');
+        return { success: false, error: 'Error obteniendo resumen' };
+    }
+}
+
+/**
+ * ❌ Anular cuenta por pagar
+ */
+export async function cancelAccountPayableSecure(
+    accountPayableId: string,
+    reason: string,
+    userId: string
+): Promise<{ success: boolean; error?: string }> {
+    
+    if (!z.string().uuid().safeParse(accountPayableId).success) {
+        return { success: false, error: 'ID inválido' };
+    }
+
+    if (!reason || reason.length < 10) {
+        return { success: false, error: 'Motivo de anulación requerido (mínimo 10 caracteres)' };
+    }
+
+    try {
+        // Verificar que existe y no tiene pagos
+        const apRes = await query(
+            'SELECT * FROM accounts_payable WHERE id = $1',
+            [accountPayableId]
+        );
+
+        if (apRes.rows.length === 0) {
+            return { success: false, error: 'Cuenta por pagar no encontrada' };
+        }
+
+        const ap = apRes.rows[0];
+
+        if (ap.status === 'CANCELLED') {
+            return { success: false, error: 'Esta cuenta ya está anulada' };
+        }
+
+        if (Number(ap.paid_amount) > 0) {
+            return { success: false, error: 'No se puede anular una cuenta con pagos registrados' };
+        }
+
+        // Anular
+        await query(`
+            UPDATE accounts_payable 
+            SET status = 'CANCELLED', notes = COALESCE(notes, '') || E'\n[ANULADA] ' || $1, updated_at = NOW()
+            WHERE id = $2
+        `, [reason, accountPayableId]);
+
+        // Auditar
+        await query(`
+            INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, new_values)
+            VALUES ($1, 'AP_CANCELLED', 'ACCOUNT_PAYABLE', $2, $3::jsonb, $4::jsonb)
+        `, [userId, accountPayableId, JSON.stringify(ap), JSON.stringify({ reason })]);
+
+        logger.info({ accountPayableId, reason }, '✅ Cuenta por pagar anulada');
+        
+        revalidatePath('/finance/treasury');
+        revalidatePath('/finanzas');
+        
+        return { success: true };
+
+    } catch (error: any) {
+        logger.error({ error }, '❌ Error anulando cuenta por pagar');
+        return { success: false, error: 'Error anulando cuenta por pagar' };
+    }
+}
+
+/**
+ * 📜 Obtener historial de pagos de una cuenta
+ */
+export async function getAccountPayablePaymentsSecure(
+    accountPayableId: string
+): Promise<{ success: boolean; data?: AccountPayablePayment[]; error?: string }> {
+    
+    if (!z.string().uuid().safeParse(accountPayableId).success) {
+        return { success: false, error: 'ID inválido' };
+    }
+
+    try {
+        const res = await query(`
+            SELECT 
+                p.id, p.account_payable_id, p.payment_date, p.amount,
+                p.payment_method, p.reference_number, p.status,
+                p.notes, p.created_at,
+                u.name as created_by_name
+            FROM accounts_payable_payments p
+            LEFT JOIN users u ON p.created_by = u.id
+            WHERE p.account_payable_id = $1
+            ORDER BY p.payment_date DESC, p.created_at DESC
+        `, [accountPayableId]);
+
+        return { success: true, data: res.rows };
+
+    } catch (error: any) {
+        logger.error({ error }, '❌ Error obteniendo pagos');
+        return { success: false, error: 'Error obteniendo historial de pagos' };
+    }
+}
