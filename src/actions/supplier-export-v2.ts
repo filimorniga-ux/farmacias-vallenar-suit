@@ -13,7 +13,6 @@
  */
 
 import { query } from '@/lib/db';
-import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
 import { ExcelService } from '@/lib/excel-generator';
 
@@ -29,12 +28,8 @@ const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL', 'MANAGER', 'QF', 'WAREHOUSE'];
 
 async function getSession(): Promise<{ userId: string; role: string; userName?: string } | null> {
     try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        const userName = headersList.get('x-user-name');
-        if (!userId || !role) return null;
-        return { userId, role, userName: userName || undefined };
+        const { getSessionSecure } = await import('@/actions/auth-v2');
+        return await getSessionSecure();
     } catch {
         return null;
     }

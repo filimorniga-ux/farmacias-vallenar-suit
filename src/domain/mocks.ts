@@ -200,8 +200,8 @@ export const MOCK_SHIPMENTS: Shipment[] = [
             evidence_photos: []
         },
         items: [
-            { batchId: 'P001', sku: '780001', name: 'PARACETAMOL 500MG', quantity: 500, condition: 'GOOD' },
-            { batchId: 'P003', sku: '780003', name: 'IBUPROFENO 600MG', quantity: 300, condition: 'GOOD' }
+            { id: 'ITEM-P001', batchId: 'P001', sku: '780001', name: 'PARACETAMOL 500MG', quantity: 500, condition: 'GOOD' },
+            { id: 'ITEM-P003', batchId: 'P003', sku: '780003', name: 'IBUPROFENO 600MG', quantity: 300, condition: 'GOOD' }
         ],
         valuation: 450000,
         created_at: Date.now() - 86400000, // 1 day ago
@@ -223,8 +223,8 @@ export const MOCK_SHIPMENTS: Shipment[] = [
             evidence_photos: []
         },
         items: [
-            { batchId: 'G003', sku: 'LC-003', name: 'OMEPRAZOL 20MG', quantity: 200, condition: 'GOOD' },
-            { batchId: 'R001', sku: 'RET-01', name: 'MAAM CREMA PRENATAL', quantity: 50, condition: 'GOOD' }
+            { id: 'ITEM-G003', batchId: 'G003', sku: 'LC-003', name: 'OMEPRAZOL 20MG', quantity: 200, condition: 'GOOD' },
+            { id: 'ITEM-R001', batchId: 'R001', sku: 'RET-01', name: 'MAAM CREMA PRENATAL', quantity: 50, condition: 'GOOD' }
         ],
         valuation: 850000,
         created_at: Date.now() - 43200000, // 12 hours ago
@@ -248,7 +248,7 @@ export const MOCK_SHIPMENTS: Shipment[] = [
             evidence_photos: []
         },
         items: [
-            { batchId: 'P002', sku: '780002', name: 'LOSARTÁN 50MG', quantity: 100, condition: 'GOOD' }
+            { id: 'ITEM-P002', batchId: 'P002', sku: '780002', name: 'LOSARTÁN 50MG', quantity: 100, condition: 'GOOD' }
         ],
         valuation: 299000,
         created_at: Date.now() - 7200000, // 2 hours ago
@@ -270,7 +270,7 @@ export const MOCK_SHIPMENTS: Shipment[] = [
             evidence_photos: []
         },
         items: [
-            { batchId: 'G001', sku: 'LC-001', name: 'ACICLOVIR 200MG', quantity: 20, condition: 'DAMAGED' }
+            { id: 'ITEM-G001', batchId: 'G001', sku: 'LC-001', name: 'ACICLOVIR 200MG', quantity: 20, condition: 'DAMAGED' }
         ],
         valuation: 43340,
         created_at: Date.now() - 3600000, // 1 hour ago

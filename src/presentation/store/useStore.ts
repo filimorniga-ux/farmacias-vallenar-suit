@@ -641,11 +641,12 @@ export const usePharmaStore = create<PharmaState>()(
 
             // --- SRM Actions ---
             addSupplier: async (supplierData) => {
+                const data = supplierData as any;
                 const { createSupplierSecure } = await import('../../actions/suppliers-v2');
-                const contacts = Array.isArray(supplierData.contacts)
-                    ? supplierData.contacts
-                        .filter((c) => c && (c.name || c.email || c.phone))
-                        .map((c) => ({
+                const contacts = Array.isArray(data.contacts)
+                    ? data.contacts
+                        .filter((c: any) => c && (c.name || c.email || c.phone))
+                        .map((c: any) => ({
                             ...c,
                             email: c.email || undefined,
                             phone: c.phone || undefined,
@@ -654,30 +655,30 @@ export const usePharmaStore = create<PharmaState>()(
                         }))
                     : [];
                 const payload = {
-                    rut: supplierData.rut,
-                    businessName: supplierData.business_name ?? supplierData.businessName,
-                    fantasyName: supplierData.fantasy_name ?? supplierData.fantasyName,
-                    contactEmail: supplierData.contact_email ?? supplierData.contactEmail,
-                    phone1: supplierData.phone_1 ?? supplierData.phone1,
-                    phone2: supplierData.phone_2 ?? supplierData.phone2,
-                    address: supplierData.address,
-                    city: supplierData.city,
-                    region: supplierData.region,
-                    commune: supplierData.commune,
-                    website: supplierData.website,
-                    emailOrders: supplierData.email_orders ?? supplierData.emailOrders,
-                    emailBilling: supplierData.email_billing ?? supplierData.emailBilling,
-                    sector: supplierData.sector,
-                    paymentTerms: supplierData.payment_terms ?? supplierData.paymentTerms,
-                    leadTimeDays: supplierData.lead_time_days ?? supplierData.leadTimeDays,
-                    bankAccount: supplierData.bank_account ?? supplierData.bankAccount,
+                    rut: data.rut,
+                    businessName: data.business_name ?? data.businessName,
+                    fantasyName: data.fantasy_name ?? data.fantasyName,
+                    contactEmail: data.contact_email ?? data.contactEmail,
+                    phone1: data.phone_1 ?? data.phone1,
+                    phone2: data.phone_2 ?? data.phone2,
+                    address: data.address,
+                    city: data.city,
+                    region: data.region,
+                    commune: data.commune,
+                    website: data.website,
+                    emailOrders: data.email_orders ?? data.emailOrders,
+                    emailBilling: data.email_billing ?? data.emailBilling,
+                    sector: data.sector,
+                    paymentTerms: data.payment_terms ?? data.paymentTerms,
+                    leadTimeDays: data.lead_time_days ?? data.leadTimeDays,
+                    bankAccount: data.bank_account ?? data.bankAccount,
                     contacts,
-                    brands: supplierData.brands
+                    brands: data.brands
                 };
                 const result = await createSupplierSecure(payload as any);
                 if (result.success && result.data?.supplierId) {
                     set((state) => ({
-                        suppliers: [...state.suppliers, { ...supplierData, id: result.data!.supplierId }]
+                        suppliers: [...state.suppliers, { ...supplierData, id: result.data!.supplierId } as Supplier]
                     }));
                     import('sonner').then(({ toast }) => toast.success('Proveedor guardado correctamente'));
                 } else {
@@ -685,11 +686,12 @@ export const usePharmaStore = create<PharmaState>()(
                 }
             },
             updateSupplier: async (id, supplierData) => {
+                const data = supplierData as any;
                 const { updateSupplierSecure } = await import('../../actions/suppliers-v2');
-                const contacts = Array.isArray(supplierData.contacts)
-                    ? supplierData.contacts
-                        .filter((c) => c && (c.name || c.email || c.phone))
-                        .map((c) => ({
+                const contacts = Array.isArray(data.contacts)
+                    ? data.contacts
+                        .filter((c: any) => c && (c.name || c.email || c.phone))
+                        .map((c: any) => ({
                             ...c,
                             email: c.email || undefined,
                             phone: c.phone || undefined,
@@ -699,25 +701,25 @@ export const usePharmaStore = create<PharmaState>()(
                     : [];
                 const payload = {
                     supplierId: id,
-                    rut: supplierData.rut,
-                    businessName: supplierData.business_name ?? supplierData.businessName,
-                    fantasyName: supplierData.fantasy_name ?? supplierData.fantasyName,
-                    contactEmail: supplierData.contact_email ?? supplierData.contactEmail,
-                    phone1: supplierData.phone_1 ?? supplierData.phone1,
-                    phone2: supplierData.phone_2 ?? supplierData.phone2,
-                    address: supplierData.address,
-                    city: supplierData.city,
-                    region: supplierData.region,
-                    commune: supplierData.commune,
-                    website: supplierData.website,
-                    emailOrders: supplierData.email_orders ?? supplierData.emailOrders,
-                    emailBilling: supplierData.email_billing ?? supplierData.emailBilling,
-                    sector: supplierData.sector,
-                    paymentTerms: supplierData.payment_terms ?? supplierData.paymentTerms,
-                    leadTimeDays: supplierData.lead_time_days ?? supplierData.leadTimeDays,
-                    bankAccount: supplierData.bank_account ?? supplierData.bankAccount,
+                    rut: data.rut,
+                    businessName: data.business_name ?? data.businessName,
+                    fantasyName: data.fantasy_name ?? data.fantasyName,
+                    contactEmail: data.contact_email ?? data.contactEmail,
+                    phone1: data.phone_1 ?? data.phone1,
+                    phone2: data.phone_2 ?? data.phone2,
+                    address: data.address,
+                    city: data.city,
+                    region: data.region,
+                    commune: data.commune,
+                    website: data.website,
+                    emailOrders: data.email_orders ?? data.emailOrders,
+                    emailBilling: data.email_billing ?? data.emailBilling,
+                    sector: data.sector,
+                    paymentTerms: data.payment_terms ?? data.paymentTerms,
+                    leadTimeDays: data.lead_time_days ?? data.leadTimeDays,
+                    bankAccount: data.bank_account ?? data.bankAccount,
                     contacts,
-                    brands: supplierData.brands
+                    brands: data.brands
                 };
                 const result = await updateSupplierSecure(payload as any);
                 if (result.success) {
@@ -2015,6 +2017,7 @@ export const usePharmaStore = create<PharmaState>()(
                         evidence_photos: transferData.evidence.photos
                     },
                     items: transferData.items.map(i => ({
+                        id: i.batchId,
                         batchId: i.batchId,
                         sku: i.sku,
                         name: i.productName,
