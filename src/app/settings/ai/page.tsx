@@ -2,18 +2,18 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import RouteGuard from '@/components/auth/RouteGuard';
-import { 
-    Save, Eye, EyeOff, Bot, Zap, AlertCircle, CheckCircle, 
+import {
+    Save, Eye, EyeOff, Bot, Zap, AlertCircle, CheckCircle,
     RefreshCw, TrendingUp, DollarSign, Clock, Settings2,
     Sparkles, Shield, TestTube
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { 
-    saveSystemConfigSecure, 
-    getAIConfigSecure, 
+import {
+    saveSystemConfigSecure,
+    getAIConfigSecure,
     getAIUsageSecure,
     checkAIConfiguredSecure,
-    type AIConfig 
+    type AIConfig
 } from '@/actions/config-v2';
 
 // ============================================================================
@@ -61,7 +61,7 @@ export default function AISettingsPage() {
     const [model, setModel] = useState('gpt-4o-mini');
     const [monthlyLimit, setMonthlyLimit] = useState(1000);
     const [fallbackProvider, setFallbackProvider] = useState<'OPENAI' | 'GEMINI' | 'NONE'>('NONE');
-    
+
     // Estado de UI
     const [showApiKey, setShowApiKey] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
@@ -70,7 +70,7 @@ export default function AISettingsPage() {
     const [isConfigured, setIsConfigured] = useState(false);
     const [usage, setUsage] = useState<AIUsageData | null>(null);
     const [apiKeyError, setApiKeyError] = useState<string | null>(null);
-    
+
     // Cargar configuración actual
     const loadConfig = useCallback(async () => {
         setIsLoading(true);
@@ -80,19 +80,19 @@ export default function AISettingsPage() {
                 getAIUsageSecure(),
                 checkAIConfiguredSecure(),
             ]);
-            
+
             if (configResult.provider) setProvider(configResult.provider as 'OPENAI' | 'GEMINI');
             if (configResult.model) setModel(configResult.model);
             if (configResult.monthlyLimit) setMonthlyLimit(configResult.monthlyLimit);
             if (configResult.fallbackProvider) setFallbackProvider(configResult.fallbackProvider as any);
-            
+
             // No mostrar la API key real por seguridad
             if (configResult.apiKey) {
                 setApiKey(''); // Campo vacío, pero indicamos que está configurada
             }
-            
+
             setIsConfigured(checkResult.configured);
-            
+
             if (usageResult.success && usageResult.data) {
                 setUsage(usageResult.data);
             }
@@ -103,15 +103,15 @@ export default function AISettingsPage() {
             setIsLoading(false);
         }
     }, []);
-    
+
     useEffect(() => {
         loadConfig();
     }, [loadConfig]);
-    
+
     // Validar API Key
     const validateApiKey = (key: string): string | null => {
         if (!key) return null; // Vacío es OK si ya está configurada
-        
+
         if (provider === 'OPENAI' && !key.startsWith('sk-')) {
             return 'API Key de OpenAI debe comenzar con "sk-"';
         }
@@ -123,13 +123,13 @@ export default function AISettingsPage() {
         }
         return null;
     };
-    
+
     // Manejar cambio de API Key
     const handleApiKeyChange = (value: string) => {
         setApiKey(value);
         setApiKeyError(validateApiKey(value));
     };
-    
+
     // Manejar cambio de proveedor
     const handleProviderChange = (newProvider: 'OPENAI' | 'GEMINI') => {
         setProvider(newProvider);
@@ -140,7 +140,7 @@ export default function AISettingsPage() {
             setApiKeyError(validateApiKey(apiKey));
         }
     };
-    
+
     // Guardar configuración
     const handleSave = async () => {
         // Validar
@@ -148,10 +148,10 @@ export default function AISettingsPage() {
             toast.error(apiKeyError);
             return;
         }
-        
+
         setIsSaving(true);
         const loadingId = toast.loading('Guardando configuración...');
-        
+
         try {
             // Guardar cada configuración
             const configs = [
@@ -160,50 +160,50 @@ export default function AISettingsPage() {
                 { key: 'AI_MONTHLY_LIMIT', value: monthlyLimit.toString() },
                 { key: 'AI_FALLBACK_PROVIDER', value: fallbackProvider },
             ];
-            
+
             // Solo guardar API Key si se ingresó una nueva
             if (apiKey) {
                 configs.push({ key: 'AI_API_KEY', value: apiKey, isEncrypted: true } as any);
             }
-            
+
             for (const config of configs) {
                 const result = await saveSystemConfigSecure(config);
                 if (!result.success) {
                     throw new Error(result.error || 'Error guardando configuración');
                 }
             }
-            
+
             toast.success('Configuración guardada correctamente', { id: loadingId });
             setApiKey(''); // Limpiar campo
             setIsConfigured(true);
-            
+
             // Recargar uso
             const usageResult = await getAIUsageSecure();
             if (usageResult.success && usageResult.data) {
                 setUsage(usageResult.data);
             }
-            
+
         } catch (error: any) {
             toast.error(error.message || 'Error al guardar', { id: loadingId });
         } finally {
             setIsSaving(false);
         }
     };
-    
+
     // Probar conexión
     const handleTestConnection = async () => {
         if (!isConfigured && !apiKey) {
             toast.error('Ingrese una API Key primero');
             return;
         }
-        
+
         setIsTesting(true);
         const loadingId = toast.loading('Probando conexión con IA...');
-        
+
         try {
             // Por ahora solo verificamos que esté configurada
             const result = await checkAIConfiguredSecure();
-            
+
             if (result.configured) {
                 toast.success(`Conexión exitosa con ${result.provider} (${result.model})`, { id: loadingId });
             } else {
@@ -215,17 +215,17 @@ export default function AISettingsPage() {
             setIsTesting(false);
         }
     };
-    
+
     // Calcular color del progreso
     const getUsageColor = (percent: number) => {
         if (percent < 70) return 'bg-green-500';
         if (percent < 90) return 'bg-yellow-500';
         return 'bg-red-500';
     };
-    
+
     // Render
     return (
-        <RouteGuard allowedRoles={['ADMIN']}>
+        <RouteGuard allowedRoles={['ADMIN', 'GERENTE_GENERAL']}>
             <div className="min-h-screen bg-gray-50 p-4 md:p-8">
                 <div className="max-w-4xl mx-auto">
                     {/* Header */}
@@ -238,7 +238,7 @@ export default function AISettingsPage() {
                             Configure el proveedor de inteligencia artificial para el parsing de facturas.
                         </p>
                     </div>
-                    
+
                     {isLoading ? (
                         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
                             <div className="animate-pulse space-y-4">
@@ -251,11 +251,10 @@ export default function AISettingsPage() {
                     ) : (
                         <div className="space-y-6">
                             {/* Status Card */}
-                            <div className={`rounded-xl shadow-sm border p-4 ${
-                                isConfigured 
-                                    ? 'bg-green-50 border-green-200' 
+                            <div className={`rounded-xl shadow-sm border p-4 ${isConfigured
+                                    ? 'bg-green-50 border-green-200'
                                     : 'bg-yellow-50 border-yellow-200'
-                            }`}>
+                                }`}>
                                 <div className="flex items-center gap-3">
                                     {isConfigured ? (
                                         <CheckCircle className="text-green-600" size={24} />
@@ -267,7 +266,7 @@ export default function AISettingsPage() {
                                             {isConfigured ? 'IA Configurada y Lista' : 'Configuración Pendiente'}
                                         </p>
                                         <p className={`text-sm ${isConfigured ? 'text-green-600' : 'text-yellow-600'}`}>
-                                            {isConfigured 
+                                            {isConfigured
                                                 ? `Usando ${provider} - ${model}`
                                                 : 'Configure una API Key para habilitar el parsing de facturas'
                                             }
@@ -275,7 +274,7 @@ export default function AISettingsPage() {
                                     </div>
                                 </div>
                             </div>
-                            
+
                             {/* Main Config Card */}
                             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                                 <div className="p-6 border-b border-gray-200 bg-gray-50">
@@ -284,7 +283,7 @@ export default function AISettingsPage() {
                                         Proveedor y Modelo
                                     </h2>
                                 </div>
-                                
+
                                 <div className="p-6 space-y-6">
                                     {/* Provider Selection */}
                                     <div>
@@ -297,11 +296,10 @@ export default function AISettingsPage() {
                                                     key={p.value}
                                                     type="button"
                                                     onClick={() => handleProviderChange(p.value as any)}
-                                                    className={`p-4 rounded-lg border-2 text-left transition-all ${
-                                                        provider === p.value
+                                                    className={`p-4 rounded-lg border-2 text-left transition-all ${provider === p.value
                                                             ? 'border-purple-500 bg-purple-50'
                                                             : 'border-gray-200 hover:border-gray-300'
-                                                    }`}
+                                                        }`}
                                                 >
                                                     <div className="flex items-center gap-3">
                                                         <span className="text-2xl">{p.icon}</span>
@@ -314,7 +312,7 @@ export default function AISettingsPage() {
                                             ))}
                                         </div>
                                     </div>
-                                    
+
                                     {/* API Key */}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -326,11 +324,10 @@ export default function AISettingsPage() {
                                                 value={apiKey}
                                                 onChange={(e) => handleApiKeyChange(e.target.value)}
                                                 placeholder={isConfigured ? '••••••••••••••••••••' : 'Ingrese su API Key'}
-                                                className={`w-full pr-20 rounded-lg border ${
-                                                    apiKeyError 
-                                                        ? 'border-red-300 focus:ring-red-500 focus:border-red-500' 
+                                                className={`w-full pr-20 rounded-lg border ${apiKeyError
+                                                        ? 'border-red-300 focus:ring-red-500 focus:border-red-500'
                                                         : 'border-gray-300 focus:ring-purple-500 focus:border-purple-500'
-                                                } shadow-sm`}
+                                                    } shadow-sm`}
                                                 autoComplete="off"
                                             />
                                             <button
@@ -348,13 +345,13 @@ export default function AISettingsPage() {
                                             </p>
                                         )}
                                         <p className="mt-1 text-xs text-gray-500">
-                                            {provider === 'OPENAI' 
+                                            {provider === 'OPENAI'
                                                 ? 'Obtener en platform.openai.com → API Keys'
                                                 : 'Obtener en aistudio.google.com → API Key'
                                             }
                                         </p>
                                     </div>
-                                    
+
                                     {/* Model Selection */}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -372,7 +369,7 @@ export default function AISettingsPage() {
                                             ))}
                                         </select>
                                     </div>
-                                    
+
                                     {/* Monthly Limit */}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -401,7 +398,7 @@ export default function AISettingsPage() {
                                             Protege contra uso excesivo. Una factura = 1 request.
                                         </p>
                                     </div>
-                                    
+
                                     {/* Fallback Provider */}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -421,7 +418,7 @@ export default function AISettingsPage() {
                                         </p>
                                     </div>
                                 </div>
-                                
+
                                 {/* Actions */}
                                 <div className="p-6 bg-gray-50 border-t border-gray-200 flex flex-col sm:flex-row gap-3 sm:justify-end">
                                     <button
@@ -452,7 +449,7 @@ export default function AISettingsPage() {
                                     </button>
                                 </div>
                             </div>
-                            
+
                             {/* Usage Card */}
                             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                                 <div className="p-6 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
@@ -467,7 +464,7 @@ export default function AISettingsPage() {
                                         <RefreshCw size={18} />
                                     </button>
                                 </div>
-                                
+
                                 <div className="p-6">
                                     {usage ? (
                                         <div className="space-y-6">
@@ -480,7 +477,7 @@ export default function AISettingsPage() {
                                                     </span>
                                                 </div>
                                                 <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
-                                                    <div 
+                                                    <div
                                                         className={`h-full ${getUsageColor(usage.percentUsed)} transition-all duration-500`}
                                                         style={{ width: `${Math.min(usage.percentUsed, 100)}%` }}
                                                     />
@@ -489,7 +486,7 @@ export default function AISettingsPage() {
                                                     {usage.percentUsed}% del límite mensual
                                                 </p>
                                             </div>
-                                            
+
                                             {/* Stats Grid */}
                                             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                                                 <div className="p-4 bg-gray-50 rounded-lg">
@@ -531,7 +528,7 @@ export default function AISettingsPage() {
                                     )}
                                 </div>
                             </div>
-                            
+
                             {/* Info Card */}
                             <div className="bg-blue-50 rounded-xl border border-blue-200 p-6">
                                 <div className="flex gap-4">
@@ -539,8 +536,8 @@ export default function AISettingsPage() {
                                     <div>
                                         <h3 className="font-medium text-blue-900 mb-1">Seguridad de API Keys</h3>
                                         <p className="text-sm text-blue-700">
-                                            Su API Key se almacena encriptada con AES-256-GCM y nunca se muestra 
-                                            después de guardarla. Las llamadas a la IA se registran para auditoría 
+                                            Su API Key se almacena encriptada con AES-256-GCM y nunca se muestra
+                                            después de guardarla. Las llamadas a la IA se registran para auditoría
                                             y control de costos.
                                         </p>
                                     </div>
