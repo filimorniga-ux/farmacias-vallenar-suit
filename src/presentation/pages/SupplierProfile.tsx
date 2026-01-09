@@ -35,21 +35,7 @@ export const SupplierProfile = () => {
 
     const supplier = suppliers.find(s => s.id === id);
 
-    if (!supplier) {
-        return (
-            <div className="p-10 text-center">
-                <h2 className="text-xl font-bold text-gray-800">Proveedor no encontrado</h2>
-                <Link to="/suppliers" className="text-blue-600 hover:underline mt-2 block">Volver al directorio</Link>
-            </div>
-        );
-    }
-
     const supplierOrders = purchaseOrders.filter(po => po.supplier_id === id);
-    const totalDebt = useMemo(() => {
-        return accountDocs
-            .filter(d => d.type === 'FACTURA' && d.status === 'PENDING')
-            .reduce((sum, d) => sum + Number(d.amount || 0), 0);
-    }, [accountDocs]);
 
     const fetchAccountDocs = async (supplierId: string) => {
         setIsLoadingAccount(true);
@@ -81,6 +67,12 @@ export const SupplierProfile = () => {
         fetchCatalogs(id);
     }, [id]);
 
+    const totalDebt = useMemo(() => {
+        return accountDocs
+            .filter(d => d.type === 'FACTURA' && d.status === 'PENDING')
+            .reduce((sum, d) => sum + Number(d.amount || 0), 0);
+    }, [accountDocs]);
+
     const filteredAccountDocs = useMemo(() => {
         return accountDocs.filter(doc => {
             const matchesNumber = accountSearch
@@ -101,6 +93,16 @@ export const SupplierProfile = () => {
             return fromOk && toOk;
         });
     }, [catalogFiles, catalogFrom, catalogTo]);
+
+    if (!supplier) {
+        return (
+            <div className="p-10 text-center">
+                <h2 className="text-xl font-bold text-gray-800">Proveedor no encontrado</h2>
+                <Link to="/suppliers" className="text-blue-600 hover:underline mt-2 block">Volver al directorio</Link>
+            </div>
+        );
+    }
+
 
     const handleDownloadAccountDoc = async (docId: string) => {
         const { getSupplierAccountDocumentFileSecure } = await import('@/actions/supplier-account-v2');
@@ -184,8 +186,8 @@ export const SupplierProfile = () => {
         }
     };
 
-        return (
-            <div className="min-h-screen bg-slate-50">
+    return (
+        <div className="min-h-screen bg-slate-50">
             {/* Header / Hero */}
             <div className="bg-white border-b border-slate-200 shadow-sm">
                 <div className="max-w-7xl mx-auto px-6 py-6">

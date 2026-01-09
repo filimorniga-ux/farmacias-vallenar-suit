@@ -55,12 +55,8 @@ const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
 
 async function getSession(): Promise<{ userId: string; role: string; locationId?: string } | null> {
     try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        const locationId = headersList.get('x-user-location');
-        if (!userId || !role) return null;
-        return { userId, role, locationId: locationId || undefined };
+        const { getSessionSecure } = await import('@/actions/auth-v2');
+        return await getSessionSecure();
     } catch {
         return null;
     }
@@ -411,7 +407,7 @@ export async function getAccountHistory(
     try {
         // Count
         const countRes = await query(`
-            SELECT COUNT(*) as total FROM treasury_movements
+            SELECT COUNT(*) as total FROM treasury_transactions
             WHERE account_id = $1
         `, [accountId]);
         const total = parseInt(countRes.rows[0]?.total || '0');
@@ -419,8 +415,8 @@ export async function getAccountHistory(
         // Data
         const res = await query(`
             SELECT tm.*, u.name as user_name
-            FROM treasury_movements tm
-            LEFT JOIN users u ON tm.user_id = u.id
+            FROM treasury_transactions tm
+            LEFT JOIN users u ON tm.created_by = u.id
             WHERE tm.account_id = $1
             ORDER BY tm.created_at DESC
             LIMIT $2 OFFSET $3
