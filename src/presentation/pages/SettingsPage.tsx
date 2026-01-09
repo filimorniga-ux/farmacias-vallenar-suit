@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Settings, User, Shield, Save, Receipt, Printer, ToggleLeft, ToggleRight, AlertTriangle, CreditCard, Star, Monitor, Building, Wallet } from 'lucide-react';
+import { Settings, User, Shield, Save, Receipt, Printer, ToggleLeft, ToggleRight, AlertTriangle, CreditCard, Star, Monitor, Building, Wallet, Bot } from 'lucide-react';
 import SiiSettings from './settings/SiiSettings';
 import HardwarePage from './settings/HardwarePage';
 import InventorySettings from './settings/InventorySettings';
@@ -19,7 +19,7 @@ import { FinancialAccountsSettings } from '../components/settings/FinancialAccou
 
 const SettingsPage: React.FC = () => {
     const [searchParams, setSearchParams] = useSearchParams();
-    const activeTab = (searchParams.get('tab') as 'general' | 'users' | 'sii' | 'hardware' | 'inventory' | 'billing' | 'loyalty' | 'terminals' | 'backup' | 'audit' | 'finances') || 'general';
+    const activeTab = (searchParams.get('tab') as 'general' | 'users' | 'sii' | 'hardware' | 'inventory' | 'billing' | 'loyalty' | 'terminals' | 'backup' | 'audit' | 'finances' | 'ai') || 'general';
 
     const setActiveTab = (tab: string) => {
         setSearchParams({ tab });
@@ -202,6 +202,20 @@ const SettingsPage: React.FC = () => {
                         <Save size={20} />
                         Respaldo
                     </button>
+
+                    {/* AI Tab (Manager Only) */}
+                    {(user?.role === 'MANAGER' || user?.role === 'ADMIN' || user?.role === 'GERENTE_GENERAL') && (
+                        <button
+                            onClick={() => setActiveTab('ai')}
+                            className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'ai'
+                                ? 'bg-violet-50 text-violet-700 border-b-2 border-violet-600'
+                                : 'text-slate-500 hover:bg-slate-50'
+                                }`}
+                        >
+                            <Bot size={20} />
+                            Inteligencia Artificial
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -321,6 +335,50 @@ const SettingsPage: React.FC = () => {
 
                         <p className="text-xs text-slate-400">
                             Formato: JSON Estandarizado • Incluye: Ventas, Caja, Inventario
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            {/* AI Tab Content */}
+            {activeTab === 'ai' && (
+                <div className="bg-white rounded-b-3xl shadow-sm border border-t-0 border-slate-200 p-8">
+                    <div className="flex flex-col items-center max-w-2xl mx-auto text-center space-y-6">
+                        <div className="bg-violet-100 p-6 rounded-full">
+                            <Bot size={48} className="text-violet-600" />
+                        </div>
+
+                        <div>
+                            <h2 className="text-2xl font-bold text-slate-800">Configuración de Inteligencia Artificial</h2>
+                            <p className="text-slate-500 mt-2">
+                                Configure los proveedores de IA para el procesamiento automático de facturas 
+                                y otras funcionalidades inteligentes del sistema.
+                            </p>
+                        </div>
+
+                        <div className="bg-violet-50 border border-violet-200 p-4 rounded-xl text-left w-full">
+                            <h3 className="font-bold text-violet-800 flex items-center gap-2">
+                                <Bot size={18} />
+                                Funcionalidades Disponibles
+                            </h3>
+                            <ul className="text-sm text-violet-900 mt-2 space-y-1">
+                                <li>• Lectura automática de facturas (OCR con IA)</li>
+                                <li>• Mapeo inteligente de productos</li>
+                                <li>• Validación de RUT y montos</li>
+                                <li>• Integración con OpenAI y Google Gemini</li>
+                            </ul>
+                        </div>
+
+                        <a
+                            href="/settings/ai"
+                            className="flex items-center gap-3 px-8 py-4 bg-violet-600 text-white font-bold rounded-xl hover:bg-violet-700 transition shadow-lg mt-4"
+                        >
+                            <Bot size={20} />
+                            Ir a Configuración de IA
+                        </a>
+
+                        <p className="text-xs text-slate-400">
+                            Requiere API Key de OpenAI o Google Gemini
                         </p>
                     </div>
                 </div>
