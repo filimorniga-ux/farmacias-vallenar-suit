@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
 import bcrypt from 'bcryptjs';
+import { getSessionSecure } from './auth-v2';
 
 // ============================================================================
 // SCHEMAS
@@ -85,7 +86,7 @@ export interface LogisticsKPIs {
 
 const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
 const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
-const ACCOUNTING_ROLES = ['CONTADOR', 'ADMIN', 'GERENTE_GENERAL'];
+const ACCOUNTING_ROLES = ['CONTADOR', 'ADMIN', 'GERENTE_GENERAL', 'MANAGER'];
 
 // Caché de reportes
 const reportCache = new Map<string, { data: any; expiresAt: number }>();
@@ -95,18 +96,7 @@ const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutos
 // HELPERS
 // ============================================================================
 
-async function getSession(): Promise<{ userId: string; role: string; locationId?: string } | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        const locationId = headersList.get('x-user-location');
-        if (!userId || !role) return null;
-        return { userId, role, locationId: locationId || undefined };
-    } catch {
-        return null;
-    }
-}
+
 
 function getCacheKey(type: string, params: any): string {
     return `report:${type}:${JSON.stringify(params)}`;
@@ -181,7 +171,7 @@ async function auditReportAccess(userId: string, reportType: string, params: any
 export async function getCashFlowLedgerSecure(
     params: { startDate?: string; endDate?: string; locationId?: string }
 ): Promise<{ success: boolean; data?: CashFlowEntry[]; error?: string }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session) {
         return { success: false, error: 'No autenticado' };
     }
@@ -282,7 +272,7 @@ export async function getCashFlowLedgerSecure(
 export async function getTaxSummarySecure(
     month?: string
 ): Promise<{ success: boolean; data?: any; error?: string }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session) {
         return { success: false, error: 'No autenticado' };
     }
@@ -360,7 +350,7 @@ export async function getTaxSummarySecure(
 export async function getInventoryValuationSecure(
     warehouseId?: string
 ): Promise<{ success: boolean; data?: any; error?: string }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session) {
         return { success: false, error: 'No autenticado' };
     }
@@ -426,7 +416,7 @@ export async function getPayrollPreviewSecure(
     year: number,
     adminPin: string
 ): Promise<{ success: boolean; data?: any[]; error?: string }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session) {
         return { success: false, error: 'No autenticado' };
     }
@@ -538,7 +528,7 @@ export async function getDetailedFinancialSummarySecure(
     startDate: string,
     endDate: string
 ): Promise<{ success: boolean; data?: FinancialSummary; error?: string }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session) {
         return { success: false, error: 'No autenticado' };
     }
@@ -567,7 +557,7 @@ export async function getDetailedFinancialSummarySecure(
             SELECT reason, amount 
             FROM cash_movements 
             WHERE timestamp >= $1::timestamp AND timestamp <= $2::timestamp 
-            AND type = 'OUT'
+            AND (type = 'OUT' OR type IN ('WITHDRAWAL', 'EXPENSE', 'CLOSING'))
         `, params);
 
         let payroll = 0;
@@ -619,7 +609,7 @@ export async function getLogisticsKPIsSecure(
     endDate: string,
     warehouseId?: string
 ): Promise<{ success: boolean; data?: LogisticsKPIs; error?: string }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session) {
         return { success: false, error: 'No autenticado' };
     }
@@ -685,7 +675,7 @@ export async function getStockMovementsDetailSecure(
     endDate: string,
     warehouseId?: string
 ): Promise<{ success: boolean; data?: StockMovementDetail[]; error?: string }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session) {
         return { success: false, error: 'No autenticado' };
     }
@@ -717,9 +707,15 @@ export async function getStockMovementsDetailSecure(
 
         // Filter by Type
         if (type === 'IN') {
-            queryStr += ` AND sm.movement_type IN ('PURCHASE_RECEIPT', 'TRANSFER_IN', 'RETURN', 'ADJUSTMENT_POS')`;
+            queryStr += ` AND (
+                sm.movement_type IN ('PURCHASE_RECEIPT', 'TRANSFER_IN', 'RETURN', 'ADJUSTMENT_POS', 'RECEIPT', 'PURCHASE_ENTRY', 'INITIAL')
+                OR (sm.movement_type = 'ADJUSTMENT' AND sm.quantity > 0)
+            )`;
         } else if (type === 'OUT') {
-            queryStr += ` AND sm.movement_type IN ('TRANSFER_OUT', 'DISPATCH', 'ADJUSTMENT_NEG', 'LOSS', 'SALE')`;
+            queryStr += ` AND (
+                sm.movement_type IN ('TRANSFER_OUT', 'DISPATCH', 'ADJUSTMENT_NEG', 'LOSS', 'SALE')
+                OR (sm.movement_type = 'ADJUSTMENT' AND sm.quantity < 0)
+            )`;
         }
 
         // Filter by Warehouse

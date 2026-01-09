@@ -174,7 +174,7 @@ export async function getShiftStatusSecure(
  */
 export async function openShiftSecure(
     data: z.infer<typeof OpenShiftSchema>
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; autoCheckInTriggered?: boolean }> {
     const validated = OpenShiftSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
@@ -223,7 +223,12 @@ export async function openShiftSecure(
 
         logger.info({ locationId, managerId: authResult.manager!.id }, '🟢 [Operations] Shift opened');
         revalidatePath('/');
-        return { success: true };
+
+        // 🤖 AUTO-CHECK-IN: Si abrió turno, está trabajando.
+        const { ensureCheckInSecure } = await import('@/actions/attendance-v2');
+        const autoCheckInTriggered = await ensureCheckInSecure(authResult.manager!.id, locationId);
+
+        return { success: true, autoCheckInTriggered };
 
     } catch (error: any) {
         await client.query('ROLLBACK');

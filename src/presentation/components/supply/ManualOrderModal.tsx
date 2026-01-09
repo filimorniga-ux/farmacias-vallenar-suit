@@ -16,6 +16,7 @@ interface OrderItem {
     name: string;
     quantity: number;
     cost_price: number;
+    sale_price: number;
     stock_actual: number;
     stock_max: number;
 }
@@ -44,6 +45,7 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
                         name: item.name,
                         quantity: item.quantity_ordered,
                         cost_price: item.cost_price,
+                        sale_price: inventoryItem?.price_sell_unit || inventoryItem?.price || 0,
                         stock_actual: inventoryItem?.stock_actual || 0,
                         stock_max: inventoryItem?.stock_max || 100
                     };
@@ -81,6 +83,7 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
             name: product.name,
             quantity: 1,
             cost_price: product.cost_price || 0,
+            sale_price: product.price_sell_unit || product.price || 0,
             stock_actual: product.stock_actual,
             stock_max: product.stock_max || 100 // Default max if not set
         }]);
@@ -99,8 +102,9 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
 
     const totals = useMemo(() => {
         const net = orderItems.reduce((acc, item) => acc + (item.quantity * item.cost_price), 0);
+        const retail = orderItems.reduce((acc, item) => acc + (item.quantity * (item.sale_price || 0)), 0);
         const tax = net * 0.19;
-        return { net, tax, total: net + tax };
+        return { net, tax, total: net + tax, retail };
     }, [orderItems]);
 
     const handleSave = (status: 'DRAFT' | 'SENT') => {
@@ -281,8 +285,8 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
                                         <tr className="text-xs font-bold text-gray-500 uppercase">
                                             <th className="px-4">Producto</th>
                                             <th className="px-4 text-center">Cantidad</th>
-                                            <th className="px-4 text-right">Costo Unit.</th>
-                                            <th className="px-4 text-right">Subtotal</th>
+                                            <th className="px-4 text-right">Costo / Venta Unit.</th>
+                                            <th className="px-4 text-right">Subtotal (Costo / Venta)</th>
                                             <th className="px-4"></th>
                                         </tr>
                                     </thead>
@@ -293,6 +297,9 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
                                                     <div className="font-bold text-gray-800">{item.name}</div>
                                                     <div className="flex items-center gap-2 mt-1">
                                                         <span className="text-xs font-mono text-gray-400">{item.sku}</span>
+                                                        <span className="text-xs text-green-600 bg-green-50 px-1 rounded">
+                                                            Venta: ${item.sale_price?.toLocaleString()}
+                                                        </span>
                                                         {item.stock_actual > item.stock_max && (
                                                             <span className="flex items-center gap-1 text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">
                                                                 <AlertTriangle size={10} /> SOBRESTOCK
@@ -310,19 +317,31 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
                                                     />
                                                 </td>
                                                 <td className="p-4 text-right">
-                                                    <div className="relative">
-                                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                                                        <input
-                                                            type="number"
-                                                            min="0"
-                                                            value={item.cost_price}
-                                                            onChange={(e) => updateItem(item.sku, 'cost_price', parseInt(e.target.value) || 0)}
-                                                            className="w-24 p-2 pl-6 text-right border border-gray-200 rounded-lg font-mono text-sm focus:border-cyan-500 focus:outline-none"
-                                                        />
+                                                    <div className="flex flex-col items-end gap-1">
+                                                        <div className="relative">
+                                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                                                            <input
+                                                                type="number"
+                                                                min="0"
+                                                                value={item.cost_price}
+                                                                onChange={(e) => updateItem(item.sku, 'cost_price', parseInt(e.target.value) || 0)}
+                                                                className="w-24 p-2 pl-6 text-right border border-gray-200 rounded-lg font-mono text-sm focus:border-cyan-500 focus:outline-none"
+                                                            />
+                                                        </div>
+                                                        <span className="text-xs text-green-600 font-medium bg-green-50 px-2 py-0.5 rounded-full">
+                                                            V: ${item.sale_price?.toLocaleString()}
+                                                        </span>
                                                     </div>
                                                 </td>
-                                                <td className="p-4 text-right font-bold text-gray-800">
-                                                    ${(item.quantity * item.cost_price).toLocaleString()}
+                                                <td className="p-4 text-right">
+                                                    <div className="flex flex-col items-end">
+                                                        <span className="font-bold text-gray-800">
+                                                            ${(item.quantity * item.cost_price).toLocaleString()}
+                                                        </span>
+                                                        <span className="text-sm font-bold text-green-600">
+                                                            ${(item.quantity * (item.sale_price || 0)).toLocaleString()}
+                                                        </span>
+                                                    </div>
                                                 </td>
                                                 <td className="p-4 rounded-r-xl text-center">
                                                     <button
@@ -353,6 +372,10 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
                                 <div className="text-right">
                                     <p className="text-sm text-gray-500 mb-1">Total a Pagar</p>
                                     <p className="text-3xl font-extrabold text-cyan-600">${totals.total.toLocaleString()}</p>
+                                </div>
+                                <div className="text-right pl-6 border-l border-gray-200">
+                                    <p className="text-sm text-gray-500 mb-1">Total Venta (Est.)</p>
+                                    <p className="text-xl font-bold text-green-600">${totals.retail.toLocaleString()}</p>
                                 </div>
                             </div>
 

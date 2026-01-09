@@ -32,9 +32,14 @@ export const HRReportTab: React.FC<HRReportTabProps> = ({ dateRange, locationId 
 
                 if (reportResult.success && reportResult.data) {
                     setData(reportResult.data);
+                } else {
+                    toast.error(reportResult.error || 'Error cargando datos de asistencia');
                 }
+
                 if (kpiResult.success && kpiResult.data) {
                     setKpis(kpiResult.data);
+                } else {
+                    if (reportResult.success) toast.error(kpiResult.error || 'Error cargando KPIs de asistencia');
                 }
             } catch (error) {
                 console.error(error);

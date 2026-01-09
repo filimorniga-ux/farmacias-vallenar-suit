@@ -15,12 +15,19 @@ import MobileActionScroll from '../components/ui/MobileActionScroll';
 import { toast } from 'sonner';
 
 export const WarehouseOps = () => {
-    const { user, shipments, purchaseOrders, cancelShipment, cancelPurchaseOrder, receivePurchaseOrder, inventory, createDispatch, addPurchaseOrder } = usePharmaStore();
+    const { user, shipments, purchaseOrders, cancelShipment, refreshShipments, cancelPurchaseOrder, receivePurchaseOrder, inventory, createDispatch, addPurchaseOrder } = usePharmaStore();
     const { currentLocation } = useLocationStore();
-    const currentLocationId = currentLocation?.id || 'SUCURSAL_CENTRO';
+    const currentLocationId = currentLocation?.id || '';
 
     const [activeTab, setActiveTab] = useState<'INBOUND' | 'OUTBOUND' | 'TRANSIT' | 'REVERSE' | 'SUPPLIER_ORDERS' | 'MOVEMENTS'>('INBOUND');
     const [searchTerm, setSearchTerm] = useState('');
+
+    // Fetch shipments when location or tab changes
+    React.useEffect(() => {
+        if (currentLocationId && activeTab !== 'MOVEMENTS') {
+            refreshShipments(currentLocationId);
+        }
+    }, [currentLocationId, activeTab]);
 
     // Modal States
     const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null);
@@ -43,7 +50,7 @@ export const WarehouseOps = () => {
     const [movements, setMovements] = useState<any[]>([]);
     const [loadingMovements, setLoadingMovements] = useState(false);
 
-    const isWarehouse = currentLocation?.type === 'WAREHOUSE';
+    const isWarehouse = currentLocation?.type === 'WAREHOUSE' || currentLocation?.type === 'HQ';
 
     // Fetch movements when tab changes to MOVEMENTS or location changes
     React.useEffect(() => {
@@ -67,6 +74,28 @@ export const WarehouseOps = () => {
         toast.success('Filtros limpiados');
     };
 
+    // Manual Refresh
+    const handleRefresh = async () => {
+        if (!currentLocationId) {
+            toast.error('Seleccione una sucursal primero');
+            return;
+        }
+
+        const refreshPromise = async () => {
+            await refreshShipments(currentLocationId);
+            if (activeTab === 'MOVEMENTS') {
+                const res = await getRecentMovementsSecure(currentLocationId);
+                if (res.success && res.data) setMovements(res.data);
+            }
+        };
+
+        toast.promise(refreshPromise(), {
+            loading: 'Sincronizando con base de datos...',
+            success: 'Datos actualizados',
+            error: 'Error al sincronizar'
+        });
+    };
+
     // Filter Logic
     const filteredItems = (() => {
         let items: (Shipment | PurchaseOrder)[] = [];
@@ -87,6 +116,8 @@ export const WarehouseOps = () => {
                     matchesSearch =
                         item.transport_data.tracking_number.toLowerCase().includes(searchStr) ||
                         item.origin_location_id.toLowerCase().includes(searchStr) ||
+                        (item.origin_location_name || '').toLowerCase().includes(searchStr) ||
+                        (item.destination_location_name || '').toLowerCase().includes(searchStr) ||
                         item.items.some(i => i.sku.toLowerCase().includes(searchStr));
                 } else { // PurchaseOrder
                     matchesSearch =
@@ -204,7 +235,7 @@ export const WarehouseOps = () => {
 
             const tableData = dailyShipments.map(s => [
                 new Date(s.created_at).toLocaleTimeString('es-CL'),
-                s.type === 'INBOUND_PROVIDER' ? 'Entrada' : s.type === 'INTERNAL_TRANSFER' ? 'Transferencia' : 'Devolución',
+                s.type === 'INBOUND' ? 'Entrada' : s.type === 'INTER_BRANCH' ? 'Transferencia' : 'Devolución',
                 `${s.origin_location_id} → ${s.destination_location_id}`,
                 s.status.replace('_', ' '),
                 s.transport_data.package_count.toString(),
@@ -304,9 +335,13 @@ export const WarehouseOps = () => {
                         <Package className="w-8 h-8 text-blue-600" />
                         Operaciones Logísticas (WMS)
                     </h1>
-                    {currentLocation && (
-                        <p className="text-indigo-600 font-bold ml-10 mt-1">
-                            Viendo: {currentLocation.name} (Bodega Principal)
+                    {currentLocation ? (
+                        <p className="text-indigo-600 font-bold ml-10 mt-1 italic">
+                            Contexto: {currentLocation.name}
+                        </p>
+                    ) : (
+                        <p className="text-amber-600 font-bold ml-10 mt-1 animate-pulse">
+                            ⚠️ Por favor, seleccione una sucursal en el encabezado para ver los datos.
                         </p>
                     )}
                 </div>
@@ -425,6 +460,14 @@ export const WarehouseOps = () => {
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
                     </div>
+                    <button
+                        onClick={handleRefresh}
+                        className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-2 font-bold text-sm transition-all"
+                        title="Refrescar datos"
+                    >
+                        <RotateCcw className={`w-4 h-4 ${loadingMovements ? 'animate-spin' : ''}`} />
+                        Refrescar
+                    </button>
                     <button
                         onClick={() => setShowFilterPanel(!showFilterPanel)}
                         className={`px-4 py-2 border rounded-lg flex items-center gap-2 font-bold text-sm transition-all ${showFilterPanel
@@ -660,9 +703,9 @@ export const WarehouseOps = () => {
                                                 <div className="flex items-center gap-4 text-sm text-gray-500">
                                                     <div className="flex items-center gap-1">
                                                         <MapPin size={14} />
-                                                        <span>{shipment.origin_location_id}</span>
+                                                        <span>{shipment.origin_location_name || shipment.origin_location_id}</span>
                                                         <ArrowRight size={14} className="mx-1" />
-                                                        <span className="font-bold text-gray-700">{shipment.destination_location_id}</span>
+                                                        <span className="font-bold text-gray-700">{shipment.destination_location_name || shipment.destination_location_id}</span>
                                                     </div>
                                                     <div className="flex items-center gap-1">
                                                         <Clock size={14} />

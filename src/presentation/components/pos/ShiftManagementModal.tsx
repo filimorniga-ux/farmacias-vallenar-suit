@@ -381,6 +381,16 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
             );
 
             toast.success('Turno abierto correctamente');
+
+            // 🤖 AUTO-CHECK-IN FEEDBACK
+            if (result.autoCheckInTriggered) {
+                setTimeout(() => {
+                    toast.warning('⚠️ Asistencia marcada automáticamente por apertura de caja', {
+                        duration: 5000,
+                    });
+                }, 500); // Slight delay to ensure visibility after modal closes
+            }
+
             onClose();
 
             // C. Resetear Formulario

@@ -5,7 +5,7 @@ import { usePharmaStore } from '../../store/useStore';
 import { toast } from 'sonner';
 // V2: Funciones seguras
 import { createBatchSecure } from '../../../actions/inventory-v2';
-import { updateProductSecure } from '../../../actions/products-v2';
+import { updateProductMasterSecure } from '../../../actions/products-v2';
 
 interface InventoryEditModalProps {
     isOpen: boolean;
@@ -34,12 +34,29 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
                 ...product,
                 sku: normalizedSku,
                 contraindications: product.contraindications || [],
-                therapeutic_tags: product.therapeutic_tags || []
+                therapeutic_tags: product.therapeutic_tags || [],
+                // Ensure numbers
+                cost_net: Number(product.cost_net || product.cost_price || 0),
+                price: Number(product.price || product.price_sell_box || 0)
             });
             // Filter batches for this product (assuming SKU is the grouper)
             setActiveBatches(inventory.filter(i => i.sku === product.sku && i.stock_actual > 0));
         }
     }, [product, inventory]);
+
+    // Format CLP Helper
+    const formatCLP = (val: number | undefined) => {
+        if (val === undefined || val === null) return '';
+        return Math.round(val).toLocaleString('es-CL');
+    };
+
+    // Parse CLP Input Helper
+    const handleNumberChange = (val: string, field: keyof InventoryBatch) => {
+        // Remove dots and everything that is not a digit
+        const cleanVal = val.replace(/\./g, '').replace(/[^0-9]/g, '');
+        const numVal = cleanVal === '' ? 0 : parseInt(cleanVal, 10);
+        setFormData(prev => ({ ...prev, [field]: numVal }));
+    };
 
     if (!isOpen || !product) return null;
 
@@ -54,13 +71,31 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
 
         try {
             const formDataAny = formData as any;
-            const result = await updateProductSecure({
-                productId: product.id,
+
+            // Call the new Master Update Action
+            const result = await updateProductMasterSecure({
+                productId: product.product_id || product.id,
                 sku: rawSku || undefined,
-                name: formData.name,
-                description: formDataAny.description,
+                name: formData.name || undefined,
+                description: formDataAny.description || undefined,
+
+                // Stock Config
                 minStock: formData.stock_min,
                 maxStock: formData.stock_max,
+
+                // Financials
+                price: formData.price,
+                costPrice: formData.cost_net,
+
+                // Clinical / Extra
+                dci: formData.dci || undefined,
+                laboratory: formData.laboratory || undefined,
+                ispRegister: formData.isp_register || undefined,
+                format: formData.format || undefined,
+                unitsPerBox: formData.units_per_box,
+                isBioequivalent: formData.is_bioequivalent,
+                condition: formData.condition || 'VD',
+
                 requiresPrescription: formDataAny.requires_prescription,
                 isColdChain: formDataAny.is_cold_chain,
                 userId: user?.id || '00000000-0000-0000-0000-000000000000'
@@ -68,6 +103,9 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
 
             if (!result.success) {
                 toast.error(result.error || 'Error al actualizar producto');
+                if (result.requiresApproval) {
+                    toast.warning('El cambio de precio requiere autorización de un Manager.');
+                }
                 return;
             }
 
@@ -382,21 +420,29 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Precio Venta</label>
-                                        <input
-                                            type="number"
-                                            className="w-full p-3 border border-slate-200 rounded-xl font-mono"
-                                            value={formData.price || 0}
-                                            onChange={e => setFormData({ ...formData, price: Number(e.target.value) })}
-                                        />
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">$</span>
+                                            <input
+                                                type="text"
+                                                className="w-full pl-6 p-3 border border-slate-200 rounded-xl font-mono"
+                                                value={formatCLP(formData.price)}
+                                                onChange={e => handleNumberChange(e.target.value, 'price')}
+                                                placeholder="0"
+                                            />
+                                        </div>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Costo Neto</label>
-                                        <input
-                                            type="number"
-                                            className="w-full p-3 border border-slate-200 rounded-xl font-mono"
-                                            value={formData.cost_price || 0}
-                                            onChange={e => setFormData({ ...formData, cost_price: Number(e.target.value) })}
-                                        />
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">$</span>
+                                            <input
+                                                type="text"
+                                                className="w-full pl-6 p-3 border border-slate-200 rounded-xl font-mono"
+                                                value={formatCLP(formData.cost_net)}
+                                                onChange={e => handleNumberChange(e.target.value, 'cost_net')}
+                                                placeholder="0"
+                                            />
+                                        </div>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-slate-500 mb-1 text-red-500 flex items-center gap-1">

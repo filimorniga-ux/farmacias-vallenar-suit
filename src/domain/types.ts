@@ -1,5 +1,5 @@
 
-export type Role = 'MANAGER' | 'QF' | 'CASHIER' | 'WAREHOUSE' | 'ADMIN' | 'GERENTE_GENERAL';
+export type Role = 'MANAGER' | 'QF' | 'CASHIER' | 'WAREHOUSE' | 'ADMIN' | 'GERENTE_GENERAL' | 'RRHH' | 'CONTADOR' | 'DRIVER';
 export type DrugCategory = string; // 'MEDICAMENTO' | 'INSUMO_MEDICO' | 'RETAIL_BELLEZA' | 'SUPLEMENTO' (Dynamic)
 export type SaleCondition = 'VD' | 'R' | 'RR' | 'RCH';
 export type StorageCondition = 'AMBIENTE' | 'REFRIGERADO' | 'CONTROLADO';
@@ -43,6 +43,7 @@ export interface KioskConfig {
 
 export interface InventoryBatch {
     id: string;
+    product_id?: string; // ID for Product Master (may differ from batch id)
     sku: string;
     name: string;
     dci?: string; // Principio Activo (Optional)
@@ -161,7 +162,7 @@ export interface EmployeeProfile {
     name: string;
     role: Role; // System Role (Permissions)
     access_pin?: string; // 4 dígitos (Optional for Secure Mode)
-    status: 'ACTIVE' | 'ON_LEAVE' | 'TERMINATED';
+    status: 'ACTIVE' | 'ON_LEAVE' | 'TERMINATED' | 'INACTIVE';
     base_location_id?: string; // Sucursal Base (Contractual)
     assigned_location_id?: string; // Dónde trabaja hoy (Operativo)
     token_version?: number;
@@ -467,6 +468,7 @@ export interface AutoOrderSuggestion {
     urgency: 'HIGH' | 'MEDIUM' | 'LOW';
     reason: string;
     supplier_id?: string;
+    unit_cost?: number; // Costo unitario calculado por el servidor
     estimated_cost?: number;
 }
 
@@ -559,9 +561,11 @@ export interface CashShift {
 // --- WMS & Logistics ---
 export interface Shipment {
     id: string; // UUID
-    type: 'INBOUND_PROVIDER' | 'INTERNAL_TRANSFER' | 'RETURN';
+    type: 'INBOUND' | 'OUTBOUND' | 'INTER_BRANCH' | 'RETURN';
     origin_location_id: string; // Bodega o Proveedor
+    origin_location_name?: string;
     destination_location_id: string; // Sucursal receptora
+    destination_location_name?: string;
     status: 'PREPARING' | 'IN_TRANSIT' | 'DELIVERED' | 'RECEIVED_WITH_DISCREPANCY' | 'CANCELLED';
 
     transport_data: {
@@ -579,6 +583,7 @@ export interface Shipment {
     };
 
     items: {
+        id: string;
         batchId: string;
         sku: string;
         name: string; // Denormalized

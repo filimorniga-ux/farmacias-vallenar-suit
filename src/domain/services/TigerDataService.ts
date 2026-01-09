@@ -325,15 +325,23 @@ export const TigerDataService = {
      * 🚚 Fetch Shipments (Real)
      */
     fetchShipments: async (locationId?: string): Promise<any[]> => {
+        console.log('🐯 [Tiger Data] Fetching shipments for location:', locationId);
         try {
-            // TODO: Implement getShipmentsSecure in wms-v2
-            // For now, return empty array until V2 function is created
+            const { getShipmentsSecure } = await import('../../actions/wms-v2');
+            const result = await getShipmentsSecure({
+                locationId,
+                page: 1,
+                pageSize: 100 // Aumentamos límite para ver más despachos
+            });
+
+            if (result.success && result.data) {
+                console.log(`✅ [Tiger Data] Loaded ${result.data.shipments.length} shipments from DB`);
+                return result.data.shipments;
+            }
             return [];
         } catch (error) {
             console.error('❌ [Tiger Data] Fetch Shipments failed:', error);
-            // Fallback to Mock if DB fails? Or empty.
-            const { MOCK_SHIPMENTS } = await import('../mocks');
-            return MOCK_SHIPMENTS;
+            return [];
         }
     },
 

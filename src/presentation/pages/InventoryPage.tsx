@@ -14,9 +14,11 @@ import BulkImportModal from '../components/inventory/BulkImportModal';
 import InventoryExportModal from '../components/inventory/InventoryExportModal';
 import QuickStockModal from '../components/inventory/QuickStockModal';
 import ProductDeleteConfirm from '../components/inventory/ProductDeleteConfirm';
+import { InventoryCostEditor } from '../components/inventory/InventoryCostEditor';
 import { hasPermission } from '../../domain/security/roles';
 import MobileActionScroll from '../components/ui/MobileActionScroll';
 import { toast } from 'sonner';
+import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 
 const InventoryPage: React.FC = () => {
     const { inventory, user, currentLocationId, setCurrentLocation, fetchInventory } = usePharmaStore();
@@ -81,9 +83,15 @@ const InventoryPage: React.FC = () => {
         if (navigator.vibrate) navigator.vibrate(200);
         const audio = new Audio('/beep.mp3');
         audio.play().catch(() => { });
-        toast.success('Producto encontrado');
+        toast.success('Producto encontrado', { duration: 1000, icon: <ScanBarcode size={16} /> });
         setIsScannerOpen(false);
     };
+
+    // Keyboard wedge scanner integration (USB/Bluetooth barcode guns)
+    useBarcodeScanner({
+        onScan: handleScan,
+        minLength: 3
+    });
 
     const filteredInventory = useMemo(() => {
         if (!inventory) return [];
@@ -491,10 +499,14 @@ const InventoryPage: React.FC = () => {
                                                     <span className="text-xs font-bold text-slate-400">
                                                         (${item.price_sell_unit ? item.price_sell_unit.toLocaleString() : Math.round((item.price_sell_box || item.price || 0) / (item.units_per_box || item.unit_count || 1)).toLocaleString()} / un)
                                                     </span>
-                                                    {(user?.role === 'MANAGER' || user?.role === 'ADMIN') && (
-                                                        <span className="text-[10px] font-mono text-slate-300 mt-1">
-                                                            Costo: ${(item.cost_net || item.cost_price || 0).toLocaleString()}
-                                                        </span>
+                                                    {(user?.role === 'MANAGER' || user?.role === 'ADMIN' || user?.role === 'GERENTE_GENERAL') && (
+                                                        <div className="flex justify-end mt-1">
+                                                            <InventoryCostEditor
+                                                                batchId={item.id}
+                                                                currentCost={item.cost_price || item.cost_net || 0}
+                                                                productName={item.name}
+                                                            />
+                                                        </div>
                                                     )}
                                                 </div>
                                             </div>

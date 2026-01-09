@@ -7,7 +7,16 @@ import * as reportsV2 from '@/actions/reports-detail-v2';
 
 vi.mock('@/lib/db', () => ({ query: vi.fn(), pool: { connect: vi.fn() } }));
 vi.mock('next/headers', () => ({
-    headers: vi.fn(async () => new Map([['x-user-id', 'user-1'], ['x-user-role', 'MANAGER']]))
+    headers: vi.fn(async () => new Map([['x-user-id', 'user-1'], ['x-user-role', 'MANAGER']])),
+    cookies: vi.fn(async () => ({
+        get: (name: string) => {
+            const cookies = new Map([
+                ['user_id', { value: 'user-1' }],
+                ['user_role', { value: 'MANAGER' }]
+            ]);
+            return cookies.get(name);
+        }
+    }))
 }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
@@ -18,6 +27,15 @@ describe('Reports V2 - Cash Flow RBAC', () => {
             ['x-user-id', 'user-1'],
             ['x-user-role', 'CASHIER']
         ]) as any);
+
+        // Also mock cookies to avoid overriding headers with default MANAGER
+        vi.mocked(mockHeaders.cookies).mockResolvedValueOnce({
+            get: vi.fn((name) => {
+                if (name === 'user_role') return { value: 'CASHIER' };
+                if (name === 'user_id') return { value: 'user-1' };
+                return undefined;
+            })
+        } as any);
 
         const result = await reportsV2.getCashFlowLedgerSecure({});
 
@@ -31,8 +49,17 @@ describe('Reports V2 - Tax Summary RBAC', () => {
         const mockHeaders = await import('next/headers');
         vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map([
             ['x-user-id', 'user-1'],
-            ['x-user-role', 'MANAGER'] // Not admin/contador
+            ['x-user-role', 'CASHIER'] // Not admin/contador
         ]) as any);
+
+        // Mock cookies to match
+        vi.mocked(mockHeaders.cookies).mockResolvedValueOnce({
+            get: vi.fn((name) => {
+                if (name === 'user_role') return { value: 'CASHIER' };
+                if (name === 'user_id') return { value: 'user-1' };
+                return undefined;
+            })
+        } as any);
 
         const result = await reportsV2.getTaxSummarySecure('2024-01');
 
@@ -49,6 +76,15 @@ describe('Reports V2 - Payroll PIN Required', () => {
             ['x-user-role', 'MANAGER']
         ]) as any);
 
+        // Mock cookies to match
+        vi.mocked(mockHeaders.cookies).mockResolvedValueOnce({
+            get: vi.fn((name) => {
+                if (name === 'user_role') return { value: 'MANAGER' };
+                if (name === 'user_id') return { value: 'user-1' };
+                return undefined;
+            })
+        } as any);
+
         const result = await reportsV2.getPayrollPreviewSecure(1, 2024, '1234');
 
         expect(result.success).toBe(false);
@@ -61,6 +97,16 @@ describe('Reports V2 - Payroll PIN Required', () => {
             ['x-user-id', 'admin-1'],
             ['x-user-role', 'ADMIN']
         ]) as any);
+
+        // Mock cookies. NOTE: logic in auth-v2 might require userName too if we want full fidelity, 
+        // but role is the key here.
+        vi.mocked(mockHeaders.cookies).mockResolvedValueOnce({
+            get: vi.fn((name) => {
+                if (name === 'user_role') return { value: 'ADMIN' };
+                if (name === 'user_id') return { value: 'admin-1' };
+                return undefined;
+            })
+        } as any);
 
         const result = await reportsV2.getPayrollPreviewSecure(1, 2024, ''); // No PIN
 

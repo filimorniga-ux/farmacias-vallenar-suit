@@ -40,7 +40,7 @@ const EmailSchema = z.string()
     .email('Email inválido')
     .max(100);
 
-const RoleSchema = z.enum(['CASHIER', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'DRIVER', 'QF']);
+const RoleSchema = z.enum(['CASHIER', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'DRIVER', 'QF', 'RRHH', 'CONTADOR']);
 
 const PINSchema = z.string()
     .min(4, 'PIN debe tener al menos 4 dígitos')
@@ -136,22 +136,33 @@ interface UserData {
 /**
  * Get current session from headers
  */
+/**
+ * Get current session (Headers first, then Cookies)
+ */
 async function getSession(): Promise<{ user?: { id: string; role: string } } | null> {
     try {
-        // In real implementation, this would get from NextAuth or similar
-        // For now, we'll use a header-based approach
         const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const userRole = headersList.get('x-user-role');
+        const { cookies } = await import('next/headers');
 
-        if (!userId || !userRole) {
+        // 1. Try Headers
+        let userId = headersList.get('x-user-id');
+        let role = headersList.get('x-user-role');
+
+        // 2. Try Cookies
+        if (!userId || !role) {
+            const cookieStore = await cookies();
+            userId = cookieStore.get('user_id')?.value || null;
+            role = cookieStore.get('user_role')?.value || null;
+        }
+
+        if (!userId || !role) {
             return null;
         }
 
         return {
             user: {
                 id: userId,
-                role: userRole
+                role: role
             }
         };
     } catch {
@@ -832,6 +843,18 @@ export async function getUsersSecure(filters?: z.infer<typeof GetUsersSchema>): 
             success: false,
             error: validated.error.issues[0]?.message || 'Filtros inválidos'
         };
+    }
+
+    const session = await getSession();
+    const ALLOWED_VIEW_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH', 'CONTADOR'];
+
+    // Si no hay sesión, permitir tal vez si es uso interno? No, seguro.
+    if (!session || !session.user) {
+        return { success: false, error: 'No autenticado' };
+    }
+
+    if (!ALLOWED_VIEW_ROLES.includes(session.user.role)) {
+        return { success: false, error: 'No autorizado para ver empleados' };
     }
 
     try {

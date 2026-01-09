@@ -184,7 +184,7 @@ export async function createPurchaseOrderSecure(data: z.infer<typeof CreatePurch
 
         // 2. Validate supplier exists
         const supplierRes = await client.query(
-            'SELECT id, name FROM suppliers WHERE id = $1 AND status = $2',
+            'SELECT id, business_name as name FROM suppliers WHERE id = $1 AND status = $2',
             [validated.data.supplierId, 'ACTIVE']
         );
 
@@ -667,6 +667,69 @@ export async function cancelPurchaseOrderSecure(data: z.infer<typeof CancelPurch
 }
 
 /**
+ * 🗑️ Eliminar Borrador de Orden de Compra
+ */
+export async function deletePurchaseOrderSecure(params: {
+    orderId: string;
+    userId: string;
+}): Promise<{ success: boolean; error?: string }> {
+
+    const { orderId, userId } = params;
+
+    const { pool } = await import('@/lib/db');
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        // 1. Verificar estado (solo borradores)
+        const orderRes = await client.query(
+            'SELECT status, created_by, location_id FROM purchase_orders WHERE id = $1 FOR UPDATE',
+            [orderId]
+        );
+
+        if (orderRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'Orden no encontrada' };
+        }
+
+        const order = orderRes.rows[0];
+
+        if (order.status !== 'DRAFT') {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'Solo se pueden eliminar borradores' };
+        }
+
+        // 2. Eliminar items
+        await client.query('DELETE FROM purchase_order_items WHERE purchase_order_id = $1', [orderId]);
+
+        // 3. Eliminar orden
+        await client.query('DELETE FROM purchase_orders WHERE id = $1', [orderId]);
+
+        // 4. Auditoría
+        await client.query(`
+            INSERT INTO audit_log (
+                user_id, location_id, action_code, 
+                entity_type, entity_id, 
+                description
+            ) VALUES ($1, $2, 'DELETE_PO', 'PURCHASE_ORDER', $3, 'Eliminación de borrador')
+        `, [userId, order.location_id, orderId]);
+
+        await client.query('COMMIT');
+        revalidatePath('/procurement');
+
+        return { success: true };
+
+    } catch (error: any) {
+        await client.query('ROLLBACK');
+        console.error('Error deleting PO:', error);
+        return { success: false, error: error.message };
+    } finally {
+        client.release();
+    }
+}
+
+/**
  * 📋 Get Purchase Order History (Paginated)
  */
 export async function getPurchaseOrderHistory(filters?: {
@@ -779,7 +842,7 @@ export async function getPurchaseOrderHistory(filters?: {
  * 🧠 Generate Restock Suggestion (MRP Algorithm - Secure)
  */
 export async function generateRestockSuggestionSecure(
-    supplierId: string,
+    supplierId?: string,
     daysToCover: number = 15,
     analysisWindow: number = 30,
     locationId?: string
@@ -789,9 +852,13 @@ export async function generateRestockSuggestionSecure(
     error?: string;
 }> {
     // Validate inputs
-    const supplierValidated = UUIDSchema.safeParse(supplierId);
-    if (!supplierValidated.success) {
-        return { success: false, error: 'ID de proveedor inválido' };
+    let supplierValidated: string | undefined = undefined;
+    if (supplierId) {
+        const parsed = UUIDSchema.safeParse(supplierId);
+        if (!parsed.success) {
+            return { success: false, error: 'ID de proveedor inválido' };
+        }
+        supplierValidated = parsed.data;
     }
 
     if (daysToCover < 1 || daysToCover > 365) {
@@ -804,7 +871,7 @@ export async function generateRestockSuggestionSecure(
 
     try {
         // Parametros para la query
-        const queryParams: any[] = [supplierValidated.data, analysisWindow];
+        const queryParams: any[] = [supplierValidated || null, analysisWindow];
         let paramIndex = 3;
 
         // Filtro de ubicación para Stock y Ventas
@@ -812,77 +879,12 @@ export async function generateRestockSuggestionSecure(
         let locationFilterSales = '';
 
         if (locationId) {
-            locationFilterStock = `AND warehouse_id = $${paramIndex}`;
-            locationFilterSales = `AND s.location_id = $${paramIndex}`;
+            locationFilterStock = `AND w.location_id = $${paramIndex}`;
+            locationFilterSales = `AND w.location_id = $${paramIndex}`;
             queryParams.push(locationId);
             paramIndex++;
         }
 
-        const sql = `
-            WITH 
-            TargetProducts AS (
-                SELECT 
-                    p.id as product_id, 
-                    p.name as product_name, 
-                    p.sku as product_sku, 
-                    p.image_url,
-                    p.min_stock as safety_stock,
-                    ps.last_cost, 
-                    ps.supplier_sku
-                FROM products p
-                JOIN product_suppliers ps ON p.id = ps.product_id
-                WHERE ps.supplier_id = $1
-            ),
-            CurrentStock AS (
-                SELECT 
-                    product_id, 
-                    SUM(quantity_real) as total_stock
-                FROM inventory_batches
-                WHERE  quantity_real > 0
-                ${locationFilterStock}
-                GROUP BY product_id
-            ),
-            IncomingStock AS (
-                SELECT 
-                    poi.product_id,
-                    SUM(poi.quantity_ordered - COALESCE(poi.quantity_received, 0)) as incoming
-                FROM purchase_order_items poi
-                JOIN purchase_orders po ON poi.purchase_order_id = po.id
-                WHERE po.status = 'APPROVED'
-                ${locationId ? `AND po.target_warehouse_id = $${queryParams.length}` : ''} 
-                GROUP BY poi.product_id
-            ),
-            SalesHistory AS (
-                SELECT 
-                    ib.product_id, 
-                    SUM(si.quantity) as total_sold
-                FROM sale_items si
-                JOIN sales s ON si.sale_id = s.id
-                JOIN inventory_batches ib ON si.batch_id = ib.id
-                WHERE s.timestamp >= NOW() - ($2 || ' days')::INTERVAL
-                ${locationFilterSales}
-                GROUP BY ib.product_id
-            )
-            SELECT 
-                tp.product_id,
-                tp.product_name,
-                tp.product_sku as sku,
-                tp.image_url,
-                tp.last_cost as unit_cost,
-                tp.supplier_sku,
-                COALESCE(cs.total_stock, 0) as current_stock,
-                COALESCE(incs.incoming, 0) as incoming_stock,
-                COALESCE(tp.safety_stock, 0) as safety_stock,
-                (COALESCE(sh.total_sold, 0)::FLOAT / $2::FLOAT) as daily_velocity
-            FROM TargetProducts tp
-            LEFT JOIN CurrentStock cs ON tp.product_id = cs.product_id
-            LEFT JOIN IncomeStock incs ON tp.product_id = incs.product_id -- Typo fix in CTE name below
-            LEFT JOIN SalesHistory sh ON tp.product_id = sh.product_id
-            LEFT JOIN IncomingStock incs ON tp.product_id = incs.product_id
-            ORDER BY tp.product_name ASC
-        `;
-
-        // Correct query construction
         const finalSql = `
             WITH 
             TargetProducts AS (
@@ -890,32 +892,37 @@ export async function generateRestockSuggestionSecure(
                     p.id as product_id, 
                     p.name as product_name, 
                     p.sku as product_sku, 
-                    p.image_url,
-                    p.min_stock as safety_stock,
-                    ps.last_cost, 
-                    ps.supplier_sku
+                    NULL as image_url,
+                    p.stock_minimo_seguridad as safety_stock,
+                    COALESCE(ps.last_cost, p.cost_net, p.cost_price, 0) as last_cost, 
+                    ps.supplier_sku,
+                    s.id as supplier_id,
+                    s.business_name as supplier_name
                 FROM products p
-                JOIN product_suppliers ps ON p.id = ps.product_id
-                WHERE ps.supplier_id = $1
+                LEFT JOIN product_suppliers ps ON p.id::text = ps.product_id::text AND ps.is_preferred = true
+                LEFT JOIN suppliers s ON ps.supplier_id = s.id
+                WHERE ($1::text IS NULL OR ps.supplier_id::text = $1::text)
             ),
             CurrentStock AS (
                 SELECT 
-                    product_id, 
-                    SUM(quantity_real) as total_stock
-                FROM inventory_batches
-                WHERE quantity_real > 0
+                    ib.product_id, 
+                    SUM(ib.quantity_real) as total_stock
+                FROM inventory_batches ib
+                JOIN warehouses w ON ib.warehouse_id = w.id
+                WHERE ib.quantity_real > 0
                 ${locationFilterStock}
-                GROUP BY product_id
+                GROUP BY ib.product_id
             ),
             IncomingStock AS (
                 SELECT 
-                    poi.product_id,
+                    p.id as product_id,
                     SUM(poi.quantity_ordered - COALESCE(poi.quantity_received, 0)) as incoming
                 FROM purchase_order_items poi
                 JOIN purchase_orders po ON poi.purchase_order_id = po.id
+                JOIN products p ON poi.sku = p.sku
                 WHERE po.status = 'APPROVED'
-                ${locationId ? `AND po.target_warehouse_id = $${queryParams.length}` : ''}
-                GROUP BY poi.product_id
+                ${locationId ? `AND po.target_warehouse_id = $${queryParams.length}` : ''} 
+                GROUP BY p.id
             ),
             SalesHistory AS (
                 SELECT 
@@ -924,6 +931,7 @@ export async function generateRestockSuggestionSecure(
                 FROM sale_items si
                 JOIN sales s ON si.sale_id = s.id
                 JOIN inventory_batches ib ON si.batch_id = ib.id
+                JOIN warehouses w ON ib.warehouse_id = w.id
                 WHERE s.timestamp >= NOW() - ($2 || ' days')::INTERVAL
                 ${locationFilterSales}
                 GROUP BY ib.product_id
@@ -935,14 +943,17 @@ export async function generateRestockSuggestionSecure(
                 tp.image_url,
                 tp.last_cost as unit_cost,
                 tp.supplier_sku,
+                tp.supplier_id,
+                tp.supplier_name,
                 COALESCE(cs.total_stock, 0) as current_stock,
                 COALESCE(incs.incoming, 0) as incoming_stock,
                 COALESCE(tp.safety_stock, 0) as safety_stock,
                 (COALESCE(sh.total_sold, 0)::FLOAT / $2::FLOAT) as daily_velocity
             FROM TargetProducts tp
-            LEFT JOIN CurrentStock cs ON tp.product_id = cs.product_id
-            LEFT JOIN IncomingStock incs ON tp.product_id = incs.product_id
-            LEFT JOIN SalesHistory sh ON tp.product_id = sh.product_id
+            LEFT JOIN CurrentStock cs ON tp.product_id::text = cs.product_id::text
+            LEFT JOIN IncomingStock incs ON tp.product_id::text = incs.product_id::text
+            LEFT JOIN SalesHistory sh ON tp.product_id::text = sh.product_id::text
+            WHERE (COALESCE(sh.total_sold, 0) > 0 OR COALESCE(cs.total_stock, 0) <= COALESCE(tp.safety_stock, 0))
             ORDER BY tp.product_name ASC
         `;
 
@@ -961,6 +972,7 @@ export async function generateRestockSuggestionSecure(
             const netNeeds = required - stock - incoming;
 
             const suggested = Math.max(0, Math.ceil(netNeeds));
+            const daysUntilStockout = velocity > 0 ? (stock / velocity) : 999;
 
             return {
                 product_id: row.product_id,
@@ -973,8 +985,11 @@ export async function generateRestockSuggestionSecure(
                 daily_velocity: Number(velocity.toFixed(3)),
                 suggested_quantity: suggested,
                 days_coverage: velocity > 0 ? (stock / velocity).toFixed(1) : '∞',
+                days_until_stockout: daysUntilStockout,
                 unit_cost: Number(row.unit_cost),
                 supplier_sku: row.supplier_sku,
+                supplier_id: row.supplier_id,
+                supplier_name: row.supplier_name,
                 total_estimated: suggested * Number(row.unit_cost),
                 reason: `Venta Diaria: ${velocity.toFixed(2)} | Cobertura meta: ${daysToCover}d | Stock: ${stock} | En Camino: ${incoming}`
             };

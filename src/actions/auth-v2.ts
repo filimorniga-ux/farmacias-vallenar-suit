@@ -702,6 +702,57 @@ export async function validateSupervisorPin(
 }
 
 // ============================================================================
+// SESSION HELPER (CENTRALIZED)
+// ============================================================================
+
+/**
+ * 🕵️ Get Session Secure (Cookies + Headers)
+ * 
+ * @description Retrieves current session from cookies (primary) or headers (fallback).
+ * Critical for RBAC in Server Actions.
+ */
+export async function getSessionSecure(): Promise<{ userId: string; role: string; locationId?: string; userName?: string } | null> {
+    try {
+        const { cookies, headers } = await import('next/headers');
+
+        // 1. Try Cookies (Primary for Web UI)
+        const cookieStore = await cookies();
+        const userIdCookie = cookieStore.get('user_id')?.value;
+        const userRoleCookie = cookieStore.get('user_role')?.value;
+        const userNameCookie = cookieStore.get('user_name')?.value;
+
+        if (userIdCookie && userRoleCookie) {
+            return {
+                userId: userIdCookie,
+                role: (userRoleCookie || 'USER').toUpperCase(),
+                userName: userNameCookie
+            };
+        }
+
+        // 2. Try Headers (Fallback for Mobile/API/Middleware propagation)
+        const headersList = await headers();
+        const userIdHeader = headersList.get('x-user-id');
+        const roleHeader = headersList.get('x-user-role');
+        const locHeader = headersList.get('x-user-location');
+        const nameHeader = headersList.get('x-user-name');
+
+        if (userIdHeader && roleHeader) {
+            return {
+                userId: userIdHeader,
+                role: roleHeader.toUpperCase(),
+                locationId: locHeader || undefined,
+                userName: nameHeader || undefined
+            };
+        }
+
+        return null;
+    } catch (error) {
+        console.error('[AUTH-V2] Session retrieval error:', error);
+        return null;
+    }
+}
+
+// ============================================================================
 // EXPORTS FOR BACKWARDS COMPATIBILITY
 // ============================================================================
 

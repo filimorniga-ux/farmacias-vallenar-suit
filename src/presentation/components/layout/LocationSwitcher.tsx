@@ -62,7 +62,63 @@ const LocationSwitcher: React.FC = () => {
         }, 800);
     };
 
-    if (!currentLocation) return null;
+    // If no location, we show a "Select" button if the user can switch
+    if (!currentLocation) {
+        if (!canSwitch) return null; // If they can't switch and have no location, they shouldn't even be here, but let's be safe.
+
+        return (
+            <div className="relative">
+                <button
+                    onClick={() => !isSwitching && setIsOpen(!isOpen)}
+                    className="flex items-center gap-3 px-4 py-2.5 rounded-xl border border-blue-200 bg-blue-50 text-blue-600 transition-all hover:bg-blue-100 animate-pulse shadow-sm min-w-[180px]"
+                >
+                    <MapPin className="w-5 h-5" />
+                    <div className="text-left">
+                        <div className="text-[10px] font-bold uppercase tracking-wider">Contexto Requerido</div>
+                        <div className="text-sm font-extrabold leading-tight">Seleccionar Sucursal</div>
+                    </div>
+                    <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''} ml-auto`} />
+                </button>
+
+                <AnimatePresence>
+                    {isOpen && (
+                        <motion.div
+                            initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                            className="absolute top-full right-0 mt-3 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden z-50 ring-4 ring-black/5"
+                        >
+                            <div className="bg-slate-50 px-4 py-4 border-b border-gray-100">
+                                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                    <MapPin className="w-4 h-4 text-slate-500" />
+                                    Seleccionar Ubicación
+                                </h3>
+                            </div>
+                            <div className="max-h-[400px] overflow-y-auto p-2 space-y-1">
+                                {locations.map((loc) => (
+                                    <button
+                                        key={loc.id}
+                                        onClick={() => handleLocationSwitch(loc.id)}
+                                        className="w-full px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition-all rounded-lg group border border-transparent hover:border-gray-200"
+                                    >
+                                        <div className={`p-2 rounded-lg bg-gradient-to-br ${getLocationColor(loc.type)} shadow-sm group-hover:scale-110 transition-transform`}>
+                                            <Building2 className="w-5 h-5 text-white" />
+                                        </div>
+                                        <div className="flex-1 text-left">
+                                            <span className="text-sm font-bold text-gray-900">{loc.name}</span>
+                                            <div className="text-xs text-slate-500 font-medium">
+                                                {loc.type === 'WAREHOUSE' ? 'Bodega' : 'Sucursal'}
+                                            </div>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
+        );
+    }
 
     const Icon = getLocationIcon(currentLocation.type);
 
@@ -129,7 +185,7 @@ const LocationSwitcher: React.FC = () => {
                         {currentLocation.type === 'WAREHOUSE' ? 'Estás en Bodega' : 'Estás en Sucursal'}
                     </div>
                     <div className="text-sm font-extrabold leading-tight text-slate-800">
-                        {currentLocation.name.replace('Farmacia Vallenar ', '').replace('Bodega Central ', '')}
+                        {currentLocation.name.replace('Farmacia Vallenar ', '').replace('Bodega General ', '')}
                     </div>
                 </div>
 
