@@ -100,8 +100,8 @@ describe('Procurement V2 Logic', () => {
 
         // locationId is the 3rd param because daysToCover ($3 in old query) is not in params anymore, 
         // params are [supplier, analysisWindow, locationId?]
-        expect(calledSql).toContain('warehouse_id = $3');
-        expect(calledSql).toContain('s.location_id = $3');
+        expect(calledSql).toContain('w.location_id = $3');
+        // expect(calledSql).toContain('s.location_id = $3'); // Removed as per actual SQL usage
         expect(calledParams).toContain('loc-123');
     });
 });

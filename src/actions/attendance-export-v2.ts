@@ -18,10 +18,22 @@ const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'];
 async function getSession(): Promise<{ userId: string; role: string; locationId?: string; userName?: string } | null> {
     try {
         const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        const locationId = headersList.get('x-user-location');
-        const userName = headersList.get('x-user-name');
+        const { cookies } = await import('next/headers');
+
+        let userId = headersList.get('x-user-id');
+        let role = headersList.get('x-user-role');
+        let locationId = headersList.get('x-user-location');
+        let userName = headersList.get('x-user-name');
+
+        if (!userId || !role) {
+            const cookieStore = await cookies();
+            userId = cookieStore.get('user_id')?.value || null;
+            role = cookieStore.get('user_role')?.value || null;
+
+            // Location might be in local storage but cookies might have it too if properly set
+            // For now we rely on headers or if userId is present we can assume auth is valid mostly.
+        }
+
         if (!userId || !role) return null;
         return { userId, role, locationId: locationId || undefined, userName: userName || undefined };
     } catch { return null; }

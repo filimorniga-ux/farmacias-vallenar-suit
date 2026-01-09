@@ -31,7 +31,7 @@ const RegisterAttendanceSchema = z.object({
     userId: UUIDSchema,
     type: AttendanceType,
     locationId: UUIDSchema,
-    method: z.enum(['PIN', 'BIOMETRIC', 'MANUAL']).default('PIN'),
+    method: z.enum(['PIN', 'BIOMETRIC', 'MANUAL', 'SYSTEM_AUTO']).default('PIN'),
     observation: z.string().max(500).optional(),
     evidencePhotoUrl: z.string().url().optional(),
     overtimeMinutes: z.number().int().min(0).max(480).default(0), // Máximo 8 horas
@@ -49,7 +49,7 @@ const OvertimeApprovalSchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
+const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'];
 const OVERTIME_THRESHOLD_MINUTES = 240; // 4 horas sin aprobación
 
 // Secuencia válida de marcajes
@@ -67,8 +67,19 @@ const VALID_SEQUENCE: Record<string, string[]> = {
 async function getSession(): Promise<{ userId: string; role: string } | null> {
     try {
         const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
+        const { cookies } = await import('next/headers');
+
+        // 1. Try Headers (Middleware injection)
+        let userId = headersList.get('x-user-id');
+        let role = headersList.get('x-user-role');
+
+        // 2. Fallback to Cookies (Direct usage)
+        if (!userId || !role) {
+            const cookieStore = await cookies();
+            userId = cookieStore.get('user_id')?.value || null;
+            role = cookieStore.get('user_role')?.value || null;
+        }
+
         if (!userId || !role) return null;
         return { userId, role };
     } catch {
@@ -475,5 +486,217 @@ export async function getAttendanceSummary(
     } catch (error: any) {
         logger.error({ error }, '[Attendance] Get summary error');
         return { success: false, error: 'Error obteniendo resumen' };
+    }
+}
+
+// ============================================================================
+// MONITORIZACIÓN HR (NUEVOS MÉTODOS)
+// ============================================================================
+
+/**
+ * 🟢 Obtener estado actual de todos los empleados (Monitor en Vivo)
+ * Devuelve lista de usuarios activos y su último marcaje de hoy.
+ */
+export async function getTodayAttendanceSecure(
+    locationId?: string
+): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    const session = await getSession();
+    if (!session) {
+        return { success: false, error: 'No autenticado' };
+    }
+
+    // Validar permisos (Solo roles de gestión)
+    if (!MANAGER_ROLES.includes(session.role) && session.role !== 'RRHH') {
+        return { success: false, error: 'No autorizado para ver monitor en vivo' };
+    }
+
+    const client = await pool.connect();
+
+    try {
+        const query = `
+            SELECT 
+                u.id, u.name, u.rut, u.job_title, u.role, u.assigned_location_id,
+                al.type as current_status, 
+                al.timestamp as last_log_time, 
+                al.location_id as last_location_id
+            FROM users u
+            LEFT JOIN LATERAL (
+                SELECT type, timestamp, location_id
+                FROM attendance_logs
+                WHERE user_id = u.id AND DATE(timestamp) = CURRENT_DATE
+                ORDER BY timestamp DESC
+                LIMIT 1
+            ) al ON true
+            WHERE u.is_active = true
+            AND ($1::uuid IS NULL OR u.assigned_location_id = $1)
+            ORDER BY u.name ASC
+        `;
+
+        const res = await client.query(query, [locationId || null]);
+
+        // Mapear status a formato frontend si es necesario
+        // Frontend espera: 'IN' | 'OUT' | 'LUNCH' | 'ON_PERMISSION'
+        const mappedData = res.rows.map(row => ({
+            ...row,
+            // Si no hay log hoy, asume OUT. Si hay log, mapea CHECK_IN -> IN, CHECK_OUT -> OUT, etc.
+            current_status: mapStatus(row.current_status),
+            last_log_timestamp: row.last_log_time ? new Date(row.last_log_time).getTime() : null
+        }));
+
+        return { success: true, data: mappedData };
+
+    } catch (error: any) {
+        logger.error({ error }, '[Attendance] Get today attendance error');
+        return { success: false, error: `Error obteniendo monitor en vivo: ${error.message}` };
+    } finally {
+        client.release();
+    }
+}
+
+function mapStatus(dbType?: string): string {
+    if (!dbType) return 'OUT';
+    switch (dbType) {
+        case 'CHECK_IN': return 'IN';
+        case 'BREAK_START': return 'LUNCH';
+        case 'BREAK_END': return 'IN';
+        case 'LUNCH_RETURN': return 'IN';
+        case 'CHECK_OUT': return 'OUT';
+        default: return 'OUT';
+    }
+}
+
+/**
+ * 📜 Obtener historial general (Para Tab "Historial")
+ * Similar a getTeamAttendanceHistory pero expuesto explícitamente para el componente de gestión
+ */
+export async function getApprovedAttendanceHistory(
+    filters: {
+        startDate: string; // ISO String
+        endDate: string; // ISO String
+        locationId?: string;
+        userId?: string;
+    }
+): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    const session = await getSession();
+    if (!session) {
+        return { success: false, error: 'No autenticado' };
+    }
+
+    if (!MANAGER_ROLES.includes(session.role) && session.role !== 'RRHH') {
+        return { success: false, error: 'No autorizado' };
+    }
+
+    try {
+        let sql = `
+            SELECT 
+                a.id, a.type, a.timestamp, a.location_id, a.method, 
+                a.observation, a.evidence_photo_url, 
+                a.overtime_minutes, a.overtime_approved,
+                u.id as employee_id, u.name as user_name, u.rut as user_rut, u.role as user_role
+            FROM attendance_logs a
+            JOIN users u ON a.user_id = u.id
+            WHERE 1=1
+        `;
+        const params: any[] = [];
+        let paramIndex = 1;
+
+        if (filters.startDate) {
+            sql += ` AND a.timestamp >= $${paramIndex++}`;
+            params.push(new Date(filters.startDate));
+        }
+        if (filters.endDate) {
+            sql += ` AND a.timestamp <= $${paramIndex++}`;
+            params.push(new Date(filters.endDate));
+        }
+        if (filters.locationId) {
+            sql += ` AND a.location_id = $${paramIndex++}`;
+            params.push(filters.locationId);
+        }
+        if (filters.userId) {
+            sql += ` AND a.user_id = $${paramIndex++}`;
+            params.push(filters.userId);
+        }
+
+        sql += ' ORDER BY a.timestamp DESC LIMIT 1000';
+
+        const res = await query(sql, params);
+        return { success: true, data: res.rows };
+
+    } catch (error: any) {
+        logger.error({ error }, '[Attendance] Get approved history error');
+        return { success: false, error: 'Error obteniendo historial: ' + error.message };
+    }
+}
+
+// ============================================================================
+// AUTO-ASISTENCIA (Strategy A: Implicit Check-In)
+// ============================================================================
+
+/**
+ * 🤖 Auto-Check-In Silencioso
+ * Se llama desde acciones críticas (Abrir Caja, etc.) para asegurar que el usuario
+ * figura como 'Trabajando' aunque haya olvidado marcar en el tótem.
+ */
+export async function ensureCheckInSecure(
+    userId: string,
+    locationId: string
+): Promise<boolean> {
+    const client = await pool.connect();
+
+    try {
+        // 1. Verificar si YA tiene entrada activa hoy
+        const checkRes = await client.query(`
+            SELECT id FROM attendance_logs 
+            WHERE user_id = $1 
+            AND DATE(timestamp) = CURRENT_DATE 
+            AND type = 'CHECK_IN'
+        `, [userId]);
+
+        // Si ya tiene entrada (o varias), asumimos que está OK.
+        // Podríamos refinar para ver si la última es OUT, pero la estrategia es simple:
+        // Si hay al menos un IN hoy, no forzamos otro para no duplicar si solo salió a colación.
+        // Pero si la última fue OUT, técnicamente está fuera.
+        // MEJORA: Verificar si el ÚLTIMO evento es OUT.
+
+        const lastLogRes = await client.query(`
+            SELECT type FROM attendance_logs
+            WHERE user_id = $1 AND DATE(timestamp) = CURRENT_DATE
+            ORDER BY timestamp DESC
+            LIMIT 1
+        `, [userId]);
+
+        const lastType = lastLogRes.rows[0]?.type;
+
+        // Si está trabajando (IN o BREAK), no hacemos nada.
+        // Si no tiene registros O el último fue OUT, hacemos Auto-Check-In.
+        if (lastType && ['CHECK_IN', 'BREAK_START', 'BREAK_END'].includes(lastType)) {
+            return true; // Ya está activo
+        }
+
+        // 2. Registrar Auto-Entrada
+        const attendanceId = randomUUID();
+        await client.query('BEGIN');
+
+        await client.query(`
+            INSERT INTO attendance_logs (id, user_id, type, location_id, method, timestamp, observation)
+            VALUES ($1, $2, 'CHECK_IN', $3, 'SYSTEM_AUTO', NOW(), 'Activado automáticamente por operación crítica')
+        `, [attendanceId, userId, locationId]);
+
+        // 3. Auditar
+        await client.query(`
+            INSERT INTO audit_log (user_id, action_code, entity_type, new_values, created_at)
+            VALUES ($1, 'AUTO_ATTENDANCE', 'SYSTEM', $2::jsonb, NOW())
+        `, [userId, JSON.stringify({ reason: 'Implicit Check-In by Work Action', locationId })]);
+
+        await client.query('COMMIT');
+        logger.info({ userId, locationId }, '🤖 [Attendance] Auto-Check-In Triggered');
+        return true;
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        logger.error({ error }, '[Attendance] Auto-Check-In Failed');
+        return false; // No interrumpir flujo principal si falla esto
+    } finally {
+        client.release();
     }
 }

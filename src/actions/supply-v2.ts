@@ -413,6 +413,67 @@ export async function cancelPurchaseOrderSecure(
 }
 
 // ============================================================================
+// DELETE PURCHASE ORDER
+// ============================================================================
+
+/**
+ * 🗑️ Eliminar Orden de Compra (Solo Borradores)
+ */
+export async function deletePurchaseOrderSecure(
+    data: { orderId: string; userId: string }
+): Promise<{ success: boolean; error?: string }> {
+    const { orderId, userId } = data;
+
+    if (!UUIDSchema.safeParse(orderId).success || !UUIDSchema.safeParse(userId).success) {
+        return { success: false, error: 'IDs inválidos' };
+    }
+
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        // Verificar estado
+        const poRes = await client.query('SELECT status FROM purchase_orders WHERE id = $1', [orderId]);
+        if (poRes.rowCount === 0) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'Orden no encontrada' };
+        }
+
+        const status = poRes.rows[0].status;
+        if (status !== 'DRAFT') {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'Solo se pueden eliminar borradores. Use "Cancelar" para órdenes enviadas.' };
+        }
+
+        // Eliminar items primero
+        await client.query('DELETE FROM purchase_order_items WHERE purchase_order_id = $1', [orderId]);
+
+        // Eliminar orden
+        await client.query('DELETE FROM purchase_orders WHERE id = $1', [orderId]);
+
+        // Auditar
+        await client.query(`
+            INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at)
+            VALUES ($1, 'PO_DELETED', 'PURCHASE_ORDER', $2, $3::jsonb, NOW())
+        `, [userId, orderId, JSON.stringify({ status })]);
+
+        await client.query('COMMIT');
+
+        logger.info({ orderId, userId }, '🗑️ [Supply] PO deleted');
+        revalidatePath('/logistica');
+        return { success: true };
+
+    } catch (error: any) {
+        await client.query('ROLLBACK');
+        logger.error({ error }, '[Supply] Delete PO error');
+        return { success: false, error: 'Error eliminando orden' };
+    } finally {
+        client.release();
+    }
+}
+
+// ============================================================================
 // HISTORY
 // ============================================================================
 

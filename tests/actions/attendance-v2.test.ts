@@ -15,7 +15,16 @@ vi.mock('@/lib/db', () => ({
     }
 }));
 vi.mock('next/headers', () => ({
-    headers: vi.fn(async () => new Map([['x-user-id', 'user-1'], ['x-user-role', 'CASHIER']]))
+    headers: vi.fn(async () => new Map([['x-user-id', 'user-1'], ['x-user-role', 'CASHIER']])),
+    cookies: vi.fn(async () => ({
+        get: (name: string) => {
+            const cookies = new Map([
+                ['user_id', { value: 'user-1' }],
+                ['user_role', { value: 'CASHIER' }]
+            ]);
+            return cookies.get(name);
+        }
+    }))
 }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('crypto', () => ({ randomUUID: vi.fn(() => 'new-uuid') }));
@@ -67,6 +76,9 @@ describe('Attendance V2 - RBAC', () => {
     it('should require authentication for getMyAttendanceHistory', async () => {
         const mockHeaders = await import('next/headers');
         vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map() as any);
+        vi.mocked(mockHeaders.cookies).mockResolvedValueOnce({
+            get: vi.fn(() => undefined)
+        } as any);
 
         const result = await attendanceV2.getMyAttendanceHistory();
 
@@ -80,6 +92,13 @@ describe('Attendance V2 - RBAC', () => {
             ['x-user-id', 'user-1'],
             ['x-user-role', 'CASHIER'] // Not a manager
         ]) as any);
+        vi.mocked(mockHeaders.cookies).mockResolvedValueOnce({
+            get: vi.fn((name) => {
+                if (name === 'user_role') return { value: 'CASHIER' };
+                if (name === 'user_id') return { value: 'user-1' };
+                return undefined;
+            })
+        } as any);
 
         const result = await attendanceV2.getTeamAttendanceHistory();
 

@@ -321,6 +321,7 @@ export async function openTerminalWithPinValidation(
     success: boolean;
     sessionId?: string;
     authorizedById?: string;
+    autoCheckInTriggered?: boolean;
     error?: string
 }> {
 
@@ -484,10 +485,16 @@ export async function openTerminalWithPinValidation(
         revalidatePath('/pos');
         revalidatePath('/caja');
 
+        // 🤖 AUTO-CHECK-IN: Si el cajero abre turno, debe estar 'presente'
+        const { ensureCheckInSecure } = await import('@/actions/attendance-v2');
+        // Validar asistencia para el CAJERO (userId), no necesariamente el manager
+        const autoCheckInTriggered = await ensureCheckInSecure(userId, terminal.location_id);
+
         return {
             success: true,
             sessionId: newSessionId,
-            authorizedById: authorizedBy.id
+            authorizedById: authorizedBy.id,
+            autoCheckInTriggered
         };
 
     } catch (error: any) {

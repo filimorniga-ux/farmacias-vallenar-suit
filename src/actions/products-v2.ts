@@ -57,6 +57,8 @@ const CreateProductSchema = z.object({
     initialLot: z.string().optional(),
     initialExpiry: z.coerce.date().optional(),
     initialLocation: z.string().optional(),
+    // Barcode (EAN-13, Code128, etc.)
+    barcode: z.string().max(50).optional(),
 });
 
 const UpdateProductSchema = z.object({
@@ -92,9 +94,38 @@ const DeactivateProductSchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
+const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'];
 const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
 const PRICE_CHANGE_THRESHOLD = 0.20; // 20% change requires PIN
+
+const UpdateProductMasterSchema = z.object({
+    productId: UUIDSchema,
+    sku: z.string().min(3).max(50).optional().or(z.literal('')),
+    name: z.string().min(2).max(200).optional(),
+    description: z.string().max(1000).optional(),
+    categoryId: UUIDSchema.optional(),
+    brandId: UUIDSchema.optional(),
+    minStock: z.number().int().min(0).optional(),
+    maxStock: z.number().int().min(0).optional(),
+    requiresPrescription: z.boolean().optional(),
+    isColdChain: z.boolean().optional(),
+
+    // Financials
+    price: z.number().min(0).optional(),
+    costPrice: z.number().min(0).optional(),
+
+    // Clinical / Extra
+    dci: z.string().optional(),
+    laboratory: z.string().optional(),
+    ispRegister: z.string().optional(),
+    format: z.string().optional(),
+    unitsPerBox: z.number().int().min(1).optional(),
+    isBioequivalent: z.boolean().optional(),
+    condition: z.enum(['VD', 'R', 'RR', 'RCH']).optional(),
+
+    userId: UUIDSchema,
+    approverPin: z.string().optional(), // For price overrides if needed
+});
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -288,12 +319,12 @@ export async function createProductSecure(data: z.infer<typeof CreateProductSche
                     id, product_id, sku, name, location_id, warehouse_id,
                     quantity_real, expiry_date, lot_number,
                     cost_net, unit_cost, price_sell_box, sale_price,
-                    stock_min, stock_max, updated_at
+                    stock_min, stock_max, barcode, updated_at
                 ) VALUES (
                     $1, $2, $3, $4, $5, $6,
                     $7, $8, $9,
                     $10, $11, $12, $13,
-                    $14, $15, NOW()
+                    $14, $15, $16, NOW()
                 )
             `, [
                 batchId,
@@ -310,7 +341,8 @@ export async function createProductSecure(data: z.infer<typeof CreateProductSche
                 validated.data.price,
                 validated.data.price,
                 validated.data.minStock || 0,
-                validated.data.maxStock || 100
+                validated.data.maxStock || 100,
+                validated.data.barcode || null
             ]);
         }
 
@@ -366,7 +398,7 @@ export async function updateProductSecure(data: z.infer<typeof UpdateProductSche
 
         if (productRes.rows.length === 0) {
             await client.query('ROLLBACK');
-            return { success: false, error: 'Producto no encontrado' };
+            return { success: false, error: `Producto no encontrado (ID: ${validated.data.productId})` };
         }
 
         const current = productRes.rows[0];
@@ -423,6 +455,33 @@ export async function updateProductSecure(data: z.infer<typeof UpdateProductSche
                 oldValues,
                 newValues
             });
+        }
+
+        // --- SYNC WITH INVENTORY BATCHES ---
+        // Propagate name/sku changes to all batches of this product
+        if (updates.length > 0) {
+            const batchUpdates: string[] = [];
+            const batchParams: any[] = [];
+            let bpIdx = 1;
+
+            if (validated.data.name && validated.data.name !== current.name) {
+                batchUpdates.push(`name = $${bpIdx++}`);
+                batchParams.push(validated.data.name);
+            }
+            if (rawSku && rawSku !== current.sku) {
+                batchUpdates.push(`sku = $${bpIdx++}`);
+                batchParams.push(rawSku);
+            }
+
+            if (batchUpdates.length > 0) {
+                batchUpdates.push(`updated_at = NOW()`);
+                batchParams.push(validated.data.productId); // Where clause
+
+                await client.query(
+                    `UPDATE inventory_batches SET ${batchUpdates.join(', ')} WHERE product_id = $${bpIdx}`,
+                    batchParams
+                );
+            }
         }
 
         await client.query('COMMIT');
@@ -517,6 +576,19 @@ export async function updatePriceSecure(data: z.infer<typeof UpdatePriceSchema>)
                 reason: validated.data.reason
             }
         });
+
+        // --- SYNC WITH INVENTORY BATCHES ---
+        // Propagate price/cost changes to all batches of this product
+        await client.query(`
+            UPDATE inventory_batches 
+            SET sale_price = $1,
+                price_sell_box = $1,
+
+                unit_cost = COALESCE($2, unit_cost),
+                cost_net = COALESCE($2, cost_net),
+                updated_at = NOW()
+            WHERE product_id = $3
+        `, [newPrice, validated.data.newCostPrice, validated.data.productId]);
 
         await client.query('COMMIT');
         revalidatePath('/inventario');
@@ -696,6 +768,191 @@ export async function linkProductToSupplierSecure(
         await client.query('ROLLBACK');
         console.error('[PRODUCTS-V2] Link supplier error:', error);
         return { success: false, error: error.message || 'Error vinculando proveedor' };
+    } finally {
+        client.release();
+    }
+}
+
+/**
+ * 🛠️ Master Product Update 
+ * Handles all fields including Price/Cost with implicit authorization for Managers
+ */
+export async function updateProductMasterSecure(data: z.infer<typeof UpdateProductMasterSchema>): Promise<{
+    success: boolean;
+    error?: string;
+    requiresApproval?: boolean;
+}> {
+    const validated = UpdateProductMasterSchema.safeParse(data);
+    if (!validated.success) {
+        return { success: false, error: validated.error.issues[0]?.message };
+    }
+
+    const client = await pool.connect();
+    const { productId, userId, price, costPrice, approverPin } = validated.data;
+
+    try {
+        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        // 1. Get current product state
+        const productRes = await client.query(
+            'SELECT * FROM products WHERE id = $1 FOR UPDATE',
+            [productId]
+        );
+
+        if (productRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return { success: false, error: `Producto no encontrado (ID: ${productId})` };
+        }
+
+        const current = productRes.rows[0];
+
+        // 2. Check Authorization for Price Changes
+        const currentPrice = Number(current.price);
+        const newPrice = price !== undefined ? price : currentPrice;
+
+        if (price !== undefined && Math.abs(currentPrice - newPrice) > 0.01) {
+            // Price is changing
+            const priceChangePercent = currentPrice > 0
+                ? Math.abs((newPrice - currentPrice) / currentPrice)
+                : 1;
+
+            if (priceChangePercent > PRICE_CHANGE_THRESHOLD) {
+                // Check if user is Manager/Admin/Owner to bypass PIN
+                const userRes = await client.query('SELECT role FROM users WHERE id = $1', [userId]);
+                const userRole = userRes.rows[0]?.role;
+
+                const isManager = MANAGER_ROLES.includes(userRole);
+
+                if (!isManager) {
+                    // Normal user needs PIN
+                    if (!approverPin) {
+                        await client.query('ROLLBACK');
+                        return {
+                            success: false,
+                            requiresApproval: true,
+                            error: `Cambio de precio > ${Math.round(PRICE_CHANGE_THRESHOLD * 100)}% requiere autorización`
+                        };
+                    }
+
+                    const pinCheck = await validateManagerPin(client, approverPin);
+                    if (!pinCheck.valid) {
+                        await client.query('ROLLBACK');
+                        return { success: false, error: pinCheck.error };
+                    }
+                }
+            }
+        }
+
+        // 3. Prepare Update Logic
+        const updates: string[] = [];
+        const params: any[] = [];
+        let pIdx = 1;
+
+        const addUpdate = (col: string, val: any) => {
+            if (val !== undefined) {
+                updates.push(`${col} = $${pIdx++}`);
+                params.push(val);
+            }
+        };
+
+        // Basic Info
+        if (validated.data.name !== undefined) addUpdate('name', validated.data.name);
+        if (validated.data.sku !== undefined) addUpdate('sku', validated.data.sku);
+        if (validated.data.description !== undefined) addUpdate('description', validated.data.description);
+
+        // Stock Config
+        if (validated.data.minStock !== undefined) addUpdate('stock_minimo_seguridad', validated.data.minStock);
+
+        // Financials (Update all related columns to keep sync)
+        if (price !== undefined) {
+            addUpdate('price', price);
+            addUpdate('price_sell_box', price);
+            addUpdate('price_sell_unit', price);
+        }
+
+        if (costPrice !== undefined) {
+            addUpdate('cost_net', costPrice);
+            addUpdate('cost_price', costPrice);
+        }
+
+        // Clinical / Compliance
+        if (validated.data.dci !== undefined) addUpdate('dci', validated.data.dci);
+        if (validated.data.laboratory !== undefined) addUpdate('laboratory', validated.data.laboratory);
+        if (validated.data.ispRegister !== undefined) addUpdate('isp_register', validated.data.ispRegister);
+        if (validated.data.format !== undefined) addUpdate('format', validated.data.format);
+        if (validated.data.unitsPerBox !== undefined) addUpdate('units_per_box', validated.data.unitsPerBox);
+        if (validated.data.isBioequivalent !== undefined) addUpdate('is_bioequivalent', validated.data.isBioequivalent);
+        if (validated.data.condition !== undefined) addUpdate('condicion_venta', validated.data.condition);
+        if (validated.data.requiresPrescription !== undefined) addUpdate('requires_prescription', validated.data.requiresPrescription);
+        if (validated.data.isColdChain !== undefined) addUpdate('es_frio', validated.data.isColdChain);
+
+        if (updates.length === 0) {
+            await client.query('ROLLBACK');
+            return { success: true }; // Nothing to update
+        }
+
+        updates.push(`updated_at = NOW()`);
+        params.push(productId); // Where clause param
+
+        const sql = `UPDATE products SET ${updates.join(', ')} WHERE id = $${pIdx}`;
+
+        await client.query(sql, params);
+
+        // 4. Audit
+        await insertProductAudit(client, {
+            actionCode: 'PRODUCT_MASTER_UPDATE',
+            userId,
+            productId,
+            oldValues: { name: current.name, price: current.price, cost: current.cost_net }, // simplified
+            newValues: validated.data
+        });
+
+        // --- SYNC WITH INVENTORY BATCHES ---
+        // Propagate changes to all batches of this product (denormalized data)
+        const batchUpdates: string[] = [];
+        const batchParams: any[] = [];
+        let bpIdx = 1;
+
+        const addBatchUpdate = (col: string, val: any) => {
+            if (val !== undefined) {
+                batchUpdates.push(`${col} = $${bpIdx++}`);
+                batchParams.push(val);
+            }
+        };
+
+        if (validated.data.name !== undefined) addBatchUpdate('name', validated.data.name);
+        if (validated.data.sku !== undefined) addBatchUpdate('sku', validated.data.sku);
+
+        // Sync Financials
+        if (price !== undefined) {
+            addBatchUpdate('sale_price', price);
+            addBatchUpdate('price_sell_box', price);
+
+        }
+        if (costPrice !== undefined) {
+            addBatchUpdate('unit_cost', costPrice);
+            addBatchUpdate('cost_net', costPrice);
+
+        }
+
+        if (batchUpdates.length > 0) {
+            batchUpdates.push(`updated_at = NOW()`);
+            batchParams.push(productId); // Where clause
+
+            await client.query(
+                `UPDATE inventory_batches SET ${batchUpdates.join(', ')} WHERE product_id = $${bpIdx}`,
+                batchParams
+            );
+        }
+
+        await client.query('COMMIT');
+        revalidatePath('/inventario');
+        return { success: true };
+
+    } catch (error: any) {
+        await client.query('ROLLBACK');
+        console.error('[PRODUCTS-V2] Master update error:', error);
+        return { success: false, error: error.message || 'Error actualizando producto' };
     } finally {
         client.release();
     }

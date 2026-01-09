@@ -68,6 +68,7 @@ interface PharmaState {
     addPurchaseOrder: (po: PurchaseOrder) => void;
     receivePurchaseOrder: (poId: string, receivedItems: { sku: string, receivedQty: number; lotNumber?: string; expiryDate?: number }[], destinationLocationId: string) => Promise<void>;
     cancelPurchaseOrder: (poId: string) => void;
+    removePurchaseOrder: (poId: string) => void;
     updatePurchaseOrder: (id: string, data: Partial<PurchaseOrder>) => void;
 
     // SRM Actions
@@ -170,6 +171,7 @@ interface PharmaState {
     confirmReception: (shipmentId: string, data: { photos: string[], notes: string, receivedItems: { batchId: string, quantity: number, condition: 'GOOD' | 'DAMAGED' }[] }) => void;
     uploadLogisticsDocument: (shipmentId: string, type: 'INVOICE' | 'GUIDE' | 'PHOTO', url: string, observations?: string) => void;
     cancelShipment: (shipmentId: string) => void;
+    refreshShipments: (locationId?: string) => Promise<void>;
 
     // Import
     importInventory: (items: InventoryBatch[]) => void;
@@ -625,8 +627,11 @@ export const usePharmaStore = create<PharmaState>()(
 
             cancelPurchaseOrder: (poId) => set((state) => ({
                 purchaseOrders: state.purchaseOrders.map(po =>
-                    po.id === poId ? { ...po, status: 'CANCELLED' as any } : po // Casting as any because CANCELLED might not be in POStatus yet, need to check types.ts
+                    po.id === poId ? { ...po, status: 'CANCELLED' as any } : po
                 )
+            })),
+            removePurchaseOrder: (poId) => set((state) => ({
+                purchaseOrders: state.purchaseOrders.filter(po => po.id !== poId)
             })),
             updatePurchaseOrder: (id, data) => set((state) => ({
                 purchaseOrders: state.purchaseOrders.map(po =>
@@ -637,7 +642,39 @@ export const usePharmaStore = create<PharmaState>()(
             // --- SRM Actions ---
             addSupplier: async (supplierData) => {
                 const { createSupplierSecure } = await import('../../actions/suppliers-v2');
-                const result = await createSupplierSecure(supplierData as any);
+                const contacts = Array.isArray(supplierData.contacts)
+                    ? supplierData.contacts
+                        .filter((c) => c && (c.name || c.email || c.phone))
+                        .map((c) => ({
+                            ...c,
+                            email: c.email || undefined,
+                            phone: c.phone || undefined,
+                            role: c.role || undefined,
+                            is_primary: c.is_primary ?? false
+                        }))
+                    : [];
+                const payload = {
+                    rut: supplierData.rut,
+                    businessName: supplierData.business_name ?? supplierData.businessName,
+                    fantasyName: supplierData.fantasy_name ?? supplierData.fantasyName,
+                    contactEmail: supplierData.contact_email ?? supplierData.contactEmail,
+                    phone1: supplierData.phone_1 ?? supplierData.phone1,
+                    phone2: supplierData.phone_2 ?? supplierData.phone2,
+                    address: supplierData.address,
+                    city: supplierData.city,
+                    region: supplierData.region,
+                    commune: supplierData.commune,
+                    website: supplierData.website,
+                    emailOrders: supplierData.email_orders ?? supplierData.emailOrders,
+                    emailBilling: supplierData.email_billing ?? supplierData.emailBilling,
+                    sector: supplierData.sector,
+                    paymentTerms: supplierData.payment_terms ?? supplierData.paymentTerms,
+                    leadTimeDays: supplierData.lead_time_days ?? supplierData.leadTimeDays,
+                    bankAccount: supplierData.bank_account ?? supplierData.bankAccount,
+                    contacts,
+                    brands: supplierData.brands
+                };
+                const result = await createSupplierSecure(payload as any);
                 if (result.success && result.data?.supplierId) {
                     set((state) => ({
                         suppliers: [...state.suppliers, { ...supplierData, id: result.data!.supplierId }]
@@ -649,7 +686,40 @@ export const usePharmaStore = create<PharmaState>()(
             },
             updateSupplier: async (id, supplierData) => {
                 const { updateSupplierSecure } = await import('../../actions/suppliers-v2');
-                const result = await updateSupplierSecure({ supplierId: id, ...supplierData, userId: id });
+                const contacts = Array.isArray(supplierData.contacts)
+                    ? supplierData.contacts
+                        .filter((c) => c && (c.name || c.email || c.phone))
+                        .map((c) => ({
+                            ...c,
+                            email: c.email || undefined,
+                            phone: c.phone || undefined,
+                            role: c.role || undefined,
+                            is_primary: c.is_primary ?? false
+                        }))
+                    : [];
+                const payload = {
+                    supplierId: id,
+                    rut: supplierData.rut,
+                    businessName: supplierData.business_name ?? supplierData.businessName,
+                    fantasyName: supplierData.fantasy_name ?? supplierData.fantasyName,
+                    contactEmail: supplierData.contact_email ?? supplierData.contactEmail,
+                    phone1: supplierData.phone_1 ?? supplierData.phone1,
+                    phone2: supplierData.phone_2 ?? supplierData.phone2,
+                    address: supplierData.address,
+                    city: supplierData.city,
+                    region: supplierData.region,
+                    commune: supplierData.commune,
+                    website: supplierData.website,
+                    emailOrders: supplierData.email_orders ?? supplierData.emailOrders,
+                    emailBilling: supplierData.email_billing ?? supplierData.emailBilling,
+                    sector: supplierData.sector,
+                    paymentTerms: supplierData.payment_terms ?? supplierData.paymentTerms,
+                    leadTimeDays: supplierData.lead_time_days ?? supplierData.leadTimeDays,
+                    bankAccount: supplierData.bank_account ?? supplierData.bankAccount,
+                    contacts,
+                    brands: supplierData.brands
+                };
+                const result = await updateSupplierSecure(payload as any);
                 if (result.success) {
                     set((state) => ({
                         suppliers: state.suppliers.map(s => s.id === id ? { ...s, ...supplierData } : s)
@@ -1821,6 +1891,12 @@ export const usePharmaStore = create<PharmaState>()(
 
                 return { shipments: updatedShipments, inventory: updatedInventory };
             }),
+            refreshShipments: async (locationId) => {
+                const effectiveId = locationId || get().currentLocationId;
+                const { TigerDataService } = await import('../../domain/services/TigerDataService');
+                const shipments = await TigerDataService.fetchShipments(effectiveId);
+                set({ shipments: shipments || [] });
+            },
 
 
 
@@ -1925,7 +2001,7 @@ export const usePharmaStore = create<PharmaState>()(
                 // Legacy Support: Create Shipment from Transfer
                 const newShipment: Shipment = {
                     id: `SHP - LEGACY - ${now} `,
-                    type: 'INTERNAL_TRANSFER',
+                    type: 'INTER_BRANCH',
                     origin_location_id: transferData.origin_location_id,
                     destination_location_id: transferData.destination_location_id,
                     status: 'IN_TRANSIT',

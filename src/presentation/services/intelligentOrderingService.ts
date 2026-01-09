@@ -155,7 +155,7 @@ export class IntelligentOrderingService {
                     name: item.product_name,
                     quantity_ordered: item.suggested_order_qty,
                     quantity_received: 0,
-                    cost_price: batch?.cost_price || 0,
+                    cost_price: item.unit_cost || batch?.cost_price || 0,
                     quantity: item.suggested_order_qty, // Legacy
                     suggested_quantity: item.suggested_order_qty
                 };

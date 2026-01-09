@@ -18,6 +18,7 @@ import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
 import { ExcelService } from '@/lib/excel-generator';
 import bcrypt from 'bcryptjs';
+import { getSessionSecure } from './auth-v2';
 
 // Importar versiones SEGURAS
 import { getCashFlowLedgerSecure, getTaxSummarySecure, getPayrollPreviewSecure } from './reports-detail-v2';
@@ -28,25 +29,13 @@ import { getCashFlowLedgerSecure, getTaxSummarySecure, getPayrollPreviewSecure }
 
 const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
 const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
-const ACCOUNTING_ROLES = ['CONTADOR', 'ADMIN', 'GERENTE_GENERAL'];
+const ACCOUNTING_ROLES = ['CONTADOR', 'ADMIN', 'GERENTE_GENERAL', 'MANAGER'];
 
 // ============================================================================
 // HELPERS
 // ============================================================================
 
-async function getSession(): Promise<{ userId: string; role: string; locationId?: string; userName?: string } | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        const locationId = headersList.get('x-user-location');
-        const userName = headersList.get('x-user-name');
-        if (!userId || !role) return null;
-        return { userId, role, locationId: locationId || undefined, userName: userName || undefined };
-    } catch {
-        return null;
-    }
-}
+
 
 async function auditExport(userId: string, exportType: string, params: any): Promise<void> {
     try {
@@ -67,7 +56,7 @@ async function auditExport(userId: string, exportType: string, params: any): Pro
 export async function exportCashFlowSecure(
     params: { startDate: string; endDate: string; locationId?: string }
 ): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session) {
         return { success: false, error: 'No autenticado' };
     }
@@ -133,7 +122,7 @@ export async function exportCashFlowSecure(
 export async function exportTaxSummarySecure(
     month?: string
 ): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session) {
         return { success: false, error: 'No autenticado' };
     }
@@ -197,7 +186,7 @@ export async function exportPayrollSecure(
     year: number,
     adminPin: string
 ): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session) {
         return { success: false, error: 'No autenticado' };
     }
@@ -272,12 +261,13 @@ export async function exportPayrollSecure(
 export async function exportAttendanceSecure(
     params: { startDate: string; endDate: string; locationId?: string }
 ): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session) {
         return { success: false, error: 'No autenticado' };
     }
 
-    if (!MANAGER_ROLES.includes(session.role)) {
+    const ALLOWED_ROLES = [...MANAGER_ROLES, 'RRHH'];
+    if (!ALLOWED_ROLES.includes(session.role)) {
         return { success: false, error: 'Acceso denegado' };
     }
 

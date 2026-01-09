@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Package } from 'lucide-react';
+import { X, Save, Package, Camera } from 'lucide-react';
 import { usePharmaStore } from '../../store/useStore';
 import { InventoryBatch } from '../../../domain/types';
 import { toast } from 'sonner';
+import CameraScanner from '../ui/CameraScanner';
 
 interface ProductFormModalProps {
     product?: InventoryBatch;
@@ -33,6 +34,8 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, onClose })
         initialExpiry: '',
     });
 
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
+
     const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         let val = e.target.value.replace(/\D/g, ''); // Remove non-digits
         if (val.length > 8) val = val.substring(0, 8); // Limit to 8 digits
@@ -53,6 +56,19 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, onClose })
         const [day, month, year] = dateStr.split('/').map(Number);
         const date = new Date(year, month - 1, day);
         return isNaN(date.getTime()) ? undefined : date;
+    };
+
+    // Format CLP Helper
+    const formatCLP = (val: number | undefined) => {
+        if (val === undefined || val === null) return '';
+        return Math.round(val).toLocaleString('es-CL');
+    };
+
+    // Parse CLP Input Helper
+    const handleNumberChange = (val: string, field: string) => {
+        const cleanVal = val.replace(/\./g, '').replace(/[^0-9]/g, '');
+        const numVal = cleanVal === '' ? 0 : parseInt(cleanVal, 10);
+        setFormData({ ...formData, [field]: numVal });
     };
 
     const handleSubmit = async () => {
@@ -99,7 +115,8 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, onClose })
                 initialStock: formData.stock_actual,
                 initialLot: formData.initialLot,
                 initialExpiry: expiryDate, // Pass Date object
-                initialLocation: formData.location_id
+                initialLocation: formData.location_id,
+                barcode: formData.barcode || undefined
             };
 
             // 3. Call Server Action
@@ -195,12 +212,23 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, onClose })
                                     <label className="block text-sm font-bold text-slate-700 mb-2">
                                         Código Barras
                                     </label>
-                                    <input
-                                        type="text"
-                                        value={formData.barcode}
-                                        onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-                                        className="w-full p-3 border border-slate-200 rounded-xl focus:outline-none focus:border-cyan-500"
-                                    />
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={formData.barcode}
+                                            onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
+                                            className="flex-1 p-3 border border-slate-200 rounded-xl focus:outline-none focus:border-cyan-500"
+                                            placeholder="Escanear o escribir..."
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsScannerOpen(true)}
+                                            className="px-4 py-3 bg-cyan-600 text-white rounded-xl hover:bg-cyan-700 transition flex items-center gap-2"
+                                            title="Escanear con cámara"
+                                        >
+                                            <Camera size={20} />
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -309,9 +337,9 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, onClose })
                                         Precio Venta Caja (price_sell_box)
                                     </label>
                                     <input
-                                        type="number"
-                                        value={formData.price_sell_box}
-                                        onChange={(e) => setFormData({ ...formData, price_sell_box: parseInt(e.target.value) || 0 })}
+                                        type="text" // TEXT TYPE
+                                        value={formatCLP(formData.price_sell_box)}
+                                        onChange={(e) => handleNumberChange(e.target.value, 'price_sell_box')}
                                         className="w-full p-3 border border-emerald-200 rounded-xl focus:outline-none focus:border-emerald-500 bg-emerald-50"
                                     />
                                 </div>
@@ -320,9 +348,9 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, onClose })
                                         Costo Neto (cost_net)
                                     </label>
                                     <input
-                                        type="number"
-                                        value={formData.cost_net}
-                                        onChange={(e) => setFormData({ ...formData, cost_net: parseInt(e.target.value) || 0 })}
+                                        type="text" // TEXT TYPE
+                                        value={formatCLP(formData.cost_net)}
+                                        onChange={(e) => handleNumberChange(e.target.value, 'cost_net')}
                                         className="w-full p-3 border border-red-200 rounded-xl focus:outline-none focus:border-red-500 bg-red-50"
                                     />
                                 </div>
@@ -381,6 +409,18 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, onClose })
                     </div>
                 </div>
             </div>
+
+            {/* Camera Scanner Modal */}
+            {isScannerOpen && (
+                <CameraScanner
+                    onScan={(code) => {
+                        setFormData({ ...formData, barcode: code });
+                        setIsScannerOpen(false);
+                        toast.success(`Código escaneado: ${code}`);
+                    }}
+                    onClose={() => setIsScannerOpen(false)}
+                />
+            )}
         </>
     );
 };

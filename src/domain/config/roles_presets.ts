@@ -18,5 +18,8 @@ export const ROLE_PRESETS: Record<string, string[]> = {
     'QF': ['POS', 'CRM', 'INVENTORY', 'WMS', 'REPORTS'], // Mantener QF
     'CASHIER': ['POS', 'CRM'], // Solo POS y Clientes (WMS limitado por UI)
     'WAREHOUSE': ['INVENTORY', 'WMS', 'SUPPLY'], // Solo Inventario, WMS y Compras
-    'DRIVER': ['WMS']
+    'DRIVER': ['WMS'],
+    'GERENTE_GENERAL': ['POS', 'CRM', 'INVENTORY', 'WMS', 'SUPPLY', 'FINANCE', 'HR', 'REPORTS', 'SETTINGS', 'SECURITY'],
+    'RRHH': ['HR', 'REPORTS'],
+    'CONTADOR': ['FINANCE', 'REPORTS']
 };

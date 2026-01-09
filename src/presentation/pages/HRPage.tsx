@@ -36,13 +36,15 @@ const HRPage = () => {
     };
 
     // --- Access Control ---
-    if (!user || user.role !== 'MANAGER') {
+    const ALLOWED_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'];
+
+    if (!user || !ALLOWED_ROLES.includes(user.role)) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-slate-500">
                 <Shield size={64} className="text-red-500 mb-4" />
                 <h2 className="text-2xl font-bold text-slate-800 mb-2">Acceso Denegado</h2>
                 <p>No tienes permisos para acceder al módulo de Recursos Humanos.</p>
-                <p className="text-sm mt-2">Rol requerido: MANAGER</p>
+                <p className="text-sm mt-2">Roles permitidos: MANAGER, ADMIN, GERENTE, RRHH</p>
             </div>
         );
     }
@@ -54,22 +56,55 @@ const HRPage = () => {
 
     const handleSaveEmployee = async (updatedEmployee: EmployeeProfile) => {
         console.log('📤 Enviando empleado a guardar:', updatedEmployee);
-        const isNew = updatedEmployee.id.startsWith('EMP-') && !dbEmployees.find(e => e.id === updatedEmployee.id);
+        const isNew = updatedEmployee.id.startsWith('EMP-');
 
         let result;
         if (isNew) {
-            // Crear
-            // Remover ID temporal si es necesario o dejar que el backend lo ignore
+            // Crear nuevo usuario (incluye PIN inicial hash y rol desde el inicio)
+            // Aseguramos que dataToCreate tenga la estructura esperada por createUserSecure
             const { id, ...dataToCreate } = updatedEmployee;
-            // V2: Crear usuario con nuevo formato
             result = await createUserSecure(dataToCreate as any);
         } else {
-            // V2: Actualizar usuario
+            // Actualizar usuario existente
             console.log('🔄 Actualizando usuario ID:', updatedEmployee.id);
+
+            // 1. Actualizar datos básicos
             result = await updateUserSecure({ userId: updatedEmployee.id, ...updatedEmployee } as any);
+
+            if (result.success) {
+                // 2. Si se cambió el rol, llamar a changeUserRoleSecure
+                const originalUser = dbEmployees.find(e => e.id === updatedEmployee.id);
+                if (originalUser && originalUser.role !== updatedEmployee.role) {
+                    const roleResult = await import('../../actions/users-v2').then(mod => mod.changeUserRoleSecure({
+                        userId: updatedEmployee.id,
+                        newRole: updatedEmployee.role as any,
+                        justification: 'Cambio de rol desde panel RRHH'
+                    }));
+                    if (!roleResult.success) console.error('Error changing role:', roleResult.error);
+                }
+
+                // 3. Si se cambió el PIN (detectamos si access_pin tiene valor, aunque en UI a veces se maneja distinto)
+                // Nota: EmployeeModal debería pasar 'access_pin' solo si se editó. Si viene lleno, intentamos resetear.
+                if (updatedEmployee.access_pin && updatedEmployee.access_pin.length >= 4) {
+                    const pinResult = await import('../../actions/users-v2').then(mod => mod.resetUserPinSecure({
+                        userId: updatedEmployee.id,
+                        newPin: updatedEmployee.access_pin!
+                    }));
+                    if (!pinResult.success) console.error('Error resetting PIN:', pinResult.error);
+                }
+
+                // 4. Si se desactivó/activó (Aunque updateUserSecure maneja 'is_active' si se pasa, deactivateUserSecure es para 'TERMINATED')
+                if (updatedEmployee.status === 'INACTIVE' && originalUser?.status === 'ACTIVE') {
+                    const deactivateResult = await import('../../actions/users-v2').then(mod => mod.deactivateUserSecure({
+                        userId: updatedEmployee.id,
+                        reason: 'Desactivado desde panel RRHH'
+                    }));
+                    if (!deactivateResult.success) console.error('Error deactivating user:', deactivateResult.error);
+                }
+            }
         }
 
-        if (result.success && result.data) {
+        if (result.success) {
             toast.success(`Empleado ${isNew ? 'creado' : 'actualizado'} exitosamente`);
             setIsModalOpen(false);
             setSelectedEmployee(null);

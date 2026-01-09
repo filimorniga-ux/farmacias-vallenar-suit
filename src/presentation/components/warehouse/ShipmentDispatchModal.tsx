@@ -53,7 +53,7 @@ const ShipmentDispatchModal: React.FC<ShipmentDispatchModalProps> = ({ isOpen, o
         }
 
         createDispatch({
-            type: 'INTERNAL_TRANSFER',
+            type: 'INTER_BRANCH',
             origin_location_id: 'SUCURSAL_CENTRO', // Should be dynamic based on user location
             destination_location_id: destination,
             transport_data: {

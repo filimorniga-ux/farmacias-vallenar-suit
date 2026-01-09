@@ -4,6 +4,7 @@ import { Shipment } from '../../../domain/types';
 import { usePharmaStore } from '../../store/useStore';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
 import { toast } from 'sonner';
+import CameraScanner from '../ui/CameraScanner';
 
 interface UnifiedReceptionProps {
     isOpen: boolean;
@@ -13,7 +14,7 @@ interface UnifiedReceptionProps {
 
 const UnifiedReception: React.FC<UnifiedReceptionProps> = ({ isOpen, onClose, shipment }) => {
     const { confirmReception, uploadLogisticsDocument } = usePharmaStore();
-    const [receivedItems, setReceivedItems] = useState<{ batchId: string; quantity: number; condition: 'GOOD' | 'DAMAGED' }[]>([]);
+    const [receivedItems, setReceivedItems] = useState<{ itemId: string; quantity: number; condition: 'GOOD' | 'DAMAGED' }[]>([]);
     const [notes, setNotes] = useState('');
     const [photos, setPhotos] = useState<string[]>([]);
     const [activeTab, setActiveTab] = useState<'ITEMS' | 'DOCS'>('ITEMS');
@@ -24,44 +25,28 @@ const UnifiedReception: React.FC<UnifiedReceptionProps> = ({ isOpen, onClose, sh
 
     // Scanner
     const scannerInputRef = useRef<HTMLInputElement>(null);
+    const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
 
     useEffect(() => {
         if (shipment) {
             setReceivedItems(shipment.items.map(i => ({
-                batchId: i.batchId,
-                quantity: i.quantity, // Default to expected quantity? Or 0 for blind reception?
-                // Let's default to expected for "Checklist" mode, but user can clear it if they want "Blind"
-                // For this requirement "Hybrid", usually we start with expected and verify.
+                itemId: i.id,
+                quantity: i.quantity,
                 condition: 'GOOD'
             })));
         }
     }, [shipment]);
 
     const handleScan = (code: string) => {
-        // Find item by SKU or Batch ID (or Barcode if we had it)
+        // Find item by SKU or Batch ID
         const itemIndex = shipment.items.findIndex(i => i.sku === code || i.batchId === code);
 
         if (itemIndex !== -1) {
-            const batchId = shipment.items[itemIndex].batchId;
+            const itemId = shipment.items[itemIndex].id;
             setReceivedItems(prev => prev.map(r => {
-                if (r.batchId === batchId) {
-                    // Increment quantity
-                    // Optional: Check if exceeds expected?
-                    // For now, just increment.
+                if (r.itemId === itemId) {
                     toast.success(`Escaneado: ${shipment.items[itemIndex].name}`);
-                    return { ...r, quantity: r.quantity + 1 }; // If we started at 0, this works. If we started at expected, this adds MORE?
-                    // Issue: If we initialize with expected quantity, scanning adds to it?
-                    // Maybe we should initialize with 0 if we want to use scanner?
-                    // Or "Verify" mode: Scanning highlights the row?
-                    // Let's assume "Blind Reception" style if scanning:
-                    // But the user might just want to verify.
-
-                    // Let's stick to: If scanner is used, it increments. 
-                    // But if we pre-fill, it might be confusing.
-                    // Let's NOT pre-fill quantity if we want true scanner reception.
-                    // BUT, for "Hybrid", usually we show expected.
-
-                    // Let's just increment and let user adjust.
+                    return { ...r, quantity: r.quantity + 1 };
                 }
                 return r;
             }));
@@ -78,15 +63,15 @@ const UnifiedReception: React.FC<UnifiedReceptionProps> = ({ isOpen, onClose, sh
 
     if (!isOpen) return null;
 
-    const handleQuantityChange = (batchId: string, qty: number) => {
+    const handleQuantityChange = (itemId: string, qty: number) => {
         setReceivedItems(items => items.map(i =>
-            i.batchId === batchId ? { ...i, quantity: Math.max(0, qty) } : i
+            i.itemId === itemId ? { ...i, quantity: Math.max(0, qty) } : i
         ));
     };
 
-    const handleConditionChange = (batchId: string, condition: 'GOOD' | 'DAMAGED') => {
+    const handleConditionChange = (itemId: string, condition: 'GOOD' | 'DAMAGED') => {
         setReceivedItems(items => items.map(i =>
-            i.batchId === batchId ? { ...i, condition } : i
+            i.itemId === itemId ? { ...i, condition } : i
         ));
     };
 
@@ -101,10 +86,10 @@ const UnifiedReception: React.FC<UnifiedReceptionProps> = ({ isOpen, onClose, sh
         }
     };
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         // Check for discrepancies
         const hasDiscrepancies = receivedItems.some(rec => {
-            const original = shipment.items.find(i => i.batchId === rec.batchId);
+            const original = shipment.items.find(i => i.id === rec.itemId);
             return original && (rec.quantity !== original.quantity || rec.condition === 'DAMAGED');
         });
 
@@ -117,15 +102,29 @@ const UnifiedReception: React.FC<UnifiedReceptionProps> = ({ isOpen, onClose, sh
         if (invoiceUrl) uploadLogisticsDocument(shipment.id, 'INVOICE', invoiceUrl);
         if (guideUrl) uploadLogisticsDocument(shipment.id, 'GUIDE', guideUrl);
 
-        // Confirm Reception
-        confirmReception(shipment.id, {
-            photos,
-            notes,
-            receivedItems
-        });
+        const { processReceptionSecure } = await import('@/actions/wms-v2');
 
-        toast.success(hasDiscrepancies ? 'Recepción con observaciones registrada' : 'Recepción exitosa');
-        onClose();
+        toast.promise(
+            processReceptionSecure({
+                shipmentId: shipment.id,
+                receivedItems: receivedItems.map(i => ({
+                    itemId: i.itemId,
+                    quantity: i.quantity,
+                    condition: i.condition
+                })),
+                photos,
+                notes
+            }),
+            {
+                loading: 'Procesando recepción...',
+                success: (res) => {
+                    if (!res.success) throw new Error(res.error);
+                    onClose();
+                    return hasDiscrepancies ? 'Recepción con observaciones registrada' : 'Recepción exitosa';
+                },
+                error: (err) => `Error: ${err.message}`
+            }
+        );
     };
 
     const totalExpected = shipment.items.reduce((a, b) => a + b.quantity, 0);
@@ -142,7 +141,7 @@ const UnifiedReception: React.FC<UnifiedReceptionProps> = ({ isOpen, onClose, sh
                             Recepción de Carga
                         </h2>
                         <p className="text-sm text-gray-500">
-                            {shipment.type === 'INBOUND_PROVIDER' ? 'Proveedor' : 'Transferencia Interna'} • OT: {shipment.transport_data.tracking_number}
+                            {shipment.type === 'INBOUND' ? 'Proveedor' : 'Transferencia Interna'} • OT: {shipment.transport_data.tracking_number}
                         </p>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
@@ -186,6 +185,13 @@ const UnifiedReception: React.FC<UnifiedReceptionProps> = ({ isOpen, onClose, sh
                                         onBlur={() => setTimeout(() => scannerInputRef.current?.focus(), 100)}
                                     />
                                 </div>
+                                <button
+                                    onClick={() => setIsCameraScannerOpen(true)}
+                                    className="px-4 py-3 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition flex items-center gap-2"
+                                    title="Escanear con cámara"
+                                >
+                                    <Camera size={20} />
+                                </button>
                                 <div className="text-right px-4 border-l border-gray-100">
                                     <p className="text-xs font-bold text-gray-400 uppercase">Progreso</p>
                                     <p className={`text-2xl font-extrabold ${totalReceived !== totalExpected ? 'text-amber-500' : 'text-emerald-600'}`}>
@@ -208,11 +214,11 @@ const UnifiedReception: React.FC<UnifiedReceptionProps> = ({ isOpen, onClose, sh
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
                                         {shipment.items.map(item => {
-                                            const received = receivedItems.find(r => r.batchId === item.batchId);
+                                            const received = receivedItems.find(r => r.itemId === item.id);
                                             if (!received) return null;
 
                                             return (
-                                                <tr key={item.batchId} className={received.quantity !== item.quantity ? 'bg-amber-50/30' : ''}>
+                                                <tr key={item.id} className={received.quantity !== item.quantity ? 'bg-amber-50/30' : ''}>
                                                     <td className="px-6 py-4">
                                                         <p className="font-bold text-gray-800">{item.name}</p>
                                                         <p className="text-xs text-gray-500 font-mono">{item.sku}</p>
@@ -227,23 +233,23 @@ const UnifiedReception: React.FC<UnifiedReceptionProps> = ({ isOpen, onClose, sh
                                                     </td>
                                                     <td className="px-6 py-4 text-center">
                                                         <div className="flex items-center justify-center gap-2">
-                                                            <button onClick={() => handleQuantityChange(item.batchId, received.quantity - 1)} className="w-6 h-6 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold">-</button>
+                                                            <button onClick={() => handleQuantityChange(item.id, received.quantity - 1)} className="w-6 h-6 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold">-</button>
                                                             <input
                                                                 type="number"
                                                                 value={received.quantity}
-                                                                onChange={(e) => handleQuantityChange(item.batchId, parseInt(e.target.value) || 0)}
+                                                                onChange={(e) => handleQuantityChange(item.id, parseInt(e.target.value) || 0)}
                                                                 className={`w-16 text-center font-bold border rounded py-1 focus:ring-2 outline-none ${received.quantity !== item.quantity
                                                                     ? 'border-amber-300 text-amber-700 focus:ring-amber-200'
                                                                     : 'border-gray-200 text-gray-800 focus:ring-blue-200'
                                                                     }`}
                                                             />
-                                                            <button onClick={() => handleQuantityChange(item.batchId, received.quantity + 1)} className="w-6 h-6 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold">+</button>
+                                                            <button onClick={() => handleQuantityChange(item.id, received.quantity + 1)} className="w-6 h-6 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold">+</button>
                                                         </div>
                                                     </td>
                                                     <td className="px-6 py-4 text-center">
                                                         <select
                                                             value={received.condition}
-                                                            onChange={(e) => handleConditionChange(item.batchId, e.target.value as any)}
+                                                            onChange={(e) => handleConditionChange(item.id, e.target.value as any)}
                                                             className={`px-3 py-1 rounded-lg text-sm font-bold border outline-none ${received.condition === 'GOOD'
                                                                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                                                 : 'bg-red-50 text-red-700 border-red-200'
@@ -377,6 +383,17 @@ const UnifiedReception: React.FC<UnifiedReceptionProps> = ({ isOpen, onClose, sh
                     </button>
                 </div>
             </div>
+
+            {/* Camera Scanner Modal */}
+            {isCameraScannerOpen && (
+                <CameraScanner
+                    onScan={(code) => {
+                        handleScan(code);
+                        setIsCameraScannerOpen(false);
+                    }}
+                    onClose={() => setIsCameraScannerOpen(false)}
+                />
+            )}
         </div>
     );
 };

@@ -16,6 +16,7 @@ import { query } from '@/lib/db';
 import { z } from 'zod';
 import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
+import { getSessionSecure } from './auth-v2';
 
 // ============================================================================
 // SCHEMAS
@@ -51,24 +52,7 @@ const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'];
 // HELPERS
 // ============================================================================
 
-async function getSession(): Promise<{
-    userId: string;
-    role: string;
-    locationId?: string;
-    userName?: string;
-} | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        const locationId = headersList.get('x-user-location');
-        const userName = headersList.get('x-user-name');
-        if (!userId || !role) return null;
-        return { userId, role, locationId: locationId || undefined, userName: userName || undefined };
-    } catch {
-        return null;
-    }
-}
+
 
 // ============================================================================
 // GET MY ATTENDANCE (Cualquier empleado)
@@ -80,7 +64,7 @@ async function getSession(): Promise<{
 export async function getMyAttendanceSummary(
     params: { startDate: string; endDate: string }
 ): Promise<{ success: boolean; data?: AttendanceDailySummary[]; error?: string }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session) {
         return { success: false, error: 'No autenticado' };
     }
@@ -151,7 +135,7 @@ export async function getMyAttendanceSummary(
 export async function getTeamAttendanceSecure(
     params: { startDate: string; endDate: string; locationId?: string }
 ): Promise<{ success: boolean; data?: AttendanceDailySummary[]; error?: string }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session) {
         return { success: false, error: 'No autenticado' };
     }
@@ -240,13 +224,13 @@ export async function getTeamAttendanceSecure(
 export async function getAttendanceReportSecure(
     params: { startDate: string; endDate: string; locationId?: string; role?: string }
 ): Promise<{ success: boolean; data?: AttendanceDailySummary[]; error?: string }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session) {
         return { success: false, error: 'No autenticado' };
     }
 
     // Solo RRHH y ADMIN pueden ver reporte completo
-    if (!['RRHH', 'ADMIN', 'GERENTE_GENERAL'].includes(session.role)) {
+    if (!['RRHH', 'ADMIN', 'GERENTE_GENERAL', 'MANAGER'].includes(session.role)) {
         return { success: false, error: 'Solo RRHH y administradores pueden ver reporte completo' };
     }
 
@@ -339,7 +323,7 @@ export async function getAttendanceKPIsSecure(
     data?: { present_today: number; total_staff: number; late_arrivals_month: number; total_overtime_hours: number };
     error?: string;
 }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session) {
         return { success: false, error: 'No autenticado' };
     }

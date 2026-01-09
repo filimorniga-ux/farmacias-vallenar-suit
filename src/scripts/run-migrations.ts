@@ -7,7 +7,8 @@ async function runMigrations() {
     const migrations = [
         // '004_uuid_standardization.sql', // ✅ SUCCESS (Step 1890)
         '005_audit_system.sql',
-        '006_reconciliation_module.sql'
+        '006_reconciliation_module.sql',
+        '009_wms_logistics_v2.sql'
     ];
 
     console.log('🚀 Starting migration execution...');

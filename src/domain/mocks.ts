@@ -17,7 +17,7 @@ export const MOCK_INVENTORY: InventoryBatch[] = [
         id: 'P002', sku: '780002', name: 'LOSARTÁN 50MG', dci: 'LOSARTÁN POTÁSICO', laboratory: 'Lab Chile', condition: 'R',
         is_bioequivalent: true, bioequivalent_status: 'BIOEQUIVALENTE', location_id: 'SUCURSAL_CENTRO', aisle: 'ESTANTE A1',
         stock_actual: 500, stock_min: 100, stock_max: 800, expiry_date: new Date('2025-06-01').getTime(),
-        price: 2990, cost_price: 1000,
+        price: 2990, cost_price: 0,
         cost_net: 840, tax_percent: 19, price_sell_box: 2990, price_sell_unit: 100,
         category: 'MEDICAMENTO', allows_commission: false, active_ingredients: ['Losartán Potásico'], therapeutic_tags: ['HIPERTENSION', 'CORAZON'],
         contraindications: ['EMBARAZO'], storage_condition: 'AMBIENTE', concentration: '50mg', format: 'Comprimido', unit_count: 30, is_generic: true,
@@ -184,7 +184,7 @@ export const MOCK_SHIPMENTS: Shipment[] = [
     // INBOUND from Laboratorio Chile
     {
         id: 'SHP-001',
-        type: 'INBOUND_PROVIDER',
+        type: 'INBOUND',
         origin_location_id: 'PROVEEDOR_LABCHILE',
         destination_location_id: 'SUCURSAL_CENTRO',
         status: 'IN_TRANSIT',
@@ -210,7 +210,7 @@ export const MOCK_SHIPMENTS: Shipment[] = [
     // INBOUND from Droguería Ñuñoa
     {
         id: 'SHP-002',
-        type: 'INBOUND_PROVIDER',
+        type: 'INBOUND',
         origin_location_id: 'PROVEEDOR_DROGÑUÑOA',
         destination_location_id: 'SUCURSAL_CENTRO',
         status: 'PREPARING',
@@ -233,7 +233,7 @@ export const MOCK_SHIPMENTS: Shipment[] = [
     // OUTBOUND to Sucursal Norte
     {
         id: 'SHP-003',
-        type: 'INTERNAL_TRANSFER',
+        type: 'INTER_BRANCH',
         origin_location_id: 'SUCURSAL_CENTRO',
         destination_location_id: 'SUCURSAL_NORTE',
         status: 'IN_TRANSIT',

@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { usePharmaStore } from '../store/useStore';
 import { AutoOrderSuggestion } from '../../domain/types';
-import { Package, Truck, CheckCircle, AlertCircle, Plus, Calendar, TrendingUp, RefreshCw, AlertTriangle, Zap, DollarSign } from 'lucide-react';
+import { Package, Truck, CheckCircle, AlertCircle, Plus, Calendar, TrendingUp, RefreshCw, AlertTriangle, Zap, DollarSign, Trash2 } from 'lucide-react';
 import { PurchaseOrderReceivingModal } from '../components/scm/PurchaseOrderReceivingModal';
 import ManualOrderModal from '../components/supply/ManualOrderModal';
 import { useNotificationStore } from '../store/useNotificationStore';
 import { toast } from 'sonner';
+import { generateRestockSuggestionSecure } from '../../actions/procurement-v2';
+import { deletePurchaseOrderSecure } from '../../actions/supply-v2';
 
 const SupplyChainPage: React.FC = () => {
-    const { inventory, suppliers, purchaseOrders, addPurchaseOrder, receivePurchaseOrder, analyzeReorderNeeds, generateSuggestedPOs } = usePharmaStore();
+    const { inventory, suppliers, purchaseOrders, addPurchaseOrder, receivePurchaseOrder, generateSuggestedPOs } = usePharmaStore();
     const { pushNotification } = useNotificationStore();
 
     const [isReceptionModalOpen, setIsReceptionModalOpen] = useState(false);
@@ -22,20 +24,57 @@ const SupplyChainPage: React.FC = () => {
     // Initial Analysis & Alert
     // Run analysis on mount
     useEffect(() => {
+        usePharmaStore.getState().syncData();
         runIntelligentAnalysis();
     }, []);
 
-    const runIntelligentAnalysis = () => {
+    const runIntelligentAnalysis = async () => {
         setIsAnalyzing(true);
+        setSuggestions([]);
 
-        setTimeout(() => {
-            // Use new intelligent ordering method
-            const results = analyzeReorderNeeds('BODEGA_CENTRAL', 30);
-            setSuggestions(results);
-            setIsAnalyzing(false);
+        try {
+            // Using Secure Server Action for Robust Analysis
+            // undefined supplierId = Analyze ALL products
+            // Location ID: Farmacia Vallenar santiago (bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6)
+            const result = await generateRestockSuggestionSecure(undefined, 15, 30, 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6');
 
-            // Notify if critical items found
-            const criticalCount = results.filter(s => s.urgency === 'HIGH').length;
+            if (!result.success || !result.data) {
+                toast.error(result.error || 'Error al analizar demanda');
+                setIsAnalyzing(false);
+                return;
+            }
+
+            // Map server response to AutoOrderSuggestion
+            const newSuggestions: AutoOrderSuggestion[] = result.data
+                .filter((item: any) => item.suggested_quantity > 0)
+                .map((item: any) => {
+                    let urgency: 'HIGH' | 'MEDIUM' | 'LOW' = 'LOW';
+                    if (item.days_until_stockout <= 5) urgency = 'HIGH';
+                    else if (item.days_until_stockout <= 15) urgency = 'MEDIUM';
+
+                    return {
+                        sku: item.sku,
+                        product_name: item.product_name,
+                        location_id: 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6',
+                        current_stock: item.current_stock,
+                        min_stock: item.safety_stock,
+                        max_stock: item.safety_stock * 3, // Estimated
+                        daily_avg_sales: item.daily_velocity,
+                        forecast_demand_14d: Math.ceil(item.daily_velocity * 14),
+                        days_until_stockout: Math.floor(item.days_until_stockout > 999 ? 999 : item.days_until_stockout),
+                        suggested_order_qty: item.suggested_quantity,
+                        urgency,
+                        reason: item.reason,
+                        supplier_id: item.supplier_id,
+                        unit_cost: Number(item.last_cost || 0),
+                        estimated_cost: item.total_estimated
+                    };
+                });
+
+            setSuggestions(newSuggestions);
+
+            // Notify if critical
+            const criticalCount = newSuggestions.filter(s => s.urgency === 'HIGH').length;
             if (criticalCount > 0) {
                 pushNotification({
                     eventType: 'STOCK_CRITICAL',
@@ -46,7 +85,13 @@ const SupplyChainPage: React.FC = () => {
                     roleTarget: 'MANAGER'
                 });
             }
-        }, 600); // Simulate processing
+
+        } catch (error) {
+            console.error('Error in analysis:', error);
+            toast.error('Error inesperado al analizar stock');
+        } finally {
+            setIsAnalyzing(false);
+        }
     };
 
     const updateSuggestion = (sku: string, field: keyof AutoOrderSuggestion, value: any) => {
@@ -98,20 +143,52 @@ const SupplyChainPage: React.FC = () => {
                     {orders.map(po => (
                         <div
                             key={po.id}
-                            onClick={() => {
-                                if (status === 'DRAFT') {
-                                    setSelectedOrder(po);
-                                    setIsManualOrderModalOpen(true);
-                                }
-                            }}
-                            className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-all cursor-pointer"
+                            className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-all cursor-pointer relative group"
                         >
-                            <div className="flex justify-between items-start mb-2">
-                                <span className="text-xs font-mono text-slate-400">{po.id}</span>
-                                <span className="text-xs font-bold text-slate-600">{new Date(po.created_at).toLocaleDateString()}</span>
+                            <div
+                                onClick={() => {
+                                    if (status === 'DRAFT') {
+                                        setSelectedOrder(po);
+                                        setIsManualOrderModalOpen(true);
+                                    }
+                                }}
+                            >
+                                <div className="flex justify-between items-start mb-2">
+                                    <span className="text-xs font-mono text-slate-400">{po.id.slice(0, 8)}...</span>
+                                    <span className="text-xs font-bold text-slate-600">{new Date(po.created_at).toLocaleDateString()}</span>
+                                </div>
+                                <h4 className="font-bold text-slate-800 mb-1">{suppliers.find(s => s.id === po.supplier_id)?.fantasy_name || 'Proveedor Desconocido'}</h4>
+                                <p className="text-sm text-slate-500 mb-3">{po.items.length} Items</p>
                             </div>
-                            <h4 className="font-bold text-slate-800 mb-1">{suppliers.find(s => s.id === po.supplier_id)?.fantasy_name || 'Proveedor Desconocido'}</h4>
-                            <p className="text-sm text-slate-500 mb-3">{po.items.length} Items</p>
+
+                            {status === 'DRAFT' && (
+                                <button
+                                    onClick={async (e) => {
+                                        e.stopPropagation();
+                                        if (!confirm('¿Eliminar borrador?')) return;
+
+                                        const { deletePurchaseOrderSecure } = await import('../../actions/procurement-v2');
+                                        const useStore = await import('../store/useStore');
+                                        const user = useStore.usePharmaStore.getState().user;
+
+                                        const res = await deletePurchaseOrderSecure({
+                                            orderId: po.id,
+                                            userId: user?.id || 'SYSTEM'
+                                        });
+
+                                        if (res.success) {
+                                            useStore.usePharmaStore.getState().removePurchaseOrder(po.id);
+                                            toast.success('Borrador eliminado');
+                                        } else {
+                                            toast.error(res.error || 'Error al eliminar');
+                                        }
+                                    }}
+                                    className="absolute top-2 right-2 p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition opacity-0 group-hover:opacity-100"
+                                    title="Eliminar borrador"
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+                            )}
 
                             {status === 'SENT' && (
                                 <button
@@ -299,7 +376,7 @@ const SupplyChainPage: React.FC = () => {
                         return receivePurchaseOrder(
                             orderId,
                             items,
-                            selectedOrder.destination_location_id || 'BODEGA_CENTRAL'
+                            selectedOrder.destination_location_id || 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6'
                         );
                     }}
                 />

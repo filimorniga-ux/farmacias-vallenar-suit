@@ -77,21 +77,49 @@ const ReportsPage: React.FC = () => {
                     getCashFlowLedgerSecure({ startDate: dateRange.from.toISOString(), endDate: dateRange.to.toISOString() }),
                     getDetailedFinancialSummarySecure(dateRange.from.toISOString(), dateRange.to.toISOString())
                 ]);
-                if (res.success && res.data) setCashLedger(res.data);
-                if (summaryRes.success && summaryRes.data) setSummary(summaryRes.data);
+
+                if (res.success && res.data) {
+                    setCashLedger(res.data);
+                } else {
+                    toast.error(res.error || 'Error cargando flujo de caja');
+                }
+
+                if (summaryRes.success && summaryRes.data) {
+                    setSummary(summaryRes.data);
+                } else {
+                    if (!res.success) toast.error(summaryRes.error || 'Error cargando resumen financiero');
+                }
+
             } else if (activeTab === 'tax') {
                 // Format YYYY-MM
                 const monthStr = `${dateRange.from.getFullYear()}-${(dateRange.from.getMonth() + 1).toString().padStart(2, '0')}`;
                 const res = await getTaxSummarySecure(monthStr);
-                if (res.success && res.data) setTaxData(res.data);
+
+                if (res.success && res.data) {
+                    setTaxData(res.data);
+                } else {
+                    toast.error(res.error || 'Error cargando datos tributarios');
+                }
+
             } else if (activeTab === 'logistics') {
                 const whId = currentWarehouseId || currentLocationId || ''; // Fallback
                 const [res, kpiRes] = await Promise.all([
                     getInventoryValuationSecure(whId),
                     getLogisticsKPIsSecure(dateRange.from.toISOString(), dateRange.to.toISOString(), whId)
                 ]);
-                if (res.success && res.data) setLogisticsData(res.data as InventoryValuation);
-                if (kpiRes.success && kpiRes.data) setLogisticsKPIs(kpiRes.data);
+
+                if (res.success && res.data) {
+                    setLogisticsData(res.data as InventoryValuation);
+                } else {
+                    toast.error(res.error || 'Error cargando valoración de inventario');
+                }
+
+                if (kpiRes.success && kpiRes.data) {
+                    setLogisticsKPIs(kpiRes.data);
+                } else {
+                    toast.error(kpiRes.error || 'Error cargando KPIs logísticos');
+                }
+
             } else if (activeTab === 'hr') {
                 // Note: getPayrollPreviewSecure requires PIN, skipping for now - HR tab uses HRReportTab
                 setPayrollData([]);
@@ -152,12 +180,17 @@ const ReportsPage: React.FC = () => {
         }
     };
 
-    const tabs = [
-        { id: 'cash' as const, label: 'Flujo de Caja', icon: DollarSign },
-        { id: 'tax' as const, label: 'Tributario', icon: FileText },
-        { id: 'logistics' as const, label: 'Logística', icon: Package },
-        { id: 'hr' as const, label: 'RR.HH.', icon: Users }
+    // Role-based Access Control
+    const userRole = usePharmaStore(state => state.user?.role);
+
+    const allTabs = [
+        { id: 'cash' as const, label: 'Flujo de Caja', icon: DollarSign, roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'] },
+        { id: 'tax' as const, label: 'Tributario', icon: FileText, roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'CONTADOR'] },
+        { id: 'logistics' as const, label: 'Logística', icon: Package, roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'WAREHOUSE', 'QF'] },
+        { id: 'hr' as const, label: 'RR.HH.', icon: Users, roles: ['RRHH', 'ADMIN', 'GERENTE_GENERAL', 'MANAGER'] }
     ];
+
+    const tabs = allTabs.filter(t => !t.roles || (userRole && t.roles.includes(userRole)));
 
     return (
         <div className="p-6 space-y-6 h-[calc(100vh-80px)] overflow-y-auto bg-gray-50">
@@ -480,7 +513,7 @@ const ReportsPage: React.FC = () => {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
-                                        {logisticsData.top_products.map((prod, idx) => (
+                                        {logisticsData.top_products?.map((prod, idx) => (
                                             <tr key={idx} className="hover:bg-gray-50">
                                                 <td className="p-3 font-medium text-gray-900">{prod.name}</td>
                                                 <td className="p-3 text-right">{prod.quantity}</td>
@@ -489,6 +522,11 @@ const ReportsPage: React.FC = () => {
                                                 <td className="p-3 text-right font-bold text-green-700">${prod.sales_value.toLocaleString('es-CL')}</td>
                                             </tr>
                                         ))}
+                                        {(!logisticsData.top_products || logisticsData.top_products.length === 0) && (
+                                            <tr>
+                                                <td colSpan={5} className="p-4 text-center text-gray-400">Sin datos de productos valorizados</td>
+                                            </tr>
+                                        )}
                                     </tbody>
                                 </table>
                             </div>

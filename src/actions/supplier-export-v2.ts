@@ -21,7 +21,7 @@ import { ExcelService } from '@/lib/excel-generator';
 // CONSTANTS
 // ============================================================================
 
-const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
+const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL', 'MANAGER', 'QF', 'WAREHOUSE'];
 
 // ============================================================================
 // HELPERS

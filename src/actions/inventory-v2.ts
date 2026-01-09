@@ -39,7 +39,7 @@ const CreateBatchSchema = z.object({
     unitCost: z.number().min(0).default(0),
     salePrice: z.number().min(0).default(0),
     stockMin: z.number().int().min(0).default(0),
-    stockMax: z.number().int().min(1).default(1000),
+    stockMax: z.number().int().min(1).default(100),
     userId: z.string().min(1, { message: "ID de usuario requerido" }),
 });
 
@@ -165,6 +165,9 @@ async function insertInventoryAudit(
     }
 ) {
     try {
+        // Use SAVEPOINT to prevent main transaction abortion on audit failure
+        await client.query('SAVEPOINT audit_safe');
+
         await client.query(`
             INSERT INTO audit_log (
                 user_id, location_id, action_code, 
@@ -189,8 +192,12 @@ async function insertInventoryAudit(
             }),
             params.description || null
         ]);
+
+        await client.query('RELEASE SAVEPOINT audit_safe');
     } catch (auditError: any) {
-        logger.warn({ err: auditError }, 'Inventory audit log insertion failed (non-critical)');
+        // Rollback ONLY the audit insert, keeping the main transaction alive
+        await client.query('ROLLBACK TO SAVEPOINT audit_safe');
+        logger.warn({ err: auditError }, 'Inventory audit log insertion failed (non-critical, suppressed)');
     }
 }
 
@@ -881,7 +888,8 @@ export async function getInventorySecure(
 ): Promise<{ success: boolean; data?: any[]; error?: string }> {
 
     if (!z.string().uuid().safeParse(locationId).success) {
-        return { success: false, error: 'ID de ubicación inválido' };
+        console.warn('⚠️ [Inventory v2] Invalid locationId provided to getInventorySecure:', locationId);
+        return { success: true, data: [] }; // Return empty instead of error to be smoother
     }
 
 
@@ -1040,7 +1048,7 @@ export async function getRecentMovementsSecure(
             LEFT JOIN locations l ON sm.location_id = l.id
             ${whereClause}
             ORDER BY sm.timestamp DESC
-            LIMIT $${params.length}
+            LIMIT ($${params.length})::integer
         `;
 
         const res = await query(sql, params);
@@ -1243,6 +1251,121 @@ export async function quickStockAdjustSecure(params: {
         logger.error({ err: error }, '❌ Quick stock adjust failed');
         return { success: false, error: error.message || 'Error ajustando stock' };
 
+    } finally {
+        client.release();
+    }
+}
+
+// =====================================================
+// ⚡ COST MANAGEMENT
+// =====================================================
+
+/**
+ * Actualiza el costo unitario de un lote y opcionalmente el del producto maestro
+ * Requiere PIN de Supervisor (Manager/Admin/Gerente)
+ */
+export async function updateBatchCostSecure(params: {
+    batchId: string;
+    newCost: number;
+    userId: string;
+    pin: string;
+}): Promise<{ success: boolean; error?: string }> {
+
+    const { batchId, newCost, userId, pin } = params;
+
+    // Validación básica
+    if (!batchId || newCost < 0 || !userId) {
+        return { success: false, error: 'Datos inválidos' };
+    }
+
+    if (!pin) {
+        return { success: false, error: 'Se requiere PIN de autorización' };
+    }
+
+    const { pool } = await import('@/lib/db');
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        // 1. Validar PIN (Manager/Admin/Gerente)
+        const MANAGER_ROLES = ['GERENTE_GENERAL', 'ADMIN', 'MANAGER'];
+        const authResult = await validateSupervisorPin(client, pin, MANAGER_ROLES);
+
+        if (!authResult.valid || !authResult.authorizedBy) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'PIN inválido o usuario no autorizado' };
+        }
+
+        const authorizedUser = authResult.authorizedBy;
+
+        console.log(`[UpdateCost] Batch: ${batchId}, NewCost: ${newCost}, User: ${authorizedUser.name}`);
+
+        // 2. Obtener lote y bloquear
+        const batchRes = await client.query(`
+            SELECT id, product_id, sku, name, unit_cost, location_id 
+            FROM inventory_batches 
+            WHERE id = $1 
+            FOR UPDATE NOWAIT
+        `, [batchId]);
+
+        if (batchRes.rows.length === 0) {
+            console.warn(`[UpdateCost] Batch ${batchId} NOT FOUND inside inventory_batches`);
+            await client.query('ROLLBACK');
+            return { success: false, error: 'Lote no encontrado' };
+        }
+
+        const batch = batchRes.rows[0];
+        const oldCost = Number(batch.unit_cost);
+        const productId = batch.product_id;
+
+        console.log(`[UpdateCost] Found Batch. ID: ${batch.id}, ProductID: ${productId}, OldCost: ${oldCost}`);
+
+        // 3. Actualizar lote
+        const upBatch = await client.query(`
+            UPDATE inventory_batches 
+            SET unit_cost = $1, cost_net = $1, updated_at = NOW() 
+            WHERE id = $2
+        `, [newCost, batchId]);
+
+        console.log(`[UpdateCost] Inventory Batch Updated. Rows: ${upBatch.rowCount}`);
+
+        // 4. Actualizar producto maestro si existe (Ficha técnica)
+        if (productId) {
+            console.log(`[UpdateCost] Updating Master Product ${productId}...`);
+            const upProd = await client.query(`
+                UPDATE products 
+                SET cost_price = $1, cost_net = $1, updated_at = NOW() 
+                WHERE id = $2
+            `, [newCost, productId]);
+            console.log(`[UpdateCost] Master Product Updated. Rows: ${upProd.rowCount}`);
+        } else {
+            console.warn(`[UpdateCost] No Product ID linked to batch ${batchId}. Master product NOT updated.`);
+        }
+
+        // 5. Auditoría
+        await insertInventoryAudit(client, {
+            userId, // Usuario logueado
+            authorizedById: authorizedUser.id, // Usuario que puso el PIN
+            locationId: batch.location_id,
+            actionCode: 'COST_UPDATE',
+            entityType: 'INVENTORY_BATCH',
+            entityId: batchId,
+            oldValues: { unit_cost: oldCost },
+            newValues: { unit_cost: newCost },
+            description: `Actualización de costo: $${oldCost} -> $${newCost}. Autorizado por: ${authorizedUser.name}`
+        });
+
+        await client.query('COMMIT');
+        console.log(`[UpdateCost] Transaction COMMITTED.`);
+
+        revalidatePath('/inventory');
+        return { success: true };
+
+    } catch (error: any) {
+        await client.query('ROLLBACK');
+        logger.error({ err: error }, 'Error updating batch cost');
+        return { success: false, error: error.message || 'Error actualizando costo' };
     } finally {
         client.release();
     }

@@ -14,16 +14,17 @@ interface DispatchWizardProps {
 }
 
 const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode = 'DISPATCH' }) => {
-    const { inventory, createDispatch, addPurchaseOrder, user, suppliers } = usePharmaStore();
-    const { currentLocation } = useLocationStore();
+    const { inventory, createDispatch, addPurchaseOrder, refreshShipments, user, suppliers } = usePharmaStore();
+    const { currentLocation, locations } = useLocationStore();
 
     // Step 1: Route
     const [originId, setOriginId] = useState(() => {
         if (mode === 'PURCHASE') return '';
-        return currentLocation?.id || 'BODEGA_CENTRAL';
+        return currentLocation?.id || '';
     });
     const [destinationId, setDestinationId] = useState(() => {
-        if (mode === 'PURCHASE') return currentLocation?.id || 'BODEGA_CENTRAL';
+        if (mode === 'PURCHASE') return currentLocation?.id || '';
+        if (mode === 'RETURN') return 'PROVEEDOR_EXTERNO';
         return '';
     });
 
@@ -47,22 +48,10 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
 
     // Initial State Setup (Handled by Remounting)
     useEffect(() => {
-        console.log("═══════════════════════════════════════");
-        console.log("🔍 WMS DEBUG - Inventory Count:", inventory.length);
-        if (inventory.length > 0) {
-            console.log("📦 WMS DEBUG - First 3 products:", inventory.slice(0, 3).map(i => ({
-                sku: i.sku,
-                name: i.name,
-                location_id: i.location_id,
-                stock: i.stock_actual
-            })));
-        }
-        console.log("═══════════════════════════════════════");
-        // Focus scanner on mount
         if (isOpen) {
             setTimeout(() => scannerInputRef.current?.focus(), 100);
         }
-    }, [isOpen, inventory]);
+    }, [isOpen]);
 
     // Filter Inventory
     const originInventory = useMemo(() => {
@@ -108,23 +97,13 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
         if (matchingBatches.length > 0) {
             // Use first batch with stock (from ANY location)
             const bestBatch = matchingBatches.find(b => b.stock_actual > 0) || matchingBatches[0];
-            console.log("✅ Best batch selected:", {
-                name: bestBatch.name,
-                sku: bestBatch.sku,
-                location: bestBatch.location_id,
-                stock: bestBatch.stock_actual
-            });
 
             // Calculate TOTAL stock across ALL locations
             const totalStock = matchingBatches.reduce((sum, b) => sum + b.stock_actual, 0);
 
-            console.log("📊 Total stock (all locations):", totalStock);
-            console.log("📍 This batch stock:", bestBatch.stock_actual);
-
             const existing = selectedItems.find(i => i.sku === bestBatch.sku);
 
             if (existing) {
-                console.log("🔄 Product already in cart, updating quantity");
                 if (existing.quantity < totalStock) {
                     handleUpdateQuantity(existing.batchId, existing.quantity + 1);
                     playBeep();
@@ -133,17 +112,15 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
                     toast.error(`Stock insuficiente (Max: ${totalStock})`);
                 }
             } else {
-                console.log("➕ Adding new product to cart");
                 if (bestBatch.stock_actual > 0) {
                     handleAddItem(bestBatch, bestBatch.stock_actual);
                     playBeep();
-                    toast.success(`Agregado: ${bestBatch.name} desde ${bestBatch.location_id}`);
+                    toast.success(`Agregado: ${bestBatch.name}`);
                 } else {
                     toast.error(`Producto sin stock disponible`);
                 }
             }
         } else {
-            console.error("❌ Product not found for code:", code);
             toast.error(`Producto no encontrado: ${code}`);
         }
     };
@@ -153,8 +130,6 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
     const filteredProducts = useMemo(() => {
         if (!searchTerm) return [];
 
-        console.log("🔍 WMS Search - Term:", searchTerm, "| Inventory items:", inventory.length);
-
         // Search in GLOBAL inventory (all locations)
         const matches = inventory.filter(item =>
             (item.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -162,8 +137,6 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
             (item.dci || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
             (item.lot_number || '').toLowerCase().includes(searchTerm.toLowerCase())
         );
-
-        console.log("📦 WMS Search - Matches found:", matches.length);
 
         // Group by SKU and show all locations with stock
         const productMap = new Map<string, {
@@ -232,7 +205,9 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
                     toast.error(`Stock insuficiente (Max: ${i.max})`);
                     return i;
                 }
-                return { ...i, quantity: Math.min(Math.max(1, qty), i.max) };
+                // Allow 0 temporarily for typing experience
+                const newQty = Math.max(0, qty);
+                return { ...i, quantity: Math.min(newQty, i.max) };
             }
             return i;
         }));
@@ -242,7 +217,7 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
         setSelectedItems(items => items.filter(i => i.batchId !== batchId));
     };
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!destinationId && mode !== 'PURCHASE') {
             toast.error('Selecciona un destino');
             return;
@@ -283,27 +258,39 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
                 return;
             }
 
-            const shipmentData: Omit<Shipment, 'id' | 'status' | 'created_at' | 'updated_at'> = {
-                type: mode === 'RETURN' ? 'RETURN' : 'INTERNAL_TRANSFER',
-                origin_location_id: originId,
-                destination_location_id: destinationId,
-                transport_data: transportData,
-                documentation: { evidence_photos: [] },
-                items: selectedItems.map(i => ({
-                    batchId: i.batchId,
-                    sku: i.sku,
-                    name: i.name,
-                    quantity: i.quantity,
-                    condition: 'GOOD'
-                })),
-                valuation: selectedItems.reduce((sum, i) => {
-                    const item = originInventory.find(inv => inv.id === i.batchId);
-                    return sum + (item?.cost_net || 0) * i.quantity;
-                }, 0)
-            };
+            // Call Server Action
+            const { createDispatchSecure } = await import('@/actions/wms-v2');
 
-            createDispatch(shipmentData);
-            toast.success(mode === 'RETURN' ? 'Devolución creada exitosamente' : 'Despacho creado exitosamente');
+            toast.promise(
+                createDispatchSecure({
+                    type: mode === 'RETURN' ? 'RETURN' : 'INTER_BRANCH', // Updated enum
+                    originLocationId: originId,
+                    destinationLocationId: destinationId === 'PROVEEDOR_EXTERNO' ? null : destinationId,
+                    transportData,
+                    items: selectedItems.map(i => ({
+                        batchId: i.batchId,
+                        sku: i.sku,
+                        name: i.name,
+                        quantity: i.quantity,
+                        condition: 'GOOD'
+                    })),
+                    valuation: selectedItems.reduce((sum, i) => {
+                        const item = originInventory.find(inv => inv.id === i.batchId);
+                        return sum + (item?.cost_net || 0) * i.quantity;
+                    }, 0),
+                    notes: `Creado desde DispatchWizard (${mode})`
+                }),
+                {
+                    loading: 'Procesando despacho...',
+                    success: (res) => {
+                        if (!res.success) throw new Error(res.error);
+                        refreshShipments();
+                        onClose();
+                        return mode === 'RETURN' ? 'Devolución creada exitosamente' : 'Despacho creado exitosamente';
+                    },
+                    error: (err) => `Error: ${err.message}`
+                }
+            );
         }
 
         onClose();
@@ -380,12 +367,13 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
                                     <select
                                         value={originId}
                                         onChange={(e) => setOriginId(e.target.value)}
-                                        disabled={user?.role !== 'MANAGER'}
+                                        disabled={user?.role !== 'MANAGER' && user?.role !== 'ADMIN'}
                                         className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 bg-gray-50 font-medium"
                                     >
-                                        <option value="BODEGA_CENTRAL">BODEGA_CENTRAL</option>
-                                        <option value="SUCURSAL_CENTRO">SUCURSAL_CENTRO</option>
-                                        <option value="SUCURSAL_NORTE">SUCURSAL_NORTE</option>
+                                        <option value="">Seleccionar Origen...</option>
+                                        {locations.map(loc => (
+                                            <option key={loc.id} value={loc.id}>{loc.name}</option>
+                                        ))}
                                     </select>
                                 )}
                             </div>
@@ -406,14 +394,17 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
                                     <option value="">Seleccionar Destino...</option>
                                     {mode === 'RETURN' ? (
                                         <>
-                                            <option value="BODEGA_CENTRAL">BODEGA_CENTRAL (Devolución Interna)</option>
+                                            {/* Internal Returns */}
+                                            {locations.filter(l => l.id !== originId).map(loc => (
+                                                <option key={loc.id} value={loc.id}>{loc.name} (Devolución Interna)</option>
+                                            ))}
                                             <option value="PROVEEDOR_EXTERNO">PROVEEDOR (Devolución Compra)</option>
                                         </>
                                     ) : (
                                         <>
-                                            <option value="SUCURSAL_CENTRO" disabled={originId === 'SUCURSAL_CENTRO'}>SUCURSAL_CENTRO</option>
-                                            <option value="SUCURSAL_NORTE" disabled={originId === 'SUCURSAL_NORTE'}>SUCURSAL_NORTE</option>
-                                            <option value="BODEGA_CENTRAL" disabled={originId === 'BODEGA_CENTRAL'}>BODEGA_CENTRAL</option>
+                                            {locations.filter(l => l.id !== originId).map(loc => (
+                                                <option key={loc.id} value={loc.id}>{loc.name}</option>
+                                            ))}
                                         </>
                                     )}
                                 </select>
@@ -477,13 +468,11 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
                                                     value={searchTerm}
                                                     onChange={(e) => {
                                                         const val = e.target.value;
-                                                        console.log("🔍 Search input changed:", val);
                                                         setSearchTerm(val);
                                                     }}
                                                     onKeyDown={(e) => {
                                                         if (e.key === 'Enter' && searchTerm) {
-                                                            console.log("⌨️ Enter pressed - searching for:", searchTerm);
-                                                            // Simulate scanner behavior: if exact SKU match, add it
+                                                            // Simulate scanner behavior
                                                             const exactMatch = inventory.find(i =>
                                                                 i.sku.toLowerCase() === searchTerm.toLowerCase()
                                                             );
@@ -611,7 +600,16 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
                                                 </div>
                                                 <div className="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-1">
                                                     <button onClick={() => handleUpdateQuantity(item.batchId, item.quantity - 1)} className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded">-</button>
-                                                    <span className="font-bold text-gray-800">{item.quantity}</span>
+                                                    <input
+                                                        type="number"
+                                                        className="w-16 text-center font-bold text-gray-800 border-none focus:ring-0 p-0 mx-1 outline-none"
+                                                        value={item.quantity || ''}
+                                                        onChange={(e) => handleUpdateQuantity(item.batchId, parseInt(e.target.value) || 0)}
+                                                        onBlur={(e) => {
+                                                            if (!item.quantity) handleUpdateQuantity(item.batchId, 1);
+                                                        }}
+                                                        onFocus={(e) => e.target.select()}
+                                                    />
                                                     <button onClick={() => handleUpdateQuantity(item.batchId, item.quantity + 1)} className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded">+</button>
                                                 </div>
                                             </div>
@@ -704,7 +702,7 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
                                             {mode === 'PURCHASE' ? (
                                                 <>Prov: {suppliers.find(s => s.id === originId)?.fantasy_name || originId} <ArrowRight size={14} className="text-gray-400" /> {destinationId}</>
                                             ) : (
-                                                <>{originId} <ArrowRight size={14} className="text-gray-400" /> {destinationId}</>
+                                                <>{locations.find(l => l.id === originId)?.name || originId} <ArrowRight size={14} className="text-gray-400" /> {locations.find(l => l.id === destinationId)?.name || destinationId}</>
                                             )}
                                         </div>
                                     </div>

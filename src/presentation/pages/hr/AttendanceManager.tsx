@@ -1,33 +1,85 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { usePharmaStore } from '../../store/useStore';
 import { EmployeeProfile, AttendanceLog, AttendanceStatus } from '../../../domain/types';
-import { Clock, Calendar, Search, FileText, Download, AlertCircle, CheckCircle, Coffee, ArrowRight, Edit, Eye } from 'lucide-react';
+import { Clock, Calendar, Search, FileText, Download, AlertCircle, CheckCircle, Coffee, ArrowRight, Edit, Eye, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PrinterService } from '../../../infrastructure/services/PrinterService';
 // V2: Funciones seguras
 import { exportAttendanceSecure } from '@/actions/finance-export-v2';
+import { getTodayAttendanceSecure, getApprovedAttendanceHistory } from '@/actions/attendance-v2';
 
 interface AttendanceManagerProps {
     viewMode?: 'LIVE' | 'HISTORY';
 }
 
 const AttendanceManager: React.FC<AttendanceManagerProps> = ({ viewMode = 'LIVE' }) => {
-    const { employees, attendanceLogs, user } = usePharmaStore();
+    // const { employees, attendanceLogs, user } = usePharmaStore(); // Deprecated
+    const { user } = usePharmaStore();
     const [internalTab, setInternalTab] = useState<'LIVE' | 'HISTORY'>(viewMode);
-    const [searchTerm, setSearchTerm] = useState('');
+
+    const [liveEmployees, setLiveEmployees] = useState<any[]>([]);
+    const [historyLogs, setHistoryLogs] = useState<any[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+
+    // Filters
     const [dateRange, setDateRange] = useState<'TODAY' | 'WEEK' | 'MONTH'>('TODAY');
 
     // Sync prop with internal state if it changes
-    React.useEffect(() => {
+    useEffect(() => {
         setInternalTab(viewMode);
     }, [viewMode]);
 
+    // Data Fetching
+    useEffect(() => {
+        if (internalTab === 'LIVE') {
+            loadLiveData();
+        } else {
+            loadHistoryData();
+        }
+    }, [internalTab, dateRange]);
+
+    const loadLiveData = async () => {
+        setIsLoading(true);
+        const res = await getTodayAttendanceSecure();
+        if (res.success && res.data) {
+            setLiveEmployees(res.data);
+        } else {
+            toast.error(res.error || 'Error cargando monitor');
+        }
+        setIsLoading(false);
+    };
+
+    const loadHistoryData = async () => {
+        setIsLoading(true);
+        const now = new Date();
+        let startDate: Date;
+        let endDate = new Date();
+
+        if (dateRange === 'TODAY') {
+            startDate = new Date(now.setHours(0, 0, 0, 0));
+        } else if (dateRange === 'WEEK') {
+            const firstDay = now.getDate() - now.getDay() + 1; // Monday
+            startDate = new Date(now.setDate(firstDay));
+            startDate.setHours(0, 0, 0, 0);
+        } else {
+            startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        }
+
+        const res = await getApprovedAttendanceHistory({
+            startDate: startDate.toISOString(),
+            endDate: endDate.toISOString()
+        });
+        if (res.success && res.data) {
+            setHistoryLogs(res.data);
+        } else {
+            toast.error(res.error || 'Error cargando historial');
+        }
+        setIsLoading(false);
+    }
+
     const activeTab = internalTab;
 
-    // --- LIVE VIEW LOGIC ---
-    const activeEmployees = useMemo(() => employees.filter(e => e.status === 'ACTIVE'), [employees]);
-
-    const getStatusColor = (status: AttendanceStatus) => {
+    const getStatusColor = (status: string) => {
         switch (status) {
             case 'IN': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
             case 'LUNCH': return 'bg-orange-100 text-orange-700 border-orange-200';
@@ -37,40 +89,12 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ viewMode = 'LIVE'
         }
     };
 
-    const getLastLog = (employeeId: string) => {
-        return attendanceLogs
-            .filter(l => l.employee_id === employeeId)
-            .sort((a, b) => b.timestamp - a.timestamp)[0];
-    };
-
-    // --- HISTORY LOGIC ---
-    const getFilteredLogs = () => {
-        const now = new Date();
-        let startTime = 0;
-
-        if (dateRange === 'TODAY') {
-            startTime = new Date(now.setHours(0, 0, 0, 0)).getTime();
-        } else if (dateRange === 'WEEK') {
-            const firstDay = now.getDate() - now.getDay() + 1; // Monday
-            startTime = new Date(now.setDate(firstDay)).setHours(0, 0, 0, 0);
-        } else if (dateRange === 'MONTH') {
-            startTime = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-        }
-
-        return attendanceLogs
-            .filter(l => l.timestamp >= startTime)
-            .sort((a, b) => b.timestamp - a.timestamp);
-    };
-
-    const filteredLogs = getFilteredLogs();
-
     const handleExportPDF = () => {
-        const data = filteredLogs.map(log => {
-            const emp = employees.find(e => e.id === log.employee_id);
+        const data = historyLogs.map(log => {
             return {
                 date: new Date(log.timestamp).toLocaleDateString(),
                 time: new Date(log.timestamp).toLocaleTimeString(),
-                employeeName: emp?.name || 'Desconocido',
+                employeeName: log.user_name || 'Desconocido',
                 type: log.type,
                 observation: log.observation || '-'
             };
@@ -95,7 +119,6 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ viewMode = 'LIVE'
         }
 
         const toastId = toast.loading('Generando Excel...');
-        // V2: exportAttendanceSecure
         const result = await exportAttendanceSecure({
             startDate: startDate.toISOString().split('T')[0],
             endDate: new Date().toISOString().split('T')[0],
@@ -129,20 +152,6 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ viewMode = 'LIVE'
 
     return (
         <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
-            {/* Header Tabs */}
-            {/* Header Tabs - Only show if we want internal navigation, but for now we keep it simple or hide it based on design. 
-                The user asked for 3 Master Tabs in HRPage, so AttendanceManager might just render the content.
-                Let's hide the internal tabs if we are in a specific mode, or just keep them as sub-tabs? 
-                The prompt says "Tab 2: Monitor", "Tab 3: History". So HRPage controls this. 
-                We should probably hide the internal tab switcher if we are being controlled.
-            */}
-            {/* <div className="flex items-center justify-between p-6 pb-0 border-b border-slate-200 bg-white"> ... </div> */}
-
-            {/* We will render the header only for actions like Export PDF, but hide the tab switcher if we assume HRPage handles it. 
-               Actually, let's keep the Export button but maybe hide the tab switcher? 
-               Let's just hide the whole header if we want to rely on HRPage, BUT we need the Export button for History.
-            */}
-
             {activeTab === 'HISTORY' && (
                 <div className="flex justify-end p-6 pb-0 bg-white gap-3">
                     <button
@@ -163,10 +172,17 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ viewMode = 'LIVE'
             )}
 
             <div className="flex-1 overflow-y-auto p-6">
-                {activeTab === 'LIVE' ? (
+                {isLoading ? (
+                    <div className="flex items-center justify-center h-64">
+                        <Loader2 className="animate-spin text-blue-600" size={48} />
+                    </div>
+                ) : activeTab === 'LIVE' ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                        {activeEmployees.map(emp => {
-                            const lastLog = getLastLog(emp.id);
+                        {liveEmployees.length === 0 ? (
+                            <div className="text-center p-12 col-span-4 text-slate-400">
+                                No hay empleados activos.
+                            </div>
+                        ) : liveEmployees.map(emp => {
                             return (
                                 <div key={emp.id} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 flex flex-col gap-4">
                                     <div className="flex items-center gap-4">
@@ -188,16 +204,16 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ viewMode = 'LIVE'
                                                 emp.current_status === 'LUNCH' ? '🍔 EN COLACIÓN' :
                                                     emp.current_status === 'ON_PERMISSION' ? '⚠️ PERMISO' : '🔴 FUERA'}
                                         </span>
-                                        {lastLog && (
+                                        {emp.last_log_timestamp && (
                                             <span className="text-xs font-mono">
-                                                {new Date(lastLog.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                {new Date(emp.last_log_timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </span>
                                         )}
                                     </div>
 
-                                    {emp.current_status === 'LUNCH' && lastLog && (
+                                    {emp.current_status === 'LUNCH' && emp.last_log_timestamp && (
                                         <div className="text-xs text-center text-orange-600 font-bold bg-orange-50 p-2 rounded-lg">
-                                            Tiempo transcurrido: {Math.floor((Date.now() - lastLog.timestamp) / 1000 / 60)} min
+                                            Tiempo transcurrido: {Math.floor((Date.now() - emp.last_log_timestamp) / 1000 / 60)} min
                                         </div>
                                     )}
                                 </div>
@@ -240,8 +256,7 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ viewMode = 'LIVE'
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {filteredLogs.map(log => {
-                                    const emp = employees.find(e => e.id === log.employee_id);
+                                {historyLogs.map(log => {
                                     return (
                                         <tr key={log.id} className="hover:bg-slate-50 transition">
                                             <td className="p-4">
@@ -249,8 +264,8 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ viewMode = 'LIVE'
                                                 <div className="text-xs text-slate-400">{new Date(log.timestamp).toLocaleTimeString()}</div>
                                             </td>
                                             <td className="p-4">
-                                                <div className="font-bold text-slate-700">{emp?.name || 'Desconocido'}</div>
-                                                <div className="text-xs text-slate-400">{emp?.rut}</div>
+                                                <div className="font-bold text-slate-700">{log.user_name || 'Desconocido'}</div>
+                                                <div className="text-xs text-slate-400">{log.user_rut}</div>
                                             </td>
                                             <td className="p-4">
                                                 <span className={`px-2 py-1 rounded text-xs font-bold ${log.type === 'CHECK_IN' ? 'bg-emerald-100 text-emerald-700' :
@@ -286,9 +301,9 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ viewMode = 'LIVE'
                                         </tr>
                                     );
                                 })}
-                                {filteredLogs.length === 0 && (
+                                {historyLogs.length === 0 && (
                                     <tr>
-                                        <td colSpan={5} className="p-12 text-center text-slate-400">
+                                        <td colSpan={6} className="p-12 text-center text-slate-400">
                                             No hay registros para este periodo.
                                         </td>
                                     </tr>
