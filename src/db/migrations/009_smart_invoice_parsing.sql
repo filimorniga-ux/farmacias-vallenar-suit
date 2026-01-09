@@ -189,20 +189,21 @@ CREATE TABLE IF NOT EXISTS invoice_parsings (
     
     -- =========================================
     -- UBICACIÓN Y AUDITORÍA
+    -- (VARCHAR para compatibilidad con users.id)
     -- =========================================
     
     location_id UUID,
     
-    created_by UUID,
+    created_by VARCHAR(50),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     
-    validated_by UUID,
+    validated_by VARCHAR(50),
     validated_at TIMESTAMP WITH TIME ZONE,
     
-    processed_by UUID,
+    processed_by VARCHAR(50),
     processed_at TIMESTAMP WITH TIME ZONE,
     
-    rejected_by UUID,
+    rejected_by VARCHAR(50),
     rejected_at TIMESTAMP WITH TIME ZONE,
     rejection_reason TEXT,
     
@@ -298,15 +299,16 @@ CREATE TABLE IF NOT EXISTS ai_usage_log (
     error_code VARCHAR(50),
     response_time_ms INTEGER,
     
-    -- Auditoría
-    user_id UUID,
+    -- Auditoría (VARCHAR para compatibilidad con users.id)
+    user_id VARCHAR(50),
     location_id UUID,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_ai_usage_created ON ai_usage_log(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ai_usage_user ON ai_usage_log(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_ai_usage_month ON ai_usage_log(DATE_TRUNC('month', created_at));
+-- Nota: Usar AT TIME ZONE 'UTC' para hacer el índice inmutable
+CREATE INDEX IF NOT EXISTS idx_ai_usage_month ON ai_usage_log(DATE_TRUNC('month', created_at AT TIME ZONE 'UTC'));
 
 COMMENT ON TABLE ai_usage_log IS 'Registro de uso de APIs de IA para control de costos';
 
@@ -441,6 +443,11 @@ COMMENT ON FUNCTION check_invoice_duplicate IS 'Detecta si una factura ya fue pr
 -- PARTE 10: CÓDIGOS DE AUDITORÍA
 -- =====================================================
 
+-- Nota: Actualizar constraint si las categorías AI, SYSTEM, INVENTORY no están permitidas
+-- ALTER TABLE audit_action_catalog DROP CONSTRAINT IF EXISTS chk_audit_category;
+-- ALTER TABLE audit_action_catalog ADD CONSTRAINT chk_audit_category 
+--     CHECK (category IN ('USER', 'FINANCIAL', 'INVENTORY', 'SYSTEM', 'SECURITY', 'AI', 'POS', 'WMS'));
+
 INSERT INTO audit_action_catalog (code, description, category, severity) VALUES
 -- Configuración
 ('CONFIG_CREATED', 'Configuración del sistema creada', 'SYSTEM', 'LOW'),
@@ -471,7 +478,9 @@ ON CONFLICT (code) DO NOTHING;
 -- PARTE 11: REGISTRAR MIGRACIÓN
 -- =====================================================
 
-INSERT INTO schema_migrations (version, name, executed_at)
+-- Nota: Ajustar columnas según estructura real de schema_migrations
+-- En Tiger Cloud usa: description, applied_at
+INSERT INTO schema_migrations (version, description, applied_at)
 VALUES ('009', 'smart_invoice_parsing', NOW())
 ON CONFLICT (version) DO NOTHING;
 

@@ -282,7 +282,9 @@ COMMENT ON VIEW v_accounts_payable_aging IS 'Reporte de antigüedad de deuda por
 -- PARTE 8: REGISTRAR MIGRACIÓN
 -- =====================================================
 
-INSERT INTO schema_migrations (version, name, executed_at)
+-- Nota: Ajustar columnas según estructura real de schema_migrations
+-- En Tiger Cloud usa: description, applied_at
+INSERT INTO schema_migrations (version, description, applied_at)
 VALUES ('008', 'accounts_payable', NOW())
 ON CONFLICT (version) DO NOTHING;
 
