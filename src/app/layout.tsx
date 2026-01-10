@@ -5,6 +5,7 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 import SessionGuard from '@/presentation/components/security/SessionGuard';
+import { Toaster } from 'sonner';
 
 export const metadata: Metadata = {
     title: 'Farmacias Vallenar Suit',
@@ -31,6 +32,7 @@ export default function RootLayout({
             <body className={inter.className} suppressHydrationWarning={true}>
                 <SessionGuard>
                     {children}
+                    <Toaster richColors position="top-center" closeButton />
                 </SessionGuard>
             </body>
         </html>

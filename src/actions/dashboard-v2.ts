@@ -165,18 +165,18 @@ export async function getFinancialMetricsSecure(
         let cashCondition = '';
 
         if (locationId) {
-            salesLocationCondition = `AND location_id = $${paramIndex}`;
-            cashCondition = `AND terminal_id IN (SELECT id FROM terminals WHERE location_id = $${paramIndex})`;
+            salesLocationCondition = `AND location_id = $${paramIndex}::uuid`;
+            cashCondition = `AND terminal_id IN (SELECT id FROM terminals WHERE location_id = $${paramIndex}::uuid)`;
             baseParams.push(locationId);
             paramIndex++;
         }
 
         if (terminalId) {
-            salesTerminalCondition = `AND terminal_id = $${paramIndex}`;
+            salesTerminalCondition = `AND terminal_id = $${paramIndex}::uuid`;
             if (!locationId) {
-                cashCondition = `AND terminal_id = $${paramIndex}`;
+                cashCondition = `AND terminal_id = $${paramIndex}::uuid`;
             } else {
-                cashCondition += ` AND terminal_id = $${paramIndex}`;
+                cashCondition += ` AND terminal_id = $${paramIndex}::uuid`;
             }
             baseParams.push(terminalId);
             paramIndex++;
@@ -241,7 +241,7 @@ export async function getFinancialMetricsSecure(
                 FROM terminals t
                 LEFT JOIN sales s ON s.terminal_id = t.id 
                     AND s.timestamp >= $1::timestamp AND s.timestamp <= $2::timestamp
-                WHERE t.location_id = $3
+                WHERE t.location_id = $3::uuid
                 GROUP BY t.id, t.name
                 ORDER BY total DESC
             `, [fromStr, toStr, locationId]);
@@ -312,7 +312,7 @@ export async function getSalesSummarySecure(
         const params: any[] = [dateRange.from.toISOString(), dateRange.to.toISOString()];
 
         if (!ADMIN_ROLES.includes(session.role) && session.locationId) {
-            locationFilter = 'AND location_id = $3';
+            locationFilter = 'AND location_id = $3::uuid';
             params.push(session.locationId);
         }
 
@@ -360,7 +360,7 @@ export async function getCashFlowSecure(
         const params: any[] = [dateRange.from.toISOString(), dateRange.to.toISOString()];
 
         if (!ADMIN_ROLES.includes(session.role) && session.locationId) {
-            terminalFilter = 'AND terminal_id IN (SELECT id FROM terminals WHERE location_id = $3)';
+            terminalFilter = 'AND terminal_id IN (SELECT id FROM terminals WHERE location_id = $3::uuid)';
             params.push(session.locationId);
         }
 

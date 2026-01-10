@@ -28,21 +28,25 @@ export async function getAlternativesAction(dci: string, currentId: string): Pro
 
         const sql = `
             SELECT 
-                p.id, 
-                p.name, 
-                p.sku, 
-                p.is_bioequivalent,
-                p.laboratory,
-                p.dci,
-                p.format,
-                COALESCE(SUM(ib.quantity_real), 0) as stock,
-                COALESCE(MAX(ib.price_sell_box), MAX(p.price_sell_box), 0) as price
-            FROM products p
-            LEFT JOIN inventory_batches ib ON p.id::text = ib.product_id::text
+                MIN(id::text) as id,
+                raw_title as name,
+                MAX(raw_sku) as sku,
+                MAX(raw_active_principle) as dci,
+                MAX(raw_misc->>'laboratorio') as laboratory,
+                MAX(raw_misc->>'formato') as format,
+                BOOL_OR(
+                    (raw_misc->>'bioequivalente') IS NOT NULL 
+                    OR (raw_misc->>'bioequivalencia') IS NOT NULL 
+                    OR raw_title ILIKE '%BIOEQUIVALENTE%'
+                ) as is_bioequivalent,
+                SUM(raw_stock) as stock,
+                MAX(raw_price) as price
+            FROM inventory_imports
             WHERE 
-                p.dci ILIKE $1 
-                AND p.id::text != $2
-            GROUP BY p.id, p.name, p.sku, p.is_bioequivalent, p.price_sell_box, p.laboratory, p.dci, p.format
+                raw_active_principle ILIKE $1 
+                AND id::text != $2
+                AND raw_stock > 0 -- Only show alternatives with stock
+            GROUP BY raw_title, raw_active_principle
             ORDER BY price ASC
             LIMIT 10
         `;
@@ -52,11 +56,11 @@ export async function getAlternativesAction(dci: string, currentId: string): Pro
         return result.rows.map(row => ({
             id: row.id,
             name: row.name,
-            sku: row.sku,
+            sku: row.sku || '',
             is_bioequivalent: row.is_bioequivalent || false,
             stock: Number(row.stock),
             price: Number(row.price),
-            laboratory: row.laboratory || '',
+            laboratory: row.laboratory || 'Generico',
             dci: row.dci || '',
             format: row.format || ''
         }));

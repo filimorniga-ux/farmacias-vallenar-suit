@@ -169,12 +169,13 @@ export default function AISettingsPage() {
             for (const config of configs) {
                 const result = await saveSystemConfigSecure(config);
                 if (!result.success) {
-                    throw new Error(result.error || 'Error guardando configuración');
+                    console.error('[AISettings] Save failed:', result.error);
+                    throw new Error(result.error || 'Error desconocido del servidor');
                 }
             }
 
             toast.success('Configuración guardada correctamente', { id: loadingId });
-            setApiKey(''); // Limpiar campo
+            // setApiKey(''); // NO Limpiar campo para que el usuario vea lo que guardó
             setIsConfigured(true);
 
             // Recargar uso
@@ -191,26 +192,51 @@ export default function AISettingsPage() {
     };
 
     // Probar conexión
+    // Probar conexión
     const handleTestConnection = async () => {
+        console.log('Testing connection...');
+
+        // La prueba se hace contra la DB, así que debe guardar primero
+        if (!isConfigured && apiKey) {
+            toast.warning('Guarde la configuración antes de probar la conexión');
+            return;
+        }
+
         if (!isConfigured && !apiKey) {
-            toast.error('Ingrese una API Key primero');
+            toast.error('Ingrese una API Key y guarde la configuración primero');
             return;
         }
 
         setIsTesting(true);
-        const loadingId = toast.loading('Probando conexión con IA...');
+        const loadingId = toast.loading('Probando conexión con IA (esto puede tardar unos segundos)...');
 
         try {
-            // Por ahora solo verificamos que esté configurada
+            console.log('Calling checkAIConfiguredSecure...');
             const result = await checkAIConfiguredSecure();
+            console.log('Test result:', result);
 
-            if (result.configured) {
-                toast.success(`Conexión exitosa con ${result.provider} (${result.model})`, { id: loadingId });
+            if (result.error) {
+                toast.error('Prueba fallida', {
+                    id: loadingId,
+                    description: result.error
+                });
+            } else if (result.configured) {
+                toast.success(`Conexión exitosa con ${result.provider}`, {
+                    id: loadingId,
+                    description: `Modelo: ${result.model}`
+                });
             } else {
-                toast.error(result.error || 'No configurado', { id: loadingId });
+                toast.error('No configurado', {
+                    id: loadingId,
+                    description: 'No se detectó configuración en el servidor'
+                });
             }
         } catch (error: any) {
-            toast.error('Error probando conexión', { id: loadingId });
+            console.error('Test error:', error);
+            toast.error('Error al intentar conectar', {
+                id: loadingId,
+                description: error.message
+            });
         } finally {
             setIsTesting(false);
         }
@@ -225,7 +251,7 @@ export default function AISettingsPage() {
 
     // Render
     return (
-        <RouteGuard allowedRoles={['ADMIN', 'MANAGER']}>
+        <RouteGuard allowedRoles={['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'QF']}>
             <div className="min-h-screen bg-gray-50 p-4 md:p-8">
                 <div className="max-w-4xl mx-auto">
                     {/* Header */}

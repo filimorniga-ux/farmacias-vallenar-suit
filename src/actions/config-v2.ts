@@ -55,7 +55,7 @@ export interface AIConfig {
 // CONSTANTES
 // ============================================================================
 
-const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
+const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL', 'MANAGER', 'QF'];
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
 const AUTH_TAG_LENGTH = 16;
@@ -99,18 +99,18 @@ const SaveConfigSchema = z.object({
  */
 function getEncryptionKey(): Buffer {
     const key = process.env.CONFIG_ENCRYPTION_KEY;
-    
+
     if (!key) {
         // En desarrollo, usar una clave derivada del DATABASE_URL
         const fallback = process.env.DATABASE_URL || 'farmacias-vallenar-default-key-32b';
         return crypto.createHash('sha256').update(fallback).digest();
     }
-    
+
     // Si la clave tiene 64 caracteres, es hex
     if (key.length === 64) {
         return Buffer.from(key, 'hex');
     }
-    
+
     // Si no, derivar con SHA-256
     return crypto.createHash('sha256').update(key).digest();
 }
@@ -122,14 +122,14 @@ function encryptValue(plaintext: string): string {
     try {
         const key = getEncryptionKey();
         const iv = crypto.randomBytes(IV_LENGTH);
-        
+
         const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
-        
+
         let encrypted = cipher.update(plaintext, 'utf8', 'hex');
         encrypted += cipher.final('hex');
-        
+
         const authTag = cipher.getAuthTag();
-        
+
         // Formato: iv:authTag:encrypted (todo en hex)
         return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
     } catch (error) {
@@ -144,22 +144,22 @@ function encryptValue(plaintext: string): string {
 function decryptValue(encryptedValue: string): string {
     try {
         const parts = encryptedValue.split(':');
-        
+
         if (parts.length !== 3) {
             throw new Error('Formato de encriptación inválido');
         }
-        
+
         const [ivHex, authTagHex, encrypted] = parts;
         const key = getEncryptionKey();
         const iv = Buffer.from(ivHex, 'hex');
         const authTag = Buffer.from(authTagHex, 'hex');
-        
+
         const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
         decipher.setAuthTag(authTag);
-        
+
         let decrypted = decipher.update(encrypted, 'hex', 'utf8');
         decrypted += decipher.final('utf8');
-        
+
         return decrypted;
     } catch (error) {
         logger.error({ error }, '[Config] Decryption failed');
@@ -206,51 +206,55 @@ function isAdmin(role: string): boolean {
 export async function saveSystemConfigSecure(
     data: z.infer<typeof SaveConfigSchema>
 ): Promise<{ success: boolean; error?: string }> {
-    
+
     // Validar entrada
     const validated = SaveConfigSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message || 'Datos inválidos' };
     }
-    
+
     // Verificar sesión y permisos
     const session = await getSession();
+
+    // DEBUG LOGS
     if (!session) {
-        return { success: false, error: 'No autenticado' };
+        console.error('[ConfigV2] Save denied: No session found. Headers:', await headers());
+        return { success: false, error: 'No autenticado (Sesión no detectada en servidor)' };
     }
-    
+
     if (!isAdmin(session.role)) {
-        return { success: false, error: 'Acceso denegado: se requiere rol de administrador' };
+        console.error(`[ConfigV2] Save denied: Role ${session.role} is not admin.`);
+        return { success: false, error: `Acceso denegado: Rol ${session.role} no autorizado` };
     }
-    
+
     const { key, value, isEncrypted, description, category } = validated.data;
-    
+
     // Determinar si debe encriptarse
     const shouldEncrypt = isEncrypted || ENCRYPTED_KEYS.includes(key);
-    
+
     // Validar API Key si es AI_API_KEY
     if (key === 'AI_API_KEY' && value.length < 20) {
         return { success: false, error: 'API Key debe tener al menos 20 caracteres' };
     }
-    
+
     const client = await pool.connect();
-    
+
     try {
         await client.query('BEGIN');
-        
+
         // Obtener valor anterior para auditoría
         const prevRes = await client.query(
             'SELECT config_value, is_encrypted FROM system_configs WHERE config_key = $1',
             [key]
         );
-        
+
         const previousValue = prevRes.rows[0]?.config_value;
         const wasEncrypted = prevRes.rows[0]?.is_encrypted;
-        
+
         // Encriptar si es necesario
         const finalValue = shouldEncrypt ? encryptValue(value) : value;
         const configType = shouldEncrypt ? 'ENCRYPTED' : 'STRING';
-        
+
         // Upsert
         await client.query(`
             INSERT INTO system_configs (config_key, config_value, is_encrypted, config_type, description, category, created_by, updated_by)
@@ -264,15 +268,15 @@ export async function saveSystemConfigSecure(
                 updated_by = EXCLUDED.updated_by,
                 updated_at = NOW()
         `, [key, finalValue, shouldEncrypt, configType, description || null, category || 'GENERAL', session.userId]);
-        
+
         // Auditar (sin mostrar valores sensibles)
-        const auditOldValue = wasEncrypted || shouldEncrypt 
+        const auditOldValue = wasEncrypted || shouldEncrypt
             ? (previousValue ? '***ENCRYPTED***' : null)
             : previousValue;
-        const auditNewValue = shouldEncrypt 
+        const auditNewValue = shouldEncrypt
             ? maskSensitiveValue(value)
             : value;
-        
+
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, new_values)
             VALUES ($1, $2, 'SYSTEM_CONFIG', $3, $4::jsonb, $5::jsonb)
@@ -283,7 +287,7 @@ export async function saveSystemConfigSecure(
             previousValue ? JSON.stringify({ value: auditOldValue }) : null,
             JSON.stringify({ value: auditNewValue, encrypted: shouldEncrypt })
         ]);
-        
+
         // Si es API Key de IA, auditar específicamente
         if (key === 'AI_API_KEY') {
             await client.query(`
@@ -291,18 +295,18 @@ export async function saveSystemConfigSecure(
                 VALUES ($1, 'CONFIG_AI_KEY_SET', 'SYSTEM_CONFIG', $2::jsonb)
             `, [session.userId, JSON.stringify({ masked_key: maskSensitiveValue(value) })]);
         }
-        
+
         await client.query('COMMIT');
-        
+
         // Invalidar caché
         configCache.delete(key);
-        
+
         logger.info({ key, encrypted: shouldEncrypt, userId: session.userId }, '✅ Config saved');
-        
+
         revalidatePath('/settings');
-        
+
         return { success: true };
-        
+
     } catch (error: any) {
         await client.query('ROLLBACK');
         logger.error({ error, key }, '❌ Error saving config');
@@ -317,44 +321,44 @@ export async function saveSystemConfigSecure(
  * Desencripta automáticamente valores encriptados
  */
 export async function getSystemConfigSecure(key: string): Promise<string | null> {
-    
+
     // Validar key
     if (!ConfigKeySchema.safeParse(key).success) {
         return null;
     }
-    
+
     // Verificar caché
     const cached = configCache.get(key);
     if (cached && cached.expiresAt > Date.now()) {
         return cached.value;
     }
-    
+
     try {
         const res = await query(
             'SELECT config_value, is_encrypted FROM system_configs WHERE config_key = $1',
             [key]
         );
-        
+
         if (res.rows.length === 0) {
             configCache.set(key, { value: null, expiresAt: Date.now() + CACHE_TTL_MS });
             return null;
         }
-        
+
         const { config_value, is_encrypted } = res.rows[0];
-        
+
         if (!config_value) {
             configCache.set(key, { value: null, expiresAt: Date.now() + CACHE_TTL_MS });
             return null;
         }
-        
+
         // Desencriptar si es necesario
         const value = is_encrypted ? decryptValue(config_value) : config_value;
-        
+
         // Guardar en caché
         configCache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
-        
+
         return value;
-        
+
     } catch (error) {
         logger.error({ error, key }, '[Config] Error getting config');
         return null;
@@ -368,17 +372,17 @@ export async function getSystemConfigSecure(key: string): Promise<string | null>
 export async function getSystemConfigsSecure(
     category?: string
 ): Promise<{ success: boolean; data?: SystemConfig[]; error?: string }> {
-    
+
     const session = await getSession();
     if (!session) {
         return { success: false, error: 'No autenticado' };
     }
-    
+
     // Solo ADMIN puede ver todas las configs
     if (!isAdmin(session.role)) {
         return { success: false, error: 'Acceso denegado' };
     }
-    
+
     try {
         let sql = `
             SELECT 
@@ -389,18 +393,18 @@ export async function getSystemConfigsSecure(
             FROM system_configs
         `;
         const params: any[] = [];
-        
+
         if (category) {
             sql += ' WHERE category = $1';
             params.push(category);
         }
-        
+
         sql += ' ORDER BY category, config_key';
-        
+
         const res = await query(sql, params);
-        
+
         return { success: true, data: res.rows };
-        
+
     } catch (error: any) {
         logger.error({ error }, '[Config] Error listing configs');
         return { success: false, error: 'Error obteniendo configuraciones' };
@@ -422,7 +426,7 @@ export async function getAIConfigSecure(): Promise<AIConfig> {
             getSystemConfigSecure('AI_MONTHLY_LIMIT'),
             getSystemConfigSecure('AI_FALLBACK_PROVIDER'),
         ]);
-        
+
         return {
             provider: provider as AIConfig['provider'],
             apiKey: apiKey,
@@ -433,7 +437,7 @@ export async function getAIConfigSecure(): Promise<AIConfig> {
             fallbackProvider: fallback as AIConfig['fallbackProvider'],
             isConfigured: !!(provider && apiKey),
         };
-        
+
     } catch (error) {
         logger.error({ error }, '[Config] Error getting AI config');
         return {
@@ -454,47 +458,47 @@ export async function getAIConfigSecure(): Promise<AIConfig> {
  * Solo ADMIN
  */
 export async function deleteSystemConfigSecure(key: string): Promise<{ success: boolean; error?: string }> {
-    
+
     const session = await getSession();
     if (!session || !isAdmin(session.role)) {
         return { success: false, error: 'Acceso denegado' };
     }
-    
+
     if (!ConfigKeySchema.safeParse(key).success) {
         return { success: false, error: 'Key inválida' };
     }
-    
+
     // No permitir eliminar configs críticas
     const criticalKeys = ['AI_PROVIDER', 'AI_API_KEY'];
     if (criticalKeys.includes(key)) {
         return { success: false, error: 'No se puede eliminar esta configuración crítica' };
     }
-    
+
     try {
         const res = await query(
             'DELETE FROM system_configs WHERE config_key = $1 RETURNING id',
             [key]
         );
-        
+
         if (res.rowCount === 0) {
             return { success: false, error: 'Configuración no encontrada' };
         }
-        
+
         // Auditar
         await query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id)
             VALUES ($1, 'CONFIG_DELETED', 'SYSTEM_CONFIG', $2)
         `, [session.userId, key]);
-        
+
         // Invalidar caché
         configCache.delete(key);
-        
+
         logger.info({ key, userId: session.userId }, '🗑️ Config deleted');
-        
+
         revalidatePath('/settings');
-        
+
         return { success: true };
-        
+
     } catch (error: any) {
         logger.error({ error, key }, '❌ Error deleting config');
         return { success: false, error: 'Error eliminando configuración' };
@@ -524,10 +528,10 @@ export async function getAIUsageSecure(): Promise<{
             FROM ai_usage_log
             WHERE DATE_TRUNC('month', created_at) = DATE_TRUNC('month', NOW())
         `);
-        
+
         const monthlyLimit = parseInt(await getSystemConfigSecure('AI_MONTHLY_LIMIT') || '1000', 10);
         const totalRequests = parseInt(res.rows[0].total_requests, 10);
-        
+
         return {
             success: true,
             data: {
@@ -538,7 +542,7 @@ export async function getAIUsageSecure(): Promise<{
                 percentUsed: Math.round((totalRequests / monthlyLimit) * 100),
             }
         };
-        
+
     } catch (error: any) {
         logger.error({ error }, '[Config] Error getting AI usage');
         return { success: false, error: 'Error obteniendo uso de IA' };
@@ -556,20 +560,61 @@ export async function checkAIConfiguredSecure(): Promise<{
 }> {
     try {
         const config = await getAIConfigSecure();
-        
+
         if (!config.isConfigured) {
             return {
                 configured: false,
                 error: 'Configure su API Key de IA en Ajustes → Configuración → IA'
             };
         }
-        
+
+        // TEST REAL DE CONEXIÓN
+        // Intentar un ping simple para validar la key
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 segundos max
+
+            try {
+                if (config.provider === 'OPENAI' && config.apiKey) {
+                    const response = await fetch('https://api.openai.com/v1/models', {
+                        headers: { 'Authorization': `Bearer ${config.apiKey}` },
+                        signal: controller.signal
+                    });
+
+                    if (!response.ok) {
+                        const err = await response.json().catch(() => ({}));
+                        throw new Error(err.error?.message || response.statusText);
+                    }
+                } else if (config.provider === 'GEMINI' && config.apiKey) {
+                    const response = await fetch(
+                        `https://generativelanguage.googleapis.com/v1beta/models?key=${config.apiKey}`,
+                        { signal: controller.signal }
+                    );
+
+                    if (!response.ok) {
+                        const err = await response.json().catch(() => ({}));
+                        throw new Error(err.error?.message || response.statusText);
+                    }
+                }
+            } finally {
+                clearTimeout(timeoutId);
+            }
+        } catch (e: any) {
+            const isTimeout = e.name === 'AbortError' || e.cause?.name === 'ConnectTimeoutError';
+            return {
+                configured: true,
+                provider: config.provider || undefined,
+                model: config.model || undefined,
+                error: isTimeout ? 'Tiempo de espera agotado al conectar con IA' : `Error de API: ${e.message}`
+            };
+        }
+
         return {
             configured: true,
             provider: config.provider || undefined,
             model: config.model || undefined,
         };
-        
+
     } catch (error) {
         return {
             configured: false,
@@ -587,9 +632,9 @@ export async function clearConfigCacheSecure(): Promise<{ success: boolean }> {
     if (!session || !isAdmin(session.role)) {
         return { success: false };
     }
-    
+
     configCache.clear();
     logger.info({ userId: session.userId }, '🔄 Config cache cleared');
-    
+
     return { success: true };
 }

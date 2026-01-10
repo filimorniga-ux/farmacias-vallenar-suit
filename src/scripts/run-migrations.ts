@@ -6,9 +6,10 @@ import path from 'path';
 async function runMigrations() {
     const migrations = [
         // '004_uuid_standardization.sql', // ✅ SUCCESS (Step 1890)
-        '005_audit_system.sql',
-        '006_reconciliation_module.sql',
-        '009_wms_logistics_v2.sql'
+        // '005_audit_system.sql',
+        // '006_reconciliation_module.sql',
+        // '009_wms_logistics_v2.sql',
+        '011_fix_audit_actions.sql'
     ];
 
     console.log('🚀 Starting migration execution...');
