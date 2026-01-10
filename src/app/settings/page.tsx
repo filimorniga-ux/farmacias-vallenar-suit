@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import RouteGuard from '@/components/auth/RouteGuard';
 import { Save, Upload, Plus, Trash2, Edit, CheckCircle, AlertCircle, Building, Users, FileText, Shield, Activity, AlertTriangle, Building2, Bot } from 'lucide-react';
 import { useAuthStore, Role } from '@/lib/store/useAuthStore';
 import { autoBackupService } from '@/domain/services/AutoBackupService';
@@ -66,19 +65,18 @@ export default function SettingsPage() {
     };
 
     return (
-        <RouteGuard allowedRoles={['ADMIN']}>
-            <div className="min-h-screen bg-gray-50 p-8">
-                <div className="max-w-5xl mx-auto">
-                    <div className="mb-8 flex justify-between items-start">
-                        <div>
-                            <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-                                <Shield className="text-blue-600" />
-                                Configuración del Sistema
-                            </h1>
-                            <p className="text-gray-500 mt-1">Gestión centralizada de Farmacias Vallenar.</p>
-                        </div>
-                        <SyncStatusBadge />
+        <div className="min-h-screen bg-gray-50 p-8">
+            <div className="max-w-5xl mx-auto">
+                <div className="mb-8 flex justify-between items-start">
+                    <div>
+                        <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
+                            <Shield className="text-blue-600" />
+                            Configuración del Sistema
+                        </h1>
+                        <p className="text-gray-500 mt-1">Gestión centralizada de Farmacias Vallenar.</p>
                     </div>
+                    <SyncStatusBadge />
+                </div>
 
                     {/* Tabs */}
                     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
@@ -419,8 +417,7 @@ export default function SettingsPage() {
                             )}
                         </div>
                     </div>
-                </div>
             </div>
-        </RouteGuard>
+        </div>
     );
 }

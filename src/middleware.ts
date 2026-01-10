@@ -20,6 +20,13 @@ export function middleware(req: NextRequest) {
     const requestHeaders = new Headers(req.headers);
     requestHeaders.set('x-url', req.url);
 
+    // INJECT AUTH HEADERS FROM COOKIES (Critical for Server Actions)
+    const userId = req.cookies.get('user_id')?.value;
+    const userRole = req.cookies.get('user_role')?.value;
+
+    if (userId) requestHeaders.set('x-user-id', userId);
+    if (userRole) requestHeaders.set('x-user-role', userRole);
+
     const response = NextResponse.next({
         request: {
             headers: requestHeaders,

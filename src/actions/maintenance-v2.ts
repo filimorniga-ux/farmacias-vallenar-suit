@@ -227,7 +227,7 @@ export async function getRecentSystemIncidentsSecure(): Promise<{
         const params: any[] = [];
 
         if (!ADMIN_ROLES.includes(session.role)) {
-            const userRes = await query('SELECT assigned_location_id FROM users WHERE id = $1', [session.userId]);
+            const userRes = await query('SELECT assigned_location_id FROM users WHERE id = $1::uuid', [session.userId]);
             const locationId = userRes.rows[0]?.assigned_location_id;
             if (locationId) {
                 locationFilter = 'AND t.location_id = $1';

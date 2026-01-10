@@ -11,6 +11,8 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { EmployeeProfile } from '../../domain/types';
 import SystemIncidentsBanner from '../components/dashboard/SystemIncidentsBanner';
+import UnifiedPriceConsultant from '../../components/procurement/UnifiedPriceConsultant';
+
 
 const DashboardPage: React.FC = () => {
     const navigate = useNavigate();
@@ -63,23 +65,14 @@ const DashboardPage: React.FC = () => {
     }, [user?.role, syncData]); // Added syncData dependency
 
     // --- SERVER SIDE DATA ---
-    const [serverMetrics, setServerMetrics] = useState<any>(null);
+    const [dashboardStats, setDashboardStats] = useState<any>(null);
 
     // Fetch real metrics from server
     const refreshDashboard = async () => {
-        // Only set loading true if it's a manual refresh or initial load, to avoid flicker on background updates if we wanted that (but here we want skeleton)
-        // setIsRefreshing(true); // Already true on init.
-
         try {
-            const { getFinancialMetricsSecure } = await import('../../actions/dashboard-v2');
-            const now = new Date();
-            const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-
-            const result = await getFinancialMetricsSecure({ dateRange: { from: startOfDay, to: endOfDay }, locationId: currentLocation?.id });
-            if (result.success && result.data) {
-                setServerMetrics(result.data);
-            }
+            const { getDashboardStats } = await import('../../actions/analytics/dashboard-stats');
+            const data = await getDashboardStats();
+            setDashboardStats(data);
         } catch (error) {
             console.error('Failed to fetch dashboard metrics:', error);
         } finally {
@@ -95,65 +88,55 @@ const DashboardPage: React.FC = () => {
     // --- REAL-TIME DATA AGGREGATION ---
     const dashboardData = useMemo(() => {
         // 0. Loading State (prevent ghost data)
-        if (isRefreshing && !serverMetrics) {
+        if (isRefreshing && !dashboardStats) {
             return {
                 totalSales: 0,
-                cashInDrawer: 0,
-                cardSales: 0,
-                transferSales: 0,
+                transactionCount: 0,
+                inventoryValue: 0,
+                pendingOrders: 0,
                 todayExpenses: 0,
                 activeStaff: [],
                 lowStockItems: 0,
                 infrastructureAlert: false,
-                isLoading: true // Flag for UI Skeleton
+                isLoading: true,
+                santiagoSales: 0,
+                colchaguaSales: 0
             };
         }
 
-        // Prefer Server Data if available, else fallback to local store (Offline Mode)
-        if (serverMetrics) {
+        // Prefer Server Data if available
+        if (dashboardStats) {
             return {
-                totalSales: serverMetrics.summary.total_sales,
-                cashInDrawer: serverMetrics.summary.net_cash_flow, // Approximation based on Net Cash Flow = (Open + Sales) - Expenses
-                cardSales: serverMetrics.by_payment_method.debit + serverMetrics.by_payment_method.credit,
-                transferSales: serverMetrics.by_payment_method.transfer,
-                todayExpenses: serverMetrics.summary.total_expenses,
+                totalSales: dashboardStats.todaySales,
+                transactionCount: dashboardStats.transactionCount,
+                inventoryValue: dashboardStats.totalInventoryValue,
+                pendingOrders: dashboardStats.pendingOrders,
+                todayExpenses: 0, // Not fetching expenses yet
                 activeStaff: employees.filter(emp => emp.current_status === 'IN' || emp.current_status === 'LUNCH'),
-                lowStockItems: inventory.filter(i => i.stock_actual <= (i.stock_min || 5)).length,
+                lowStockItems: dashboardStats.lowStockCount,
                 infrastructureAlert: true,
-                isLoading: false
+                isLoading: false,
+                santiagoSales: dashboardStats.santiagoSales,
+                colchaguaSales: dashboardStats.colchaguaSales,
+                lastSaleTime: dashboardStats.lastSaleTime
             };
         }
 
-        // Local Fallback (Original Logic)
-        const now = new Date();
-        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-
-        const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).getTime();
-
-        const todaySales = salesHistory.filter(s => {
-            const t = new Date(s.timestamp).getTime();
-            return t >= startOfDay && t <= endOfDay;
-        });
-        const totalSales = todaySales.reduce((sum, s) => sum + s.total, 0);
-
-        const cashSales = todaySales.filter(s => s.payment_method === 'CASH').reduce((sum, s) => sum + s.total, 0);
-        const cardSales = todaySales.filter(s => s.payment_method === 'DEBIT' || s.payment_method === 'CREDIT').reduce((sum, s) => sum + s.total, 0);
-        const transferSales = todaySales.filter(s => s.payment_method === 'TRANSFER').reduce((sum, s) => sum + s.total, 0);
-
-        const todayExpenses = expenses.filter(e => e.date >= startOfDay).reduce((sum, e) => sum + e.amount, 0);
-        const cashInDrawer = cashSales - todayExpenses;
-
+        // Local Fallback (Original Logic) - Simplified
         return {
-            totalSales,
-            cashInDrawer,
-            cardSales,
-            transferSales,
-            todayExpenses,
-            activeStaff: employees.filter(emp => emp.current_status === 'IN' || emp.current_status === 'LUNCH'),
-            lowStockItems: inventory.filter(i => i.stock_actual <= (i.stock_min || 5)).length,
-            infrastructureAlert: true
+            totalSales: 0,
+            transactionCount: 0,
+            inventoryValue: 0,
+            pendingOrders: 0,
+            todayExpenses: 0,
+            activeStaff: [],
+            lowStockItems: 0,
+            infrastructureAlert: false,
+            isLoading: false,
+            santiagoSales: 0,
+            colchaguaSales: 0
         };
-    }, [salesHistory, expenses, employees, inventory, currentLocation, serverMetrics]);
+    }, [employees, inventory, currentLocation, dashboardStats, isRefreshing]);
 
     // --- HANDLERS ---
     const handleRefresh = () => {
@@ -318,6 +301,17 @@ const DashboardPage: React.FC = () => {
                             )}
                         </div>
 
+                        <div className="flex flex-col items-end mr-4">
+                            <p className="text-sm font-bold text-slate-700 hidden md:block">
+                                {user?.name || 'Usuario'}
+                            </p>
+                            {(dashboardData as any).lastSaleTime && (
+                                <p className="text-[10px] text-slate-400 font-mono">
+                                    Ult. venta: {new Date((dashboardData as any).lastSaleTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </p>
+                            )}
+                        </div>
+
                         <button onClick={handleRefresh} className={`p-2 rounded-full hover:bg-slate-100 transition-colors ${isRefreshing ? 'animate-spin text-cyan-600' : 'text-slate-400'}`}>
                             <RefreshCw size={20} />
                         </button>
@@ -332,6 +326,11 @@ const DashboardPage: React.FC = () => {
                     <SystemIncidentsBanner />
                 </div>
 
+                {/* 0.5. UNIFIED PRICE CONSULTANT (TOTEM) */}
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                    <UnifiedPriceConsultant />
+                </div>
+
                 {/* 1. FINANCIAL PULSE */}
                 {(dashboardData as any).isLoading ? (
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 animate-pulse">
@@ -340,44 +339,82 @@ const DashboardPage: React.FC = () => {
                         ))}
                     </div>
                 ) : (
-                    <section className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                        <FinancialCard
-                            title="Venta Total"
-                            value={`$${dashboardData.totalSales.toLocaleString()}`}
-                            icon={BarChart3}
-                            gradient="from-emerald-400 to-cyan-600"
-                            shadowColor="emerald"
-                            trend="+12%"
-                        />
-                        <FinancialCard
-                            title="Efectivo Caja"
-                            value={`$${dashboardData.cashInDrawer.toLocaleString()}`}
-                            icon={Wallet}
-                            gradient="from-blue-400 to-indigo-600"
-                            shadowColor="blue"
-                        />
-                        <FinancialCard
-                            title="Tarjetas"
-                            value={`$${dashboardData.cardSales.toLocaleString()}`}
-                            icon={CreditCard}
-                            gradient="from-cyan-500 to-blue-600"
-                            shadowColor="cyan"
-                        />
-                        <FinancialCard
-                            title="Transferencias"
-                            value={`$${dashboardData.transferSales.toLocaleString()}`}
-                            icon={ArrowRight}
-                            gradient="from-violet-500 to-fuchsia-600"
-                            shadowColor="violet"
-                        />
-                        <FinancialCard
-                            title="Gastos"
-                            value={`-$${dashboardData.todayExpenses.toLocaleString()}`}
-                            icon={ArrowDownRight}
-                            gradient="from-red-500 to-pink-600"
-                            shadowColor="red"
-                        />
-                    </section>
+                    <>
+                        {/* 1. FINANCIAL PULSE & STATUS */}
+                        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
+                            {/* Main Stats */}
+                            <FinancialCard
+                                title="Ventas Totales"
+                                value={(dashboardData as any).isLoading ? "..." : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(dashboardData.totalSales)}
+                                icon={Wallet}
+                                gradient="from-blue-600 to-blue-800"
+                                shadowColor="blue"
+                                trend={`Tx: ${dashboardData.transactionCount}`}
+                            />
+                            <FinancialCard
+                                title="Valor Inventario"
+                                value={(dashboardData as any).isLoading ? "..." : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', notation: "compact" }).format(dashboardData.inventoryValue)}
+                                icon={Building2}
+                                gradient="from-emerald-500 to-emerald-700"
+                                shadowColor="emerald"
+                                trend="Activo"
+                            />
+                            <FinancialCard
+                                title="Reposición Pendiente"
+                                value={(dashboardData as any).isLoading ? "..." : String(dashboardData.pendingOrders)}
+                                icon={Truck}
+                                gradient="from-amber-500 to-amber-700"
+                                shadowColor="amber"
+                                trend="Sugerencias"
+                            />
+                            <FinancialCard
+                                title="Alertas Stock"
+                                value={(dashboardData as any).isLoading ? "..." : String(dashboardData.lowStockItems)}
+                                icon={AlertTriangle}
+                                gradient="from-red-500 to-red-700"
+                                shadowColor="red"
+                                trend="Críticos"
+                            />
+                        </div>
+
+                        {/* 1.5 SALES COMPARISON (Quick Stats) */}
+                        {!(dashboardData as any).isLoading && ((dashboardData as any).santiagoSales > 0 || (dashboardData as any).colchaguaSales > 0) && (
+                            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <BarChart3 className="text-blue-600" size={20} />
+                                    <h3 className="font-bold text-slate-800">Comparativa de Ventas por Sucursal</h3>
+                                </div>
+                                <div className="flex flex-col gap-4">
+                                    {/* Santiago Bar */}
+                                    <div>
+                                        <div className="flex justify-between text-sm mb-1">
+                                            <span className="font-semibold text-slate-700">Santiago</span>
+                                            <span className="font-bold text-blue-700">{new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format((dashboardData as any).santiagoSales)}</span>
+                                        </div>
+                                        <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+                                            <div
+                                                className="bg-blue-600 h-full rounded-full transition-all duration-1000"
+                                                style={{ width: `${((dashboardData as any).santiagoSales / ((dashboardData as any).totalSales || 1)) * 100}%` }}
+                                            ></div>
+                                        </div>
+                                    </div>
+                                    {/* Colchagua Bar */}
+                                    <div>
+                                        <div className="flex justify-between text-sm mb-1">
+                                            <span className="font-semibold text-slate-700">Colchagua</span>
+                                            <span className="font-bold text-indigo-700">{new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format((dashboardData as any).colchaguaSales)}</span>
+                                        </div>
+                                        <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+                                            <div
+                                                className="bg-indigo-600 h-full rounded-full transition-all duration-1000"
+                                                style={{ width: `${((dashboardData as any).colchaguaSales / ((dashboardData as any).totalSales || 1)) * 100}%` }}
+                                            ></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </>
                 )}
 
                 {/* 2. LIVE OPERATION */}
@@ -446,11 +483,11 @@ const DashboardPage: React.FC = () => {
                                 Ver
                             </button>
                         </div>
-                    </div >
-                </section >
+                    </div>
+                </section>
 
                 {/* 3. QUICK ACCESS MODULES */}
-                < section >
+                <section>
                     <h2 className="text-sm font-bold text-slate-400 mb-4 uppercase tracking-wider">Módulos de Sistema</h2>
                     <div className="grid grid-cols-4 gap-3">
                         <ModuleCard
@@ -482,12 +519,12 @@ const DashboardPage: React.FC = () => {
                             route="/reports"
                         />
                     </div>
-                </section >
+                </section>
 
-            </main >
+            </main>
 
             {/* FAB for Detailed Reports */}
-            < div className="fixed bottom-6 right-6" >
+            <div className="fixed bottom-6 right-6">
                 <button
                     onClick={() => handleCardClick('/reports')}
                     className="bg-slate-900 text-white p-4 rounded-full shadow-xl shadow-slate-400/50 hover:scale-105 transition-transform flex items-center gap-2"
@@ -495,7 +532,7 @@ const DashboardPage: React.FC = () => {
                     <BarChart3 size={24} />
                     <span className="font-bold text-sm pr-2 hidden md:inline">Reporte Completo</span>
                 </button>
-            </div >
+            </div>
 
             {/* Login Modal */}
             <AnimatePresence>
@@ -589,8 +626,8 @@ const DashboardPage: React.FC = () => {
                         </div>
                     )
                 }
-            </AnimatePresence >
-        </div >
+            </AnimatePresence>
+        </div>
     );
 };
 
