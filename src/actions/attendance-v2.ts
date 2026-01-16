@@ -518,7 +518,8 @@ export async function getTodayAttendanceSecure(
                 u.id, u.name, u.rut, u.job_title, u.role, u.assigned_location_id,
                 al.type as current_status, 
                 al.timestamp as last_log_time, 
-                al.location_id as last_location_id
+                al.location_id as last_location_id,
+                u.last_login_ip
             FROM users u
             LEFT JOIN LATERAL (
                 SELECT type, timestamp, location_id
