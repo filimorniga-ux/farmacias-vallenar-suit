@@ -37,20 +37,20 @@ const ContextSelectionPage: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 relative overflow-hidden">
-            {/* Background Ambience */}
+        <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 relative overflow-hidden">
+            {/* Background Ambience - Light Clinical Blue/Teal */}
             <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none">
-                <div className="absolute top-[10%] left-[10%] w-96 h-96 bg-cyan-500/20 rounded-full blur-[128px]" />
-                <div className="absolute bottom-[10%] right-[10%] w-96 h-96 bg-blue-600/20 rounded-full blur-[128px]" />
+                <div className="absolute top-[5%] left-[10%] w-[600px] h-[600px] bg-sky-200/40 rounded-full blur-[120px]" />
+                <div className="absolute bottom-[5%] right-[10%] w-[600px] h-[600px] bg-teal-100/30 rounded-full blur-[120px]" />
             </div>
 
             <div className="relative z-10 w-full max-w-5xl">
 
                 <header className="mb-12 text-center">
-                    <h1 className="text-4xl md:text-5xl font-extrabold text-white tracking-tight mb-2">
-                        Farmacias <span className="text-cyan-400">Vallenar</span> Suit
+                    <h1 className="text-4xl md:text-6xl font-extrabold text-slate-900 tracking-tight mb-3">
+                        Farmacias <span className="text-sky-600">Vallenar</span> Suit
                     </h1>
-                    <p className="text-slate-400 font-medium text-lg">Sistema ERP Clínico Integral</p>
+                    <p className="text-sky-100/70 font-light text-lg tracking-wide">Sistema ERP Clínico Integral</p>
                 </header>
 
                 <motion.div
@@ -58,8 +58,8 @@ const ContextSelectionPage: React.FC = () => {
                     animate={{ opacity: 1, y: 0 }}
                     className="w-full"
                 >
-                    <h2 className="text-xl text-white font-bold mb-6 flex items-center justify-center gap-2">
-                        <MapPin className="text-cyan-400" />
+                    <h2 className="text-xl text-slate-800 font-bold mb-6 flex items-center justify-center gap-2">
+                        <MapPin className="text-sky-600" />
                         ¿Dónde inicias turno hoy?
                     </h2>
 
@@ -88,23 +88,23 @@ const ContextSelectionPage: React.FC = () => {
                                     <button
                                         key={loc.id}
                                         onClick={() => handleLocationSelect(loc)}
-                                        className={`group relative bg-white/5 hover:bg-white/10 border ${isPreferred ? 'border-cyan-500 shadow-lg shadow-cyan-900/40' : 'border-white/10'} hover:border-cyan-500/50 rounded-2xl p-6 text-left transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-cyan-900/20`}
+                                        className={`group relative bg-white border ${isPreferred ? 'border-sky-500 shadow-xl shadow-sky-900/10' : 'border-slate-100'} hover:border-sky-400 rounded-2xl p-6 text-left transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-sky-900/5`}
                                     >
                                         <div className="flex items-start justify-between mb-4">
-                                            <div className={`p-3 rounded-xl ${loc.type === 'HQ' ? 'bg-purple-500/20 text-purple-400' : loc.type === 'WAREHOUSE' ? 'bg-orange-500/20 text-orange-400' : 'bg-cyan-500/20 text-cyan-400'}`}>
+                                            <div className={`p-3 rounded-xl ${loc.type === 'HQ' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' : loc.type === 'WAREHOUSE' ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-sky-50 text-sky-600 border border-sky-100'}`}>
                                                 {loc.type === 'WAREHOUSE' ? <Warehouse size={24} /> : <Store size={24} />}
                                             </div>
                                             {loc.type === 'HQ' && (
-                                                <span className="bg-purple-500/20 text-purple-300 text-xs font-bold px-2 py-1 rounded-full uppercase">Casa Matriz</span>
+                                                <span className="bg-indigo-50 text-indigo-600 border border-indigo-100 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">Casa Matriz</span>
                                             )}
                                             {isPreferred && (
-                                                <span className="bg-cyan-500/20 text-cyan-300 text-xs font-bold px-2 py-1 rounded-full uppercase">Ultima sesión</span>
+                                                <span className="bg-sky-50 text-sky-600 border border-sky-100 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">Ultima sesión</span>
                                             )}
                                         </div>
-                                        <h3 className="text-2xl font-bold text-white mb-1">{loc.name}</h3>
-                                        <p className="text-slate-400 text-sm mb-4">{loc.address}</p>
+                                        <h3 className="text-2xl font-bold text-slate-800 mb-1">{loc.name}</h3>
+                                        <p className="text-slate-500 text-sm mb-4 leading-relaxed">{loc.address}</p>
 
-                                        <div className="flex items-center text-xs font-bold text-slate-500 uppercase tracking-wider group-hover:text-cyan-400 transition-colors">
+                                        <div className="flex items-center text-xs font-bold text-slate-400 uppercase tracking-wider group-hover:text-sky-600 transition-colors">
                                             Seleccionar <ArrowRight size={14} className="ml-2 group-hover:translate-x-1 transition-transform" />
                                         </div>
                                     </button>
@@ -114,7 +114,7 @@ const ContextSelectionPage: React.FC = () => {
                     )}
                 </motion.div>
 
-                <footer className="mt-12 text-center text-slate-600 text-sm">
+                <footer className="mt-12 text-center text-slate-400 text-sm">
                     <p>&copy; 2025 Farmacias Vallenar. Todos los derechos reservados.</p>
                 </footer>
             </div>

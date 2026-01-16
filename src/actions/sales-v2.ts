@@ -46,7 +46,7 @@ const CreateSaleSchema = z.object({
     customerRut: z.string().optional(),
     customerName: z.string().optional(),
     dteFolio: z.number().optional(),
-    dteType: z.enum(['BOLETA', 'FACTURA', 'NOTA_CREDITO'] as const).optional(),
+    dteType: z.enum(['BOLETA', 'FACTURA', 'NOTA_CREDITO', 'RECIBO'] as const).optional(),
     pointsRedeemed: z.number().min(0).default(0),
     pointsDiscount: z.number().min(0).default(0),
     transferId: z.string().optional(),

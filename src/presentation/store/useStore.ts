@@ -47,7 +47,7 @@ interface PharmaState {
     // Auth
     user: EmployeeProfile | null;
     employees: EmployeeProfile[]; // Store loaded employees
-    login: (userId: string, pin: string, locationId?: string) => Promise<boolean>;
+    login: (userId: string, pin: string, locationId?: string) => Promise<{ success: boolean; error?: string }>;
     logout: () => void;
 
     // Data Sync
@@ -258,18 +258,32 @@ export const usePharmaStore = create<PharmaState>()(
                 try {
                     // Dynamic import of Server Action (using secure v2 with bcrypt)
                     const { authenticateUserSecure } = await import('../../actions/auth-v2');
-                    const result = await authenticateUserSecure(userId, pin, locationId);
+
+                    // Add timeout to prevent indefinite hanging (20 seconds) -- Increased for cold starts
+                    const timeoutPromise = new Promise<any>((_, reject) =>
+                        setTimeout(() => reject(new Error('Login timeout')), 20000)
+                    );
+
+                    const result = await Promise.race([
+                        authenticateUserSecure(userId, pin, locationId),
+                        timeoutPromise
+                    ]);
 
                     if (result.success && result.user) {
                         // Cast to EmployeeProfile - auth-v2 returns compatible user data
                         authenticatedUser = result.user as EmployeeProfile;
-                    } else if (result.error && result.error.includes('Bloqueado')) {
-                        // Propagate Blocking Error
-                        import('sonner').then(({ toast }) => toast.error(result.error));
-                        return false;
+                    } else if (result.error) {
+                        // Capture server error for potential feedback
+                        console.warn('⚠️ Server Login Error:', result.error);
+
+                        // If explicit blocking error (not just invalid credentials), notify immediately
+                        if (result.error.includes('No tienes contrato') || result.error.includes('Bloqueado')) {
+                            import('sonner').then(({ toast }) => toast.error(result.error));
+                            return { success: false, error: result.error };
+                        }
                     }
                 } catch (error) {
-                    console.warn('⚠️ Online login failed/unreachable, trying offline fallback...', error);
+                    console.warn('⚠️ Online login failed/timeout, trying offline fallback...', error);
                 }
 
                 // 2. Offline Fallback
@@ -297,39 +311,40 @@ export const usePharmaStore = create<PharmaState>()(
                     // Set User
                     set({ user: authenticatedUser });
 
-                    // Auto-Set Location Context based on User Assignment
+                    // Auto-Set Location Context based on User Assignment (Non-Blocking)
                     if (authenticatedUser.assigned_location_id) {
-                        try {
-                            const { getLocationsSecure } = await import('../../actions/locations-v2');
-                            const locRes = await getLocationsSecure();
-                            if (locRes.success && locRes.data) {
-                                const assignedLoc = locRes.data.find(l => l.id === authenticatedUser!.assigned_location_id);
-                                if (assignedLoc) {
-                                    const warehouseId = assignedLoc.default_warehouse_id || '';
-                                    const currentLoc = get().currentLocationId;
-                                    const currentTerm = get().currentTerminalId;
+                        (async () => {
+                            try {
+                                const { getLocationsSecure } = await import('../../actions/locations-v2');
+                                const locRes = await getLocationsSecure();
+                                if (locRes.success && locRes.data) {
+                                    const assignedLoc = locRes.data.find(l => l.id === authenticatedUser!.assigned_location_id);
+                                    if (assignedLoc) {
+                                        const warehouseId = assignedLoc.default_warehouse_id || '';
+                                        const currentLoc = get().currentLocationId;
 
-                                    // Only update if location changed or not set
-                                    if (currentLoc !== assignedLoc.id) {
-                                        console.log(`📍 Auto-Setting Context: Location=${assignedLoc.name}, Warehouse=${warehouseId}`);
-                                        set({
-                                            currentLocationId: assignedLoc.id,
-                                            currentWarehouseId: warehouseId,
-                                            currentTerminalId: '' // Reset terminal only on location change
-                                        });
+                                        // Only update if location changed or not set
+                                        if (currentLoc !== assignedLoc.id) {
+                                            console.log(`📍 Auto-Setting Context: Location=${assignedLoc.name}, Warehouse=${warehouseId}`);
+                                            set({
+                                                currentLocationId: assignedLoc.id,
+                                                currentWarehouseId: warehouseId,
+                                                currentTerminalId: '' // Reset terminal only on location change
+                                            });
 
-                                        // ⚡️ Refresh Inventory for the new context
-                                        if (warehouseId) {
-                                            get().fetchInventory(assignedLoc.id, warehouseId).catch(console.error);
+                                            // ⚡️ Refresh Inventory for the new context (Non-blocking)
+                                            if (warehouseId) {
+                                                get().fetchInventory(assignedLoc.id, warehouseId).catch(console.error);
+                                            }
+                                        } else {
+                                            console.log('📍 Context stable. Preserving session.');
                                         }
-                                    } else {
-                                        console.log('📍 Context stable. Preserving session.');
                                     }
                                 }
+                            } catch (e) {
+                                console.error('Failed to auto-set location context:', e);
                             }
-                        } catch (e) {
-                            console.error('Failed to auto-set location context:', e);
-                        }
+                        })();
                     }
 
                     // Persistence: Save Location Context
@@ -352,18 +367,17 @@ export const usePharmaStore = create<PharmaState>()(
                                 currentTerminalId: ''
                             });
 
-                            // Fetch Inventory for this context immediately
-                            if (warehouseId) state.fetchInventory(locationId, warehouseId);
-                            // Fetch Terminals for this context immediately
-                            state.fetchTerminals(locationId);
+                            // ⚡️ PERFORMANCE FIX: Fire-and-forget data fetching
+                            if (warehouseId) state.fetchInventory(locationId, warehouseId).catch(console.error);
+                            state.fetchTerminals(locationId).catch(console.error);
 
                         } catch (e) { console.error("Error persisting location context", e); }
                     }
 
-                    return true;
+                    return { success: true };
                 }
 
-                return false;
+                return { success: false, error: 'Credenciales inválidas o sin conexión a datos' };
             },
             logout: () => {
                 // Limpiar sesión en store
@@ -447,75 +461,90 @@ export const usePharmaStore = create<PharmaState>()(
                         console.error('❌ Error in outbox sync:', e);
                     }
 
-                    // 3. Fetch Data
+                    // 3. Fetch Data (PHASE 1: CRITICAL DATA)
+                    // Immediate data needed for UI skeletons (Auth, Locations, Suppliers)
                     const { TigerDataService } = await import('../../domain/services/TigerDataService');
 
-                    const [inventory, employeesRes, sales, suppliersRes, cashMovements, customers, shipments, purchaseOrders, locationsRes] = await Promise.all([
-                        currentStoreState.currentLocationId ? TigerDataService.fetchInventory(currentStoreState.currentLocationId) : Promise.resolve([]),
+                    const [employeesRes, suppliersRes, locationsRes, customers] = await Promise.all([
                         import('../../actions/sync-v2').then(async m => {
                             const res = await m.fetchEmployeesSecure();
                             if (!res.success && res.error === 'No autenticado') return m.getUsersForLoginSecure();
                             return res;
                         }),
-                        TigerDataService.fetchSalesHistory(currentStoreState.currentLocationId, undefined, undefined, currentStoreState.currentShift?.id),
                         import('../../actions/sync-v2').then(m => m.fetchSuppliersSecure()),
-                        TigerDataService.fetchCashMovements(),
-                        TigerDataService.fetchCustomers(),
-                        TigerDataService.fetchShipments(currentStoreState.currentLocationId),
-                        TigerDataService.fetchPurchaseOrders(),
-                        import('../../actions/sync-v2').then(m => m.fetchLocationsSecure())
+                        import('../../actions/sync-v2').then(m => m.fetchLocationsSecure()),
+                        TigerDataService.fetchCustomers()
                     ]);
 
                     const employees = employeesRes.success ? (employeesRes.data || []) as unknown as EmployeeProfile[] : [];
                     const suppliers = suppliersRes.success ? suppliersRes.data || [] : [];
                     const locations = locationsRes.success ? locationsRes.data || [] : [];
 
-                    // 4. Update Store
+                    // Update Location Store
                     if (locations.length > 0) useLocationStore.getState().setLocations(locations);
 
+                    // Set Critical Data immediately to unblock UI
                     set({
-                        inventory,
-                        locations, // Populate locations
                         employees,
                         suppliers,
                         customers: customers || [],
-                        shipments: shipments || [],
-                        purchaseOrders: purchaseOrders || [],
-                        cashMovements: cashMovements || [],
-                        // Derive expenses
-                        expenses: cashMovements.filter(m => m.type === 'OUT' && ['SUPPLIES', 'SERVICES', 'SALARY_ADVANCE', 'OTHER'].includes(m.reason)).map(m => ({
-                            id: m.id,
-                            description: m.description,
-                            amount: m.amount,
-                            category: (m.reason === 'SUPPLIES' ? 'INSUMOS' : m.reason === 'SERVICES' ? 'SERVICIOS' : 'OTROS') as any,
-                            date: m.timestamp,
-                            is_deductible: false
-                        }))
+                        locations,
+                        isLoading: false // ⚡️ UNBLOCK UI HERE
                     });
 
-                    // Preservation logic
-                    const localUnsyncedSales = currentStoreState.salesHistory.filter(s => s.is_synced === false);
-                    const mergedSales = [
-                        ...sales,
-                        ...localUnsyncedSales.filter(localSale => !sales.some(sale => sale.id === localSale.id))
-                    ];
-                    set({ salesHistory: mergedSales });
+                    // 4. Fetch Data (PHASE 2: HEAVY DATA - BACKGROUND)
+                    // Fire-and-forget for Inventory, Sales, and Movements
+                    (async () => {
+                        try {
+                            const [inventory, sales, cashMovements, shipments, purchaseOrders] = await Promise.all([
+                                currentStoreState.currentLocationId ? TigerDataService.fetchInventory(currentStoreState.currentLocationId) : Promise.resolve([]),
+                                TigerDataService.fetchSalesHistory(currentStoreState.currentLocationId, undefined, undefined, currentStoreState.currentShift?.id),
+                                TigerDataService.fetchCashMovements(),
+                                TigerDataService.fetchShipments(currentStoreState.currentLocationId),
+                                TigerDataService.fetchPurchaseOrders()
+                            ]);
 
-                    TigerDataService.initializeStorage({
-                        employees,
-                        products: inventory,
-                        sales: mergedSales,
-                        cashMovements,
-                        expenses: get().expenses
-                    });
+                            // Background Update
+                            set({
+                                inventory,
+                                shipments: shipments || [],
+                                purchaseOrders: purchaseOrders || [],
+                                cashMovements: cashMovements || [],
+                                salesHistory: [
+                                    ...sales,
+                                    ...currentStoreState.salesHistory.filter(s => s.is_synced === false && !sales.some(cloud => cloud.id === s.id))
+                                ],
+                                expenses: (cashMovements || []).filter(m => m.type === 'OUT' && ['SUPPLIES', 'SERVICES', 'SALARY_ADVANCE', 'OTHER'].includes(m.reason)).map(m => ({
+                                    id: m.id,
+                                    description: m.description,
+                                    amount: m.amount,
+                                    category: (m.reason === 'SUPPLIES' ? 'INSUMOS' : m.reason === 'SERVICES' ? 'SERVICIOS' : 'OTROS') as any,
+                                    date: m.timestamp,
+                                    is_deductible: false
+                                }))
+                            });
 
-                    set({ isInitialized: true });
+                            // Initialize Tiger Service Storage for Offline Simulation
+                            TigerDataService.initializeStorage({
+                                employees,
+                                products: inventory,
+                                sales,
+                                cashMovements: cashMovements || [],
+                                expenses: get().expenses
+                            });
+
+                            set({ isInitialized: true });
+                            console.log('✅ Background Sync Complete');
+
+                        } catch (bgError) {
+                            console.error('❌ Background Sync Failed:', bgError);
+                        }
+                    })();
 
                 } catch (error) {
                     console.error('❌ Sync failed:', error);
                     import('sonner').then(({ toast }) => toast.error('Error de Sincronización', { description: 'Usando datos locales.' }));
-                } finally {
-                    set({ isLoading: false });
+                    set({ isLoading: false }); // Ensure unblock on error
                 }
             },
 

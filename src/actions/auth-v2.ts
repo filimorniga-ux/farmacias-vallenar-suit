@@ -59,6 +59,14 @@ const GLOBAL_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'DRIVER', 'QF'];
 const ADMIN_ROLES = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL'];
 const BCRYPT_ROUNDS = 10;
 
+// Memory cache for auth settings to reduce DB roundtrips
+const authSettingsCache = {
+    maxAttempts: 5,
+    lockoutMinutes: 15,
+    lastFetched: 0
+};
+const SETTINGS_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
@@ -88,22 +96,26 @@ async function auditLog(
     details: Record<string, any>,
     ipAddress?: string
 ): Promise<void> {
-    try {
-        const ip = ipAddress || await getClientIP();
-        await query(`
-            INSERT INTO audit_logs (user_id, action, details, ip_address, timestamp)
-            VALUES ($1, $2, $3, $4, NOW())
-        `, [userId, action, JSON.stringify(details), ip]);
-    } catch (error) {
-        console.error('[AUTH-V2] Audit log failed:', error);
-        // Don't throw - audit failure shouldn't break auth flow
-    }
+    // We don't await the query to make it non-blocking for the user
+    (async () => {
+        try {
+            const ip = ipAddress || await getClientIP();
+            await query(`
+                INSERT INTO audit_logs (user_id, action, details, ip_address, timestamp)
+                VALUES ($1, $2, $3, $4, NOW())
+            `, [userId, action, JSON.stringify(details), ip]);
+        } catch (error) {
+            console.error('[AUTH-V2] Audit log background failed:', error);
+        }
+    })();
 }
 
-/**
- * Check rate limit for login attempts
- */
-async function checkRateLimit(identifier: string): Promise<{ allowed: boolean; error?: string }> {
+async function fetchAuthSettings() {
+    const now = Date.now();
+    if (now - authSettingsCache.lastFetched < SETTINGS_CACHE_TTL) {
+        return authSettingsCache;
+    }
+
     try {
         const settingsRes = await query(`
             SELECT key, value FROM app_settings 
@@ -111,7 +123,21 @@ async function checkRateLimit(identifier: string): Promise<{ allowed: boolean; e
         `);
         const settingsMap = new Map(settingsRes.rows.map((row: any) => [row.key, row.value]));
 
-        const MAX_ATTEMPTS = parseInt(settingsMap.get('SECURITY_MAX_LOGIN_ATTEMPTS') || '5', 10);
+        authSettingsCache.maxAttempts = parseInt(settingsMap.get('SECURITY_MAX_LOGIN_ATTEMPTS') || '5', 10);
+        authSettingsCache.lockoutMinutes = parseInt(settingsMap.get('SECURITY_LOCKOUT_DURATION_MINUTES') || '15', 10);
+        authSettingsCache.lastFetched = now;
+    } catch (error) {
+        console.error('[AUTH-V2] Failed to fetch auth settings, using defaults', error);
+    }
+    return authSettingsCache;
+}
+
+/**
+ * Check rate limit for login attempts
+ */
+async function checkRateLimit(identifier: string): Promise<{ allowed: boolean; error?: string }> {
+    try {
+        const { maxAttempts } = await fetchAuthSettings();
         const WINDOW_MINUTES = 10;
 
         const res = await query(`
@@ -135,7 +161,8 @@ async function checkRateLimit(identifier: string): Promise<{ allowed: boolean; e
             const timeDiffMinutes = (now.getTime() - lastAttemptTime.getTime()) / 60000;
 
             if (timeDiffMinutes > WINDOW_MINUTES && (!row.blocked_until || new Date(row.blocked_until) <= now)) {
-                await query('UPDATE login_attempts SET attempt_count = 0, blocked_until = NULL WHERE identifier = $1', [identifier]);
+                // Non-blocking update
+                query('UPDATE login_attempts SET attempt_count = 0, blocked_until = NULL WHERE identifier = $1', [identifier]).catch(() => { });
             }
         }
         return { allowed: true };
@@ -150,34 +177,23 @@ async function checkRateLimit(identifier: string): Promise<{ allowed: boolean; e
  */
 async function incrementRateLimit(identifier: string): Promise<void> {
     try {
-        const settingsRes = await query(`
-            SELECT key, value FROM app_settings 
-            WHERE key IN ('SECURITY_MAX_LOGIN_ATTEMPTS', 'SECURITY_LOCKOUT_DURATION_MINUTES')
-        `);
-        const settingsMap = new Map(settingsRes.rows.map((row: any) => [row.key, row.value]));
+        const { maxAttempts, lockoutMinutes } = await fetchAuthSettings();
 
-        const MAX_ATTEMPTS = parseInt(settingsMap.get('SECURITY_MAX_LOGIN_ATTEMPTS') || '5', 10);
-        // FIX: Validate and sanitize duration to prevent SQL injection
-        const rawDuration = settingsMap.get('SECURITY_LOCKOUT_DURATION_MINUTES') || '15';
-        const BLOCK_DURATION_MINUTES = Math.min(Math.max(parseInt(rawDuration, 10) || 15, 1), 1440);
-
-        await query(`
+        const res = await query(`
             INSERT INTO login_attempts (identifier, attempt_count, last_attempt)
             VALUES ($1, 1, NOW())
             ON CONFLICT (identifier) DO UPDATE 
             SET attempt_count = login_attempts.attempt_count + 1,
                 last_attempt = NOW()
+            RETURNING attempt_count
         `, [identifier]);
 
-        const res = await query('SELECT attempt_count FROM login_attempts WHERE identifier = $1', [identifier]);
-
-        if (res.rowCount && res.rowCount > 0 && res.rows[0].attempt_count > MAX_ATTEMPTS) {
-            // FIX: Use parameterized interval with make_interval()
+        if (res.rowCount && res.rowCount > 0 && res.rows[0].attempt_count > maxAttempts) {
             await query(`
                 UPDATE login_attempts 
                 SET blocked_until = NOW() + make_interval(mins => $2)
                 WHERE identifier = $1
-            `, [identifier, BLOCK_DURATION_MINUTES]);
+            `, [identifier, lockoutMinutes]);
         }
     } catch (error) {
         console.error('[AUTH-V2] Rate limit increment failed:', error);
@@ -231,45 +247,46 @@ export async function authenticateUserSecure(
     // 1. Validate inputs
     const validated = AuthenticateSchema.safeParse({ userId, pin, locationId });
     if (!validated.success) {
-        await auditLog(userId, 'LOGIN_INVALID_INPUT', {
+        auditLog(userId, 'LOGIN_INVALID_INPUT', {
             error: validated.error.issues[0]?.message
-        }, ipAddress);
+        }, ipAddress); // No await
         return { success: false, error: 'Datos de autenticación inválidos' };
     }
 
     const { userId: uid, pin: validatedPin, locationId: locId } = validated.data;
 
     try {
-        // 2. Check rate limit
-        const limitCheck = await checkRateLimit(uid);
+        // 2. Combined Check: Rate Limit + User Fetch in Parallel (optimization)
+        const [limitCheck, userRes] = await Promise.all([
+            checkRateLimit(uid),
+            query(`
+                SELECT id, name, role, access_pin, access_pin_hash, 
+                       assigned_location_id, token_version, is_active,
+                       email, name as "fullName"
+                FROM users 
+                WHERE id = $1
+            `, [uid])
+        ]);
+
         if (!limitCheck.allowed) {
-            await auditLog(uid, 'LOGIN_BLOCKED_RATE_LIMIT', {
+            auditLog(uid, 'LOGIN_BLOCKED_RATE_LIMIT', {
                 reason: 'Rate limit exceeded'
-            }, ipAddress);
+            }, ipAddress); // No await
             return { success: false, error: limitCheck.error || 'Acceso bloqueado temporalmente' };
         }
 
-        // 3. Fetch user (WITHOUT comparing PIN in query)
-        const res = await query(`
-            SELECT id, name, role, access_pin, access_pin_hash, 
-                   assigned_location_id, token_version, is_active,
-                   email, name as "fullName"
-            FROM users 
-            WHERE id = $1
-        `, [uid]);
-
-        if (res.rowCount === 0) {
+        if (userRes.rowCount === 0) {
             await incrementRateLimit(uid);
-            await auditLog(uid, 'LOGIN_FAILED', { reason: 'User not found' }, ipAddress);
+            auditLog(uid, 'LOGIN_FAILED', { reason: 'User not found' }, ipAddress); // No await
             // Generic error to not reveal user existence
             return { success: false, error: 'Credenciales inválidas' };
         }
 
-        const user = res.rows[0];
+        const user = userRes.rows[0];
 
         // 4. Check if user is active
         if (user.is_active === false) {
-            await auditLog(uid, 'LOGIN_FAILED', { reason: 'User disabled' }, ipAddress);
+            auditLog(uid, 'LOGIN_FAILED', { reason: 'User disabled' }, ipAddress); // No await
             return { success: false, error: 'Usuario deshabilitado' };
         }
 
@@ -297,7 +314,7 @@ export async function authenticateUserSecure(
 
         if (!pinValid) {
             await incrementRateLimit(uid);
-            await auditLog(uid, 'LOGIN_FAILED', { reason: 'Invalid PIN' }, ipAddress);
+            auditLog(uid, 'LOGIN_FAILED', { reason: 'Invalid PIN' }, ipAddress); // No await
             return { success: false, error: 'Credenciales inválidas' };
         }
 
@@ -306,7 +323,10 @@ export async function authenticateUserSecure(
             const role = (user.role || '').toUpperCase();
             const isGlobalRole = GLOBAL_ROLES.includes(role);
 
+            console.log(`[AUTH-DEBUG] User: ${user.name}, Role: ${role}, Global: ${isGlobalRole}, Assigned: ${user.assigned_location_id}, Requested: ${locId}`);
+
             if (!isGlobalRole && user.assigned_location_id && user.assigned_location_id !== locId) {
+                console.log('[AUTH-DEBUG] Location Mismatch Blocked');
                 await auditLog(uid, 'LOGIN_BLOCKED_LOCATION', {
                     attempted: locId,
                     assigned: user.assigned_location_id
@@ -315,26 +335,28 @@ export async function authenticateUserSecure(
             }
         }
 
-        // 7. Update session data
-        await query(`
-            UPDATE users 
-            SET last_active_at = NOW(),
-                last_login_at = NOW(),
-                last_login_ip = $2,
-                current_context_data = $3,
-                token_version = COALESCE(token_version, 1)
-            WHERE id = $1
-        `, [uid, ipAddress, JSON.stringify({ location_id: locId || 'HQ' })]);
+        await Promise.all([
+            // 7. Update session data
+            query(`
+                UPDATE users 
+                SET last_active_at = NOW(),
+                    last_login_at = NOW(),
+                    last_login_ip = $2,
+                    current_context_data = $3,
+                    token_version = COALESCE(token_version, 1)
+                WHERE id = $1
+            `, [uid, ipAddress, JSON.stringify({ location_id: locId || 'HQ' })]),
 
-        // 8. Clear rate limit on success
-        await clearRateLimit(uid);
+            // 8. Clear rate limit on success
+            clearRateLimit(uid),
 
-        // 9. Audit successful login
-        await auditLog(uid, 'LOGIN_SUCCESS', {
-            role: user.role,
-            location: locId,
-            method: user.access_pin_hash ? 'bcrypt' : 'legacy'
-        }, ipAddress);
+            // 9. Audit successful login
+            auditLog(uid, 'LOGIN_SUCCESS', {
+                role: user.role,
+                location: locId,
+                method: user.access_pin_hash ? 'bcrypt' : 'legacy'
+            }, ipAddress)
+        ]);
 
         // 10. Set session cookies for RBAC validation in server actions
         const { cookies } = await import('next/headers');

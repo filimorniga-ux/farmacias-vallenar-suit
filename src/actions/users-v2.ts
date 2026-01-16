@@ -40,7 +40,7 @@ const EmailSchema = z.string()
     .email('Email inválido')
     .max(100);
 
-const RoleSchema = z.enum(['CASHIER', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'DRIVER', 'QF', 'RRHH', 'CONTADOR']);
+const RoleSchema = z.enum(['CASHIER', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'DRIVER', 'QF', 'RRHH', 'CONTADOR', 'WAREHOUSE', 'WAREHOUSE_CHIEF']);
 
 const PINSchema = z.string()
     .min(4, 'PIN debe tener al menos 4 dígitos')
@@ -557,6 +557,18 @@ export async function changeUserRoleSecure(data: z.infer<typeof ChangeRoleSchema
         if (!authCheck.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: authCheck.error };
+        }
+
+        // STRICT SECURITY: Only GERENTE_GENERAL can change roles
+        if (authCheck.admin!.role !== 'GERENTE_GENERAL') {
+            await client.query('ROLLBACK');
+            await insertUserAudit(client, {
+                actionCode: 'ROLE_CHANGE_ATTEMPT_DENIED',
+                userId: authCheck.admin!.id,
+                targetUserId: validated.data.userId,
+                justification: 'Attempted to change role without Gerente General privileges'
+            });
+            return { success: false, error: 'Solo la Gerencia General puede asignar o cambiar roles.' };
         }
 
         // 3. Cannot change own role

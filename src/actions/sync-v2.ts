@@ -124,7 +124,8 @@ export async function fetchInventorySecure(
         const res = await query(sql, params);
 
         // Auditar acceso
-        await auditDataAccess(session.userId, 'INVENTORY_FETCHED', {
+        await auditDataAccess(session.userId, 'DATA_SYNC', {
+            type: 'INVENTORY',
             warehouse_id: warehouseId || 'ALL',
             rows_returned: res.rows.length,
             page,
@@ -221,7 +222,8 @@ export async function fetchEmployeesSecure(
         const res = await query(sql, [includeInactive]);
 
         // Auditar
-        await auditDataAccess(session.userId, 'EMPLOYEES_FETCHED', {
+        await auditDataAccess(session.userId, 'DATA_SYNC', {
+            type: 'EMPLOYEES',
             include_inactive: includeInactive,
             rows_returned: res.rows.length,
         });
@@ -318,13 +320,14 @@ export async function fetchSuppliersSecure(): Promise<{
     try {
         const res = await query(`
             SELECT id, rut, business_name, fantasy_name, contact_email, 
-                   payment_terms, address, phone, is_active
+                   payment_terms, address, phone_1 as phone, is_active
             FROM suppliers 
             WHERE is_active = true
             ORDER BY business_name ASC
         `);
 
-        await auditDataAccess(session.userId, 'SUPPLIERS_FETCHED', {
+        await auditDataAccess(session.userId, 'DATA_SYNC', {
+            type: 'SUPPLIERS',
             rows_returned: res.rows.length,
         });
 
@@ -383,7 +386,8 @@ export async function fetchLocationsSecure(): Promise<{
 
         const res = await query(sql, params);
 
-        await auditDataAccess(session.userId, 'LOCATIONS_FETCHED', {
+        await auditDataAccess(session.userId, 'DATA_SYNC', {
+            type: 'LOCATIONS',
             rows_returned: res.rows.length,
             filtered_by_role: !['ADMIN', 'GERENTE_GENERAL'].includes(session.role),
         });
@@ -447,7 +451,8 @@ export async function syncAllDataSecure(
             return { success: false, error: 'Error en sincronización parcial' };
         }
 
-        await auditDataAccess(session.userId, 'FULL_SYNC_COMPLETED', {
+        await auditDataAccess(session.userId, 'DATA_SYNC', {
+            type: 'FULL_SYNC',
             warehouse_id: warehouseId || 'ALL',
             inventory_count: inventoryRes.data?.length || 0,
             employees_count: employeesRes.data?.length || 0,

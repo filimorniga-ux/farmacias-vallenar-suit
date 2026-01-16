@@ -1,13 +1,13 @@
 import React from 'react';
+import { usePathname } from 'next/navigation';
 import { useLocationStore } from '../../store/useLocationStore';
 import { usePharmaStore } from '../../store/useStore';
 import { MapPin, Monitor, Package } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
 
 const ContextBadge = () => {
     const { locations, currentLocation } = useLocationStore();
     const { currentLocationId, currentTerminalId, terminals, currentShift } = usePharmaStore();
-    const routeLocation = useLocation();
+    const pathname = usePathname();
 
     // Resolve comprehensive location object
     // usage of both stores is needed because usePharmaStore holds the ID often set by auth,
@@ -19,7 +19,7 @@ const ContextBadge = () => {
     const isShiftOpen = currentShift?.status === 'ACTIVE';
 
     // Detect WMS/Inventory Context
-    const isWMS = routeLocation.pathname.includes('/inventory') || routeLocation.pathname.includes('/warehouse');
+    const isWMS = pathname?.includes('/inventory') || pathname?.includes('/warehouse');
 
     if (!activeLocation) return null;
 

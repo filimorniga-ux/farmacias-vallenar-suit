@@ -541,28 +541,28 @@ const POSMainScreen: React.FC = () => {
 
     // --- BLOCKED STATE RENDER ---
     if (!currentShift || currentShift.status === 'CLOSED') {
-        // ... (existing blocked state)
         return (
-            <div className="h-screen w-full bg-slate-900 flex flex-col items-center justify-center p-4 relative overflow-hidden">
-                <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+            <div className="h-screen w-full bg-slate-50 flex flex-col items-center justify-center p-4 relative overflow-hidden">
+                {/* Subtle Background Pattern */}
+                <div className="absolute inset-0 opacity-[0.03] bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] pointer-events-none"></div>
 
-                <div className="z-10 bg-white/10 backdrop-blur-lg p-8 md:p-12 rounded-3xl border border-white/20 shadow-2xl max-w-lg w-full text-center">
-                    <div className="w-24 h-24 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse">
-                        <Lock size={48} className="text-red-400" />
+                <div className="z-10 bg-white border border-slate-200 p-8 md:p-12 rounded-[40px] shadow-2xl shadow-sky-900/5 max-w-lg w-full text-center">
+                    <div className="w-24 h-24 bg-red-50 rounded-3xl flex items-center justify-center mx-auto mb-8 border border-red-100">
+                        <Lock size={48} className="text-red-500" />
                     </div>
 
-                    <h1 className="text-3xl md:text-4xl font-extrabold text-white mb-2">Terminal Bloqueado</h1>
-                    <p className="text-slate-300 mb-8 text-lg">Se requiere apertura de caja para operar.</p>
+                    <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-3 tracking-tight">Terminal Bloqueado</h1>
+                    <p className="text-slate-500 mb-10 text-lg leading-relaxed font-medium">Se requiere apertura de caja para operar el punto de venta.</p>
 
                     <button
                         onClick={() => setIsShiftModalOpen(true)}
-                        className="w-full py-4 bg-cyan-500 hover:bg-cyan-400 text-white font-bold rounded-xl text-xl shadow-lg shadow-cyan-500/30 transition-all transform hover:scale-105"
+                        className="w-full py-5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-2xl text-xl shadow-lg shadow-sky-600/20 transition-all transform hover:scale-[1.02] active:scale-[0.98] border-b-4 border-sky-800"
                     >
                         Solicitar Apertura a Gerente
                     </button>
 
-                    <div className="mt-8 pt-6 border-t border-white/10">
-                        <p className="text-xs text-slate-500 uppercase tracking-widest">Farmacias Vallenar Suit v2.1</p>
+                    <div className="mt-12 pt-8 border-t border-slate-100">
+                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-[0.2em]">Farmacias Vallenar Suit v2.1</p>
                     </div>
                 </div>
 

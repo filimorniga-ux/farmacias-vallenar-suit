@@ -4,9 +4,9 @@ import { Client } from 'pg';
 
 export interface CartItem {
     id: string; // SKU or Internal ID
-    productName: string;
+    name: string;
     sku: string;
-    unitPrice: number;
+    price: number;
     quantity: number;
 }
 
@@ -28,7 +28,7 @@ export async function processSale(cart: CartItem[], branch: string): Promise<Sal
         await client.query('BEGIN');
 
         // 1. Calculate Total
-        const totalAmount = cart.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
+        const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
         // 2. Create Header
         const headerRes = await client.query(`
@@ -59,7 +59,7 @@ export async function processSale(cart: CartItem[], branch: string): Promise<Sal
             const currentStock = Number(stockRes.rows[0].raw_stock);
 
             if (currentStock < item.quantity) {
-                throw new Error(`Stock insuficiente para ${item.productName}. Disp: ${currentStock}`);
+                throw new Error(`Stock insuficiente para ${item.name}. Disp: ${currentStock}`);
             }
 
             // Deduct Stock
@@ -74,7 +74,7 @@ export async function processSale(cart: CartItem[], branch: string): Promise<Sal
             await client.query(`
                 INSERT INTO sales_items (sale_id, product_name, sku, quantity, unit_price, subtotal)
                 VALUES ($1, $2, $3, $4, $5, $6)
-            `, [saleId, item.productName, item.sku || 'S/SKU', item.quantity, item.unitPrice, item.quantity * item.unitPrice]);
+            `, [saleId, item.name, item.sku || 'S/SKU', item.quantity, item.price, item.quantity * item.price]);
         }
 
         await client.query('COMMIT');

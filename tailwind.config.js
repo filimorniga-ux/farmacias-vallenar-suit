@@ -9,15 +9,21 @@ export default {
   theme: {
     extend: {
       colors: {
-        // NUEVA PALETA AZUL PROFUNDA (Más contraste que el cyan anterior)
+        // NUEVA PALETA: Azul Médico Clínico (Moderno y Elegante)
         'pharma-primary': {
-            DEFAULT: colors.blue[600], // Azul vibrante para botones principales
-            dark: colors.blue[800],    // Azul oscuro para textos sobre fondos claros
-            light: colors.blue[100],   // Fondos muy suaves
+          DEFAULT: '#0ea5e9', // Sky 500: Vibrante pero clínico
+          hover: '#0284c7',   // Sky 600
+          active: '#0369a1',  // Sky 700
+          dark: '#0c4a6e',    // Sky 900
+          light: '#e0f2fe',   // Sky 100
         },
-        'pharma-surface': colors.slate[50], // Fondo general claro
-        'pharma-card': '#ffffff',           // Blanco puro para tarjetas
-        'alert-heat': colors.red[600],
+        'pharma-secondary': {
+          DEFAULT: '#14b8a6', // Teal 500: Acento quirúrgico/salud
+          dark: '#0f766e',    // Teal 700
+        },
+        'pharma-surface': '#f8fafc', // Slate 50: Fondo clínico limpio
+        'pharma-card': '#ffffff',
+        'alert-error': '#ef4444',
       },
       // ANIMACIÓN DE FONDO SUTIL
       animation: {

@@ -4,14 +4,17 @@
 import { useState, useTransition, useEffect } from 'react';
 import { searchUnifiedProducts, UnifiedProduct, Offering } from '@/actions/analytics/price-arbitrage';
 import { getFiltersAction } from '@/actions/public/get-filters';
-import { Search, Loader2, Building2, Package, TrendingUp, AlertTriangle, Eye, EyeOff, Filter, X } from 'lucide-react';
+import { useDebounce } from '@/hooks/use-debounce';
+import { Search, Loader2, Building2, Package, TrendingUp, AlertTriangle, Eye, EyeOff, Filter, X, TrendingDown } from 'lucide-react';
 
 interface UnifiedPriceConsultantProps {
     isPublicMode?: boolean;
+    allowToggle?: boolean;
 }
 
-export default function UnifiedPriceConsultant({ isPublicMode = false }: UnifiedPriceConsultantProps) {
+export default function UnifiedPriceConsultant({ isPublicMode = false, allowToggle = true }: UnifiedPriceConsultantProps) {
     const [query, setQuery] = useState('');
+    const debouncedQuery = useDebounce(query, 500); // 500ms delay
     const [results, setResults] = useState<UnifiedProduct[]>([]);
     const [isPending, startTransition] = useTransition();
     const [hasSearched, setHasSearched] = useState(false);
@@ -30,37 +33,43 @@ export default function UnifiedPriceConsultant({ isPublicMode = false }: Unified
         getFiltersAction().then(setAvailableFilters);
     }, []);
 
-    const handleSearch = (term: string, currentFilters = filters) => {
-        setQuery(term);
-        // Allow search if filters are active regardless of term length
-        const hasFilters = currentFilters.categoryId > 0 || currentFilters.labId > 0 || currentFilters.actionId > 0;
+    // Effect for Debounced Search
+    useEffect(() => {
+        const fetchResults = async () => {
+            const hasFilters = filters.categoryId > 0 || filters.labId > 0 || filters.actionId > 0;
 
-        if (term.length < 2 && !hasFilters) {
-            setResults([]);
-            return;
-        }
+            if (debouncedQuery.length < 2 && !hasFilters) {
+                setResults([]);
+                return;
+            }
 
-        startTransition(async () => {
-            const data = await searchUnifiedProducts(term, {
-                categoryId: currentFilters.categoryId || undefined,
-                labId: currentFilters.labId || undefined,
-                actionId: currentFilters.actionId || undefined
+            startTransition(async () => {
+                const data = await searchUnifiedProducts(debouncedQuery, {
+                    categoryId: filters.categoryId || undefined,
+                    labId: filters.labId || undefined,
+                    actionId: filters.actionId || undefined
+                });
+                setResults(data);
+                setHasSearched(true);
             });
-            setResults(data);
-            setHasSearched(true);
-        });
+        };
+
+        fetchResults();
+    }, [debouncedQuery, filters]); // Trigger on debounce or filter change
+
+    // Simple handler to update local state
+    const handleSearchInput = (term: string) => {
+        setQuery(term);
     };
 
     const updateFilter = (type: 'categoryId' | 'labId' | 'actionId', value: number) => {
-        const newFilters = { ...filters, [type]: value };
-        setFilters(newFilters);
-        handleSearch(query, newFilters);
+        setFilters(prev => ({ ...prev, [type]: value }));
+        // Effect will trigger search automatically
     };
 
     const clearFilters = () => {
-        const reset = { categoryId: 0, labId: 0, actionId: 0 };
-        setFilters(reset);
-        handleSearch(query, reset);
+        setFilters({ categoryId: 0, labId: 0, actionId: 0 });
+        // Effect will trigger search automatically
     };
 
     const formatPrice = (price: number) => {
@@ -75,13 +84,15 @@ export default function UnifiedPriceConsultant({ isPublicMode = false }: Unified
                     <Search className="h-5 w-5 text-gray-500" />
                     <h2 className="text-xl font-bold text-gray-900">Consultor de Precios</h2>
                 </div>
-                <button
-                    onClick={() => setIsPublic(!isPublic)}
-                    className="p-2 text-gray-400 hover:text-blue-600 transition-colors rounded-full hover:bg-gray-100"
-                    title={isPublic ? "Modo Público (Click para ver Costos)" : "Modo Admin (Click para Ocultar)"}
-                >
-                    {isPublic ? <Eye size={20} /> : <EyeOff size={20} />}
-                </button>
+                {allowToggle && (
+                    <button
+                        onClick={() => setIsPublic(!isPublic)}
+                        className="p-2 text-gray-400 hover:text-blue-600 transition-colors rounded-full hover:bg-gray-100"
+                        title={isPublic ? "Modo Público (Click para ver Costos)" : "Modo Admin (Click para Ocultar)"}
+                    >
+                        {isPublic ? <Eye size={20} /> : <EyeOff size={20} />}
+                    </button>
+                )}
             </div>
 
             <div className="p-6">
@@ -93,7 +104,7 @@ export default function UnifiedPriceConsultant({ isPublicMode = false }: Unified
                             type="text"
                             placeholder="Buscar por nombre, código de barras o SKU..."
                             value={query}
-                            onChange={(e) => handleSearch(e.target.value)}
+                            onChange={(e) => handleSearchInput(e.target.value)}
                             className="w-full pl-12 pr-12 py-3 text-lg border-2 border-gray-200 rounded-lg focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all"
                             autoFocus
                         />
@@ -183,11 +194,26 @@ export default function UnifiedPriceConsultant({ isPublicMode = false }: Unified
 
                                     return (
                                         <tr key={product.id} className="hover:bg-gray-50 transition-colors">
-                                            {/* Name & Details */}
-                                            <td className="px-4 py-3">
-                                                <div className="font-bold text-gray-900 text-lg">{product.productName}</div>
+                                            {/* Name & Details - CLICK TO SEARCH BIOEQUIVALENTS */}
+                                            <td
+                                                className="px-4 py-3 cursor-pointer group"
+                                                onClick={() => {
+                                                    if (product.activePrinciple) {
+                                                        handleSearchInput(product.activePrinciple);
+                                                    }
+                                                }}
+                                            >
+                                                <div className="font-bold text-gray-900 text-lg group-hover:text-blue-600 transition-colors flex items-center gap-2">
+                                                    {product.productName}
+                                                    {product.activePrinciple && <Search size={14} className="opacity-0 group-hover:opacity-100 text-blue-400" />}
+                                                </div>
+
                                                 {product.activePrinciple && (
-                                                    <div className="text-sm font-semibold text-blue-600 mt-0.5">{product.activePrinciple}</div>
+                                                    <div className="flex items-center gap-2 mt-1">
+                                                        <span className="text-sm font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                                                            {product.activePrinciple}
+                                                        </span>
+                                                    </div>
                                                 )}
 
                                                 {/* Metadata Tags */}
@@ -218,6 +244,50 @@ export default function UnifiedPriceConsultant({ isPublicMode = false }: Unified
                                                         </span>
                                                     )}
                                                 </div>
+
+                                                {/* Units & PPU & Price Delta */}
+                                                <div className="mt-2 flex flex-col items-start gap-1">
+                                                    {isPublic && product.unitsPerBox && product.bestPrice > 0 && (
+                                                        <div className="flex items-baseline gap-2 bg-gray-50 px-2 py-1 rounded border border-gray-100">
+                                                            <span className="text-xs text-gray-400 font-medium">Costo x Unidad:</span>
+                                                            <span className="text-sm font-bold text-gray-700">
+                                                                {formatPrice(Math.round(product.bestPrice / product.unitsPerBox))}
+                                                            </span>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Price Difference Indicator (Logic: If searching bioequivalents) */}
+                                                    {query && product.activePrinciple && query.includes(product.activePrinciple) && (
+                                                        <div className="mt-1">
+                                                            {product.bestPrice < results.reduce((acc, p) => acc + p.bestPrice, 0) / results.length ? (
+                                                                <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded border border-green-200 flex items-center gap-1">
+                                                                    <TrendingDown size={12} /> Opción Más Económica
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-xs font-bold text-gray-400 bg-gray-50 px-2 py-1 rounded border border-gray-200">
+                                                                    Precio Estándar
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Savings Suggestion */}
+                                                {product.savingsSuggestion && (
+                                                    <div className="mt-2 bg-green-50 border border-green-200 rounded-lg p-2 flex items-start gap-2">
+                                                        <div className="bg-green-100 p-1 rounded-full text-green-600 mt-0.5">
+                                                            <TrendingDown size={14} />
+                                                        </div>
+                                                        <div>
+                                                            <div className="text-xs text-green-800 font-bold">
+                                                                ¡Ahorra {formatPrice(product.savingsSuggestion.saveAmount)}!
+                                                            </div>
+                                                            <div className="text-[10px] text-green-700 leading-tight">
+                                                                Prefiere <span className="font-semibold">{product.savingsSuggestion.productName}</span> a solo {formatPrice(product.savingsSuggestion.price)}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </td>
 
                                             {/* Santiago */}

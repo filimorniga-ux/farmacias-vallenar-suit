@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useTransition } from 'react';
 import { Search, ShoppingCart, Trash2, CreditCard, Loader2, Package, MapPin, Receipt, Plus, Minus } from 'lucide-react';
 import { searchProductForPOS, processSale, CartItem } from '@/actions/sales/pos-actions';
 import { usePharmaStore } from '@/presentation/store/useStore';
+import POSCopilot from '@/presentation/components/pos/POSCopilot';
 
 export default function POSPage() {
     // --- State ---
@@ -48,9 +49,9 @@ export default function POSPage() {
             }
             return [...prev, {
                 id: product.id,
-                productName: product.name,
+                name: product.name,
                 sku: product.sku,
-                unitPrice: product.price,
+                price: product.price,
                 quantity: 1
             }];
         });
@@ -94,7 +95,7 @@ export default function POSPage() {
     };
 
     // --- Derived ---
-    const cartTotal = cart.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
+    const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
     // --- Key Down for Barcode Scanner ---
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -108,8 +109,38 @@ export default function POSPage() {
         }
     };
 
+    // --- AI Assistant ---
+    const [aiAnalysis, setAiAnalysis] = useState<any>(null);
+    const [isAnalyzing, startAnalysis] = useTransition();
+    const [showAiPanel, setShowAiPanel] = useState(false);
+
+    const handleAnalyzeCart = () => {
+        if (cart.length === 0) return;
+        setShowAiPanel(true);
+        startAnalysis(async () => {
+            // Import dynamically or normally. Since we are in client component, import needs to be compatible.
+            // But we can import server action directly.
+            const { analyzeSalesCart } = await import('@/actions/sales/pos-assistant-actions');
+            const result = await analyzeSalesCart(cart);
+            if (result.success) {
+                setAiAnalysis(result.data);
+            }
+        });
+    };
+
     return (
-        <div className="flex h-screen bg-slate-50 overflow-hidden">
+        <div className="flex h-screen bg-slate-50 overflow-hidden relative">
+            {/* AI Floating Button (if panel closed and cart has items) */}
+            {!showAiPanel && cart.length > 0 && (
+                <button
+                    onClick={handleAnalyzeCart}
+                    className="absolute bottom-6 right-[420px] z-40 bg-purple-600 text-white px-4 py-3 rounded-full shadow-lg hover:bg-purple-700 transition-all flex items-center gap-2 animate-bounce-slow"
+                >
+                    <span className="text-xl">✨</span>
+                    <span className="font-bold">IA Copilot</span>
+                </button>
+            )}
+
             {/* LEFT: Search & Results */}
             <div className="flex-1 flex flex-col p-6 min-w-0">
                 {/* Header */}
@@ -124,7 +155,7 @@ export default function POSPage() {
                         {(['SANTIAGO', 'COLCHAGUA'] as const).map(b => (
                             <button
                                 key={b}
-                                onClick={() => { setBranch(b); setCart([]); setSearchResults([]); setQuery(''); }}
+                                onClick={() => { setBranch(b); setCart([]); setSearchResults([]); setQuery(''); setAiAnalysis(null); setShowAiPanel(false); }}
                                 className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${branch === b
                                     ? 'bg-blue-600 text-white shadow-md'
                                     : 'text-slate-500 hover:bg-slate-50'
@@ -207,6 +238,81 @@ export default function POSPage() {
                 </div>
             </div>
 
+            {/* AI Panel (Overlay or integrated) */}
+            {showAiPanel && (
+                <div className="w-80 bg-white border-l border-slate-200 shadow-xl z-30 flex flex-col animate-in slide-in-from-right mr-[-1px]">
+                    <div className="p-4 border-b border-purple-100 bg-purple-50 flex justify-between items-center">
+                        <h2 className="text-sm font-bold text-purple-800 flex items-center gap-2">
+                            ✨ Copiloto Farmacéutico
+                        </h2>
+                        <button onClick={() => setShowAiPanel(false)} className="text-purple-400 hover:text-purple-600">
+                            ✕
+                        </button>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                        {isAnalyzing ? (
+                            <div className="flex flex-col items-center py-10 text-purple-400">
+                                <Loader2 className="w-8 h-8 animate-spin mb-2" />
+                                <p className="text-xs">Analizando interacciones...</p>
+                            </div>
+                        ) : aiAnalysis ? (
+                            <>
+                                {/* Alerts */}
+                                {aiAnalysis.alerts?.length > 0 && (
+                                    <div className="space-y-2">
+                                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Alertas de Seguridad</h3>
+                                        {aiAnalysis.alerts.map((alert: any, i: number) => (
+                                            <div key={i} className={`p-3 rounded-lg text-xs border ${alert.severity === 'HIGH' ? 'bg-red-50 border-red-200 text-red-700' :
+                                                alert.severity === 'MEDIUM' ? 'bg-amber-50 border-amber-200 text-amber-700' :
+                                                    'bg-blue-50 border-blue-200 text-blue-700'
+                                                }`}>
+                                                <div className="font-bold mb-1 flex items-center gap-1">
+                                                    {alert.severity === 'HIGH' && '⛔'}
+                                                    {alert.severity === 'MEDIUM' && '⚠️'}
+                                                    {alert.severity}
+                                                </div>
+                                                {alert.message}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* Recommendations */}
+                                {aiAnalysis.recommendations?.length > 0 && (
+                                    <div className="space-y-2">
+                                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Oportunidades de Venta</h3>
+                                        {aiAnalysis.recommendations.map((rec: any, i: number) => (
+                                            <div key={i} className="p-3 bg-gradient-to-br from-green-50 to-emerald-50 border border-green-100 rounded-lg shadow-sm">
+                                                <div className="flex items-start gap-2">
+                                                    <span className="text-lg">💡</span>
+                                                    <div>
+                                                        <p className="text-sm font-bold text-green-800">{rec.productName}</p>
+                                                        <p className="text-xs text-green-600 mt-1">{rec.reason}</p>
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleSearch(rec.productName)}
+                                                    className="mt-2 text-xs bg-white text-green-700 border border-green-200 px-2 py-1 rounded-md hover:bg-green-100 w-full"
+                                                >
+                                                    Buscar Referencia
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {aiAnalysis.alerts?.length === 0 && aiAnalysis.recommendations?.length === 0 && (
+                                    <div className="text-center py-8 text-gray-400 text-sm">
+                                        ✅ Todo se ve bien. <br />Sin alertas ni sugerencias.
+                                    </div>
+                                )}
+                            </>
+                        ) : null}
+                    </div>
+                </div>
+            )}
+
             {/* RIGHT: Cart & Checkout */}
             <div className="w-96 bg-white border-l border-slate-200 shadow-xl flex flex-col z-30">
                 <div className="p-6 border-b border-slate-100 bg-slate-50">
@@ -223,11 +329,11 @@ export default function POSPage() {
                     {cart.map((item) => (
                         <div key={item.id} className="flex gap-3 bg-white border border-slate-100 p-3 rounded-lg hover:border-blue-200 transition-colors">
                             <div className="flex-1 min-w-0">
-                                <p className="font-bold text-slate-800 text-sm truncate" title={item.productName}>
-                                    {item.productName}
+                                <p className="font-bold text-slate-800 text-sm truncate" title={item.name}>
+                                    {item.name}
                                 </p>
                                 <p className="text-xs text-slate-400 mb-2">
-                                    {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(item.unitPrice)} c/u
+                                    {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(item.price)} c/u
                                 </p>
                                 <div className="flex items-center gap-3">
                                     <div className="flex items-center bg-slate-100 rounded-lg">
@@ -255,7 +361,7 @@ export default function POSPage() {
                             </div>
                             <div className="flex flex-col justify-between items-end">
                                 <span className="font-bold text-slate-700">
-                                    {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(item.unitPrice * item.quantity)}
+                                    {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(item.price * item.quantity)}
                                 </span>
                             </div>
                         </div>
@@ -306,6 +412,16 @@ export default function POSPage() {
                     )}
                 </div>
             </div>
+            {/* Map local POS items to Domain CartItems for Copilot compatibility */}
+            <POSCopilot overrideCart={cart.map(item => ({
+                id: item.id,
+                sku: item.sku,
+                name: item.name,
+                price: item.price,
+                quantity: item.quantity,
+                allows_commission: false, // Default
+                batch_id: 'UNKNOWN' // Default
+            }))} />
         </div>
     );
 }

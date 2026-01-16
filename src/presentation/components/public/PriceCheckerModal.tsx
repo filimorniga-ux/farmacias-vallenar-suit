@@ -66,16 +66,27 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
 
     // Handle Product Click
     const handleProductClick = async (product: ProductResult) => {
-        if (!product.dci) return; // Only if it has DCI
-
         setSelectedProduct(product);
         setIsComparing(true);
+
+        if (!product.dci) {
+            // If no DCI, just show product details without comparison
+            setAlternatives([]);
+            setIsLoadingAlternatives(false);
+            return;
+        }
+
         setIsLoadingAlternatives(true);
 
         // Fetch alternatives
-        const alts = await getAlternativesAction(product.dci, product.id);
-        setAlternatives(alts);
-        setIsLoadingAlternatives(false);
+        try {
+            const alts = await getAlternativesAction(product.dci, product.id);
+            setAlternatives(alts);
+        } catch (e) {
+            setAlternatives([]);
+        } finally {
+            setIsLoadingAlternatives(false);
+        }
     };
 
     const handleBackToSearch = () => {
@@ -131,7 +142,7 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                             </h2>
                             <p className="text-slate-500 font-medium text-lg">
                                 {isComparing
-                                    ? `Analizando: ${selectedProduct?.dci}`
+                                    ? `Analizando: ${selectedProduct?.dci || selectedProduct?.name}`
                                     : 'Escanea el código de barras o escribe el nombre'}
                             </p>
                         </div>
@@ -204,10 +215,9 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                                         {results.map((product) => (
                                             <div
                                                 key={product.id}
-                                                onClick={() => product.dci && handleProductClick(product)}
+                                                onClick={() => handleProductClick(product)}
                                                 className={`
-                                                    group relative bg-white border-2 border-slate-100 rounded-3xl p-6 hover:shadow-2xl hover:border-cyan-300 transition-all cursor-default active:scale-[0.98] duration-150
-                                                    ${product.dci ? 'cursor-pointer' : ''}
+                                                    group relative bg-white border-2 border-slate-100 rounded-3xl p-6 hover:shadow-2xl hover:border-cyan-300 transition-all cursor-pointer active:scale-[0.98] duration-150
                                                     ${product.stock === 0 ? 'opacity-60 saturate-50' : ''}
                                                 `}
                                             >
@@ -247,10 +257,15 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                                                         )}
                                                     </div>
                                                     <div className="text-right">
-                                                        <div className="text-sm font-bold text-slate-400 mb-0.5">Precio Unidad</div>
-                                                        <div className="text-4xl font-black text-slate-900 tracking-tighter">
-                                                            ${product.price.toLocaleString()}
+                                                        <div className="text-sm font-bold text-slate-400 mb-0.5">Precio</div>
+                                                        <div className="text-3xl font-black text-slate-800 tracking-tight">
+                                                            ${(product.price || 0).toLocaleString()}
                                                         </div>
+                                                        {product.units_per_box && product.units_per_box > 1 && (
+                                                            <div className="text-xs font-bold text-slate-400 mt-1">
+                                                                Unitario: ${Math.round((product.price || 0) / product.units_per_box).toLocaleString()}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
 

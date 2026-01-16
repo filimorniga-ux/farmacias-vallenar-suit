@@ -80,8 +80,8 @@ export default function OrdersPage() {
                                     key={b}
                                     onClick={() => { setBranch(b); setSuggestions([]); }}
                                     className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${branch === b
-                                            ? 'bg-white text-blue-600 shadow-sm'
-                                            : 'text-slate-500 hover:text-slate-700'
+                                        ? 'bg-white text-blue-600 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700'
                                         }`}
                                 >
                                     {b}
@@ -143,6 +143,11 @@ export default function OrdersPage() {
                                             <td className="px-6 py-4">
                                                 <div className="font-bold text-slate-900">{item.productName}</div>
                                                 <div className="text-xs text-slate-400 font-mono mt-0.5">{item.sku}</div>
+                                                {item.reasoning && (
+                                                    <div className="mt-2 text-[10px] text-blue-600 bg-blue-50 p-1.5 rounded-md border border-blue-100 flex items-start gap-1 max-w-xs">
+                                                        <span className="font-bold">✨ IA:</span> {item.reasoning}
+                                                    </div>
+                                                )}
                                             </td>
                                             <td className="px-6 py-4 text-center">
                                                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${item.currentStock === 0 ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'
@@ -151,7 +156,12 @@ export default function OrdersPage() {
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4">
-                                                {isGolan ? (
+                                                {item.suggestedProvider === 'TRASPASO' ? (
+                                                    <span className="inline-flex items-center gap-1.5 bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-xs font-bold border border-purple-200">
+                                                        <RefreshCw className="w-3.5 h-3.5" />
+                                                        TRASPASO ({item.sourceBranch})
+                                                    </span>
+                                                ) : isGolan ? (
                                                     <span className="inline-flex items-center gap-1.5 bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full text-xs font-bold border border-emerald-200">
                                                         <CheckCircle2 className="w-3.5 h-3.5" />
                                                         GOLAN (Barato)
@@ -164,7 +174,9 @@ export default function OrdersPage() {
                                                 )}
                                             </td>
                                             <td className="px-6 py-4 text-right">
-                                                {isGolan ? (
+                                                {item.suggestedProvider === 'TRASPASO' ? (
+                                                    <span className="text-purple-600 font-bold text-xs uppercase">Sin Costo</span>
+                                                ) : isGolan ? (
                                                     <span className="font-mono font-bold text-slate-700">
                                                         {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(item.providerPrice)}
                                                     </span>

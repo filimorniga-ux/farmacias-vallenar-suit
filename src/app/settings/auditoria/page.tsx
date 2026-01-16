@@ -53,7 +53,7 @@ export default function AuditoriaPage() {
     const uniqueActions = Array.from(new Set(logs.map(log => log.accion)));
 
     return (
-        <RouteGuard allowedRoles={['ADMIN']}>
+        <RouteGuard allowedRoles={['ADMIN', 'MANAGER']}>
             <div className="min-h-screen bg-gray-50 p-8">
                 <div className="max-w-7xl mx-auto">
                     <div className="mb-8 flex justify-between items-center">

@@ -357,23 +357,33 @@ export default function QueueDisplayPage() {
 
     if (step === 'SETUP') {
         return (
-            <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-                <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl">
-                    <div className="flex items-center gap-3 mb-6">
-                        <Monitor className="text-blue-600" size={32} />
+            <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 relative overflow-hidden">
+                {/* Background Ambience */}
+                <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none">
+                    <div className="absolute top-[10%] left-[20%] w-[500px] h-[500px] bg-sky-200/40 rounded-full blur-[128px]" />
+                    <div className="absolute bottom-[10%] right-[20%] w-[500px] h-[500px] bg-teal-100/30 rounded-full blur-[128px]" />
+                </div>
+
+                <div className="bg-white/80 backdrop-blur-xl rounded-[2.5rem] p-10 max-w-lg w-full shadow-2xl shadow-sky-900/5 border border-sky-100 relative z-10">
+                    <div className="flex items-center gap-4 mb-8">
+                        <div className="bg-sky-100 p-4 rounded-2xl border border-sky-200 shadow-sm">
+                            <Monitor className="text-sky-600" size={32} />
+                        </div>
                         <div>
-                            <h1 className="text-2xl font-bold text-slate-800">Configuración Monitor</h1>
+                            <h1 className="text-2xl font-bold text-slate-900">Configuración Monitor</h1>
                             <p className="text-slate-500 text-sm">Seleccione la sucursal para esta pantalla</p>
                         </div>
                     </div>
-                    <div className="grid gap-3 max-h-[60vh] overflow-y-auto pr-2">
+                    <div className="grid gap-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
                         {locations.map(loc => (
                             <button
                                 key={loc.id}
                                 onClick={() => handleSelectLocation(loc)}
-                                className="p-4 text-left border border-slate-200 rounded-xl hover:bg-blue-50 hover:border-blue-500 hover:text-blue-700 font-bold transition-all flex items-center gap-3 group"
+                                className="p-5 text-left border border-slate-100 rounded-2xl bg-white hover:bg-sky-50 hover:border-sky-300 hover:text-sky-700 font-bold transition-all flex items-center gap-4 shadow-sm group"
                             >
-                                <MapPin size={20} className="text-slate-400 group-hover:text-blue-500" />
+                                <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center group-hover:bg-sky-100 transition-colors">
+                                    <MapPin size={20} className="text-slate-400 group-hover:text-sky-500" />
+                                </div>
                                 {loc.name}
                             </button>
                         ))}

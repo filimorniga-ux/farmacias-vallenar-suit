@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 
 function createWindow() {
@@ -10,14 +10,20 @@ function createWindow() {
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
+            preload: path.join(__dirname, 'preload.cjs')
         },
     });
 
     // URL OFICIAL DE PRODUCCIÓN
-    win.loadURL('https://farmacias-vallenar-suit.vercel.app');
+    // En desarrollo local, podrías querer cambiar esto a localhost si estás probando offline
+    // const startUrl = process.env.ELECTRON_START_URL || 'https://farmaciasvallenar.vercel.app';
+    const startUrl = 'https://farmaciasvallenar.vercel.app';
+
+    win.loadURL(startUrl);
 
     // Open external links in default browser
     win.webContents.setWindowOpenHandler(({ url }) => {
+        // Permitir popups de impresión si no son de la app principal (aunque usamos silent print)
         if (url.startsWith('https:')) {
             require('electron').shell.openExternal(url);
             return { action: 'deny' };
@@ -25,6 +31,33 @@ function createWindow() {
         return { action: 'allow' };
     });
 }
+
+// ---------------------------------------------------------
+// IPC Handlers for Desktop Features
+// ---------------------------------------------------------
+
+ipcMain.handle('print-silent', async (event, options) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { success: false, error: 'No window found' };
+
+    try {
+        // Imprimir silenciosamente a la impresora predeterminada
+        await win.webContents.print({
+            silent: true,
+            printBackground: true,
+            deviceName: '' // Empty string triggers default printer
+        });
+        return { success: true };
+    } catch (error) {
+        console.error('Silent print failed:', error);
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('get-app-version', () => {
+    return app.getVersion();
+});
+
 
 app.whenReady().then(() => {
     createWindow();
@@ -41,3 +74,4 @@ app.on('window-all-closed', () => {
         app.quit();
     }
 });
+

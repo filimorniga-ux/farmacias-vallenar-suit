@@ -104,11 +104,11 @@ export const InventoryCostEditor: React.FC<InventoryCostEditorProps> = ({ batchI
                     setLocalCost(currentCost);
                     setDisplayCost(currentCost.toLocaleString('es-CL'));
                 }}
-                className={`flex items-center gap-1 px-2 py-1 rounded cursor-pointer transition-colors ${currentCost === 0 ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'hover:bg-slate-100 text-slate-500'}`}
+                className={`flex items-center gap-1 px-2 py-1 rounded cursor-pointer transition-colors ${currentCost === 0 || currentCost === 1000 ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'hover:bg-slate-100 text-slate-500'}`}
                 title="Click para editar costo"
             >
                 <span className="text-xs font-mono">
-                    {currentCost === 0 ? 'Pendiente' : `$${currentCost.toLocaleString('es-CL')}`}
+                    {currentCost === 0 || currentCost === 1000 ? 'Pendiente' : `$${currentCost.toLocaleString('es-CL')}`}
                 </span>
             </div>
         );

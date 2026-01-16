@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { 
-    Building2, Calendar, FileText, DollarSign, 
-    AlertTriangle, CheckCircle, Edit2, X, Save 
+import {
+    Building2, Calendar, FileText, DollarSign,
+    AlertTriangle, CheckCircle, Edit2, X, Save
 } from 'lucide-react';
 import AIConfidenceIndicator from './AIConfidenceIndicator';
 import type { ParsedInvoice } from '@/actions/invoice-parser-v2';
@@ -54,13 +54,13 @@ export default function InvoiceValidationForm({
 }: InvoiceValidationFormProps) {
     const [isEditing, setIsEditing] = useState(false);
     const [editData, setEditData] = useState<ParsedInvoice | null>(null);
-    
+
     useEffect(() => {
         if (data) {
             setEditData({ ...data });
         }
     }, [data]);
-    
+
     if (!data) {
         return (
             <div className={`p-8 text-center text-gray-500 ${className}`}>
@@ -69,19 +69,19 @@ export default function InvoiceValidationForm({
             </div>
         );
     }
-    
+
     const handleSaveEdit = () => {
         if (editData && onDataChange) {
             onDataChange(editData);
         }
         setIsEditing(false);
     };
-    
+
     const handleCancelEdit = () => {
         setEditData(data ? { ...data } : null);
         setIsEditing(false);
     };
-    
+
     return (
         <div className={`space-y-6 ${className}`}>
             {/* Header con confianza */}
@@ -103,12 +103,12 @@ export default function InvoiceValidationForm({
                     )}
                 </div>
             </div>
-            
+
             {/* Warnings */}
             {warnings.length > 0 && (
                 <div className="space-y-2">
                     {warnings.map((warning, idx) => (
-                        <div 
+                        <div
                             key={idx}
                             className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg flex items-start gap-2"
                         >
@@ -118,15 +118,15 @@ export default function InvoiceValidationForm({
                     ))}
                 </div>
             )}
-            
+
             {/* Proveedor */}
             <div className="bg-gray-50 rounded-lg p-4">
                 <h4 className="text-sm font-medium text-gray-500 mb-3 flex items-center gap-2">
                     <Building2 size={16} />
                     Proveedor
                 </h4>
-                <div className="space-y-2">
-                    <div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="col-span-2">
                         <span className="text-xs text-gray-400">Razón Social</span>
                         {isEditing ? (
                             <input
@@ -139,7 +139,19 @@ export default function InvoiceValidationForm({
                                 className="w-full mt-1 px-2 py-1 border border-gray-300 rounded text-sm"
                             />
                         ) : (
-                            <p className="font-medium text-gray-900">{data.supplier?.name || '-'}</p>
+                            <div className="flex items-center gap-2">
+                                <p className="font-medium text-gray-900">{data.supplier?.name || '-'}</p>
+                                {data.supplier?.is_new === true && (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                                        NUEVO
+                                    </span>
+                                )}
+                                {data.supplier?.is_new === false && (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                                        EXISTENTE
+                                    </span>
+                                )}
+                            </div>
                         )}
                     </div>
                     <div>
@@ -158,9 +170,101 @@ export default function InvoiceValidationForm({
                             <p className="font-mono text-gray-700">{data.supplier?.rut || '-'}</p>
                         )}
                     </div>
+                    <div>
+                        <span className="text-xs text-gray-400">Giro / Actividad</span>
+                        {isEditing ? (
+                            <input
+                                type="text"
+                                value={editData?.supplier?.activity || ''}
+                                onChange={(e) => setEditData(prev => prev ? {
+                                    ...prev,
+                                    supplier: { ...prev.supplier, activity: e.target.value }
+                                } : null)}
+                                placeholder="Ej: Venta de productos farmacéuticos"
+                                className="w-full mt-1 px-2 py-1 border border-gray-300 rounded text-sm"
+                            />
+                        ) : (
+                            <p className="text-gray-700 text-sm truncate">{data.supplier?.activity || '-'}</p>
+                        )}
+                    </div>
+                    <div className="col-span-2">
+                        <span className="text-xs text-gray-400">Dirección</span>
+                        {isEditing ? (
+                            <input
+                                type="text"
+                                value={editData?.supplier?.address || ''}
+                                onChange={(e) => setEditData(prev => prev ? {
+                                    ...prev,
+                                    supplier: { ...prev.supplier, address: e.target.value }
+                                } : null)}
+                                placeholder="Av. Principal 123, Santiago"
+                                className="w-full mt-1 px-2 py-1 border border-gray-300 rounded text-sm"
+                            />
+                        ) : (
+                            <p className="text-gray-700 text-sm">{data.supplier?.address || '-'}</p>
+                        )}
+                    </div>
+                    <div>
+                        <span className="text-xs text-gray-400">Teléfono</span>
+                        {isEditing ? (
+                            <input
+                                type="text"
+                                value={editData?.supplier?.phone || ''}
+                                onChange={(e) => setEditData(prev => prev ? {
+                                    ...prev,
+                                    supplier: { ...prev.supplier, phone: e.target.value }
+                                } : null)}
+                                placeholder="+569..."
+                                className="w-full mt-1 px-2 py-1 border border-gray-300 rounded text-sm"
+                            />
+                        ) : (
+                            <p className="text-gray-700 text-sm">{data.supplier?.phone || '-'}</p>
+                        )}
+                    </div>
+                    <div>
+                        <span className="text-xs text-gray-400">Email</span>
+                        {isEditing ? (
+                            <input
+                                type="email"
+                                value={editData?.supplier?.email || ''}
+                                onChange={(e) => setEditData(prev => prev ? {
+                                    ...prev,
+                                    supplier: { ...prev.supplier, email: e.target.value }
+                                } : null)}
+                                placeholder="contacto@proveedor.cl"
+                                className="w-full mt-1 px-2 py-1 border border-gray-300 rounded text-sm"
+                            />
+                        ) : (
+                            <p className="text-gray-700 text-sm truncate">{data.supplier?.email || '-'}</p>
+                        )}
+                    </div>
+                    <div className="col-span-2">
+                        <span className="text-xs text-gray-400">Sitio Web</span>
+                        {isEditing ? (
+                            <input
+                                type="text"
+                                value={editData?.supplier?.website || ''}
+                                onChange={(e) => setEditData(prev => prev ? {
+                                    ...prev,
+                                    supplier: { ...prev.supplier, website: e.target.value }
+                                } : null)}
+                                placeholder="www.proveedor.cl"
+                                className="w-full mt-1 px-2 py-1 border border-gray-300 rounded text-sm"
+                            />
+                        ) : (
+                            <a
+                                href={data.supplier?.website?.startsWith('http') ? data.supplier.website : `https://${data.supplier?.website}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 text-sm hover:underline block truncate"
+                            >
+                                {data.supplier?.website || '-'}
+                            </a>
+                        )}
+                    </div>
                 </div>
             </div>
-            
+
             {/* Documento */}
             <div className="bg-gray-50 rounded-lg p-4">
                 <h4 className="text-sm font-medium text-gray-500 mb-3 flex items-center gap-2">
@@ -198,7 +302,7 @@ export default function InvoiceValidationForm({
                     </div>
                 </div>
             </div>
-            
+
             {/* Totales */}
             <div className="bg-gray-50 rounded-lg p-4">
                 <h4 className="text-sm font-medium text-gray-500 mb-3 flex items-center gap-2">
@@ -228,7 +332,7 @@ export default function InvoiceValidationForm({
                     </div>
                 </div>
             </div>
-            
+
             {/* Notas */}
             {data.notes && (
                 <div className="bg-blue-50 rounded-lg p-4">
@@ -236,7 +340,7 @@ export default function InvoiceValidationForm({
                     <p className="text-sm text-blue-800">{data.notes}</p>
                 </div>
             )}
-            
+
             {/* Edit Actions */}
             {isEditing && (
                 <div className="flex justify-end gap-2 pt-4 border-t border-gray-200">

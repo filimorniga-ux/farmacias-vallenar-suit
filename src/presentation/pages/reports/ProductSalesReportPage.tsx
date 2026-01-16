@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     Calendar, MapPin, Monitor, User, Search, Filter,
-    Download, TrendingUp, Package, DollarSign, FileText
+    Download, TrendingUp, Package, DollarSign, FileText, ArrowLeft
 } from 'lucide-react';
 import { usePharmaStore } from '../../store/useStore';
 import { useLocationStore } from '../../store/useLocationStore';
 import { getProductSalesReportSecure, type ProductSalesRow, type ReportSummary } from '../../../actions/reports-v2';
+import { exportProductSalesSecure } from '../../../actions/reports-export-v2';
+import { toast } from 'sonner';
 
 export const ProductSalesReportPage: React.FC = () => {
+    const navigate = useNavigate();
     // Stores
     const { employees } = usePharmaStore();
     const { locations } = useLocationStore();
@@ -25,6 +29,7 @@ export const ProductSalesReportPage: React.FC = () => {
     const [reportData, setReportData] = useState<ProductSalesRow[]>([]);
     const [summary, setSummary] = useState<ReportSummary>({ totalUnits: 0, totalAmount: 0, transactionCount: 0 });
     const [isLoading, setIsLoading] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
 
     // Derived State: Available Terminals based on Location
     const availableTerminals = (() => {
@@ -59,6 +64,51 @@ export const ProductSalesReportPage: React.FC = () => {
         }
     };
 
+    // Export Report
+    const handleDownload = async () => {
+        setIsExporting(true);
+        try {
+            const res = await exportProductSalesSecure({
+                period: period as any,
+                startDate: period === 'CUSTOM' ? startDate : undefined,
+                endDate: period === 'CUSTOM' ? endDate : undefined,
+                locationId: selectedLocation,
+                terminalId: selectedTerminal,
+                employeeId: selectedEmployee,
+                searchQuery
+            });
+
+            if (res.success && res.data && res.filename) {
+                // Decode base64
+                const binaryString = window.atob(res.data);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+                // Trigger download
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = res.filename;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+
+                toast.success('Reporte descargado correctamente');
+            } else {
+                toast.error(res.error || 'Error al descargar reporte');
+            }
+        } catch (error) {
+            console.error('Download failed', error);
+            toast.error('Error al generar Excel');
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     // Auto-fetch on filter changes (debounced for search)
     useEffect(() => {
         const timeoutId = setTimeout(() => {
@@ -84,18 +134,40 @@ export const ProductSalesReportPage: React.FC = () => {
             <div className="bg-white border-b border-slate-200 p-6 flex flex-col gap-4 shrink-0 shadow-sm z-10">
                 <div className="flex justify-between items-center">
                     <div>
-                        <h1 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                            <TrendingUp className="text-cyan-600" />
-                            Reporte Ventas por Producto
-                        </h1>
-                        <p className="text-slate-500 font-medium text-sm">Analiza el rendimiento de inventario y rotación.</p>
+                        <div className="flex items-center gap-3 mb-1">
+                            <button
+                                onClick={() => navigate('/reports')}
+                                className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors"
+                            >
+                                <ArrowLeft size={24} />
+                            </button>
+                            <h1 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                                <TrendingUp className="text-cyan-600" />
+                                Reporte Ventas por Producto
+                            </h1>
+                        </div>
+                        <p className="text-slate-500 font-medium text-sm ml-11">Analiza el rendimiento de inventario y rotación.</p>
                     </div>
-                    <button
-                        onClick={fetchReport}
-                        className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-xl font-bold transition-colors flex items-center gap-2 text-sm"
-                    >
-                        <Filter size={16} /> Actualizar
-                    </button>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={handleDownload}
+                            disabled={isExporting}
+                            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl font-bold transition-colors flex items-center gap-2 text-sm disabled:opacity-50"
+                        >
+                            {isExporting ? (
+                                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white/30 border-b-white"></div>
+                            ) : (
+                                <Download size={16} />
+                            )}
+                            Descargar Excel
+                        </button>
+                        <button
+                            onClick={fetchReport}
+                            className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-xl font-bold transition-colors flex items-center gap-2 text-sm"
+                        >
+                            <Filter size={16} /> Actualizar
+                        </button>
+                    </div>
                 </div>
 
                 {/* Filters Grid */}

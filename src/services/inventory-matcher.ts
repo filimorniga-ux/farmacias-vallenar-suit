@@ -29,7 +29,7 @@ export interface MatchInput {
 
 export interface MatchResult {
     matchType: 'ISP_MATCH' | 'BARCODE_MATCH' | 'AI_SUGGESTION' | 'AI_SKIPPED' | '';
-    targetProductId: number | null; // ID if found in local DB
+    targetProductId: string | null; // ID if found in local DB
     confidence: number;
     status: 'MATCHED' | 'NEEDS_REVIEW' | 'PENDING';
     suggestion: any;
@@ -37,7 +37,7 @@ export interface MatchResult {
 
 export const matchProduct = async (client: Client, input: MatchInput): Promise<MatchResult> => {
     let matchType: MatchResult['matchType'] = '';
-    let targetProductId: number | null = null;
+    let targetProductId: string | null = null;
     let confidence = 0;
     let suggestion: any = null;
     let status: MatchResult['status'] = 'NEEDS_REVIEW';

@@ -927,13 +927,28 @@ export async function generateRestockSuggestionSecure(
             SalesHistory AS (
                 SELECT 
                     ib.product_id, 
-                    SUM(si.quantity) as total_sold
+                    SUM(si.quantity) as total_sold,
+                    -- Timeseries Data for AI (Last 4 weeks)
+                    jsonb_agg(jsonb_build_object(
+                        'week', to_char(s.timestamp, 'IYYY-IW'),
+                        'qty', si.quantity
+                    )) as weekly_sales
                 FROM sale_items si
                 JOIN sales s ON si.sale_id = s.id
                 JOIN inventory_batches ib ON si.batch_id = ib.id
                 JOIN warehouses w ON ib.warehouse_id = w.id
                 WHERE s.timestamp >= NOW() - ($2 || ' days')::INTERVAL
                 ${locationFilterSales}
+                GROUP BY ib.product_id
+            ),
+            GlobalStock AS (
+                SELECT 
+                    ib.product_id,
+                    SUM(ib.quantity_real) as global_stock
+                FROM inventory_batches ib
+                WHERE ib.quantity_real > 0
+                -- Exclude current location to find "Other" stock
+                ${locationId ? `AND ib.warehouse_id NOT IN (SELECT id FROM warehouses WHERE location_id = $${paramIndex - 1})` : ''}
                 GROUP BY ib.product_id
             )
             SELECT 
@@ -946,13 +961,16 @@ export async function generateRestockSuggestionSecure(
                 tp.supplier_id,
                 tp.supplier_name,
                 COALESCE(cs.total_stock, 0) as current_stock,
+                COALESCE(gs.global_stock, 0) as other_warehouses_stock,
                 COALESCE(incs.incoming, 0) as incoming_stock,
                 COALESCE(tp.safety_stock, 0) as safety_stock,
-                (COALESCE(sh.total_sold, 0)::FLOAT / $2::FLOAT) as daily_velocity
+                (COALESCE(sh.total_sold, 0)::FLOAT / $2::FLOAT) as daily_velocity,
+                COALESCE(sh.weekly_sales, '[]'::jsonb) as sales_history
             FROM TargetProducts tp
             LEFT JOIN CurrentStock cs ON tp.product_id::text = cs.product_id::text
             LEFT JOIN IncomingStock incs ON tp.product_id::text = incs.product_id::text
             LEFT JOIN SalesHistory sh ON tp.product_id::text = sh.product_id::text
+            LEFT JOIN GlobalStock gs ON tp.product_id::text = gs.product_id::text
             WHERE (COALESCE(sh.total_sold, 0) > 0 OR COALESCE(cs.total_stock, 0) <= COALESCE(tp.safety_stock, 0))
             ORDER BY tp.product_name ASC
         `;
@@ -961,18 +979,62 @@ export async function generateRestockSuggestionSecure(
 
         // Calculate Formula in JS for precision control
         // Suggested = CEIL(Velocity * (DaysToCover + LeadTime) + Safety - Stock - Incoming)
-        const suggestions = res.rows.map(row => {
+        const suggestions = await Promise.all(res.rows.map(async (row) => {
             const velocity = Number(row.daily_velocity);
             const stock = Number(row.current_stock);
+            const globalStock = Number(row.other_warehouses_stock || 0);
             const incoming = Number(row.incoming_stock);
             const safety = Number(row.safety_stock);
-            const leadTime = 0; // Default or fetch from product/supplier if available
+            const leadTime = 0; // Default
 
             const required = (velocity * (daysToCover + leadTime)) + safety;
             const netNeeds = required - stock - incoming;
 
-            const suggested = Math.max(0, Math.ceil(netNeeds));
+            let suggested = Math.max(0, Math.ceil(netNeeds));
             const daysUntilStockout = velocity > 0 ? (stock / velocity) : 999;
+
+            let reason = `Venta Diaria: ${velocity.toFixed(2)} | Cobertura: ${daysToCover}d | Stock: ${stock}`;
+            let aiConfidence = undefined;
+            let aiAction = 'PURCHASE';
+
+            // 🧠 AI ENHANCEMENT (Hybrid)
+            // Solo analizar si es crítico (Stockout < 7 días) o alto valor
+            const isCritical = daysUntilStockout <= 7;
+            const isHighValue = (suggested * Number(row.unit_cost)) > 100000;
+
+            if (isCritical || isHighValue) {
+                try {
+                    // Dynamic Import to avoid bundle issues
+                    const { AIForecastingService } = await import('@/services/ai-forecasting');
+
+                    const aiResult = await AIForecastingService.predictDemand({
+                        productName: row.product_name,
+                        currentStock: stock,
+                        branchName: 'Sucursal Actual', // Deberíamos pasar el nombre real si lo tenemos
+                        salesHistory: [], // Not needed, utilizing weeklySales
+                        weeklySales: row.sales_history,
+                        context: `Days to cover: ${daysToCover}. Lead time: ${leadTime} days.`,
+                        globalStock,
+                        supplierName: row.supplier_name
+                    });
+
+                    // Merge AI Logic
+                    if (aiResult.confidence === 'HIGH' || aiResult.confidence === 'MEDIUM') {
+                        suggested = aiResult.suggestedOrderQty;
+                        reason = `🤖 IA: ${aiResult.reasoning}`;
+                        aiConfidence = aiResult.confidence;
+                        aiAction = (aiResult as any).suggestedAction || 'PURCHASE';
+
+                        // If AI suggests TRANSFER, set purchase qty to 0 (or reflect transfer logic)
+                        if (aiAction === 'TRANSFER') {
+                            // suggestion remains but marked as transfer needed
+                            reason = `📦 TRANSFERENCIA SUGERIDA: ${aiResult.reasoning}`;
+                        }
+                    }
+                } catch (err) {
+                    console.warn('AI Forecast skipped for item:', row.product_sku);
+                }
+            }
 
             return {
                 product_id: row.product_id,
@@ -980,6 +1042,7 @@ export async function generateRestockSuggestionSecure(
                 sku: row.sku,
                 image_url: row.image_url,
                 current_stock: stock,
+                global_stock: globalStock, // Exposed to UI
                 incoming_stock: incoming,
                 safety_stock: safety,
                 daily_velocity: Number(velocity.toFixed(3)),
@@ -991,11 +1054,16 @@ export async function generateRestockSuggestionSecure(
                 supplier_id: row.supplier_id,
                 supplier_name: row.supplier_name,
                 total_estimated: suggested * Number(row.unit_cost),
-                reason: `Venta Diaria: ${velocity.toFixed(2)} | Cobertura meta: ${daysToCover}d | Stock: ${stock} | En Camino: ${incoming}`
+                reason,
+                ai_confidence: aiConfidence,
+                action_type: aiAction
             };
-        });
+        }));
 
-        return { success: true, data: suggestions };
+        // Sort by urgency
+        const sortedSuggestions = suggestions.sort((a, b) => a.days_until_stockout - b.days_until_stockout);
+
+        return { success: true, data: sortedSuggestions };
 
     } catch (error: any) {
         console.error('[PROCUREMENT-V2] MRP error:', error);

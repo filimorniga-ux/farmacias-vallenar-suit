@@ -13,7 +13,9 @@ interface LocationState {
     updateLocation: (id: string, data: Partial<Location>) => void;
     switchLocation: (id: string, onSuccess?: () => void) => void;
     canSwitchLocation: (userRole: string) => boolean;
-    fetchLocations: () => Promise<void>; // Sync with Backend
+    fetchLocations: (force?: boolean) => Promise<void>; // Sync with Backend
+    isLoading?: boolean;
+    lastFetch?: number;
 
     registerKiosk: (kiosk: KioskConfig) => void;
     updateKioskStatus: (id: string, status: 'ACTIVE' | 'INACTIVE') => void;
@@ -38,7 +40,27 @@ export const useLocationStore = create<LocationState>()(
 
             setLocations: (locations) => set({ locations }),
 
-            fetchLocations: async () => {
+            isLoading: false,
+            lastFetch: 0,
+
+            fetchLocations: async (force = false) => {
+                const state = get() as any;
+                const now = Date.now();
+                // Cache invalidation: 5 minutes
+                const CACHE_DURATION = 5 * 60 * 1000;
+
+                if (state.isLoading) {
+                    console.log('📍 [LocationStore] Fetch already in progress, skipping.');
+                    return;
+                }
+
+                if (!force && state.locations.length > 0 && (now - (state.lastFetch || 0) < CACHE_DURATION)) {
+                    console.log('📍 [LocationStore] Using cached locations.');
+                    return;
+                }
+
+                set({ isLoading: true });
+
                 try {
                     const { usePharmaStore } = await import('./useStore'); // Import store to get user
                     const user = usePharmaStore.getState().user;
@@ -48,6 +70,8 @@ export const useLocationStore = create<LocationState>()(
                         // Secure Fetch (Full Org Structure)
                         const { getOrganizationStructureSecure } = await import('@/actions/network-v2');
                         const res = await getOrganizationStructureSecure(user.id);
+                        set({ isLoading: false, lastFetch: Date.now() });
+
                         if (res.success && res.data?.locations) {
                             set({ locations: res.data.locations });
                             console.log('📍 [LocationStore] Secure locations updated:', res.data.locations.length);
@@ -58,6 +82,8 @@ export const useLocationStore = create<LocationState>()(
                         // Public Fetch (Basic Locations for Context Selector)
                         const { getPublicLocationsSecure } = await import('@/actions/public-network-v2');
                         const res = await getPublicLocationsSecure();
+                        set({ isLoading: false, lastFetch: Date.now() });
+
                         if (res.success && res.data) {
                             set({
                                 locations: res.data.map(l => ({
@@ -71,6 +97,7 @@ export const useLocationStore = create<LocationState>()(
                         }
                     }
                 } catch (error) {
+                    set({ isLoading: false });
                     console.error('Failed to sync locations', error);
                 }
             },

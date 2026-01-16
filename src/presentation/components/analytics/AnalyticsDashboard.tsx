@@ -7,11 +7,17 @@ import { getOrganizationStructureSecure } from '@/actions/network-v2';
 import { TrendingUp, DollarSign, CreditCard, ArrowDownCircle, ArrowUpCircle, Filter } from 'lucide-react';
 import { format } from 'date-fns';
 
+import ExecutiveDashboard from './ExecutiveDashboard';
+
 interface Props {
     initialLocations: Location[];
+    userRole?: string;
 }
 
-export default function AnalyticsDashboard({ initialLocations }: Props) {
+export default function AnalyticsDashboard({ initialLocations, userRole = 'CASHIER' }: Props) {
+    const isAdmin = ['ADMIN', 'GERENTE_GENERAL', 'MANAGER'].includes(userRole);
+    const [viewMode, setViewMode] = useState<'OPERATIONAL' | 'EXECUTIVE'>('OPERATIONAL');
+
     // State
     const [dateRange, setDateRange] = useState<{ from: string; to: string }>(() => {
         const now = new Date();
@@ -81,145 +87,181 @@ export default function AnalyticsDashboard({ initialLocations }: Props) {
     // Formatters
     const fmtMoney = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(n);
 
-    if (!metrics) return <div className="p-10 text-center">Cargando Dashboard...</div>;
+    if (!metrics && viewMode === 'OPERATIONAL') return <div className="p-10 text-center">Cargando Dashboard...</div>;
 
-    const { summary, by_payment_method, breakdown } = metrics;
+    const { summary, by_payment_method, breakdown } = metrics || {
+        summary: { total_sales: 0, sales_count: 0, total_income_other: 0, total_expenses: 0, base_cash: 0, net_cash_flow: 0 },
+        by_payment_method: { cash: 0, debit: 0, credit: 0, transfer: 0, others: 0 },
+        breakdown: []
+    };
 
     return (
         <div className="space-y-6">
-            {/* Filter Bar */}
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap gap-4 items-end">
-                <div className="flex items-center gap-2 text-slate-500 mr-2">
-                    <Filter size={20} /> <span className="font-semibold">Filtros</span>
-                </div>
-
-                <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Desde</label>
-                    <input
-                        type="date"
-                        value={dateRange.from}
-                        onChange={e => setDateRange(prev => ({ ...prev, from: e.target.value }))}
-                        className="p-2 border rounded-lg text-sm"
-                    />
-                </div>
-                <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Hasta</label>
-                    <input
-                        type="date"
-                        value={dateRange.to}
-                        onChange={e => setDateRange(prev => ({ ...prev, to: e.target.value }))}
-                        className="p-2 border rounded-lg text-sm"
-                    />
-                </div>
-
-                <div className="w-px h-8 bg-slate-200 mx-2"></div>
-
-                <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Sucursal</label>
-                    <select
-                        value={selectedLocationId}
-                        onChange={e => setSelectedLocationId(e.target.value)}
-                        className="p-2 border rounded-lg text-sm min-w-[150px]"
-                    >
-                        <option value="">Todas las Sucursales</option>
-                        {initialLocations.map(l => (
-                            <option key={l.id} value={l.id}>{l.name}</option>
-                        ))}
-                    </select>
-                </div>
-
-                {selectedLocationId && (
-                    <div className="animate-in fade-in slide-in-from-left-4 duration-300">
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Caja / Terminal</label>
-                        <select
-                            value={selectedTerminalId}
-                            onChange={e => setSelectedTerminalId(e.target.value)}
-                            className="p-2 border rounded-lg text-sm min-w-[150px]"
+            {/* View Toggle for Admins */}
+            {isAdmin && (
+                <div className="flex justify-end mb-4">
+                    <div className="bg-white p-1 rounded-lg border border-slate-200 inline-flex shadow-sm">
+                        <button
+                            onClick={() => setViewMode('OPERATIONAL')}
+                            className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${viewMode === 'OPERATIONAL'
+                                ? 'bg-blue-100 text-blue-700 shadow-sm'
+                                : 'text-slate-500 hover:text-slate-700'
+                                }`}
                         >
-                            <option value="">Todas las Cajas</option>
-                            {terminals.map(t => (
-                                <option key={t.id} value={t.id}>{t.name}</option>
-                            ))}
-                        </select>
-                    </div>
-                )}
-            </div>
-
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <KPICard
-                    title="Ventas Brutas"
-                    value={fmtMoney(summary.total_sales)}
-                    sub={`${summary.sales_count} transacciones`}
-                    icon={<TrendingUp className="text-emerald-500" />}
-                    bg="bg-emerald-50"
-                />
-                <KPICard
-                    title="Flujo de Caja Neto"
-                    value={fmtMoney(summary.net_cash_flow)}
-                    sub="Disponible Real"
-                    icon={<DollarSign className="text-blue-500" />}
-                    bg="bg-blue-50"
-                />
-                <KPICard
-                    title="Ingresos Efectivo"
-                    value={fmtMoney(by_payment_method.cash + summary.total_income_other)}
-                    sub={`Base: ${fmtMoney(summary.base_cash)}`}
-                    icon={<ArrowUpCircle className="text-cyan-500" />}
-                    bg="bg-cyan-50"
-                />
-                <KPICard
-                    title="Gastos / Retiros"
-                    value={fmtMoney(summary.total_expenses)}
-                    sub="Salidas de caja"
-                    icon={<ArrowDownCircle className="text-rose-500" />}
-                    bg="bg-rose-50"
-                />
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Payment Methods */}
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                    <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><CreditCard size={18} /> Medios de Pago</h3>
-                    <div className="space-y-3">
-                        <PaymentRow label="Efectivo" amount={by_payment_method.cash} total={summary.total_sales} color="bg-emerald-500" />
-                        <PaymentRow label="Débito" amount={by_payment_method.debit} total={summary.total_sales} color="bg-blue-500" />
-                        <PaymentRow label="Crédito" amount={by_payment_method.credit} total={summary.total_sales} color="bg-indigo-500" />
-                        <PaymentRow label="Transferencia" amount={by_payment_method.transfer} total={summary.total_sales} color="bg-purple-500" />
+                            Operativo
+                        </button>
+                        <button
+                            onClick={() => setViewMode('EXECUTIVE')}
+                            className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${viewMode === 'EXECUTIVE'
+                                ? 'bg-blue-100 text-blue-700 shadow-sm'
+                                : 'text-slate-500 hover:text-slate-700'
+                                }`}
+                        >
+                            Gerencial
+                        </button>
                     </div>
                 </div>
+            )}
 
-                {/* Breakdown Table */}
-                <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                    <h3 className="font-bold text-slate-800 mb-4">
-                        {selectedLocationId ? (selectedTerminalId ? 'Detalle de Ventas' : 'Rendimiento por Caja') : 'Rendimiento por Sucursal'}
-                    </h3>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-slate-50 text-slate-500 font-medium">
-                                <tr>
-                                    <th className="p-3 rounded-l-lg">Nombre</th>
-                                    <th className="p-3 text-right">Total Ventas</th>
-                                    <th className="p-3 rounded-r-lg text-right">% del Total</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {breakdown.length === 0 ? (
-                                    <tr><td colSpan={3} className="p-4 text-center text-slate-400">Sin datos para mostrar</td></tr>
-                                ) : breakdown.map(item => (
-                                    <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                                        <td className="p-3 font-medium text-slate-700">{item.name}</td>
-                                        <td className="p-3 text-right font-mono">{fmtMoney(item.total)}</td>
-                                        <td className="p-3 text-right text-slate-400">
-                                            {summary.total_sales > 0 ? ((item.total / summary.total_sales) * 100).toFixed(1) + '%' : '0%'}
-                                        </td>
-                                    </tr>
+            {viewMode === 'EXECUTIVE' ? (
+                <ExecutiveDashboard />
+            ) : (
+                <>
+                    {/* Filter Bar */}
+                    <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap gap-4 items-end">
+                        <div className="flex items-center gap-2 text-slate-500 mr-2">
+                            <Filter size={20} /> <span className="font-semibold">Filtros</span>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-medium text-slate-500 mb-1">Desde</label>
+                            <input
+                                type="date"
+                                value={dateRange.from}
+                                onChange={e => setDateRange(prev => ({ ...prev, from: e.target.value }))}
+                                className="p-2 border rounded-lg text-sm"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-medium text-slate-500 mb-1">Hasta</label>
+                            <input
+                                type="date"
+                                value={dateRange.to}
+                                onChange={e => setDateRange(prev => ({ ...prev, to: e.target.value }))}
+                                className="p-2 border rounded-lg text-sm"
+                            />
+                        </div>
+
+                        <div className="w-px h-8 bg-slate-200 mx-2"></div>
+
+                        <div>
+                            <label className="block text-xs font-medium text-slate-500 mb-1">Sucursal</label>
+                            <select
+                                value={selectedLocationId}
+                                onChange={e => setSelectedLocationId(e.target.value)}
+                                className="p-2 border rounded-lg text-sm min-w-[150px]"
+                            >
+                                <option value="">Todas las Sucursales</option>
+                                {initialLocations.map(l => (
+                                    <option key={l.id} value={l.id}>{l.name}</option>
                                 ))}
-                            </tbody>
-                        </table>
+                            </select>
+                        </div>
+
+                        {selectedLocationId && (
+                            <div className="animate-in fade-in slide-in-from-left-4 duration-300">
+                                <label className="block text-xs font-medium text-slate-500 mb-1">Caja / Terminal</label>
+                                <select
+                                    value={selectedTerminalId}
+                                    onChange={e => setSelectedTerminalId(e.target.value)}
+                                    className="p-2 border rounded-lg text-sm min-w-[150px]"
+                                >
+                                    <option value="">Todas las Cajas</option>
+                                    {terminals.map(t => (
+                                        <option key={t.id} value={t.id}>{t.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
                     </div>
-                </div>
-            </div>
+
+                    {/* KPI Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <KPICard
+                            title="Ventas Brutas"
+                            value={fmtMoney(summary.total_sales)}
+                            sub={`${summary.sales_count} transacciones`}
+                            icon={<TrendingUp className="text-emerald-500" />}
+                            bg="bg-emerald-50"
+                        />
+                        <KPICard
+                            title="Flujo de Caja Neto"
+                            value={fmtMoney(summary.net_cash_flow)}
+                            sub="Disponible Real"
+                            icon={<DollarSign className="text-blue-500" />}
+                            bg="bg-blue-50"
+                        />
+                        <KPICard
+                            title="Ingresos Efectivo"
+                            value={fmtMoney(by_payment_method.cash + summary.total_income_other)}
+                            sub={`Base: ${fmtMoney(summary.base_cash)}`}
+                            icon={<ArrowUpCircle className="text-cyan-500" />}
+                            bg="bg-cyan-50"
+                        />
+                        <KPICard
+                            title="Gastos / Retiros"
+                            value={fmtMoney(summary.total_expenses)}
+                            sub="Salidas de caja"
+                            icon={<ArrowDownCircle className="text-rose-500" />}
+                            bg="bg-rose-50"
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        {/* Payment Methods */}
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><CreditCard size={18} /> Medios de Pago</h3>
+                            <div className="space-y-3">
+                                <PaymentRow label="Efectivo" amount={by_payment_method.cash} total={summary.total_sales} color="bg-emerald-500" />
+                                <PaymentRow label="Débito" amount={by_payment_method.debit} total={summary.total_sales} color="bg-blue-500" />
+                                <PaymentRow label="Crédito" amount={by_payment_method.credit} total={summary.total_sales} color="bg-indigo-500" />
+                                <PaymentRow label="Transferencia" amount={by_payment_method.transfer} total={summary.total_sales} color="bg-purple-500" />
+                            </div>
+                        </div>
+
+                        {/* Breakdown Table */}
+                        <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                            <h3 className="font-bold text-slate-800 mb-4">
+                                {selectedLocationId ? (selectedTerminalId ? 'Detalle de Ventas' : 'Rendimiento por Caja') : 'Rendimiento por Sucursal'}
+                            </h3>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-slate-50 text-slate-500 font-medium">
+                                        <tr>
+                                            <th className="p-3 rounded-l-lg">Nombre</th>
+                                            <th className="p-3 text-right">Total Ventas</th>
+                                            <th className="p-3 rounded-r-lg text-right">% del Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {breakdown.length === 0 ? (
+                                            <tr><td colSpan={3} className="p-4 text-center text-slate-400">Sin datos para mostrar</td></tr>
+                                        ) : breakdown.map(item => (
+                                            <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                                                <td className="p-3 font-medium text-slate-700">{item.name}</td>
+                                                <td className="p-3 text-right font-mono">{fmtMoney(item.total)}</td>
+                                                <td className="p-3 text-right text-slate-400">
+                                                    {summary.total_sales > 0 ? ((item.total / summary.total_sales) * 100).toFixed(1) + '%' : '0%'}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
         </div>
     );
 }

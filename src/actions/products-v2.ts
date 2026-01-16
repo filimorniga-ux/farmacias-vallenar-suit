@@ -222,7 +222,12 @@ async function insertProductAudit(client: any, params: {
         INSERT INTO audit_log (
             user_id, action_code, entity_type, entity_id,
             old_values, new_values, created_at
-        ) VALUES ($1, $2, 'PRODUCT', $3, $4::jsonb, $5::jsonb, NOW())
+        ) VALUES (
+            CASE WHEN $1::text ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' 
+                 THEN $1::uuid 
+                 ELSE NULL END,
+            $2, 'PRODUCT', $3, $4::jsonb, $5::jsonb, NOW()
+        )
     `, [
         params.userId,
         params.actionCode,
@@ -957,3 +962,120 @@ export async function updateProductMasterSecure(data: z.infer<typeof UpdateProdu
         client.release();
     }
 }
+
+/**
+ * ⚡ Quick Create Product (From Invoice)
+ */
+const QuickCreateProductSchema = z.object({
+    name: z.string().min(3),
+    sku: z.string().min(3),
+    costPrice: z.number().min(0).describe('Costo Bruto'),
+    salePrice: z.number().min(0),
+    // New enriched fields
+    costNet: z.number().min(0).optional().describe('Costo Neto'),
+    dci: z.string().optional(),
+    laboratory: z.string().optional(),
+    format: z.string().optional(),
+    unitsPerBox: z.number().int().optional(),
+    isBioequivalent: z.boolean().optional(),
+    requiresPrescription: z.boolean().optional(),
+    isColdChain: z.boolean().optional(),
+});
+
+export async function quickCreateProductSecure(data: z.infer<typeof QuickCreateProductSchema>) {
+    const validated = QuickCreateProductSchema.safeParse(data);
+    if (!validated.success) return { success: false, error: 'Datos inválidos' };
+
+    const headersList = await import('next/headers').then(h => h.headers());
+    const userId = headersList.get('x-user-id');
+
+    if (!userId) return { success: false, error: 'No autenticado' };
+
+    const {
+        name, sku, costPrice, salePrice,
+        costNet, dci, laboratory, format, unitsPerBox,
+        isBioequivalent, requiresPrescription, isColdChain
+    } = validated.data;
+
+    const productId = randomUUID();
+
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        // Check SKU uniqueness
+        const skuCheck = await client.query('SELECT id FROM products WHERE sku = $1', [sku]);
+        if (skuCheck.rows.length > 0) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'SKU ya existe' };
+        }
+
+        const finalCostNet = costNet || Math.round(costPrice / 1.19);
+        const taxPercent = 19;
+
+        // Insert Product with Enriched Data
+        await client.query(`
+            INSERT INTO products(
+                id, name, sku,
+                cost_price, sale_price, price, price_sell_box, price_sell_unit,
+                cost_net, tax_percent,
+                dci, laboratory, format, units_per_box,
+                is_bioequivalent, requires_prescription, es_frio,
+                stock_total, stock_actual,
+                created_at, updated_at
+            ) VALUES(
+                $1, $2, $3,
+                $4, $5::numeric, $5::numeric::integer, $5::numeric::integer, $5::numeric::integer,
+                $6, $7,
+                $8, $9, $10, $11,
+                $12, $13, $14,
+                0, 0, NOW(), NOW()
+            )
+            `, [
+            productId,
+            name,
+            sku,
+            Math.round(costPrice), // Bruto
+            Math.round(salePrice),
+            Math.round(finalCostNet), // cost_net
+            taxPercent,
+            dci || null,
+            laboratory || null,
+            format || null,
+            unitsPerBox || 1,
+            isBioequivalent || false,
+            requiresPrescription || false,
+            isColdChain || false
+        ]);
+
+        await insertProductAudit(client, {
+            actionCode: 'PRODUCT_QUICK_CREATED',
+            userId,
+            productId,
+            newValues: validated.data
+        });
+
+        await client.query('COMMIT');
+
+        revalidatePath('/inventario');
+        revalidatePath('/procurement/smart-invoice');
+
+        return {
+            success: true,
+            data: {
+                id: productId,
+                name,
+                sku
+            }
+        };
+
+    } catch (error: any) {
+        await client.query('ROLLBACK');
+        console.error('Create product error:', error);
+        return { success: false, error: error.message || 'Error al crear producto en BD' };
+    } finally {
+        client.release();
+    }
+}
+

@@ -343,7 +343,7 @@ export default function CajaPage() {
     if (!isHydrated) return null;
 
     return (
-        <RouteGuard allowedRoles={['ADMIN', 'QF', 'VENDEDOR']}>
+        <RouteGuard allowedRoles={['ADMIN', 'QF', 'CASHIER']}>
             <div className="min-h-screen bg-gray-50 p-4">
                 <div className="max-w-7xl mx-auto">
                     {/* Header / Status Bar */}

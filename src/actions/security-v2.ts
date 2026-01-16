@@ -219,9 +219,13 @@ async function insertSecurityAudit(
 // SESSION MANAGEMENT
 // ============================================================================
 
+// ============================================================================
+// SESSION MANAGEMENT
+// ============================================================================
+
 /**
  * 🔒 Validate Session Securely
- * Checks token_version and updates last_active_at
+ * Checks token_version and updates last_active_at (Throttled: Max 1 write per minute)
  */
 export async function validateSessionSecure(
     userId: string,
@@ -237,7 +241,9 @@ export async function validateSessionSecure(
     try {
         const { query } = await import('@/lib/db');
 
-        // Simple SELECT without transaction to avoid deadlocks
+        // Optimized Query: user check + conditional update in one go if possible, 
+        // but for read-heavy flows, a READ first is better to check validity.
+
         const userRes = await query(`
             SELECT id, token_version, is_active
             FROM users 
@@ -261,14 +267,18 @@ export async function validateSessionSecure(
             return { valid: false, error: 'Sesión revocada remotamente' };
         }
 
-        // Update activity (fire and forget to avoid blocking)
-        query(`
+        // Update activity ONLY if not updated recently (Throttling DB writes)
+        // This query will only write if last_active_at is older than 60 seconds
+        // "fire-and-forget" style (no await on result processing, just await execution)
+        await query(`
             UPDATE users 
             SET last_active_at = NOW(),
                 current_context_data = $2
-            WHERE id = $1
+            WHERE id = $1 
+            AND (last_active_at IS NULL OR last_active_at < NOW() - INTERVAL '60 seconds')
         `, [userId, JSON.stringify(contextData || {})]).catch(err => {
-            logger.warn({ err, userId }, '[Security] Failed to update last_active_at');
+            // Log silently, don't break session validation
+            console.error('[Security] Activity update failed:', err);
         });
 
         return { valid: true };

@@ -2,6 +2,7 @@
   "name": "farmacias-vallenar-suit",
   "private": true,
   "version": "1.0.4",
+  "description": "Sistema de gestión integral para Farmacias Vallenar",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/filimorniga-ux/farmacias-vallenar-suit.git"
@@ -21,6 +22,7 @@
     "test:e2e": "playwright test",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
     "build:desktop": "electron-builder",
+    "clean:desktop": "rm -rf dist-desktop",
     "checkpoint": "git add . && git commit -m \"Auto Checkpoint $(date)\" && git push",
     "seed:demo": "tsx src/scripts/seed-demo-vallenar.ts",
     "terminals:status": "tsx src/cli/terminals.ts status",
@@ -36,13 +38,25 @@
     "mac": {
       "category": "public.app-category.business",
       "target": [
-        "dmg"
-      ]
+        {
+          "target": "dmg",
+          "arch": "universal"
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "public/icon.png"
     },
     "win": {
       "target": [
         "nsis"
-      ]
+      ],
+      "icon": "public/icon.png"
     },
     "directories": {
       "output": "dist-desktop"
@@ -54,11 +68,12 @@
     ]
   },
   "dependencies": {
-    "@ai-sdk/openai": "^2.0.77",
+    "@ai-sdk/openai": "^2.0.89",
     "@headlessui/react": "^2.2.9",
     "@tanstack/react-query": "^5.90.10",
     "@tanstack/react-virtual": "^3.13.12",
     "@types/react-router-dom": "^5.3.3",
+    "ai": "^6.0.34",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

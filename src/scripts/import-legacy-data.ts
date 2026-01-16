@@ -21,6 +21,10 @@ interface StandardRow {
     price?: number;
     isp?: string;
     barcodes?: string;
+    batch?: string;
+    expiry?: any;
+    active_principle?: string;
+    units?: number;
 }
 
 // Configuración de Mapeo
@@ -34,6 +38,10 @@ type ColumnMapping = {
     price?: string;
     isp?: string;
     barcodes?: string;
+    batch?: string;
+    expiry?: string;
+    active_principle?: string;
+    units?: string;
 };
 
 // Utils
@@ -136,8 +144,9 @@ const insertInventoryBatch = async (client: Client, rows: StandardRow[], sourceN
             source_file, import_batch_id, 
             raw_branch, raw_sku, raw_title, raw_category, raw_lab, 
             raw_stock, raw_price, raw_isp_code, raw_barcodes,
+            raw_batch, raw_expiry, raw_active_principle, raw_units,
             processed_status
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PENDING')
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'PENDING')
     `;
 
     for (const row of rows) {
@@ -153,7 +162,12 @@ const insertInventoryBatch = async (client: Client, rows: StandardRow[], sourceN
                 row.stock,
                 row.price,
                 row.isp,
-                row.barcodes
+
+                row.barcodes,
+                row.batch,
+                row.expiry ? new Date(row.expiry) : null,
+                row.active_principle,
+                row.units
             ]);
             count++;
         } catch (e: any) {
@@ -190,6 +204,10 @@ const processInventoryExcel = async (client: Client, filename: string, source: s
             price: map.price ? parsePrice(row[map.price]) : 0,
             isp: map.isp ? row[map.isp] : undefined,
             barcodes: map.barcodes ? row[map.barcodes] : undefined,
+            batch: map.batch ? row[map.batch] : undefined,
+            expiry: map.expiry ? row[map.expiry] : undefined,
+            active_principle: map.active_principle ? row[map.active_principle] : undefined,
+            units: map.units ? parseStock(row[map.units]) : 0,
         })).filter(r => r.title); // Filter empty titles
 
         console.log(`   📋 Filas leídas: ${normalizedRows.length}. Insertando en BD...`);
@@ -261,7 +279,8 @@ const main = async () => {
         const commonMapping: ColumnMapping = {
             branch: 'SUCURSAL', sku: 'SKU', title: 'TITULO',
             category: 'CATEGORIA', lab: 'LABORATORIO',
-            stock: 'STOCK', price: 'PRECIO', isp: 'CODIGO ISP', barcodes: 'CODIGOS_BARRA'
+            stock: 'STOCK', price: 'PRECIO', isp: 'CODIGO ISP', barcodes: 'CODIGOS_BARRA',
+            active_principle: 'PRINCIPIOS ACTIVOS', units: 'UNIDADES'
         };
         await processInventoryExcel(client, 'farmacias vallenar santiago.xlsx', 'SANTIAGO', commonMapping);
         await processInventoryExcel(client, 'farmacias vallenar colchagua.xlsx', 'COLCHAGUA', commonMapping);
@@ -271,16 +290,23 @@ const main = async () => {
             title: 'Producto',
             isp: 'Registro ISP',
             barcodes: 'Código Barras',
-            stock: 'Cantidad actual'
+            stock: 'Cantidad actual',
+            batch: 'Lote',
+            expiry: 'Fecha de vencimiento',
+            category: 'Categoría',
+            active_principle: 'Principio activo (DCI)',
+            lab: 'Laboratorio'
         });
 
+        // 4. Inventarios Externos (XLSX - Golan)
         // 4. Inventarios Externos (XLSX - Golan)
         await processInventoryExcel(client, 'inventario golan.xlsx', 'GOLAN_XLSX', {
             title: 'Producto',
             barcodes: 'Código Barras',
             stock: 'Stock',
-            price: 'Precio Venta',
-            lab: 'marca'
+            price: 'Precio Venta ', // Space at end is critical
+            lab: 'marca',
+            active_principle: 'dosis'
         });
 
         // 5. Inventarios Externos (CSV - Golan)

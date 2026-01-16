@@ -1,5 +1,5 @@
 
-export type Role = 'MANAGER' | 'QF' | 'CASHIER' | 'WAREHOUSE' | 'ADMIN' | 'GERENTE_GENERAL' | 'RRHH' | 'CONTADOR' | 'DRIVER';
+export type Role = 'MANAGER' | 'QF' | 'CASHIER' | 'WAREHOUSE' | 'WAREHOUSE_CHIEF' | 'ADMIN' | 'GERENTE_GENERAL' | 'RRHH' | 'CONTADOR' | 'DRIVER';
 export type DrugCategory = string; // 'MEDICAMENTO' | 'INSUMO_MEDICO' | 'RETAIL_BELLEZA' | 'SUPLEMENTO' (Dynamic)
 export type SaleCondition = 'VD' | 'R' | 'RR' | 'RCH';
 export type StorageCondition = 'AMBIENTE' | 'REFRIGERADO' | 'CONTROLADO';
@@ -149,6 +149,7 @@ export type JobTitle =
     | 'QUIMICO_FARMACEUTICO'
     | 'AUXILIAR_FARMACIA'
     | 'BODEGUERO'
+    | 'JEFE_BODEGA'
     | 'ADMINISTRATIVO'
     | 'ALUMNO_PRACTICA'
     | 'GERENTE_GENERAL'
@@ -498,6 +499,8 @@ export interface AutoOrderSuggestion {
     supplier_id?: string;
     unit_cost?: number; // Costo unitario calculado por el servidor
     estimated_cost?: number;
+    ai_confidence?: 'HIGH' | 'MEDIUM' | 'LOW';
+    action_type?: string; // 'PURCHASE' | 'TRANSFER' | 'NONE'
 }
 
 // --- Configuración de Hardware ---

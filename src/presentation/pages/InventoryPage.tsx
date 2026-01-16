@@ -40,6 +40,24 @@ const InventoryPage: React.FC = () => {
         if (sku.startsWith('AUTO-') || sku.startsWith('TEMP-')) return '---';
         return sku;
     };
+    // 🧠 Smart Unit Detection Helper
+    const getEffectiveUnits = (item: any) => {
+        // 1. Try explicit DB fields first
+        const dbUnits = item.units_per_box || item.unit_count || item.units_per_package || 0;
+        if (dbUnits > 1) return dbUnits;
+
+        // 2. Try Heuristic from Name (e.g., "X60", "X 30", "X100")
+        // Matches "X" followed immediately or by space by a number
+        const name = item.name || '';
+        const match = name.match(/X\s?(\d+)/i);
+
+        if (match && match[1]) {
+            const parsed = parseInt(match[1], 10);
+            if (parsed > 1 && parsed < 1000) return parsed; // Sanity check
+        }
+
+        return 1; // Fallback
+    };
 
     // 🚀 Force Inventory Load on Mount (Fix for Navigation Bug)
     useEffect(() => {
@@ -427,7 +445,7 @@ const InventoryPage: React.FC = () => {
                                                         ${(item.price_sell_box || item.price || 0).toLocaleString()}
                                                     </p>
                                                     <p className="text-[10px] text-slate-400">
-                                                        Unit: ${(item.price_sell_unit ? item.price_sell_unit : Math.round((item.price_sell_box || item.price || 0) / (item.units_per_box || item.unit_count || 1))).toLocaleString()}
+                                                        Unit: ${Math.round((item.price_sell_box || item.price || 0) / getEffectiveUnits(item)).toLocaleString()}
                                                     </p>
                                                 </div>
                                             </div>
@@ -471,7 +489,7 @@ const InventoryPage: React.FC = () => {
                                             <div className="p-4 w-[20%]">
                                                 <div className="text-sm font-bold text-slate-700">{item.laboratory || '---'}</div>
                                                 <div className="text-xs text-slate-500 font-mono">{item.isp_register || 'SIN REGISTRO'}</div>
-                                                <div className="text-xs text-slate-400 mt-1">{item.format || ''} x{item.units_per_box || item.unit_count || 1}</div>
+                                                <div className="text-xs text-slate-400 mt-1">{item.format || ''} x{getEffectiveUnits(item)}</div>
                                             </div>
                                             <div className="p-4 w-[15%]">
                                                 <div className="flex gap-1 flex-wrap">
@@ -497,7 +515,7 @@ const InventoryPage: React.FC = () => {
                                                 <div className="flex flex-col items-end">
                                                     <span className="font-bold text-slate-800 text-lg">${(item.price_sell_box || item.price || 0).toLocaleString()}</span>
                                                     <span className="text-xs font-bold text-slate-400">
-                                                        (${item.price_sell_unit ? item.price_sell_unit.toLocaleString() : Math.round((item.price_sell_box || item.price || 0) / (item.units_per_box || item.unit_count || 1)).toLocaleString()} / un)
+                                                        (${Math.round((item.price_sell_box || item.price || 0) / getEffectiveUnits(item)).toLocaleString()} / un)
                                                     </span>
                                                     {(user?.role === 'MANAGER' || user?.role === 'ADMIN' || user?.role === 'GERENTE_GENERAL') && (
                                                         <div className="flex justify-end mt-1">

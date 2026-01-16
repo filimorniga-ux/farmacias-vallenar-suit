@@ -7,15 +7,23 @@ const client = new Client({ connectionString: process.env.DATABASE_URL });
 
 async function check() {
     await client.connect();
-    const res = await client.query(`
-        SELECT 
-            COUNT(*) as total,
-            COUNT(processed_title) as cleaned,
-            (SELECT COUNT(*) FROM products) as products_count
-        FROM inventory_imports
-    `);
-    console.log(res.rows[0]);
-    await client.end();
+    try {
+        const total = await client.query('SELECT COUNT(*) FROM inventory_imports');
+        const cleaned = await client.query('SELECT COUNT(*) FROM inventory_imports WHERE processed_title IS NOT NULL');
+        const products = await client.query('SELECT COUNT(*) FROM products');
+        const linked = await client.query('SELECT COUNT(*) FROM inventory_imports WHERE product_id IS NOT NULL');
+
+        console.log({
+            total: total.rows[0].count,
+            cleaned: cleaned.rows[0].count,
+            products_count: products.rows[0].count,
+            synced_stock: linked.rows[0].count
+        });
+    } catch (e) {
+        console.error(e);
+    } finally {
+        await client.end();
+    }
 }
 
 check();

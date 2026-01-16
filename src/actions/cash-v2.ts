@@ -272,7 +272,7 @@ export async function getCashMovementsSecure(
         let sql = `
             SELECT cm.*, u.name as user_name, t.name as terminal_name
             FROM cash_movements cm
-            LEFT JOIN users u ON cm.user_id = u.id
+            LEFT JOIN users u ON cm.user_id::text = u.id
             LEFT JOIN terminals t ON cm.terminal_id = t.id
             WHERE 1=1
         `;
@@ -280,7 +280,7 @@ export async function getCashMovementsSecure(
         let paramIdx = 1;
 
         if (terminalId && UUIDSchema.safeParse(terminalId).success) {
-            sql += ` AND cm.terminal_id = $${paramIdx++}`;
+            sql += ` AND cm.terminal_id = $${paramIdx++}::uuid`;
             params.push(terminalId);
         }
 
