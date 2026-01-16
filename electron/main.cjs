@@ -1,5 +1,12 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut, dialog } = require('electron');
 const path = require('path');
+const { autoUpdater } = require('electron-updater');
+
+// ---------------------------------------------------------
+// AUTO-UPDATER CONFIGURATION
+// ---------------------------------------------------------
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
 
 function createWindow() {
     const win = new BrowserWindow({
@@ -7,28 +14,73 @@ function createWindow() {
         height: 800,
         title: "Farmacias Vallenar Suit",
         autoHideMenuBar: true, // Native app feel
+        show: false, // Don't show until ready
+        backgroundColor: '#f8fafc',
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
-            preload: path.join(__dirname, 'preload.cjs')
+            preload: path.join(__dirname, 'preload.cjs'),
+            sandbox: false, // Required for some integrations
+            devTools: true  // Enable DevTools for debugging
         },
     });
 
+    // Maximize on start for better experience
+    win.maximize();
+    win.show();
+
     // URL OFICIAL DE PRODUCCIÓN
-    // En desarrollo local, podrías querer cambiar esto a localhost si estás probando offline
-    // const startUrl = process.env.ELECTRON_START_URL || 'https://farmaciasvallenar.vercel.app';
     const startUrl = 'https://farmaciasvallenar.vercel.app';
 
-    win.loadURL(startUrl);
+    // Handle loading errors with retry dialog
+    const loadContent = () => {
+        win.loadURL(startUrl).catch(err => {
+            console.error('Failed to load URL:', err);
+            dialog.showMessageBox(win, {
+                type: 'error',
+                title: 'Error de Conexión',
+                message: 'No se pudo conectar con el servidor de Farmacias Vallenar.',
+                detail: 'Por favor verifique su conexión a internet.',
+                buttons: ['Reintentar', 'Salir']
+            }).then(({ response }) => {
+                if (response === 0) { // Retry
+                    loadContent();
+                } else {
+                    app.quit();
+                }
+            });
+        });
+    };
+
+    loadContent();
+
+    // Check for updates once window is loaded
+    win.webContents.did - finish - load = () => {
+        if (app.isPackaged) {
+            autoUpdater.checkForUpdatesAndNotify();
+        }
+    };
 
     // Open external links in default browser
     win.webContents.setWindowOpenHandler(({ url }) => {
-        // Permitir popups de impresión si no son de la app principal (aunque usamos silent print)
         if (url.startsWith('https:')) {
             require('electron').shell.openExternal(url);
             return { action: 'deny' };
         }
         return { action: 'allow' };
+    });
+
+    // ----------------------------------------------------------------
+    // RELOAD SHORTCUT: Ctrl+R / F5
+    // ----------------------------------------------------------------
+    globalShortcut.register('CommandOrControl+R', () => {
+        win.reload();
+    });
+
+    // DEBUG SHORTCUT: Ctrl+Shift+I (Windows/Linux) or Cmd+Option+I (Mac)
+    // ----------------------------------------------------------------
+    globalShortcut.register('CommandOrControl+Shift+I', () => {
+        win.webContents.toggleDevTools();
     });
 }
 
@@ -41,11 +93,10 @@ ipcMain.handle('print-silent', async (event, options) => {
     if (!win) return { success: false, error: 'No window found' };
 
     try {
-        // Imprimir silenciosamente a la impresora predeterminada
         await win.webContents.print({
             silent: true,
             printBackground: true,
-            deviceName: '' // Empty string triggers default printer
+            deviceName: ''
         });
         return { success: true };
     } catch (error) {
@@ -58,6 +109,22 @@ ipcMain.handle('get-app-version', () => {
     return app.getVersion();
 });
 
+// ---------------------------------------------------------
+// AUTO-UPDATER EVENTS
+// ---------------------------------------------------------
+autoUpdater.on('update-available', () => {
+    // Notify renderer or just log
+    console.log('Update available');
+});
+
+autoUpdater.on('update-downloaded', () => {
+    dialog.showMessageBox({
+        type: 'info',
+        title: 'Actualización Lista',
+        message: 'Una nueva versión ha sido descargada. Se instalará al cerrar la aplicación.',
+        buttons: ['Ok']
+    });
+});
 
 app.whenReady().then(() => {
     createWindow();
@@ -73,5 +140,10 @@ app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
         app.quit();
     }
+});
+
+app.on('will-quit', () => {
+    // Unregister shortcuts
+    globalShortcut.unregisterAll();
 });
 
