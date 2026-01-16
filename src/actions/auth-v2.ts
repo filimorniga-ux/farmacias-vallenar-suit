@@ -355,7 +355,19 @@ export async function authenticateUserSecure(
                 role: user.role,
                 location: locId,
                 method: user.access_pin_hash ? 'bcrypt' : 'legacy'
-            }, ipAddress)
+            }, ipAddress),
+
+            // 10. Auto-Check-In (Ensure attendance record exists)
+            (async () => {
+                if (locId) {
+                    try {
+                        const { ensureCheckInSecure } = await import('@/actions/attendance-v2');
+                        await ensureCheckInSecure(uid, locId);
+                    } catch (err) {
+                        console.error('[AUTH-V2] Auto-Check-In failed:', err);
+                    }
+                }
+            })()
         ]);
 
         // 10. Set session cookies for RBAC validation in server actions
