@@ -40,7 +40,6 @@
     ],
     "mac": {
       "category": "public.app-category.business",
-      "artifactName": "FarmaciasVallenar-Mac-Universal.dmg",
       "target": [
         {
           "target": "dmg",
@@ -58,12 +57,17 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false
     },
+    "dmg": {
+      "artifactName": "FarmaciasVallenar-Mac-Universal.dmg"
+    },
     "win": {
-      "artifactName": "FarmaciasVallenar-Setup.exe",
       "target": [
         "nsis"
       ],
       "icon": "public/icon.png"
+    },
+    "nsis": {
+      "artifactName": "FarmaciasVallenar-Setup.exe"
     },
     "directories": {
       "output": "dist-desktop"
