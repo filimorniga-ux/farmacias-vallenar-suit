@@ -38,9 +38,9 @@ const AppIcon: React.FC<AppIconProps> = ({
 
     // Background Styles
     const bgStyles = {
-        solid: `bg-gradient-to-br from-${color}-500 to-${color}-600 text-white shadow-lg shadow-${color}-500/30 border border-${color}-400/20`,
-        outline: `bg-gradient-to-br from-${color}-50 to-${color}-100/50 border-2 border-${color}-200 text-${color}-600`,
-        glass: `bg-gradient-to-br from-${color}-500/10 to-${color}-500/20 text-${color}-700 border border-${color}-200/50 backdrop-blur-sm`,
+        solid: `bg-gradient-to-br from-${color}-500 to-${color}-600 text-white shadow-md shadow-${color}-400/20 border border-${color}-400/10`,
+        outline: `bg-white border-2 border-${color}-200 text-${color}-600 shadow-sm`,
+        glass: `bg-${color}-50 text-${color}-600 border border-${color}-100 shadow-sm`,
     };
 
     // Shadow / Glow

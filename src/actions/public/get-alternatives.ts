@@ -12,41 +12,33 @@ export interface AlternativeResult {
     laboratory?: string;
     dci?: string;
     format?: string;
+    units_per_box?: number;
 }
 
 export async function getAlternativesAction(dci: string, currentId: string): Promise<AlternativeResult[]> {
     if (!dci || dci.trim().length === 0) return [];
 
     try {
-        console.log(`🔍 Buscando alternativas para DCI: "${dci}" excluyendo ID: ${currentId}`);
+        console.log(`🔍 [Alternatives] Buscando DCI: "${dci}" excluyendo ID: ${currentId}`);
 
-        // Query:
-        // 1. Same DCI (case insensitive)
-        // 2. Exclude current product
-        // 3. Join with inventory for stock/price
-        // 4. Order by Price ASC (cheapest first)
-
+        // Query Products Table (Real Inventory)
         const sql = `
             SELECT 
-                MIN(id::text) as id,
-                raw_title as name,
-                MAX(raw_sku) as sku,
-                MAX(raw_active_principle) as dci,
-                MAX(raw_misc->>'laboratorio') as laboratory,
-                MAX(raw_misc->>'formato') as format,
-                BOOL_OR(
-                    (raw_misc->>'bioequivalente') IS NOT NULL 
-                    OR (raw_misc->>'bioequivalencia') IS NOT NULL 
-                    OR raw_title ILIKE '%BIOEQUIVALENTE%'
-                ) as is_bioequivalent,
-                SUM(raw_stock) as stock,
-                MAX(raw_price) as price
-            FROM inventory_imports
+                p.id::text as id,
+                p.name::text,
+                p.sku::text,
+                p.dci::text,
+                p.laboratory::text,
+                p.format::text,
+                p.units_per_box,
+                p.is_bioequivalent,
+                p.stock_actual as stock,
+                p.price_sell_box as price
+            FROM products p
             WHERE 
-                raw_active_principle ILIKE $1 
-                AND id::text != $2
-                AND raw_stock > 0 -- Only show alternatives with stock
-            GROUP BY raw_title, raw_active_principle
+                p.dci ILIKE $1 
+                AND p.id::text != $2
+                AND p.stock_actual > 0
             ORDER BY price ASC
             LIMIT 10
         `;
@@ -62,7 +54,8 @@ export async function getAlternativesAction(dci: string, currentId: string): Pro
             price: Number(row.price),
             laboratory: row.laboratory || 'Generico',
             dci: row.dci || '',
-            format: row.format || ''
+            format: row.format || '',
+            units_per_box: row.units_per_box || 1
         }));
 
     } catch (error) {

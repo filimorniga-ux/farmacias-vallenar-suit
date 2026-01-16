@@ -110,12 +110,16 @@ async function main() {
                     // Buscamos el original solo para log
                     const original = res.rows.find(r => r.id == item.id)?.name || '???';
 
-                    await client.query(`
-                        UPDATE inventory_imports 
-                        SET processed_title = $1 
-                        WHERE id = $2
-                    `, [item.clean_name, item.id]);
-                    successCount++;
+                    try {
+                        await client.query(`
+                            UPDATE inventory_imports 
+                            SET processed_title = $1 
+                            WHERE id = $2
+                        `, [item.clean_name, item.id]);
+                        successCount++;
+                    } catch (updateError) {
+                        console.error(`⚠️ Error al actualizar ID ${item.id}:`, updateError);
+                    }
 
                     // console.log(`   ✅ "${original.substring(0,35)}..." \n      ➡️ "${item.clean_name}"`);
                 }

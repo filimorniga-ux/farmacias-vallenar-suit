@@ -382,3 +382,126 @@ export async function getCashFlowSecure(
         return { success: false, error: 'Error obteniendo flujo' };
     }
 }
+// ============================================================================
+// EXECUTIVE DASHBOARD (ADMIN)
+// ============================================================================
+
+export interface ExecutiveMetrics {
+    revenue: {
+        current: number;
+        previous: number;
+        growth: number;
+    };
+    aov: {
+        current: number;
+        previous: number;
+        growth: number;
+    };
+    grossProfit: {
+        value: number;
+        margin: number;
+    };
+    salesByLocation: { name: string; total: number }[];
+    recentSales: { id: string; amount: number; timestamp: string; location: string }[];
+}
+
+/**
+ * 👑 Obtener Métricas de Dashboard Ejecutivo (ADMIN+)
+ */
+export async function getExecutiveDashboardMetricsSecure(): Promise<{ success: boolean; data?: ExecutiveMetrics; error?: string }> {
+    const session = await getSession();
+    if (!session || !ADMIN_ROLES.includes(session.role)) {
+        return { success: false, error: 'Acceso denegado. Requiere privilegios administrativos.' };
+    }
+
+    const cacheKey = getCacheKey({ type: 'executive' }, session.userId);
+    const cached = getFromCache(cacheKey);
+    if (cached) return { success: true, data: cached };
+
+    try {
+        const now = new Date();
+        const startOfCurrent = new Date(now.getFullYear(), now.getMonth(), 1);
+        const startOfPrevious = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const endOfPrevious = new Date(now.getFullYear(), now.getMonth(), 0);
+
+        // 1. Current Month Revenue & Count
+        const currentRes = await query(`
+            SELECT COALESCE(SUM(total_amount), 0) as total, COUNT(*) as count
+            FROM sales 
+            WHERE timestamp >= $1::timestamp
+        `, [startOfCurrent.toISOString()]);
+
+        // 2. Previous Month Revenue & Count
+        const previousRes = await query(`
+            SELECT COALESCE(SUM(total_amount), 0) as total, COUNT(*) as count
+            FROM sales 
+            WHERE timestamp >= $1::timestamp AND timestamp <= $2::timestamp
+        `, [startOfPrevious.toISOString(), endOfPrevious.toISOString()]);
+
+        const currTotal = parseFloat(currentRes.rows[0].total);
+        const currCount = parseInt(currentRes.rows[0].count);
+        const prevTotal = parseFloat(previousRes.rows[0].total);
+        const prevCount = parseInt(previousRes.rows[0].count);
+
+        const revGrowth = prevTotal > 0 ? ((currTotal - prevTotal) / prevTotal) * 100 : 0;
+        const currAov = currCount > 0 ? currTotal / currCount : 0;
+        const prevAov = prevCount > 0 ? prevTotal / prevCount : 0;
+        const aovGrowth = prevAov > 0 ? ((currAov - prevAov) / prevAov) * 100 : 0;
+
+        // 3. Gross Profit (Simplified estimation based on product costs)
+        // Note: This requires joining with product costs, approximating for now
+        const profitRes = await query(`
+            SELECT 
+                SUM(s.total_amount) as revenue,
+                SUM(si.quantity * COALESCE(p.cost_price, 0)) as cost
+            FROM sales s
+            JOIN sale_items si ON s.id = si.sale_id
+            JOIN products p ON si.product_id = p.id
+            WHERE s.timestamp >= $1::timestamp
+        `, [startOfCurrent.toISOString()]);
+
+        const revenue = parseFloat(profitRes.rows[0]?.revenue) || currTotal;
+        const cost = parseFloat(profitRes.rows[0]?.cost) || (revenue * 0.7); // 30% margin fallback
+        const grossProfitValue = revenue - cost;
+        const grossMargin = revenue > 0 ? (grossProfitValue / revenue) * 100 : 0;
+
+        // 4. Sales by Location
+        const locRes = await query(`
+            SELECT l.name, SUM(s.total_amount) as total
+            FROM sales s
+            JOIN locations l ON s.location_id = l.id
+            WHERE s.timestamp >= $1::timestamp
+            GROUP BY l.name
+            ORDER BY total DESC
+        `, [startOfCurrent.toISOString()]);
+
+        // 5. Recent Sales
+        const recentRes = await query(`
+            SELECT s.id, s.total_amount as amount, s.timestamp, l.name as location
+            FROM sales s
+            JOIN locations l ON s.location_id = l.id
+            ORDER BY s.timestamp DESC
+            LIMIT 10
+        `);
+
+        const data: ExecutiveMetrics = {
+            revenue: { current: currTotal, previous: prevTotal, growth: revGrowth },
+            aov: { current: currAov, previous: prevAov, growth: aovGrowth },
+            grossProfit: { value: grossProfitValue, margin: grossMargin },
+            salesByLocation: locRes.rows.map(r => ({ name: r.name, total: parseFloat(r.total) })),
+            recentSales: recentRes.rows.map(r => ({
+                id: r.id,
+                amount: parseFloat(r.amount),
+                timestamp: r.timestamp,
+                location: r.location
+            }))
+        };
+
+        setCache(cacheKey, data);
+        return { success: true, data };
+
+    } catch (error: any) {
+        logger.error({ error }, '[Dashboard] Executive metrics error');
+        return { success: false, error: 'Error calculando métricas de gerencia' };
+    }
+}

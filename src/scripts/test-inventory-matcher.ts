@@ -1,5 +1,5 @@
 
-import { processImportBatch } from '../services/inventory-matcher.ts';
+import { processImportBatch } from '../services/inventory-matcher';
 
 const main = async () => {
     console.log("🧪 Testing AI Matcher...");

@@ -1,6 +1,5 @@
-import { getLogisticsData } from '@/lib/data/logistics';
-import DataTable from '@/components/logistica/DataTable';
 import AddPurchaseButton from '@/components/logistica/AddPurchaseButton';
+import UnifiedPriceConsultant from '@/components/procurement/UnifiedPriceConsultant';
 import RouteGuard from '@/components/auth/RouteGuard';
 import { InventoryExportForm } from '@/presentation/components/reports/InventoryExportForm';
 
@@ -9,10 +8,10 @@ import { SyncStatusBadge } from '@/presentation/components/ui/SyncStatusBadge';
 export const dynamic = 'force-dynamic';
 
 export default async function LogisticaPage() {
-    const logisticsData = await getLogisticsData();
+    // const logisticsData = await getLogisticsData(); // Removed unused data fetch
 
     return (
-        <RouteGuard allowedRoles={['ADMIN', 'QF', 'VENDEDOR']}>
+        <RouteGuard allowedRoles={['ADMIN', 'QF', 'WAREHOUSE']}>
             <div className="min-h-screen bg-gray-100 py-8">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="md:flex md:items-center md:justify-between mb-8">
@@ -37,9 +36,8 @@ export default async function LogisticaPage() {
                     </div>
 
                     <div className="bg-white shadow-sm ring-1 ring-gray-900/5 sm:rounded-xl md:col-span-2">
-                        <div className="px-4 py-6 sm:px-6">
-                            <DataTable initialData={logisticsData} />
-                        </div>
+                        {/* Replaced DataTable with UnifiedPriceConsultant for consistency */}
+                        <UnifiedPriceConsultant allowToggle={true} />
                     </div>
                 </div>
             </div>

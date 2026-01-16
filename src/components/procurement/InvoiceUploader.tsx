@@ -122,10 +122,14 @@ export default function InvoiceUploader() {
                                                     <span className="text-emerald-700 font-medium text-xs bg-emerald-50 px-2 py-0.5 rounded w-fit mb-1">
                                                         ID: {item.matchResult.targetProductId}
                                                     </span>
-                                                    {/* Ideally display local name if we fetched it, but action returns basic match data */}
                                                     <span className="text-xs text-gray-500">
                                                         {item.matchResult.suggestion?.source || 'Automatch'}
                                                     </span>
+                                                    {item.aiReasoning && (
+                                                        <span className="text-[10px] text-blue-600 bg-blue-50 px-1 py-0.5 rounded border border-blue-100 mt-1 max-w-xs block">
+                                                            {item.aiReasoning}
+                                                        </span>
+                                                    )}
                                                 </div>
                                             ) : (
                                                 <span className="text-amber-600 text-xs italic">

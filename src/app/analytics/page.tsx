@@ -7,6 +7,10 @@ import AnalyticsDashboard from '@/presentation/components/analytics/AnalyticsDas
 import { SyncStatusBadge } from '@/presentation/components/ui/SyncStatusBadge';
 
 export default async function AnalyticsPage() {
+    const { headers } = await import('next/headers');
+    const headerList = await headers();
+    const userRole = headerList.get('x-user-role') || 'CASHIER';
+
     const locationsRes = await getLocationsSecure();
     const locations = locationsRes.success && locationsRes.data ? locationsRes.data.filter((l: any) => l.type === 'STORE' || l.type === 'HQ') : [];
 
@@ -21,7 +25,7 @@ export default async function AnalyticsPage() {
                     <SyncStatusBadge />
                 </div>
 
-                <AnalyticsDashboard initialLocations={locations} />
+                <AnalyticsDashboard initialLocations={locations} userRole={userRole} />
             </div>
         </div>
     );

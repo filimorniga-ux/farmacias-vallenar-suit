@@ -484,8 +484,8 @@ const QueueKioskPage: React.FC = () => {
         // Prevent hydration mismatch by rendering null until mounted
         if (!isMounted) {
             return (
-                <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-                    <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+                    <div className="w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
                 </div>
             );
         }
@@ -493,18 +493,24 @@ const QueueKioskPage: React.FC = () => {
         const hasLocation = !!locationId;
 
         return (
-            <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex flex-col items-center justify-center p-6">
-                <div className="bg-white/10 backdrop-blur-xl p-10 rounded-3xl border border-white/20 max-w-lg w-full text-center">
-                    <div className="w-20 h-20 bg-blue-500/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                        <Ticket size={40} className="text-blue-400" />
+            <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 relative overflow-hidden">
+                {/* Background Ambience */}
+                <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none">
+                    <div className="absolute top-[10%] left-[20%] w-[500px] h-[500px] bg-sky-200/40 rounded-full blur-[128px]" />
+                    <div className="absolute bottom-[10%] right-[20%] w-[500px] h-[500px] bg-teal-100/30 rounded-full blur-[128px]" />
+                </div>
+
+                <div className="relative z-10 bg-white/80 backdrop-blur-xl p-10 rounded-[3rem] border border-sky-100 shadow-2xl shadow-sky-900/5 max-w-lg w-full text-center">
+                    <div className="w-20 h-20 bg-sky-100 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-sky-200">
+                        <Ticket size={40} className="text-sky-600" />
                     </div>
-                    <h1 className="text-3xl font-black text-white mb-2">Totem de Turnos</h1>
+                    <h1 className="text-3xl font-black text-slate-800 mb-2">Totem de Turnos</h1>
 
                     {/* Step 1: Select Location if not set */}
                     {!hasLocation && locations.length > 0 && (
                         <div className="mb-8">
-                            <p className="text-slate-400 mb-4">Seleccione la sucursal</p>
-                            <div className="grid gap-2">
+                            <p className="text-slate-500 mb-4 font-medium">Seleccione la sucursal</p>
+                            <div className="grid gap-3">
                                 {locations.map(loc => (
                                     <button
                                         key={loc.id}
@@ -512,11 +518,10 @@ const QueueKioskPage: React.FC = () => {
                                             setLocationId(loc.id);
                                             localStorage.setItem('preferred_location_id', loc.id);
                                             localStorage.setItem('preferred_location_name', loc.name);
-                                            const name = loc.name; // optimization
                                         }}
-                                        className="p-4 bg-white/10 border border-white/20 rounded-xl text-white font-bold hover:bg-blue-500/30 hover:border-blue-400 transition-all flex items-center gap-3"
+                                        className="p-4 bg-white border border-slate-100 rounded-2xl text-slate-700 font-bold hover:bg-sky-50 hover:border-sky-300 hover:text-sky-700 transition-all flex items-center gap-3 shadow-sm group"
                                     >
-                                        <MapPin size={18} className="text-blue-400" />
+                                        <MapPin size={18} className="text-sky-400 group-hover:text-sky-500" />
                                         {loc.name}
                                     </button>
                                 ))}
@@ -527,13 +532,13 @@ const QueueKioskPage: React.FC = () => {
                     {/* Step 2: Enter PIN (only show if location is set) */}
                     {hasLocation && (
                         <>
-                            <p className="text-slate-400 mb-8">Ingrese PIN de administrador para activar</p>
+                            <p className="text-slate-500 mb-8">Ingrese PIN de administrador para activar</p>
 
                             <input
                                 type="password"
                                 maxLength={4}
                                 placeholder="••••"
-                                className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-5 text-center text-white text-4xl tracking-[0.8em] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none mb-6"
+                                className="w-full bg-sky-50 border-2 border-sky-100 rounded-2xl px-4 py-6 text-center text-slate-800 text-5xl tracking-[0.8em] focus:border-sky-500 outline-none mb-8 transition-all"
                                 value={activationPin}
                                 autoFocus
                                 onChange={e => {
@@ -544,17 +549,20 @@ const QueueKioskPage: React.FC = () => {
                         </>
                     )}
 
-                    <p className="text-xs text-slate-500">
-                        Sucursal: {locationName}
+                    <div className="flex flex-col items-center gap-2">
+                        <div className="flex items-center gap-2 text-slate-400 text-xs font-semibold uppercase tracking-wider bg-slate-100 px-4 py-2 rounded-full border border-slate-200 mt-2">
+                            <MapPin size={12} className="text-sky-500" />
+                            {locationName}
+                        </div>
                         {hasLocation && (
                             <button
                                 onClick={() => { setLocationId(''); localStorage.removeItem('preferred_location_id'); }}
-                                className="ml-2 text-blue-400 hover:underline"
+                                className="text-sky-600 font-bold hover:text-sky-700 text-xs transition-colors"
                             >
-                                (cambiar)
+                                (cambiar sucursal)
                             </button>
                         )}
-                    </p>
+                    </div>
                 </div>
             </div>
         );
@@ -613,23 +621,31 @@ const QueueKioskPage: React.FC = () => {
             `}</style>
 
             {/* Header with Location */}
-            <header className="absolute top-0 left-0 right-0 bg-blue-600 text-white py-4 px-6 flex items-center justify-between shadow-lg z-20">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
-                        <MapPin size={20} />
+            <header className="absolute top-0 left-0 right-0 bg-white border-b border-slate-100 py-5 px-8 flex items-center justify-between shadow-sm z-20">
+                <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-sky-50 rounded-2xl flex items-center justify-center text-sky-600 border border-sky-100">
+                        <MapPin size={24} />
                     </div>
                     <div>
-                        <p className="text-xs font-medium text-blue-200 uppercase tracking-wider">Sucursal</p>
-                        <h1 className="text-lg font-black">{locationName}</h1>
+                        <p className="text-[10px] font-black text-sky-600 uppercase tracking-[0.2em] mb-0.5">Terminal de Sucursal</p>
+                        <h1 className="text-xl font-black text-slate-900 tracking-tight">{locationName}</h1>
                     </div>
                 </div>
-                <button
-                    onClick={() => setShowExitPrompt(true)}
-                    className="p-3 bg-red-500/20 rounded-xl hover:bg-red-500/40 transition-colors flex items-center gap-2"
-                >
-                    <LogOut size={18} />
-                    <span className="text-sm font-bold hidden md:inline">Salir</span>
-                </button>
+
+                <div className="flex items-center gap-6">
+                    <div className="text-right hidden sm:block">
+                        <p className="text-2xl font-black text-slate-800 tabular-nums leading-none">
+                            {new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">Modo Kiosco Activo</p>
+                    </div>
+                    <button
+                        onClick={() => setShowExitPrompt(true)}
+                        className="w-12 h-12 flex items-center justify-center rounded-2xl bg-slate-50 text-slate-400 hover:bg-red-50 hover:text-red-500 transition-all border border-slate-100"
+                    >
+                        <LogOut size={22} />
+                    </button>
+                </div>
             </header>
 
             {/* Main Content */}
@@ -677,63 +693,92 @@ const QueueKioskPage: React.FC = () => {
 
                 {/* WELCOME STEP */}
                 {step === 'WELCOME' && (
-                    <motion.div key="welcome" initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 1.1, opacity: 0 }} className="z-10 w-full max-w-lg mt-16">
-                        <div className="text-center mb-8">
-                            <h2 className="text-3xl font-black text-slate-800 mb-2">¡Bienvenido!</h2>
-                            <p className="text-slate-500">Seleccione el tipo de atención</p>
+                    <motion.div key="welcome" initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 1.1, opacity: 0 }} className="z-10 w-full max-w-xl mt-16 px-6">
+                        <div className="text-center mb-12">
+                            <div className="inline-flex items-center gap-2 bg-sky-50 px-4 py-2 rounded-full border border-sky-100 text-sky-600 font-bold text-xs uppercase tracking-[0.2em] mb-6">
+                                <Printer size={14} /> Totem de Atención
+                            </div>
+                            <h2 className="text-4xl md:text-5xl font-black text-slate-900 mb-4 tracking-tight">¡Bienvenido!</h2>
+                            <p className="text-slate-500 text-lg font-medium">Seleccione el servicio que necesita hoy</p>
                         </div>
 
-                        <div className="grid gap-5">
+                        <div className="grid gap-6">
                             <button
                                 onClick={() => handleTypeSelect('GENERAL')}
-                                className="h-40 bg-gradient-to-r from-blue-500 to-blue-600 rounded-3xl p-8 flex flex-col items-center justify-center gap-3 hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-blue-200/50 border border-blue-400/30"
+                                className="group relative h-48 bg-white rounded-[40px] p-10 flex flex-col items-center justify-center gap-4 hover:scale-[1.02] active:scale-[0.98] transition-all shadow-2xl shadow-sky-900/5 border border-slate-100 hover:border-sky-300 overflow-hidden"
                             >
-                                <Ticket size={48} className="text-white" />
-                                <span className="text-3xl font-black text-white tracking-tight">ATENCIÓN GENERAL</span>
+                                <div className="absolute top-0 left-0 w-2 bg-sky-500 h-full" />
+                                <div className="w-20 h-20 bg-sky-50 rounded-3xl flex items-center justify-center text-sky-600 group-hover:bg-sky-500 group-hover:text-white transition-all transform group-hover:rotate-6 border border-sky-100">
+                                    <Ticket size={40} />
+                                </div>
+                                <span className="text-3xl font-black text-slate-800 tracking-tight group-hover:text-sky-700 transition-colors">ATENCIÓN GENERAL</span>
                             </button>
 
                             <button
                                 onClick={() => handleTypeSelect('PREFERENTIAL')}
-                                className="h-28 bg-white rounded-3xl p-6 flex items-center justify-center gap-4 hover:bg-purple-50 transition-all border-2 border-purple-200 hover:border-purple-400"
+                                className="group relative h-32 bg-white rounded-[32px] p-8 flex items-center justify-center gap-6 hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-sky-900/5 border border-slate-100 hover:border-teal-300"
                             >
-                                <UserPlus size={32} className="text-purple-500" />
-                                <span className="text-xl font-bold text-purple-600">PREFERENCIAL / TERCERA EDAD</span>
+                                <div className="absolute top-0 left-0 w-2 bg-teal-500 h-full" />
+                                <div className="w-16 h-16 bg-teal-50 rounded-2xl flex items-center justify-center text-teal-600 group-hover:bg-teal-500 group-hover:text-white transition-all border border-teal-100">
+                                    <UserPlus size={32} />
+                                </div>
+                                <span className="text-2xl font-black text-slate-800 tracking-tight group-hover:text-teal-700 transition-colors">MESA PREFERENCIAL</span>
                             </button>
 
                             {/* Quick Ticket Option */}
                             <button
                                 onClick={() => { setTicketType('GENERAL'); generateTicket('ANON'); }}
-                                className="h-16 bg-slate-100 rounded-2xl p-4 flex items-center justify-center gap-3 hover:bg-slate-200 transition-all border border-slate-200"
+                                className="h-20 bg-slate-50 border border-slate-200 rounded-[24px] p-4 flex items-center justify-center gap-4 hover:bg-slate-100 transition-all active:scale-[0.98] group"
                             >
-                                <ArrowRight size={20} className="text-slate-500" />
-                                <span className="text-base font-bold text-slate-500">TICKET RÁPIDO (sin identificar)</span>
+                                <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-slate-400 group-hover:text-sky-500 border border-slate-200 transition-colors">
+                                    <ArrowRight size={20} />
+                                </div>
+                                <span className="text-lg font-bold text-slate-500 group-hover:text-slate-700 tracking-tight">EMITIR TICKET RÁPIDO (SIN RUT)</span>
                             </button>
+                        </div>
+
+                        <div className="mt-16 text-center">
+                            <p className="text-[10px] text-slate-300 font-black uppercase tracking-[0.3em] font-mono">Farmacias Vallenar Suit v2.1</p>
                         </div>
                     </motion.div>
                 )}
 
                 {/* IDENTIFY STEP (RUT) */}
                 {step === 'IDENTIFY' && (
-                    <motion.div key="identify" initial={{ x: 100, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -100, opacity: 0 }} className="z-10 text-center w-full max-w-md mt-16">
-                        <button onClick={goBack} className="absolute top-20 left-6 p-2 bg-white rounded-xl shadow border border-slate-200 text-slate-500">
-                            <ChevronLeft size={24} />
+                    <motion.div key="identify" initial={{ x: 100, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -100, opacity: 0 }} className="z-10 text-center w-full max-w-lg mt-16 px-6">
+                        <button onClick={goBack} className="absolute top-28 left-8 w-14 h-14 bg-white rounded-2xl shadow-xl shadow-sky-900/5 border border-slate-100 text-slate-400 hover:text-sky-600 transition-all flex items-center justify-center active:scale-95">
+                            <ChevronLeft size={32} />
                         </button>
 
-                        <h2 className="text-2xl text-slate-800 font-bold mb-2">Ingrese su RUT</h2>
-                        <p className="text-slate-400 mb-6 text-sm">Para un servicio personalizado</p>
-
-                        <div className="bg-white border border-slate-200 p-6 rounded-2xl mb-6 shadow-sm">
-                            <span className="text-4xl font-mono text-blue-600 tracking-widest font-bold">{rut || '–'}</span>
+                        <div className="mb-10 text-center">
+                            <div className="w-20 h-20 bg-sky-50 rounded-3xl flex items-center justify-center mx-auto mb-6 text-sky-600 border border-sky-100">
+                                <User size={40} />
+                            </div>
+                            <h2 className="text-3xl font-black text-slate-900 mb-2 tracking-tight">Ingrese su RUT</h2>
+                            <p className="text-slate-500 font-medium">Ayúdenos a agilizar su atención</p>
                         </div>
 
-                        <Keypad />
+                        <div className="bg-white border-2 border-slate-100 p-8 rounded-[32px] mb-10 shadow-xl shadow-sky-900/5 relative overflow-hidden group">
+                            <div className="absolute top-0 left-0 w-full h-1.5 bg-sky-500 opacity-20" />
+                            <span className="text-5xl font-black text-sky-600 tracking-widest font-mono group-hover:scale-105 transition-transform inline-block">
+                                {rut || <span className="text-slate-200">RUT AQUÍ</span>}
+                            </span>
+                        </div>
 
-                        <div className="grid grid-cols-2 gap-4 mt-8">
-                            <button onClick={handleSkipIdentify} className="py-4 bg-slate-100 text-slate-500 font-bold rounded-2xl hover:bg-slate-200 transition-colors border border-slate-200">
-                                Omitir
+                        <div className="max-w-xs mx-auto mb-10">
+                            <Keypad />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-6 max-w-md mx-auto">
+                            <button onClick={handleSkipIdentify} className="py-6 bg-slate-50 text-slate-400 font-black uppercase tracking-widest text-xs rounded-[24px] hover:bg-slate-100 hover:text-slate-600 transition-all border border-slate-100 active:scale-95">
+                                Omitir RUT
                             </button>
-                            <button onClick={handleIdentifySubmit} className="py-4 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-500 transition-colors shadow-lg shadow-blue-200 flex items-center justify-center gap-2">
-                                Continuar <ArrowRight size={20} />
+                            <button
+                                onClick={handleIdentifySubmit}
+                                disabled={rut.length < 8}
+                                className="py-6 bg-sky-600 text-white font-black uppercase tracking-widest text-xs rounded-[24px] hover:bg-sky-500 transition-all shadow-xl shadow-sky-600/20 flex items-center justify-center gap-3 disabled:opacity-50 disabled:grayscale disabled:scale-100 active:scale-95 border-b-4 border-sky-800"
+                            >
+                                SIGUIENTE <ArrowRight size={18} />
                             </button>
                         </div>
                     </motion.div>
@@ -741,58 +786,75 @@ const QueueKioskPage: React.FC = () => {
 
                 {/* REGISTER STEP (Name) */}
                 {step === 'REGISTER' && (
-                    <motion.div key="register" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="z-10 text-center w-full max-w-3xl mt-16">
-                        <button onClick={goBack} className="absolute top-20 left-6 p-2 bg-white rounded-xl shadow border border-slate-200 text-slate-500">
-                            <ChevronLeft size={24} />
+                    <motion.div key="register" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="z-10 text-center w-full max-w-4xl mt-16 px-6">
+                        <button onClick={goBack} className="absolute top-28 left-8 w-14 h-14 bg-white rounded-2xl shadow-xl shadow-sky-900/5 border border-slate-100 text-slate-400 hover:text-sky-600 transition-all flex items-center justify-center active:scale-95">
+                            <ChevronLeft size={32} />
                         </button>
 
-                        <div className="flex items-center justify-center gap-3 mb-2">
-                            <User className="text-blue-500" size={28} />
-                            <h2 className="text-2xl text-slate-800 font-bold">¿Cuál es su nombre?</h2>
-                        </div>
-                        <p className="text-slate-400 mb-6 text-sm">Para un mejor servicio</p>
-
-                        <div className="bg-white border border-slate-200 p-6 rounded-2xl mb-6 shadow-sm max-w-md mx-auto">
-                            <span className="text-3xl text-slate-800 font-bold">{name || '_'}</span>
+                        <div className="mb-10 text-center">
+                            <div className="w-20 h-20 bg-sky-50 rounded-3xl flex items-center justify-center mx-auto mb-6 text-sky-600 border border-sky-100">
+                                <User size={40} />
+                            </div>
+                            <h2 className="text-3xl font-black text-slate-900 mb-2 tracking-tight">¿Cuál es su nombre?</h2>
+                            <p className="text-slate-500 font-medium">Para un servicio más cercano y personalizado</p>
                         </div>
 
-                        <Keyboard />
+                        <div className="bg-white border-2 border-slate-100 p-8 rounded-[32px] mb-10 shadow-xl shadow-sky-900/5 max-w-lg mx-auto relative overflow-hidden group">
+                            <div className="absolute top-0 left-0 w-full h-1.5 bg-sky-500 opacity-20" />
+                            <span className="text-4xl font-black text-slate-800 tracking-tight group-hover:scale-105 transition-transform inline-block">
+                                {name || <span className="text-slate-200">SU NOMBRE AQUÍ</span>}
+                            </span>
+                        </div>
+
+                        <div className="max-w-3xl mx-auto mb-10">
+                            <Keyboard />
+                        </div>
 
                         <button
                             onClick={handleRegisterSubmit}
                             disabled={!name.trim()}
-                            className="mt-8 w-80 py-5 bg-blue-600 text-white text-xl font-bold rounded-2xl hover:bg-blue-500 disabled:bg-slate-300 disabled:cursor-not-allowed shadow-lg shadow-blue-200 mx-auto flex items-center justify-center gap-2 transition-colors"
+                            className="w-full max-w-md py-6 bg-sky-600 text-white font-black uppercase tracking-widest text-sm rounded-[24px] hover:bg-sky-500 transition-all shadow-2xl shadow-sky-600/20 flex items-center justify-center gap-3 disabled:opacity-50 disabled:grayscale disabled:scale-100 active:scale-95 mx-auto border-b-4 border-sky-800"
                         >
-                            Continuar <ArrowRight size={22} />
+                            CONTINUAR <ArrowRight size={22} />
                         </button>
                     </motion.div>
                 )}
 
                 {/* PHONE STEP */}
                 {step === 'PHONE' && (
-                    <motion.div key="phone" initial={{ x: 100, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -100, opacity: 0 }} className="z-10 text-center w-full max-w-md mt-16">
-                        <button onClick={goBack} className="absolute top-20 left-6 p-2 bg-white rounded-xl shadow border border-slate-200 text-slate-500">
-                            <ChevronLeft size={24} />
+                    <motion.div key="phone" initial={{ x: 100, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -100, opacity: 0 }} className="z-10 text-center w-full max-w-lg mt-16 px-6">
+                        <button onClick={goBack} className="absolute top-28 left-8 w-14 h-14 bg-white rounded-2xl shadow-xl shadow-sky-900/5 border border-slate-100 text-slate-400 hover:text-sky-600 transition-all flex items-center justify-center active:scale-95">
+                            <ChevronLeft size={32} />
                         </button>
 
-                        <div className="flex items-center justify-center gap-3 mb-2">
-                            <Phone className="text-blue-500" size={28} />
-                            <h2 className="text-2xl text-slate-800 font-bold">Teléfono (Opcional)</h2>
-                        </div>
-                        <p className="text-slate-400 mb-6 text-sm">Para notificaciones y ofertas</p>
-
-                        <div className="bg-white border border-slate-200 p-6 rounded-2xl mb-6 shadow-sm">
-                            <span className="text-3xl font-mono text-blue-600 tracking-wider font-bold">{phone}</span>
+                        <div className="mb-10 text-center">
+                            <div className="w-20 h-20 bg-emerald-50 rounded-3xl flex items-center justify-center mx-auto mb-6 text-emerald-600 border border-emerald-100">
+                                <Phone size={40} />
+                            </div>
+                            <h2 className="text-3xl font-black text-slate-900 mb-2 tracking-tight">Teléfono (Opcional)</h2>
+                            <p className="text-slate-500 font-medium">Le avisaremos por WhatsApp cuando sea su turno</p>
                         </div>
 
-                        <PhoneKeypad />
+                        <div className="bg-white border-2 border-slate-100 p-8 rounded-[32px] mb-10 shadow-xl shadow-sky-900/5 relative overflow-hidden group">
+                            <div className="absolute top-0 left-0 w-full h-1.5 bg-emerald-500 opacity-20" />
+                            <span className="text-5xl font-black text-emerald-600 tracking-wider font-mono group-hover:scale-105 transition-transform inline-block">
+                                {phone}
+                            </span>
+                        </div>
 
-                        <div className="grid grid-cols-2 gap-4 mt-8">
-                            <button onClick={handleSkipPhone} className="py-4 bg-slate-100 text-slate-500 font-bold rounded-2xl hover:bg-slate-200 transition-colors border border-slate-200">
+                        <div className="max-w-xs mx-auto mb-10">
+                            <PhoneKeypad />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-6 max-w-md mx-auto">
+                            <button onClick={handleSkipPhone} className="py-6 bg-slate-50 text-slate-400 font-black uppercase tracking-widest text-xs rounded-[24px] hover:bg-slate-100 hover:text-slate-600 transition-all border border-slate-100 active:scale-95">
                                 Omitir
                             </button>
-                            <button onClick={handlePhoneSubmit} className="py-4 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-500 transition-colors shadow-lg shadow-blue-200 flex items-center justify-center gap-2">
-                                <Check size={20} /> Confirmar
+                            <button
+                                onClick={handlePhoneSubmit}
+                                className="py-6 bg-emerald-600 text-white font-black uppercase tracking-widest text-xs rounded-[24px] hover:bg-emerald-500 transition-all shadow-xl shadow-emerald-600/20 flex items-center justify-center gap-3 active:scale-95 border-b-4 border-emerald-800"
+                            >
+                                GENERAR TICKET <Printer size={18} />
                             </button>
                         </div>
                     </motion.div>
@@ -800,20 +862,45 @@ const QueueKioskPage: React.FC = () => {
 
                 {/* SUCCESS STEP */}
                 {step === 'SUCCESS' && ticket && (
-                    <motion.div key="success" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="z-10 text-center mt-16">
-                        <div className="bg-white rounded-[2rem] p-12 shadow-2xl border border-slate-100 max-w-lg mx-auto">
-                            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <Check size={32} className="text-green-600" />
+                    <motion.div
+                        key="success"
+                        initial={{ scale: 1.2, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        exit={{ scale: 0.8, opacity: 0 }}
+                        className="z-10 text-center w-full max-w-lg mt-16 px-6"
+                    >
+                        <div className="bg-white p-12 rounded-[50px] shadow-2xl shadow-sky-900/10 border-2 border-emerald-100 relative overflow-hidden">
+                            <div className="absolute top-0 left-0 w-full h-2 bg-emerald-500" />
+
+                            <motion.div
+                                initial={{ y: 20, opacity: 0 }}
+                                animate={{ y: 0, opacity: 1 }}
+                                transition={{ delay: 0.2 }}
+                                className="w-24 h-24 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-8 text-emerald-600 border-4 border-white shadow-lg"
+                            >
+                                <Check size={48} strokeWidth={4} />
+                            </motion.div>
+
+                            <h2 className="text-4xl font-black text-slate-900 mb-2 tracking-tight">¡Ticket Generado!</h2>
+                            <p className="text-slate-500 text-lg font-medium mb-10">Retire su comprobante impreso abajo</p>
+
+                            <div className="p-8 bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200 mb-8">
+                                <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Su Número de Atención</p>
+                                <h3 className="text-7xl font-black text-sky-600 tracking-tighter tabular-nums mb-2">
+                                    {ticket?.code || '...'}
+                                </h3>
+                                <p className="text-lg font-bold text-slate-700">{customerName}</p>
                             </div>
-                            <p className="text-slate-400 font-bold tracking-widest mb-4 uppercase">Su número es</p>
-                            <h1 className="text-8xl font-black text-slate-900 mb-4">{ticket.code}</h1>
-                            {customerName && <p className="text-blue-600 font-bold text-xl mb-6">Hola, {customerName}</p>}
-                            <div className="bg-slate-50 p-4 rounded-xl flex items-center justify-center gap-3 text-slate-400 animate-pulse border border-slate-100">
-                                <Printer size={24} />
-                                <span className="font-bold">Imprimiendo ticket...</span>
+
+                            <div className="flex items-center justify-center gap-3 text-emerald-600 font-black animate-bounce bg-emerald-50 py-3 px-6 rounded-2xl border border-emerald-100">
+                                <Printer size={20} />
+                                <span className="uppercase tracking-widest text-xs">Imprimiendo comprobante...</span>
                             </div>
                         </div>
-                        <p className="text-slate-400 mt-8 text-lg">Espere su llamado en pantalla</p>
+
+                        <div className="mt-12">
+                            <p className="text-slate-400 font-medium">Volviendo al inicio automáticamente...</p>
+                        </div>
                     </motion.div>
                 )}
 

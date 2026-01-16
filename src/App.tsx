@@ -32,6 +32,7 @@ import PrintingSettingsPage from './presentation/pages/settings/PrintingSettings
 import TreasuryPage from './app/finance/treasury/page';
 import MonthlyClosingPage from './app/finance/monthly-closing/page';
 import { ProductSalesReportPage } from './presentation/pages/reports/ProductSalesReportPage';
+import SmartInvoicePage from './app/procurement/smart-invoice/page';
 
 // DEV NOTE: To test Mobile Native Experience (Camera, Swipe Tabs, Layout),
 // use Chrome DevTools (F12) -> Toggle Device Toolbar (Cmd+Shift+M)
@@ -78,6 +79,8 @@ function App({ forceContextSelection }: { forceContextSelection?: boolean }) {
                 <Route path="/reports" element={<ProtectedRoute><ReportsPage /></ProtectedRoute>} />
                 <Route path="/reports/sales-by-product" element={<ProtectedRoute><ProductSalesReportPage /></ProtectedRoute>} />
                 <Route path="/supply-chain" element={<ProtectedRoute><SupplyChainPage /></ProtectedRoute>} />
+                <Route path="/procurement/smart-invoice" element={<ProtectedRoute><SmartInvoicePage /></ProtectedRoute>} />
+                <Route path="/procurement/smart-invoice/list" element={<ProtectedRoute><SmartInvoicePage /></ProtectedRoute>} />
                 <Route path="/clients" element={<ProtectedRoute><ClientsPage /></ProtectedRoute>} />
                 <Route path="/finance/treasury" element={<ProtectedRoute><TreasuryPage /></ProtectedRoute>} />
                 <Route path="/finance/monthly-closing" element={<ProtectedRoute><MonthlyClosingPage /></ProtectedRoute>} />

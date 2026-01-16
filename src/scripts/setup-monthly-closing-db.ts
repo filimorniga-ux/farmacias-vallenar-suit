@@ -4,7 +4,6 @@ const { Pool } = pg;
 import * as dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { v4 as uuidv4 } from 'uuid';
 
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
@@ -25,6 +24,8 @@ async function main() {
     const client = await pool.connect();
     try {
         console.log('🏗️  Creating Monthly Closings Table...');
+
+        await client.query(`CREATE EXTENSION IF NOT EXISTS "pgcrypto";`);
 
         await client.query(`
             CREATE TABLE IF NOT EXISTS monthly_closings (
@@ -54,12 +55,49 @@ async function main() {
                 notes TEXT,
                 
                 closed_by UUID, -- User ID
+                closed_at TIMESTAMP,
+                reopen_reason TEXT,
+                reopened_by UUID,
+                reopened_at TIMESTAMP,
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW(),
 
                 UNIQUE(month, year)
             );
         `);
+
+        console.log('🏗️  Creating Monthly Closing Entries Table...');
+
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS monthly_closing_entries (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                month INT NOT NULL CHECK (month BETWEEN 1 AND 12),
+                year INT NOT NULL CHECK (year BETWEEN 2020 AND 2100),
+                direction TEXT NOT NULL CHECK (direction IN ('IN', 'OUT')),
+                category TEXT NOT NULL CHECK (
+                    category IN (
+                        'CASH',
+                        'TRANSFER_IN',
+                        'CARD_INSTALLMENT',
+                        'DAILY_EXPENSE',
+                        'TRANSFER_OUT',
+                        'PAYROLL',
+                        'FIXED_EXPENSE',
+                        'TAX',
+                        'OWNER_WITHDRAWAL'
+                    )
+                ),
+                description TEXT,
+                reference_date DATE NOT NULL,
+                amount NUMERIC(14, 2) NOT NULL CHECK (amount >= 0),
+                created_by UUID,
+                created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
+                updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+            );
+        `);
+
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_mce_month_year ON monthly_closing_entries (year, month);`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_mce_category ON monthly_closing_entries (category);`);
 
         console.log('✅ Monthly Closings Table Created.');
 

@@ -155,7 +155,7 @@ export async function autoCloseGhostSessionsSecure(
             // Cerrar sesión
             await client.query(`
                 UPDATE cash_register_sessions 
-                SET status = 'CLOSED', end_time = NOW(), notes = $2, closed_by_user_id = $3
+                SET status = 'CLOSED', closed_at = NOW(), notes = $2, closed_by_user_id = $3
                 WHERE id = $1 AND status = 'OPEN'
             `, [ghost.session_id, reason, SYSTEM_USER_ID]);
 
@@ -227,7 +227,7 @@ export async function getRecentSystemIncidentsSecure(): Promise<{
         const params: any[] = [];
 
         if (!ADMIN_ROLES.includes(session.role)) {
-            const userRes = await query('SELECT assigned_location_id FROM users WHERE id = $1::uuid', [session.userId]);
+            const userRes = await query('SELECT assigned_location_id FROM users WHERE id = $1', [session.userId]);
             const locationId = userRes.rows[0]?.assigned_location_id;
             if (locationId) {
                 locationFilter = 'AND t.location_id = $1';
@@ -241,15 +241,15 @@ export async function getRecentSystemIncidentsSecure(): Promise<{
                 t.name as terminal_name,
                 t.location_id,
                 u.name as cashier_name,
-                s.end_time,
+                s.closed_at,
                 s.notes
             FROM cash_register_sessions s
             JOIN terminals t ON s.terminal_id = t.id
-            LEFT JOIN users u ON s.user_id = u.id
-            WHERE s.closed_by_user_id = $${params.length + 1}
-              AND s.end_time > NOW() - INTERVAL '24 hours'
+            LEFT JOIN users u ON s.user_id::text = u.id
+            WHERE s.closed_by_user_id = $${params.length + 1}::uuid
+              AND s.closed_at > NOW() - INTERVAL '24 hours'
               ${locationFilter}
-            ORDER BY s.end_time DESC
+            ORDER BY s.closed_at DESC
         `, [...params, SYSTEM_USER_ID]);
 
         return { success: true, data: res.rows };

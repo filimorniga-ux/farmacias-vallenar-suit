@@ -35,7 +35,7 @@ export async function getLocationsSecure(): Promise<{
 
     try {
         const result = await query(
-            `SELECT id, name FROM locations WHERE is_active = true AND type = 'STORE' ORDER BY name ASC`
+            `SELECT id, name, type FROM locations WHERE is_active = true ORDER BY name ASC`
         );
         return { success: true, locations: result.rows };
     } catch (error: any) {

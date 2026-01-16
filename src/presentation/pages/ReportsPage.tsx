@@ -13,14 +13,17 @@ import {
     CashFlowEntry, TaxSummary, InventoryValuation, PayrollPreview, LogisticsKPIs
 } from '../../actions/reports-detail-v2';
 import { exportCashFlowSecure, exportPayrollSecure, exportTaxSummarySecure, exportAttendanceSecure } from '../../actions/finance-export-v2';
+
 import { HRReportTab } from '../components/reports/HRReportTab';
+import { CashReceiptsReport } from '../components/reports/CashReceiptsReport';
+
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
 const ReportsPage: React.FC = () => {
     const navigate = useNavigate();
     const { currentWarehouseId, currentLocationId } = usePharmaStore();
-    const [activeTab, setActiveTab] = useState<'cash' | 'tax' | 'logistics' | 'hr'>('cash');
+    const [activeTab, setActiveTab] = useState<'cash' | 'tax' | 'logistics' | 'hr' | 'receipts'>('cash');
     const [dateRange, setDateRange] = useState<DateRange>(() => {
         const now = new Date();
         return {
@@ -70,6 +73,9 @@ const ReportsPage: React.FC = () => {
 
     // Fetch Logic
     const fetchData = useCallback(async () => {
+        // If receipts tab, no need to fetch here as component handles it internally
+        if (activeTab === 'receipts') return;
+
         setLoading(true);
         try {
             if (activeTab === 'cash') {
@@ -156,6 +162,10 @@ const ReportsPage: React.FC = () => {
                 result = await exportTaxSummarySecure(monthStr);
             } else if (activeTab === 'hr') {
                 result = await exportAttendanceSecure({ startDate, endDate, locationId });
+            } else if (activeTab === 'receipts') {
+                toast.info('Utilice el botón de exportar dentro de la tabla de recibos.');
+                setIsExporting(false);
+                return;
             } else {
                 // Logistics - use cash flow as fallback
                 result = await exportCashFlowSecure({ startDate, endDate, locationId });
@@ -185,6 +195,7 @@ const ReportsPage: React.FC = () => {
 
     const allTabs = [
         { id: 'cash' as const, label: 'Flujo de Caja', icon: DollarSign, roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'] },
+        { id: 'receipts' as const, label: 'Recibos (No Boleta)', icon: FileText, roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'CAJERO'] },
         { id: 'tax' as const, label: 'Tributario', icon: FileText, roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'CONTADOR'] },
         { id: 'logistics' as const, label: 'Logística', icon: Package, roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'WAREHOUSE', 'QF'] },
         { id: 'hr' as const, label: 'RR.HH.', icon: Users, roles: ['RRHH', 'ADMIN', 'GERENTE_GENERAL', 'MANAGER'] }
@@ -533,6 +544,10 @@ const ReportsPage: React.FC = () => {
                         </div>
                     )}
 
+                    {!loading && activeTab === 'receipts' && (
+                        <CashReceiptsReport startDate={dateRange.from} endDate={dateRange.to} />
+                    )}
+
                     {!loading && activeTab === 'hr' && (
                         <div className="space-y-8">
                             <HRReportTab dateRange={dateRange} locationId={currentLocationId || undefined} />
@@ -581,6 +596,8 @@ const ReportsPage: React.FC = () => {
                     )}
                 </div>
             </div>
+
+
         </div>
     );
 };

@@ -193,7 +193,7 @@ export const SuppliersPage = () => {
                                     <span className="truncate">{supplier.contact_email}</span>
                                 </div>
                                 <div className="flex flex-wrap gap-2 mt-3">
-                                    {supplier.categories.map(cat => (
+                                    {(supplier.categories || []).map(cat => (
                                         <span key={cat} className="px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded-full border border-slate-200">
                                             {cat}
                                         </span>

@@ -1,7 +1,7 @@
 
 import dotenv from 'dotenv';
 dotenv.config();
-import { processInvoiceXML } from '../actions/procurement/process-invoice.ts'; // Direct import might fail due to 'use server' if compiled by next, but let's try with ts-node
+import { processInvoiceXML } from '../actions/procurement/process-invoice'; // Direct import might fail due to 'use server' if compiled by next, but let's try with ts-node
 
 // Mock XML
 const mockXML = `

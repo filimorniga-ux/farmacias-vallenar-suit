@@ -44,6 +44,12 @@ export interface UnifiedProduct {
     highestPrice: number;
     maxMargin: number;
     alerts: string[];
+    unitsPerBox?: number;
+    savingsSuggestion?: {
+        productName: string;
+        price: number;
+        saveAmount: number;
+    };
 }
 
 
@@ -67,15 +73,8 @@ export async function searchUnifiedProducts(query: string, filters?: SearchFilte
         if (query && query.trim().length > 0) {
             const cleanQuery = `%${query.trim()}%`;
             params.push(cleanQuery);
-            whereClauses.push(`(
-                ii.raw_title ILIKE $${params.length} 
-                OR ii.processed_title ILIKE $${params.length}
-                OR ii.raw_barcodes ILIKE $${params.length} 
-                OR ii.raw_sku ILIKE $${params.length}
-                OR ii.raw_isp_code ILIKE $${params.length}
-                OR ii.raw_active_principle ILIKE $${params.length}
-                OR p.name ILIKE $${params.length}
-            )`);
+            // NOTE: We do NOT push to whereClauses here because we handle the text search explicitly 
+            // in the CTEs (matches) to allow splitting logic between inventory_imports and products table.
         }
 
         // 2. Metadata Filters
@@ -94,37 +93,64 @@ export async function searchUnifiedProducts(query: string, filters?: SearchFilte
 
         const whereSQL = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
 
-        // 3. Fetch enriched matches
+        // 3. Fetch enriched matches using CTEs (Performance Optimization)
         const sql = `
-      SELECT 
-        ii.id,
-        ii.source_file,
-        ii.raw_branch,
-        COALESCE(ii.processed_title, ii.raw_title) as raw_title,
-        ii.raw_price,
-        ii.raw_stock,
-        ii.raw_sku,
-        ii.raw_isp_code,
-        ii.target_product_id,
-        ii.created_at,
-        ii.raw_active_principle,
-        ii.raw_misc,
-        p.name as canonical_name,
-        p.barcode as canonical_barcode,
-        c.name as category_name,
-        l.name as lab_name,
-        a.name as action_name
-      FROM inventory_imports ii
-      LEFT JOIN products p ON ii.target_product_id::text = p.id
-      LEFT JOIN categories c ON ii.normalized_category_id = c.id
-      LEFT JOIN laboratories l ON ii.normalized_lab_id = l.id
-      LEFT JOIN therapeutic_actions a ON ii.normalized_action_id = a.id
-      ${whereSQL}
-      LIMIT 100
-    `;
+            WITH matches AS (
+                -- 1. Match in inventory_imports columns
+                SELECT ii.id, 1 as priority
+                FROM inventory_imports ii
+                WHERE (
+                    ii.raw_title ILIKE $1 
+                    OR ii.processed_title ILIKE $1
+                    OR ii.raw_barcodes ILIKE $1 
+                    OR ii.raw_sku ILIKE $1
+                    OR ii.raw_isp_code ILIKE $1
+                    OR ii.raw_active_principle ILIKE $1
+                )
+                ${whereClauses.length > 0 ? 'AND ' + whereClauses.join(' AND ') : ''}
+
+                UNION
+
+                -- 2. Match in linked products (name)
+                SELECT ii.id, 2 as priority
+                FROM inventory_imports ii
+                JOIN products p ON ii.target_product_id::text = p.id
+                WHERE p.name ILIKE $1
+                ${whereClauses.length > 0 ? 'AND ' + whereClauses.join(' AND ') : ''}
+            )
+            SELECT 
+                ii.id,
+                ii.source_file,
+                ii.raw_branch,
+                COALESCE(ii.processed_title, ii.raw_title) as raw_title,
+                ii.raw_price,
+                ii.raw_stock,
+                ii.raw_sku,
+                ii.raw_isp_code,
+                ii.target_product_id,
+                ii.created_at,
+                ii.raw_active_principle,
+                ii.raw_misc,
+                p.name as canonical_name,
+                p.barcode as canonical_barcode,
+                p.is_bioequivalent,
+                p.dci,
+                p.units_per_box,
+                c.name as category_name,
+                l.name as lab_name,
+                a.name as action_name
+            FROM matches m
+            JOIN inventory_imports ii ON m.id = ii.id
+            LEFT JOIN products p ON ii.target_product_id::text = p.id
+            LEFT JOIN categories c ON ii.normalized_category_id = c.id
+            LEFT JOIN laboratories l ON ii.normalized_lab_id = l.id
+            LEFT JOIN therapeutic_actions a ON ii.normalized_action_id = a.id
+            ORDER BY m.priority ASC, ii.raw_price ASC
+            LIMIT 100
+        `;
 
         const res = await client.query(sql, params);
-        const rows = res.rows as (DBRow & { category_name?: string, lab_name?: string, action_name?: string })[];
+        const rows = res.rows as (DBRow & { category_name?: string, lab_name?: string, action_name?: string, is_bioequivalent?: boolean, dci?: string, units_per_box?: number })[];
 
         // 4. Grouping Logic
         const groups = new Map<string, typeof rows>();
@@ -158,8 +184,14 @@ export async function searchUnifiedProducts(query: string, filters?: SearchFilte
 
             // Find enriched info from any row in the group (preferably from Master/Enriched source)
             const enrichedRow = groupRows.find(r => r.raw_misc && r.raw_misc.bioequivalente) || groupRows.find(r => r.raw_active_principle);
-            const activePrinciple = enrichedRow?.raw_active_principle || groupRows[0].raw_active_principle || null;
+
+            // Priority for regulatory info: Product Table (Synced data) > Enriched Import > Raw Import
+            const activePrinciple = canonicalRow?.dci || enrichedRow?.raw_active_principle || groupRows[0].raw_active_principle || null;
+            const isBioequivalent = canonicalRow?.is_bioequivalent ?? (enrichedRow?.raw_misc?.bioequivalente || false);
+
             const misc = enrichedRow?.raw_misc || groupRows[0].raw_misc || {};
+            // Inject regulatory status into misc for frontend
+            misc.bioequivalencia = isBioequivalent;
 
             // Extract Metadata from any row that has it (Priority: Master > Imports)
             const category = groupRows.find(r => r.category_name)?.category_name || null;
@@ -224,9 +256,41 @@ export async function searchUnifiedProducts(query: string, filters?: SearchFilte
                 bestPrice,
                 highestPrice,
                 maxMargin,
-                alerts
+                alerts,
+                unitsPerBox: canonicalRow?.units_per_box || undefined
             });
         }
+
+        // 6. Savings Calculation Logic (Cross-Product Analysis)
+        // Group by Normalized Active Principle
+        const byAP = new Map<string, UnifiedProduct[]>();
+        results.forEach(r => {
+            if (r.activePrinciple) {
+                const k = r.activePrinciple.toUpperCase().trim();
+                if (!byAP.has(k)) byAP.set(k, []);
+                byAP.get(k)?.push(r);
+            }
+        });
+
+        byAP.forEach(group => {
+            if (group.length < 2) return;
+            // Find absolute cheapest option in this group (must have stock > 0, price > 0)
+            // We use 'bestPrice' which is min of offerings.
+            const validOptions = group.filter(p => p.bestPrice > 0);
+            if (validOptions.length < 2) return;
+
+            const cheapest = validOptions.reduce((prev, curr) => prev.bestPrice < curr.bestPrice ? prev : curr);
+
+            group.forEach(p => {
+                if (p.id !== cheapest.id && p.bestPrice > cheapest.bestPrice) {
+                    p.savingsSuggestion = {
+                        productName: cheapest.productName,
+                        price: cheapest.bestPrice,
+                        saveAmount: p.bestPrice - cheapest.bestPrice
+                    };
+                }
+            });
+        });
 
         // Sort results by relevance (optional, maybe best margin?)
         return results;

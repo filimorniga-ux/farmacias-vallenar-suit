@@ -11,7 +11,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { EmployeeProfile } from '../../domain/types';
 import SystemIncidentsBanner from '../components/dashboard/SystemIncidentsBanner';
-import UnifiedPriceConsultant from '../../components/procurement/UnifiedPriceConsultant';
+
 
 
 const DashboardPage: React.FC = () => {
@@ -34,8 +34,8 @@ const DashboardPage: React.FC = () => {
         // 🚀 Cargar datos si no están cargados (lazy loading)
         syncData().catch(console.error);
 
-        // 🌍 Ensure Locations are loaded for the dropdown
-        fetchLocations().catch(console.error);
+        // 🌍 Locations are loaded by App.tsx or syncData
+
 
         autoBackupService.start();
         const updateOnlineStatus = () => setIsOnline(navigator.onLine);
@@ -191,10 +191,13 @@ const DashboardPage: React.FC = () => {
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedEmployee) return;
-        if (await login(selectedEmployee.id, pin)) {
+
+        const result = await login(selectedEmployee.id, pin);
+
+        if (result.success) {
             setIsLoginModalOpen(false);
         } else {
-            setError('PIN Incorrecto');
+            setError(result.error || 'PIN Incorrecto');
             setPin('');
         }
     };
@@ -327,9 +330,7 @@ const DashboardPage: React.FC = () => {
                 </div>
 
                 {/* 0.5. UNIFIED PRICE CONSULTANT (TOTEM) */}
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                    <UnifiedPriceConsultant />
-                </div>
+
 
                 {/* 1. FINANCIAL PULSE */}
                 {(dashboardData as any).isLoading ? (
@@ -606,7 +607,7 @@ const DashboardPage: React.FC = () => {
                                                     key={error}
                                                     animate={error ? { x: [-10, 10, -10, 10, 0] } : {}}
                                                     type="password"
-                                                    maxLength={4}
+                                                    maxLength={8}
                                                     className={`w-full text-center text-4xl tracking-[1em] font-bold py-4 border-b-4 ${error ? 'border-red-500' : 'border-slate-200'} focus:border-cyan-600 focus:outline-none transition-colors text-slate-800`}
                                                     placeholder="••••"
                                                     value={pin}

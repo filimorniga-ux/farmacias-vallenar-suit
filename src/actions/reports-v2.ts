@@ -101,7 +101,7 @@ export async function getProductSalesReportSecure(params: ReportParams) {
             FROM sale_items si
             JOIN inventory_batches ib ON si.batch_id = ib.id
             JOIN products p ON ib.product_id::text = p.id
-            JOIN sales s ON si.sale_id::text = s.id
+            JOIN sales s ON si.sale_id = s.id
             WHERE 
                 s.timestamp >= $1 AND s.timestamp <= $2
         `;

@@ -12,6 +12,8 @@ interface InvoiceItemsListProps {
     items: ParsedInvoiceItem[];
     onMapItem?: (item: ParsedInvoiceItem) => void;
     onSkipItem?: (item: ParsedInvoiceItem) => void;
+    onItemChange?: (item: ParsedInvoiceItem, newItem: ParsedInvoiceItem) => void;
+    onEditItem?: (item: ParsedInvoiceItem) => void;
     isReadOnly?: boolean;
     className?: string;
 }
@@ -24,6 +26,8 @@ export default function InvoiceItemsList({
     items,
     onMapItem,
     onSkipItem,
+    onItemChange,
+    onEditItem,
     isReadOnly = false,
     className = '',
 }: InvoiceItemsListProps) {
@@ -31,7 +35,7 @@ export default function InvoiceItemsList({
     const mappedCount = items.filter(i => i.mapping_status === 'MAPPED').length;
     const unmappedCount = items.filter(i => i.mapping_status === 'UNMAPPED' || i.mapping_status === 'PENDING').length;
     const skippedCount = items.filter(i => i.mapping_status === 'SKIPPED').length;
-    
+
     if (items.length === 0) {
         return (
             <div className={`text-center py-8 text-gray-500 ${className}`}>
@@ -40,7 +44,7 @@ export default function InvoiceItemsList({
             </div>
         );
     }
-    
+
     return (
         <div className={className}>
             {/* Header con estadísticas */}
@@ -49,7 +53,7 @@ export default function InvoiceItemsList({
                     <Package size={18} />
                     Items ({items.length})
                 </h3>
-                
+
                 <div className="flex items-center gap-3 text-sm">
                     {mappedCount > 0 && (
                         <span className="flex items-center gap-1 text-green-600">
@@ -71,7 +75,7 @@ export default function InvoiceItemsList({
                     )}
                 </div>
             </div>
-            
+
             {/* Warning si hay items sin mapear */}
             {unmappedCount > 0 && !isReadOnly && (
                 <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
@@ -81,7 +85,7 @@ export default function InvoiceItemsList({
                     </p>
                 </div>
             )}
-            
+
             {/* Lista de items */}
             <div className="space-y-2">
                 {items.map((item, index) => (
@@ -91,6 +95,8 @@ export default function InvoiceItemsList({
                         index={index}
                         onMapClick={onMapItem}
                         onSkipClick={onSkipItem}
+                        onItemChange={onItemChange}
+                        onEditClick={onEditItem}
                         isReadOnly={isReadOnly}
                     />
                 ))}

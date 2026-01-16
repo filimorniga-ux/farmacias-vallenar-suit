@@ -7,29 +7,39 @@ import CameraScanner from '../ui/CameraScanner';
 
 interface ProductFormModalProps {
     product?: InventoryBatch;
+    initialValues?: {
+        sku?: string;
+        name?: string;
+        cost?: number;
+        price?: number;
+        barcode?: string;
+        dci?: string;
+        units_per_box?: number;
+    };
     onClose: () => void;
+    onSuccess?: (newProductId: string, productData: any) => void;
 }
 
-const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, onClose }) => {
+const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialValues, onClose, onSuccess }) => {
     const { fetchInventory, suppliers, currentLocationId, currentWarehouseId, locations } = usePharmaStore();
     const isEdit = !!product;
     const { createProductSecure } = require('../../../actions/products-v2'); // Import Server Action (require for client component compat if needed, or import at top)
 
     const [formData, setFormData] = useState({
-        sku: product?.sku || '',
-        name: product?.name || '',
+        sku: product?.sku || initialValues?.sku || '',
+        name: product?.name || initialValues?.name || '',
         category: product?.category || 'MEDICAMENTO',
         subcategory: product?.subcategory || '',
         stock_actual: product?.stock_actual || 0,
         stock_min: product?.stock_min || 0,
         stock_max: product?.stock_max || 0,
         safety_stock: product?.safety_stock || 0,
-        price_sell_box: product?.price_sell_box || 0,
-        cost_net: product?.cost_net || 0,
+        price_sell_box: product?.price_sell_box || initialValues?.price || 0,
+        cost_net: product?.cost_net || initialValues?.cost || 0,
         location_id: product?.location_id || currentLocationId || (locations.length > 0 ? locations[0].id : ''),
         preferred_supplier_id: product?.preferred_supplier_id || '',
         lead_time_days: product?.lead_time_days || 3,
-        barcode: product?.barcode || '',
+        barcode: product?.barcode || initialValues?.barcode || '',
         initialLot: '',
         initialExpiry: '',
     });
@@ -134,6 +144,10 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, onClose })
 
                     // 4. Trigger Real Fetch to Update UI
                     await fetchInventory(currentLocationId, currentWarehouseId);
+
+                    if (onSuccess && result.data?.id) {
+                        onSuccess(result.data.id, payload);
+                    }
 
                     onClose();
                 } else {
@@ -282,15 +296,29 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, onClose })
                                     <label className="block text-sm font-bold text-slate-700 mb-2">
                                         Ubicación (location_id)
                                     </label>
-                                    <select
-                                        value={formData.location_id}
-                                        onChange={(e) => setFormData({ ...formData, location_id: e.target.value })}
-                                        className="w-full p-3 border border-slate-200 rounded-xl focus:outline-none focus:border-cyan-500"
-                                    >
-                                        {locations.map(loc => (
-                                            <option key={loc.id} value={loc.id}>{loc.name}</option>
-                                        ))}
-                                    </select>
+                                    <div className="relative">
+                                        <input
+                                            list="locations-list"
+                                            type="text"
+                                            className="w-full p-3 border border-slate-200 rounded-xl focus:outline-none focus:border-cyan-500"
+                                            placeholder="Buscar ubicación..."
+                                            value={locations.find(l => l.id === formData.location_id)?.name || ''}
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                const found = locations.find(l => l.name === val);
+                                                if (found) {
+                                                    setFormData({ ...formData, location_id: found.id });
+                                                } else if (val === '') {
+                                                    setFormData({ ...formData, location_id: '' });
+                                                }
+                                            }}
+                                        />
+                                        <datalist id="locations-list">
+                                            {locations.map(loc => (
+                                                <option key={loc.id} value={loc.name} />
+                                            ))}
+                                        </datalist>
+                                    </div>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-bold text-slate-700 mb-2">

@@ -8,12 +8,16 @@ const client = new Client({ connectionString: process.env.DATABASE_URL });
 async function checkSchema() {
     try {
         await client.connect();
+
+        console.log('--- COLUMNS IN inventory_batches ---');
         const res = await client.query(`
-            SELECT table_name 
-            FROM information_schema.tables 
-            WHERE table_schema = 'public'
+            SELECT column_name, data_type, is_nullable
+            FROM information_schema.columns 
+            WHERE table_name = 'inventory_batches'
+            ORDER BY ordinal_position;
         `);
         console.table(res.rows);
+
     } catch (e) {
         console.error(e);
     } finally {

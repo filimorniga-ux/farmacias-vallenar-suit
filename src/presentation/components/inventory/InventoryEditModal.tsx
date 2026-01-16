@@ -24,17 +24,41 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
     const uniqueLabs = React.useMemo(() => Array.from(new Set(inventory.map(i => i.laboratory))).filter(Boolean).sort(), [inventory]);
     const uniqueCategories = React.useMemo(() => Array.from(new Set(inventory.map(i => i.category))).filter(Boolean).sort(), [inventory]);
 
+    // 🧠 Smart Unit Detection Helper (Shared Logic)
+    const getEffectiveUnits = (item: Partial<InventoryBatch>) => {
+        // 1. Try explicit DB fields first IF they are > 1
+        const dbUnits = item.units_per_box || item.unit_count || 0;
+        if (dbUnits > 1) return dbUnits;
+
+        // 2. Try Heuristic from Name (e.g., "X60", "X 30", "X100")
+        const name = item.name || '';
+        const match = name.match(/X\s?(\d+)/i);
+
+        if (match && match[1]) {
+            const parsed = parseInt(match[1], 10);
+            if (parsed > 1 && parsed < 1000) return parsed;
+        }
+
+        return 1;
+    };
+
+
     useEffect(() => {
         if (product) {
             const normalizedSku =
                 product.sku.startsWith('AUTO-') || product.sku.startsWith('TEMP-')
                     ? ''
                     : product.sku;
+            // Intelligence: If units are 1 but we detect more, Autofill
+            const detectedUnits = getEffectiveUnits(product);
+            const initialUnits = (product.units_per_box && product.units_per_box > 1) ? product.units_per_box : detectedUnits;
+
             setFormData({
                 ...product,
                 sku: normalizedSku,
                 contraindications: product.contraindications || [],
                 therapeutic_tags: product.therapeutic_tags || [],
+                units_per_box: initialUnits, // Auto-Populate Smartly
                 // Ensure numbers
                 cost_net: Number(product.cost_net || product.cost_price || 0),
                 price: Number(product.price || product.price_sell_box || 0)
@@ -217,9 +241,9 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
         }
     };
 
-    // SEREMI Calculation
-    const pricePerUnit = formData.price && formData.units_per_package
-        ? Math.round(formData.price / formData.units_per_package)
+    // SEREMI Calculation - Uses formData which is now smartly populated
+    const pricePerUnit = formData.price && formData.units_per_box
+        ? Math.round(formData.price / formData.units_per_box)
         : 0;
 
     // Helper safe date
@@ -390,8 +414,8 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
                                         <input
                                             type="number"
                                             className="w-full p-3 border border-amber-200 rounded-xl font-mono bg-white"
-                                            value={formData.units_per_package || 1}
-                                            onChange={e => setFormData({ ...formData, units_per_package: parseInt(e.target.value) })}
+                                            value={formData.units_per_box || 1}
+                                            onChange={e => setFormData({ ...formData, units_per_box: parseInt(e.target.value) || 1 })}
                                         />
                                     </div>
                                     <div>
