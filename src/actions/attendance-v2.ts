@@ -529,7 +529,7 @@ export async function getTodayAttendanceSecure(
                 LIMIT 1
             ) al ON true
             WHERE u.is_active = true
-            AND ($1::uuid IS NULL OR u.assigned_location_id = $1)
+            AND ($1::uuid IS NULL OR u.assigned_location_id = $1 OR al.location_id = $1)
             ORDER BY u.name ASC
         `;
 
