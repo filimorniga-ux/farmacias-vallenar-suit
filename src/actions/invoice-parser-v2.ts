@@ -235,20 +235,20 @@ const ApproveRequestSchema = z.object({
         name: z.string(),
         price: z.number(),
         cost: z.number(),
-        supplierSku: z.string().optional(),
+        supplierSku: z.string().nullable().optional(),
         isBioequivalent: z.boolean().optional(),
-        dci: z.string().optional(),
-        units_per_box: z.number().optional(),
-        barcode: z.string().optional(),
+        dci: z.string().nullable().optional(),
+        units_per_box: z.number().nullable().optional(),
+        barcode: z.string().nullable().optional(),
     })).optional(),
     supplierData: z.object({
-        name: z.string().optional(),
-        fantasy_name: z.string().optional(),
-        phone: z.string().optional(),
-        email: z.string().optional(),
-        website: z.string().optional(),
-        address: z.string().optional(),
-        activity: z.string().optional(),
+        name: z.string().nullable().optional(),
+        fantasy_name: z.string().nullable().optional(),
+        phone: z.string().nullable().optional(),
+        email: z.string().nullable().optional(),
+        website: z.string().nullable().optional(),
+        address: z.string().nullable().optional(),
+        activity: z.string().nullable().optional(),
     }).optional(),
 });
 
@@ -1214,55 +1214,66 @@ export async function approveInvoiceParsingSecure(
                     const finalBarcode = overrideData?.barcode || null;
                     const finalPriceUnit = Math.round(finalPriceBox / finalUnits);
 
-                    const newProductId = randomUUID();
+                    let newProductId = randomUUID();
                     // Generar SKU si no hay del proveedor
                     const generatedSku = item.supplier_sku
                         ? (supplierId ? `SUP-${supplierId.substring(0, 4).toUpperCase()}-${item.supplier_sku}` : item.supplier_sku)
                         : `AUTO-${newProductId.substring(0, 8).toUpperCase()}`;
 
-                    await client.query(`
-                        INSERT INTO products (
-                            id, sku, name, 
-                            price, price_sell_box, price_sell_unit,
-                            cost_net, cost_price, tax_percent,
-                            stock_minimo_seguridad, stock_total, stock_actual,
-                            is_bioequivalent, units_per_box, condicion_venta,
-                            dci, barcode,
-                            created_at, updated_at, source_system
-                        ) VALUES (
-                            $1, $2, $3, 
-                            $4, $4, $5,
-                            $6, $6, 19,
-                            0, 0, 0,
-                            $7, $8, 'VD',
-                            $9, $10,
-                            NOW(), NOW(), 'AI_PARSER'
-                        )
-                    `, [
-                        newProductId,
-                        generatedSku,
-                        finalName,
-                        finalPriceBox,
-                        finalPriceUnit,
-                        finalCostBox,
-                        finalIsBioequivalent,
-                        finalUnits,
-                        finalDci,
-                        finalBarcode
-                    ]);
+                    // Verificar si ya existe un producto con este SKU (deduplicación)
+                    const existingProd = await client.query('SELECT id FROM products WHERE sku = $1', [generatedSku]);
+
+                    if (existingProd.rows.length > 0) {
+                        newProductId = existingProd.rows[0].id;
+                    } else {
+                        await client.query(`
+                            INSERT INTO products (
+                                id, sku, name, 
+                                price, price_sell_box, price_sell_unit,
+                                cost_net, cost_price, tax_percent,
+                                stock_minimo_seguridad, stock_total, stock_actual,
+                                is_bioequivalent, units_per_box, condicion_venta,
+                                dci, barcode,
+                                created_at, updated_at, source_system
+                            ) VALUES (
+                                $1, $2, $3, 
+                                $4, $4, $5,
+                                $6, $6, 19,
+                                0, 0, 0,
+                                $7, $8, 'VD',
+                                $9, $10,
+                                NOW(), NOW(), 'AI_PARSER'
+                            )
+                        `, [
+                            newProductId,
+                            generatedSku,
+                            finalName,
+                            finalPriceBox,
+                            finalPriceUnit,
+                            finalCostBox,
+                            finalIsBioequivalent,
+                            finalUnits,
+                            finalDci,
+                            finalBarcode
+                        ]);
+                        createdProductsCount++;
+                    }
 
 
                     // Actualizar item
                     items[i].mapped_product_id = newProductId;
                     items[i].mapped_product_name = item.description;
                     items[i].mapping_status = 'MAPPED';
-                    createdProductsCount++;
 
                     // Vincular al proveedor
                     if (supplierId && item.supplier_sku) {
                         await client.query(`
                             INSERT INTO product_suppliers (id, product_id, supplier_id, supplier_sku, last_cost, last_invoice_date, invoice_count)
                             VALUES ($1, $2, $3, $4, $5, CURRENT_DATE, 1)
+                            ON CONFLICT (product_id, supplier_id) DO UPDATE SET
+                                last_cost = EXCLUDED.last_cost,
+                                last_invoice_date = CURRENT_DATE,
+                                invoice_count = product_suppliers.invoice_count + 1
                         `, [
                             randomUUID(),
                             newProductId,
