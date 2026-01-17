@@ -351,7 +351,7 @@ const InventoryPage: React.FC = () => {
                         <input
                             type="text"
                             placeholder="Buscar por SKU, Nombre, DCI..."
-                            className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl focus:border-cyan-500 focus:outline-none"
+                            className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl focus:border-cyan-500 focus:outline-none select-text"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />

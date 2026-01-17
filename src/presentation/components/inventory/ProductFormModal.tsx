@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Package, Camera } from 'lucide-react';
+import { X, Save, Package, Camera, Info, Sparkles, Search as SearchIcon, AlertTriangle } from 'lucide-react';
+import { createProductSecure, updateProductMasterSecure } from '../../../actions/products-v2';
 import { usePharmaStore } from '../../store/useStore';
 import { InventoryBatch } from '../../../domain/types';
 import { toast } from 'sonner';
@@ -26,7 +27,6 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
     const queryClient = useQueryClient();
     const { suppliers, currentLocationId, currentWarehouseId, locations } = usePharmaStore();
     const isEdit = !!product;
-    const { createProductSecure } = require('../../../actions/products-v2'); // Import Server Action (require for client component compat if needed, or import at top)
 
     const [formData, setFormData] = useState({
         sku: product?.sku || initialValues?.sku || '',
@@ -48,6 +48,43 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
     });
 
     const [isScannerOpen, setIsScannerOpen] = useState(false);
+
+    // Search State
+    const [showSearch, setShowSearch] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [searchResults, setSearchResults] = useState<any[]>([]);
+    const [isSearching, setIsSearching] = useState(false);
+
+    const handleSearch = async (term: string) => {
+        if (term.length < 2) return;
+        setIsSearching(true);
+        try {
+            const { searchProductsSecure } = await import('../../../actions/search-actions');
+            const res = await searchProductsSecure(term);
+            if (res.success && res.data) {
+                setSearchResults(res.data);
+            }
+        } catch (err) {
+            console.error(err);
+        }
+        setIsSearching(false);
+    };
+
+    const handleSelectMatch = (match: any) => {
+        // Pre-fill form with matched data
+        setFormData({
+            ...formData,
+            sku: match.sku,
+            name: match.name,
+            barcode: match.barcode || formData.barcode,
+            stock_actual: formData.stock_actual, // Keep what user entered? Or existing? User said "add stock, stock min"
+            // If the user wants to clone settings:
+            price_sell_box: match.price || 0,
+            stock_actual: match.stock_actual, // Show current stock
+        });
+        toast.success(`Datos cargados desde: ${match.name}`);
+        setShowSearch(false);
+    };
 
     const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         let val = e.target.value.replace(/\D/g, ''); // Remove non-digits
@@ -100,10 +137,31 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
         }
 
         if (isEdit && product) {
-            // Update logic (keep existing store call or migrate to secure)
-            // updateProduct(product.id, formData as Partial<InventoryBatch>);
-            // toast.success('Producto actualizado');
-            toast.info('Edición pendiente de migración a V2');
+            try {
+                // @ts-ignore
+                const result = await updateProductMasterSecure({
+                    productId: product.id,
+                    userId: usePharmaStore.getState().user?.id || 'SYSTEM',
+                    sku: formData.sku,
+                    name: formData.name,
+                    price: formData.price_sell_box,
+                    costPrice: formData.cost_net,
+                    minStock: formData.stock_min,
+                    maxStock: formData.stock_max,
+                    barcode: formData.barcode || undefined
+                });
+
+                if (result.success) {
+                    toast.success('Producto actualizado correctamente');
+                    await queryClient.invalidateQueries({ queryKey: ['inventory', currentLocationId] });
+                    onClose();
+                } else {
+                    toast.error('Error al actualizar: ' + result.error);
+                }
+            } catch (err) {
+                console.error(err);
+                toast.error('Error de conexión al actualizar');
+            }
         } else {
             // 2. Prepare Data for Backend
             let expiryDate = undefined;
@@ -148,8 +206,8 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                     // 4. Trigger Real Fetch to Update UI
                     await queryClient.invalidateQueries({ queryKey: ['inventory', currentLocationId] });
 
-                    if (onSuccess && result.data?.id) {
-                        onSuccess(result.data.id, payload);
+                    if (onSuccess && result.data?.productId) {
+                        onSuccess(result.data.productId, payload);
                     }
 
                     onClose();
@@ -162,6 +220,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
             }
         }
     };
+
 
     return (
         <>
@@ -182,16 +241,14 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                         </button>
                     </div>
 
-                    {/* Form */}
+                    {/* Form Content */}
                     <div className="p-6 space-y-6">
-                        {/* General */}
+                        {/* General Section */}
                         <div>
                             <h3 className="text-sm font-bold text-slate-700 mb-4 uppercase">General</h3>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-2">
-                                        SKU *
-                                    </label>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">SKU *</label>
                                     <input
                                         type="text"
                                         value={formData.sku}
@@ -201,9 +258,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-2">
-                                        Nombre *
-                                    </label>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Nombre *</label>
                                     <input
                                         type="text"
                                         value={formData.name}
@@ -212,9 +267,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-2">
-                                        Categoría
-                                    </label>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Categoría</label>
                                     <select
                                         value={formData.category}
                                         onChange={(e) => setFormData({ ...formData, category: e.target.value })}
@@ -226,52 +279,64 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-2">
-                                        Código Barras
-                                    </label>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Código Barras</label>
                                     <div className="flex gap-2">
                                         <input
                                             type="text"
                                             value={formData.barcode}
                                             onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
                                             className="flex-1 p-3 border border-slate-200 rounded-xl focus:outline-none focus:border-cyan-500"
-                                            placeholder="Escanear o escribir..."
+                                            placeholder="Pistola o manual..."
+                                            autoFocus={!isEdit}
                                         />
                                         <button
                                             type="button"
                                             onClick={() => setIsScannerOpen(true)}
-                                            className="px-4 py-3 bg-cyan-600 text-white rounded-xl hover:bg-cyan-700 transition flex items-center gap-2"
+                                            className="px-4 py-3 bg-cyan-600 text-white rounded-xl hover:bg-cyan-700 transition"
                                             title="Escanear con cámara"
                                         >
                                             <Camera size={20} />
                                         </button>
                                     </div>
+                                    <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
+                                        <Info size={10} /> Compatible con lector USB
+                                    </p>
                                 </div>
                             </div>
+                            {!isEdit && (
+                                <div className="mt-2 flex justify-end">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowSearch(true)}
+                                        className="text-xs text-purple-600 font-bold hover:underline flex items-center gap-1"
+                                    >
+                                        <Sparkles size={14} />
+                                        ¿El producto ya existe? Buscar coincidencia
+                                    </button>
+                                </div>
+                            )}
                         </div>
 
-                        {/* Stock - Tiger Cloud compliant */}
+                        {/* Stock Section */}
                         <div>
                             <h3 className="text-sm font-bold text-slate-700 mb-4 uppercase">Stock Inicial</h3>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-bold text-amber-600 mb-2">
-                                        Stock Actual
-                                    </label>
+                                    <label className="block text-sm font-bold text-amber-600 mb-2">Stock Actual</label>
                                     <input
                                         type="number"
                                         value={formData.stock_actual}
                                         onChange={(e) => setFormData({ ...formData, stock_actual: parseInt(e.target.value) || 0 })}
                                         className="w-full p-3 border border-amber-200 rounded-xl focus:outline-none focus:border-amber-500 bg-amber-50"
-                                        disabled={isEdit} // Initial stock only on create
+                                        disabled={isEdit}
+                                        inputMode="numeric"
+                                        autoComplete="off"
                                     />
                                 </div>
                                 {formData.stock_actual > 0 && !isEdit && (
                                     <>
                                         <div>
-                                            <label className="block text-sm font-bold text-slate-700 mb-2">
-                                                Lote Inicial *
-                                            </label>
+                                            <label className="block text-sm font-bold text-slate-700 mb-2">Lote Inicial *</label>
                                             <input
                                                 type="text"
                                                 value={formData.initialLot || ''}
@@ -281,9 +346,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                                             />
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-bold text-slate-700 mb-2">
-                                                Vencimiento *
-                                            </label>
+                                            <label className="block text-sm font-bold text-slate-700 mb-2">Vencimiento *</label>
                                             <input
                                                 type="text"
                                                 maxLength={10}
@@ -296,9 +359,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                                     </>
                                 )}
                                 <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-2">
-                                        Ubicación (location_id)
-                                    </label>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Ubicación</label>
                                     <div className="relative">
                                         <input
                                             list="locations-list"
@@ -324,62 +385,60 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-2">
-                                        Stock Mínimo
-                                    </label>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Stock Mínimo</label>
                                     <input
                                         type="number"
                                         value={formData.stock_min}
                                         onChange={(e) => setFormData({ ...formData, stock_min: parseInt(e.target.value) || 0 })}
                                         className="w-full p-3 border border-slate-200 rounded-xl focus:outline-none focus:border-cyan-500"
+                                        inputMode="numeric"
+                                        autoComplete="off"
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-2">
-                                        Stock Máximo
-                                    </label>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Stock Máximo</label>
                                     <input
                                         type="number"
                                         value={formData.stock_max}
                                         onChange={(e) => setFormData({ ...formData, stock_max: parseInt(e.target.value) || 0 })}
                                         className="w-full p-3 border border-slate-200 rounded-xl focus:outline-none focus:border-cyan-500"
+                                        inputMode="numeric"
+                                        autoComplete="off"
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-bold text-blue-600 mb-2">
-                                        Stock Seguridad
-                                    </label>
+                                    <label className="block text-sm font-bold text-blue-600 mb-2">Stock Seguridad</label>
                                     <input
                                         type="number"
                                         value={formData.safety_stock}
                                         onChange={(e) => setFormData({ ...formData, safety_stock: parseInt(e.target.value) || 0 })}
                                         className="w-full p-3 border border-blue-200 rounded-xl focus:outline-none focus:border-blue-500 bg-blue-50"
+                                        inputMode="numeric"
+                                        autoComplete="off"
                                     />
                                 </div>
                             </div>
                         </div>
 
-                        {/* Precios - Tiger Cloud Schema V8.0 */}
+                        {/* Precios Section */}
                         <div>
-                            <h3 className="text-sm font-bold text-slate-700 mb-4 uppercase">Precios (Tiger Cloud)</h3>
+                            <h3 className="text-sm font-bold text-slate-700 mb-4 uppercase">Precios</h3>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-bold text-emerald-600 mb-2">
-                                        Precio Venta Caja (price_sell_box)
-                                    </label>
+                                    <label className="block text-sm font-bold text-emerald-600 mb-2">Precio Venta Caja</label>
                                     <input
-                                        type="text" // TEXT TYPE
+                                        type="text"
                                         value={formatCLP(formData.price_sell_box)}
                                         onChange={(e) => handleNumberChange(e.target.value, 'price_sell_box')}
                                         className="w-full p-3 border border-emerald-200 rounded-xl focus:outline-none focus:border-emerald-500 bg-emerald-50"
+                                        inputMode="decimal"
+                                        autoComplete="off"
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-bold text-red-600 mb-2">
-                                        Costo Neto (cost_net)
-                                    </label>
+                                    <label className="block text-sm font-bold text-red-600 mb-2">Costo Neto</label>
                                     <input
-                                        type="text" // TEXT TYPE
+                                        type="text"
                                         value={formatCLP(formData.cost_net)}
                                         onChange={(e) => handleNumberChange(e.target.value, 'cost_net')}
                                         className="w-full p-3 border border-red-200 rounded-xl focus:outline-none focus:border-red-500 bg-red-50"
@@ -388,14 +447,12 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                             </div>
                         </div>
 
-                        {/* Proveedor */}
+                        {/* Proveedor Section */}
                         <div>
                             <h3 className="text-sm font-bold text-slate-700 mb-4 uppercase">Proveedor</h3>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-2">
-                                        Proveedor Preferido
-                                    </label>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Proveedor Preferido</label>
                                     <select
                                         value={formData.preferred_supplier_id}
                                         onChange={(e) => setFormData({ ...formData, preferred_supplier_id: e.target.value })}
@@ -408,14 +465,14 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-2">
-                                        Lead Time (días)
-                                    </label>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Lead Time (días)</label>
                                     <input
                                         type="number"
                                         value={formData.lead_time_days}
                                         onChange={(e) => setFormData({ ...formData, lead_time_days: parseInt(e.target.value) || 0 })}
                                         className="w-full p-3 border border-slate-200 rounded-xl focus:outline-none focus:border-cyan-500"
+                                        inputMode="numeric"
+                                        autoComplete="off"
                                     />
                                 </div>
                             </div>
@@ -451,6 +508,65 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                     }}
                     onClose={() => setIsScannerOpen(false)}
                 />
+            )}
+
+            {/* Search Modal */}
+            {showSearch && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowSearch(false)} />
+                    <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh]">
+                        <div className="p-4 border-b bg-purple-50 flex justify-between items-center">
+                            <h3 className="font-bold text-purple-900 flex items-center gap-2">
+                                <Sparkles size={18} className="text-purple-600" />
+                                Buscar Coincidencia en Inventario
+                            </h3>
+                            <button onClick={() => setShowSearch(false)}><X size={20} className="text-purple-400" /></button>
+                        </div>
+                        <div className="p-4 border-b">
+                            <div className="relative">
+                                <input
+                                    type="text"
+                                    placeholder="Buscar por nombre, SKU o código de barras..."
+                                    className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
+                                    value={searchTerm}
+                                    onChange={e => {
+                                        setSearchTerm(e.target.value);
+                                        handleSearch(e.target.value);
+                                    }}
+                                    autoFocus
+                                />
+                                <SearchIcon className="absolute left-3 top-2.5 text-gray-400" size={18} />
+                            </div>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-2 space-y-2 bg-slate-50">
+                            {isSearching ? (
+                                <div className="p-4 text-center text-gray-400">Buscando...</div>
+                            ) : searchResults.length === 0 ? (
+                                <div className="p-8 text-center text-gray-400 text-sm">
+                                    No se encontraron productos similares.
+                                </div>
+                            ) : (
+                                searchResults.map((res: any) => (
+                                    <div key={res.id} onClick={() => handleSelectMatch(res)} className="p-3 bg-white border rounded-lg hover:border-purple-400 cursor-pointer transition shadow-sm group">
+                                        <div className="flex justify-between items-start">
+                                            <div>
+                                                <p className="font-bold text-slate-800 group-hover:text-purple-700">{res.name}</p>
+                                                <div className="flex gap-2 text-xs text-slate-500 mt-1">
+                                                    <span className="bg-slate-100 px-1.5 py-0.5 rounded">SKU: {res.sku}</span>
+                                                    {res.barcode && <span className="bg-slate-100 px-1.5 py-0.5 rounded">Bar: {res.barcode}</span>}
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="block font-bold text-green-600">${res.price?.toLocaleString()}</span>
+                                                <span className="text-xs text-slate-400">Stock: {res.stock_actual}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
             )}
         </>
     );

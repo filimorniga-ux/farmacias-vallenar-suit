@@ -31,6 +31,44 @@ export function ConfirmAutoCreateModal({ isOpen, onClose, onConfirm, items, supp
     // Estado para modal full
     const [fullEditIndex, setFullEditIndex] = useState<number | null>(null);
 
+    // Estado para búsqueda manual (Link with AI)
+    const [searchModalOpen, setSearchModalOpen] = useState(false);
+    const [searchIndex, setSearchIndex] = useState<number | null>(null);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [searchResults, setSearchResults] = useState<any[]>([]);
+    const [isSearching, setIsSearching] = useState(false);
+
+    const handleManualSearch = async (term: string) => {
+        if (term.length < 2) return;
+        setIsSearching(true);
+        try {
+            const { searchProductsSecure } = await import('@/actions/search-actions');
+            const res = await searchProductsSecure(term);
+            if (res.success && res.data) {
+                setSearchResults(res.data);
+            }
+        } catch (err) {
+            console.error(err);
+        }
+        setIsSearching(false);
+    };
+
+    const handleSelectManualLink = (product: any) => {
+        if (searchIndex !== null) {
+            handlePickSuggestion(searchIndex, { productId: product.id, sku: product.sku });
+            setSearchModalOpen(false);
+            setSearchIndex(null);
+            setSearchTerm('');
+        }
+    };
+
+    const openSearchFor = (index: number, name: string) => {
+        setSearchIndex(index);
+        setSearchTerm(name); // Pre-fill with invoice name
+        handleManualSearch(name); // Auto-search
+        setSearchModalOpen(true);
+    };
+
     useEffect(() => {
         if (isOpen) {
             const newProds = items
@@ -199,7 +237,14 @@ export function ConfirmAutoCreateModal({ isOpen, onClose, onConfirm, items, supp
 
                                             {/* Columna Formulario Maestro */}
                                             <div className="flex-1 space-y-4">
-                                                <div className="flex justify-end">
+                                                <div className="flex justify-end gap-3">
+                                                    <button
+                                                        onClick={() => openSearchFor(idx, prod.name)}
+                                                        className="flex items-center gap-1 text-xs text-amber-600 font-bold hover:underline bg-amber-50 px-2 py-1 rounded-lg border border-amber-200"
+                                                    >
+                                                        <Sparkles size={14} />
+                                                        Vincular con Existente
+                                                    </button>
                                                     <button
                                                         onClick={() => setFullEditIndex(idx)}
                                                         className="flex items-center gap-1 text-xs text-purple-600 font-bold hover:underline"
@@ -393,6 +438,70 @@ export function ConfirmAutoCreateModal({ isOpen, onClose, onConfirm, items, supp
                     }}
                 />
             )}
+            {/* Modal Búsqueda Manual / AI Link */}
+            {searchModalOpen && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setSearchModalOpen(false)} />
+                    <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh]">
+                        <div className="p-4 border-b bg-amber-50 flex justify-between items-center">
+                            <h3 className="font-bold text-amber-900 flex items-center gap-2">
+                                <Sparkles size={18} className="text-amber-600" />
+                                Vincular con Inventario Existente
+                            </h3>
+                            <button onClick={() => setSearchModalOpen(false)}><X size={20} className="text-amber-400" /></button>
+                        </div>
+                        <div className="p-4 border-b">
+                            <div className="relative">
+                                <input
+                                    type="text"
+                                    placeholder="Buscar por nombre, SKU o código de barras..."
+                                    className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500"
+                                    value={searchTerm}
+                                    onChange={e => {
+                                        setSearchTerm(e.target.value);
+                                        handleManualSearch(e.target.value);
+                                    }}
+                                    autoFocus
+                                />
+                                <Search size={18} className="absolute left-3 top-2.5 text-gray-400" />
+                            </div>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-2 space-y-2 bg-slate-50">
+                            {isSearching ? (
+                                <div className="p-4 text-center text-gray-400">Buscando en inventario...</div>
+                            ) : searchResults.length === 0 ? (
+                                <div className="p-8 text-center text-gray-400 text-sm">
+                                    No se encontraron productos en el inventario que coincidan con "{searchTerm}".
+                                </div>
+                            ) : (
+                                searchResults.map((res: any) => (
+                                    <div
+                                        key={res.id}
+                                        onClick={() => handleSelectManualLink(res)}
+                                        className="p-3 bg-white border rounded-lg hover:border-amber-400 cursor-pointer transition shadow-sm group"
+                                    >
+                                        <div className="flex justify-between items-start">
+                                            <div>
+                                                <p className="font-bold text-slate-800 group-hover:text-amber-700">{res.name}</p>
+                                                <div className="flex gap-2 text-xs text-slate-500 mt-1">
+                                                    <span className="bg-slate-100 px-1.5 py-0.5 rounded">SKU: {res.sku}</span>
+                                                    {res.barcode && <span className="bg-slate-100 px-1.5 py-0.5 rounded">Bar: {res.barcode}</span>}
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="block font-bold text-green-600">${res.price?.toLocaleString()}</span>
+                                                <div className="text-xs text-slate-400">Stock: {res.stock_actual}</div>
+                                                <div className="text-[10px] text-amber-600 font-bold mt-1">Clic para vincular</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
         </div>
     );
 }

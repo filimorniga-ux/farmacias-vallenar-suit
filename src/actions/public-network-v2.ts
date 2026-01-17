@@ -71,7 +71,8 @@ export async function getPublicLocationsSecure(): Promise<{
         const data = await getCachedLocations();
         return { success: true, data };
 
-    } catch (error) {
-        return { success: false, error: 'Error al cargar sucursales.' };
+    } catch (error: any) {
+        console.error('getPublicLocationsSecure Error:', error);
+        return { success: false, error: `Error al cargar sucursales: ${error.message || 'Desconocido'}` };
     }
 }
