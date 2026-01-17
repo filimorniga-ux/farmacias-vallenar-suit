@@ -107,7 +107,7 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
         return { net, tax, total: net + tax, retail };
     }, [orderItems]);
 
-    const handleSave = (status: 'DRAFT' | 'SENT') => {
+    const handleSave = async (status: 'DRAFT' | 'SENT') => {
         if (!selectedSupplierId) {
             toast.error('Seleccione un proveedor');
             return;
