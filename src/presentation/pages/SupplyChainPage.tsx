@@ -11,7 +11,7 @@ import { deletePurchaseOrderSecure } from '../../actions/supply-v2';
 
 const SupplyChainPage: React.FC = () => {
     const { inventory, suppliers, purchaseOrders, addPurchaseOrder, receivePurchaseOrder, generateSuggestedPOs } = usePharmaStore();
-    const { pushNotification } = useNotificationStore();
+
 
     const [isReceptionModalOpen, setIsReceptionModalOpen] = useState(false);
     const [isManualOrderModalOpen, setIsManualOrderModalOpen] = useState(false);
@@ -76,13 +76,14 @@ const SupplyChainPage: React.FC = () => {
             // Notify if critical
             const criticalCount = newSuggestions.filter(s => s.urgency === 'HIGH').length;
             if (criticalCount > 0) {
-                pushNotification({
-                    eventType: 'STOCK_CRITICAL',
-                    category: 'STOCK',
+                // Server Action Notification
+                const { createNotificationSecure } = await import('../../actions/notifications-v2');
+                await createNotificationSecure({
+                    type: 'STOCK_CRITICAL',
                     severity: 'CRITICAL',
                     title: 'Stock Crítico Detectado',
                     message: `${criticalCount} producto(s) requieren atención urgente`,
-                    roleTarget: 'MANAGER'
+                    metadata: { roleTarget: 'MANAGER', locationId: 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6' }
                 });
             }
 
