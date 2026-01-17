@@ -1368,7 +1368,7 @@ export async function exportCashMovementHistory(
                 LEFT JOIN users u ON s.user_id::text = u.id::text
                 LEFT JOIN sale_items si ON s.id = si.sale_id
                 WHERE ${saleFilters}
-                GROUP BY s.id, u.name
+                GROUP BY s.id, u.name, s.total_amount, s.total, s.timestamp, s.payment_method, s.dte_folio, s.customer_name
             )
             ORDER BY timestamp DESC
             LIMIT 5000

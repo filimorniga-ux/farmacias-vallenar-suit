@@ -118,7 +118,7 @@ export async function markAllAsReadSecure(locationId?: string) {
     }
 }
 
-export async function notifyManagersSecure(data: { locationId?: string; title: string; message: string; metadata?: any }) {
+export async function notifyManagersSecure(data: { locationId?: string; title: string; message: string; metadata?: any; link?: string }) {
     const client = await getClient();
     try {
         // Find managers to notify
@@ -150,6 +150,8 @@ export async function notifyManagersSecure(data: { locationId?: string; title: s
         // We use a loop for simplicity or generate a large INSERT. 
         // Given logical number of managers is low (<20), loop is fine or single INSERT with UNNEST.
 
+        const metadata = { ...data.metadata, actionUrl: data.link || data.metadata?.actionUrl };
+
         for (const userId of managerIds) {
             await client.query(`
                 INSERT INTO notifications (
@@ -158,7 +160,7 @@ export async function notifyManagersSecure(data: { locationId?: string; title: s
             `, [
                 data.title,
                 data.message,
-                JSON.stringify(data.metadata || {}),
+                JSON.stringify(metadata),
                 data.locationId || null,
                 userId
             ]);
