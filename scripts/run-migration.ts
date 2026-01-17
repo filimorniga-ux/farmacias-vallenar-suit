@@ -9,7 +9,7 @@ dotenv.config();
 dotenv.config({ path: '.env.local' });
 
 async function runMigration() {
-    const migrationPath = path.join(process.cwd(), 'scripts/migrations/021_allow_negative_inventory.sql');
+    const migrationPath = path.join(process.cwd(), 'scripts/migrations/023_add_created_at_batches.sql');
     console.log(`Reading migration file from: ${migrationPath}`);
 
     // Create direct client to avoid 'server-only' issues

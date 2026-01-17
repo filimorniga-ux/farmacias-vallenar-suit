@@ -112,6 +112,8 @@ export interface InventoryBatch {
     price_per_unit?: number;
     bioequivalent?: boolean; // Alias
     active_ingredient?: string; // Alias
+    source_system?: string; // 'MANUAL' | 'AI_PARSER' | 'WMS'
+    created_at?: number; // Timestamp of creation/restock
 }
 
 // Stock Movement Tracking

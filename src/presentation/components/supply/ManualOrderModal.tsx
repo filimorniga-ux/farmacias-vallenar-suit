@@ -4,6 +4,7 @@ import { usePharmaStore } from '../../store/useStore';
 import { useNotificationStore } from '../../store/useNotificationStore';
 import { toast } from 'sonner';
 import { InventoryBatch, PurchaseOrder, PurchaseOrderItem } from '../../../domain/types';
+import { createNotificationSecure } from '../../../actions/notifications-v2';
 
 interface ManualOrderModalProps {
     isOpen: boolean;
@@ -154,7 +155,6 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
         if (status === 'SENT') {
             try {
                 // Call server action for notification
-                const { createNotificationSecure } = await import('../../../actions/notifications-v2');
                 await createNotificationSecure({
                     type: 'INVENTORY',
                     severity: 'INFO',
