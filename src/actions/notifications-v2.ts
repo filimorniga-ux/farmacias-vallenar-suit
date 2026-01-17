@@ -117,3 +117,59 @@ export async function markAllAsReadSecure(locationId?: string) {
         client.release();
     }
 }
+
+export async function notifyManagersSecure(data: { locationId?: string; title: string; message: string; metadata?: any }) {
+    const client = await getClient();
+    try {
+        // Find managers to notify
+        // If locationId is provided, notify managers of that location + Global Admins
+        // If no locationId, notify all managers ?? (Usually better to be specific)
+
+        // For Vallenar: Managers are usually per branch or Global.
+        // Let's select users with role IN ('MANAGER','ADMIN','GERENTE_GENERAL') 
+        // AND (assigned_location_id = $1 OR assigned_location_id IS NULL OR role = 'ADMIN' OR role = 'GERENTE_GENERAL')
+
+        let userQuery = `
+            SELECT id FROM users 
+            WHERE role IN ('MANAGER', 'ADMIN', 'GERENTE_GENERAL')
+            AND is_active = true
+        `;
+        const params: any[] = [];
+
+        if (data.locationId) {
+            userQuery += ` AND (assigned_location_id = $1 OR assigned_location_id IS NULL OR role IN ('ADMIN', 'GERENTE_GENERAL'))`;
+            params.push(data.locationId);
+        }
+
+        const res = await client.query(userQuery, params);
+        const managerIds = res.rows.map(r => r.id);
+
+        if (managerIds.length === 0) return { success: true };
+
+        // Batch insert notifications
+        // We use a loop for simplicity or generate a large INSERT. 
+        // Given logical number of managers is low (<20), loop is fine or single INSERT with UNNEST.
+
+        for (const userId of managerIds) {
+            await client.query(`
+                INSERT INTO notifications (
+                    type, severity, title, message, metadata, location_id, user_id
+                ) VALUES ('CASH', 'WARNING', $1, $2, $3, $4, $5)
+            `, [
+                data.title,
+                data.message,
+                JSON.stringify(data.metadata || {}),
+                data.locationId || null,
+                userId
+            ]);
+        }
+
+        return { success: true, notifiedCount: managerIds.length };
+
+    } catch (error) {
+        console.error('Failed to notify managers:', error);
+        return { success: false, error: 'Failed to notify managers' };
+    } finally {
+        client.release();
+    }
+}
