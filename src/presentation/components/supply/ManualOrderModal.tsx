@@ -23,7 +23,7 @@ interface OrderItem {
 
 const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, initialOrder }) => {
     const { inventory, suppliers, addPurchaseOrder, updatePurchaseOrder } = usePharmaStore();
-    const { pushNotification } = useNotificationStore();
+
 
     const [selectedSupplierId, setSelectedSupplierId] = useState('');
     const [expectedDate, setExpectedDate] = useState('');
@@ -152,14 +152,23 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
         }
 
         if (status === 'SENT') {
-            pushNotification({
-                eventType: 'AUTO_ORDER_GENERATED',
-                category: 'STOCK',
-                severity: 'INFO',
-                title: initialOrder ? 'Orden Actualizada y Enviada' : 'Orden de Compra Enviada',
-                message: `Orden ${initialOrder?.id || 'Nueva'} enviada a ${selectedSupplier?.fantasy_name}`,
-                roleTarget: 'MANAGER'
-            });
+            try {
+                // Call server action for notification
+                const { createNotificationSecure } = await import('../../../actions/notifications-v2');
+                await createNotificationSecure({
+                    type: 'INVENTORY',
+                    severity: 'INFO',
+                    title: initialOrder ? 'Orden Actualizada y Enviada' : 'Orden de Compra Enviada',
+                    message: `Orden ${initialOrder?.id || 'Nueva'} enviada a ${selectedSupplier?.fantasy_name}`,
+                    metadata: {
+                        orderId: initialOrder?.id,
+                        supplier: selectedSupplier?.fantasy_name,
+                        roleTarget: 'MANAGER'
+                    }
+                });
+            } catch (error) {
+                console.error('Failed to send notification', error);
+            }
         }
 
         onClose();
