@@ -77,10 +77,8 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
             sku: match.sku,
             name: match.name,
             barcode: match.barcode || formData.barcode,
-            stock_actual: formData.stock_actual, // Keep what user entered? Or existing? User said "add stock, stock min"
-            // If the user wants to clone settings:
             price_sell_box: match.price || 0,
-            stock_actual: match.stock_actual, // Show current stock
+            // Keep user's stock_actual (new stock to add), don't override with existing
         });
         toast.success(`Datos cargados desde: ${match.name}`);
         setShowSearch(false);
