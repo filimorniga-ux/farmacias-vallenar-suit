@@ -55,9 +55,9 @@ export async function getPublicLocationsSecure(): Promise<{
     error?: string;
 }> {
     try {
-        // Obtener IP
-        const headersList = await headers();
-        const ip = headersList.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+        // Obtener IP (Disabled for stability)
+        // const headersList = await headers();
+        // const ip = headersList.get('x-forwarded-for')?.split(',')[0] || 'unknown';
 
         // Rate limit 10/min por IP
         // Rate limit 10/min por IP - DISABLED for desktop app compatibility

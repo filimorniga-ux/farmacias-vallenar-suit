@@ -9,14 +9,18 @@ const ContextSelectionPage: React.FC = () => {
     const navigate = useNavigate();
     const [publicLocations, setPublicLocations] = useState<PublicLocation[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     // Initial Load
     useEffect(() => {
         const load = async () => {
             setIsLoading(true);
+            setError(null);
             const res = await getPublicLocationsSecure();
             if (res.success && res.data) {
                 setPublicLocations(res.data);
+            } else {
+                setError(res.error || 'Error desconocido al cargar sucursales');
             }
             setIsLoading(false);
         };
@@ -78,6 +82,13 @@ const ContextSelectionPage: React.FC = () => {
                                     <div className="h-8 w-1/3 bg-white/10 rounded-full" />
                                 </div>
                             ))}
+                        </div>
+                    ) : error ? (
+                        <div className="flex flex-col items-center justify-center p-12 text-center text-red-500 bg-red-50 rounded-2xl border border-red-100">
+                            <Store size={48} className="mb-4 opacity-50" />
+                            <h3 className="text-xl font-bold mb-2">Error de Conexión</h3>
+                            <p className="text-sm font-mono max-w-md">{error}</p>
+                            <p className="text-xs mt-2 text-red-400">¿Estás conectado a internet?</p>
                         </div>
                     ) : publicLocations.length === 0 ? (
                         <div className="flex flex-col items-center justify-center p-12 text-center text-slate-500">
