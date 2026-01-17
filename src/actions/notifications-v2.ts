@@ -4,7 +4,7 @@ import { getClient } from '../lib/db';
 import { revalidatePath } from 'next/cache';
 
 export type NotificationType = 'HR' | 'INVENTORY' | 'CASH' | 'WMS' | 'SYSTEM' | 'CONFIG' | 'STOCK_CRITICAL' | 'GENERAL';
-export type NotificationSeverity = 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR';
+export type NotificationSeverity = 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR' | 'CRITICAL';
 
 export interface CreateNotificationDTO {
     type: NotificationType;
