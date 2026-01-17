@@ -2,9 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
-import {
-    Filter, Download, Upload, AlertTriangle, Search, Plus, FileSpreadsheet,
-    ChevronDown, ChevronUp, MoreHorizontal, History, RefreshCcw, Package, ScanBarcode, ArrowRightLeft, Edit, Trash2, Zap
+Filter, Download, Upload, AlertTriangle, Search, Plus, FileSpreadsheet,
+    ChevronDown, ChevronUp, MoreHorizontal, History, RefreshCcw, Package, ScanBarcode, ArrowRightLeft, Edit, Trash2, Zap, Sparkles
 } from 'lucide-react';
 import { MobileScanner } from '../../components/shared/MobileScanner';
 import StockEntryModal from '../components/inventory/StockEntryModal';
@@ -435,6 +434,11 @@ const InventoryPage: React.FC = () => {
                                                     <p className="text-xs text-slate-400">{item.laboratory || 'Laboratorio N/A'}</p>
                                                 </div>
                                                 <div className="flex gap-1 flex-wrap justify-end max-w-[100px]">
+                                                    {item.source_system === 'AI_PARSER' && (
+                                                        <span className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded-lg text-[10px] font-bold flex items-center gap-1">
+                                                            <Sparkles size={8} /> IA
+                                                        </span>
+                                                    )}
                                                     {item.is_bioequivalent && <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-[10px] font-bold">BIO</span>}
                                                     {item.storage_condition === 'REFRIGERADO' && <span className="px-2 py-1 bg-cyan-100 text-cyan-700 rounded-lg text-[10px] font-bold">FRIO</span>}
                                                     {['R', 'RR', 'RCH'].includes(item.condition) && <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-lg text-[10px] font-bold">RET</span>}
@@ -503,11 +507,22 @@ const InventoryPage: React.FC = () => {
                                                 <div className="text-xs text-slate-400 mt-1">{item.format || ''} x{getEffectiveUnits(item)}</div>
                                             </div>
                                             <div className="p-4 w-[15%]">
-                                                <div className="flex gap-1 flex-wrap">
+                                                <div className="flex gap-1 flex-wrap mb-1">
+                                                    {item.source_system === 'AI_PARSER' && (
+                                                        <span title="Creado/Abastecido por IA" className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded-lg text-[10px] font-bold border border-indigo-200 flex items-center gap-1">
+                                                            <Sparkles size={10} /> IA
+                                                        </span>
+                                                    )}
                                                     {item.is_bioequivalent && <span title="Bioequivalente" className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-xs font-bold border border-emerald-200">BIO</span>}
                                                     {item.storage_condition === 'REFRIGERADO' && <span title="Cadena de Frío" className="px-2 py-1 bg-cyan-100 text-cyan-700 rounded-lg text-xs font-bold border border-cyan-200">FRIO</span>}
                                                     {['R', 'RR', 'RCH'].includes(item.condition) && <span title="Receta Retenida" className="px-2 py-1 bg-purple-100 text-purple-700 rounded-lg text-xs font-bold border border-purple-200">RET</span>}
                                                 </div>
+                                                {item.created_at && (
+                                                    <div className="text-[10px] text-slate-400 font-medium mt-1">
+                                                        <span className="block text-slate-300 uppercase text-[9px] leading-tight mb-0.5">Ult. Ingreso</span>
+                                                        {new Date(item.created_at).toLocaleDateString()}
+                                                    </div>
+                                                )}
                                             </div>
                                             <div className="p-4 w-[15%]">
                                                 <div className="flex flex-col items-start">

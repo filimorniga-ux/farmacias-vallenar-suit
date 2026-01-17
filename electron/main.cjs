@@ -29,8 +29,10 @@ function createWindow() {
     win.maximize();
     win.show();
 
-    // URL OFICIAL DE PRODUCCIÓN
-    const startUrl = 'https://farmaciasvallenar.vercel.app';
+    // URL CONFIGURATION
+    const isDev = !app.isPackaged;
+    const startUrl = isDev ? 'http://localhost:3000' : 'https://farmaciasvallenar.vercel.app';
+    console.log('Loading URL:', startUrl);
 
     // Handle loading errors with retry dialog
     const loadContent = () => {

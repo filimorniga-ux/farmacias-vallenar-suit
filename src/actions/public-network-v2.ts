@@ -43,7 +43,7 @@ const getCachedLocations = unstable_cache(
         }));
     },
     ['public-locations'],
-    { revalidate: 300 } // 5 minutos
+    { revalidate: 1 } // 1 segundo para evitar stale data en desktop
 );
 
 /**
@@ -60,10 +60,13 @@ export async function getPublicLocationsSecure(): Promise<{
         const ip = headersList.get('x-forwarded-for')?.split(',')[0] || 'unknown';
 
         // Rate limit 10/min por IP
+        // Rate limit 10/min por IP - DISABLED for desktop app compatibility
+        /*
         const rl = checkRateLimit(`public-locations:${ip}`);
         if (!rl.allowed) {
             return { success: false, error: 'Demasiadas solicitudes. Intente en un momento.' };
         }
+        */
 
         const data = await getCachedLocations();
         return { success: true, data };

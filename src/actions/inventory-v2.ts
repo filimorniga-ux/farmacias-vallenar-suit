@@ -858,7 +858,9 @@ export async function getInventorySecure(
                 p.condicion_venta::text as condition,
                 NULL::text as lot_number,
                 NULL::timestamp as expiry_date_ts,
-                'products' as source
+                'products' as source,
+                p.source_system::text,
+                p.created_at::timestamp as created_at_ts
             FROM products p
             WHERE (p.location_id::text = $1 OR p.location_id IS NULL)
             
@@ -891,7 +893,9 @@ export async function getInventorySecure(
                 'VD'::text as condition,
                 ib.lot_number::text,
                 ib.expiry_date::timestamp as expiry_date_ts,
-                'inventory_batches' as source
+                'inventory_batches' as source,
+                ib.source_system::text,
+                ib.created_at::timestamp as created_at_ts
             FROM inventory_batches ib
             WHERE ib.location_id::text = $1
             
@@ -926,7 +930,9 @@ export async function getInventorySecure(
             allows_commission: row.comisionable || false,
             expiry_date: row.expiry_date_ts ? new Date(row.expiry_date_ts).getTime() : null,
             lot_number: row.lot_number,
-            _source: row.source // For debugging
+            _source: row.source, // For debugging
+            source_system: row.source_system || 'MANUAL',
+            created_at: row.created_at_ts ? new Date(row.created_at_ts).getTime() : null
         }));
 
         return { success: true, data: inventory };
@@ -1396,9 +1402,9 @@ export async function findBestBatchSecure(
         }
 
         if (result.rows.length === 0) {
-            return { 
-                success: false, 
-                error: 'Sin stock disponible para este producto en esta ubicación' 
+            return {
+                success: false,
+                error: 'Sin stock disponible para este producto en esta ubicación'
             };
         }
 

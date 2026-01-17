@@ -1228,7 +1228,7 @@ export async function approveInvoiceParsingSecure(
                             stock_minimo_seguridad, stock_total, stock_actual,
                             is_bioequivalent, units_per_box, condicion_venta,
                             dci, barcode,
-                            created_at, updated_at
+                            created_at, updated_at, source_system
                         ) VALUES (
                             $1, $2, $3, 
                             $4, $4, $5,
@@ -1236,7 +1236,7 @@ export async function approveInvoiceParsingSecure(
                             0, 0, 0,
                             $7, $8, 'VD',
                             $9, $10,
-                            NOW(), NOW()
+                            NOW(), NOW(), 'AI_PARSER'
                         )
                     `, [
                         newProductId,
@@ -1330,8 +1330,8 @@ export async function approveInvoiceParsingSecure(
                     INSERT INTO inventory_batches (
                         id, product_id, location_id, 
                         lot_number, expiry_date, 
-                        quantity_real, unit_cost, updated_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+                        quantity_real, unit_cost, updated_at, source_system
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), 'AI_PARSER')
                 `, [
                     batchId,
                     item.mapped_product_id,
