@@ -4,6 +4,8 @@ import { Check, X, DollarSign } from 'lucide-react';
 import { updateBatchCostSecure } from '../../../actions/inventory-v2';
 import { usePharmaStore } from '../../store/useStore';
 
+import { useQueryClient } from '@tanstack/react-query';
+
 interface InventoryCostEditorProps {
     batchId: string;
     currentCost: number;
@@ -11,7 +13,8 @@ interface InventoryCostEditorProps {
 }
 
 export const InventoryCostEditor: React.FC<InventoryCostEditorProps> = ({ batchId, currentCost, productName }) => {
-    const { user, fetchInventory, currentLocationId, updateProduct } = usePharmaStore();
+    const queryClient = useQueryClient();
+    const { user, currentLocationId, updateProduct } = usePharmaStore();
     const [isEditing, setIsEditing] = useState(false);
 
     // Internal numeric state associated with the input
@@ -76,7 +79,7 @@ export const InventoryCostEditor: React.FC<InventoryCostEditorProps> = ({ batchI
 
                 // Refresh inventory data without reloading the page
                 if (currentLocationId) {
-                    await fetchInventory(currentLocationId);
+                    await queryClient.invalidateQueries({ queryKey: ['inventory', currentLocationId] });
                 }
             } else {
                 toast.error(res.error || 'Error al actualizar');

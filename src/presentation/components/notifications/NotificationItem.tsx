@@ -33,7 +33,8 @@ const NotificationItem: React.FC<NotificationItemProps> = ({ notification, onClo
         }
     };
 
-    const getTimeAgo = (timestamp: number) => {
+    const getTimeAgo = (dateStr: string | number) => {
+        const timestamp = typeof dateStr === 'string' ? new Date(dateStr).getTime() : dateStr;
         const seconds = Math.floor((Date.now() - timestamp) / 1000);
         if (seconds < 60) return 'Ahora';
         const minutes = Math.floor(seconds / 60);
@@ -48,8 +49,8 @@ const NotificationItem: React.FC<NotificationItemProps> = ({ notification, onClo
         if (!notification.read) {
             markAsRead(notification.id);
         }
-        if (notification.actionUrl) {
-            navigate(notification.actionUrl);
+        if (notification.metadata?.actionUrl) {
+            navigate(notification.metadata.actionUrl);
             onClose();
         }
     };
@@ -79,7 +80,7 @@ const NotificationItem: React.FC<NotificationItemProps> = ({ notification, onClo
                         </h4>
                         <div className="flex items-center gap-2 flex-shrink-0">
                             <span className="text-xs text-slate-400">
-                                {getTimeAgo(notification.timestamp)}
+                                {getTimeAgo(notification.created_at)}
                             </span>
                             <button
                                 onClick={handleDelete}
@@ -93,7 +94,7 @@ const NotificationItem: React.FC<NotificationItemProps> = ({ notification, onClo
                     <p className="text-sm text-slate-600 mb-2">
                         {notification.message}
                     </p>
-                    {notification.actionUrl && (
+                    {notification.metadata?.actionUrl && (
                         <div className="flex items-center gap-1 text-xs text-purple-600 font-bold">
                             <ExternalLink size={12} />
                             Ver detalles

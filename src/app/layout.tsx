@@ -2,10 +2,8 @@ import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 
-const inter = Inter({ subsets: ['latin'] });
 
-import SessionGuard from '@/presentation/components/security/SessionGuard';
-import { Toaster } from 'sonner';
+const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
     title: 'Farmacias Vallenar Suit',
@@ -22,6 +20,8 @@ export const viewport: Viewport = {
     interactiveWidget: 'resizes-content',
 };
 
+import Providers from './providers';
+
 export default function RootLayout({
     children,
 }: {
@@ -30,10 +30,9 @@ export default function RootLayout({
     return (
         <html lang="es">
             <body className={inter.className} suppressHydrationWarning={true}>
-                <SessionGuard>
+                <Providers>
                     {children}
-                    <Toaster richColors position="top-center" closeButton />
-                </SessionGuard>
+                </Providers>
             </body>
         </html>
     );

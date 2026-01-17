@@ -126,6 +126,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
             const result = await getCashMovementHistory({
                 terminalId: undefined, // specific terminal or all in location? usually all
                 sessionId: undefined, // Removed restriction to allow viewing history across sessions/days
+                locationId: activeLocationId, // ADDED: Filter by Location
                 startDate: start,
                 endDate: end,
                 paymentMethod: backendPaymentMethod,

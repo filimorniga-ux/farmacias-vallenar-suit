@@ -5,6 +5,8 @@ import { toast } from 'sonner';
 import { quickStockAdjustSecure } from '../../../actions/inventory-v2';
 import { usePharmaStore } from '../../store/useStore';
 
+import { useQueryClient } from '@tanstack/react-query';
+
 interface QuickStockModalProps {
     isOpen: boolean;
     onClose: () => void;
@@ -12,12 +14,13 @@ interface QuickStockModalProps {
 }
 
 const QuickStockModal: React.FC<QuickStockModalProps> = ({ isOpen, onClose, product }) => {
+    const queryClient = useQueryClient();
     const [adjustment, setAdjustment] = useState<number>(0);
     const [reason, setReason] = useState<string>('');
     const [pin, setPin] = useState<string>('');
     const [mode, setMode] = useState<'ADD' | 'REMOVE'>('ADD');
     const [isLoading, setIsLoading] = useState(false);
-    const { fetchInventory, user, updateStock } = usePharmaStore();
+    const { user, updateStock, currentLocationId } = usePharmaStore();
 
     useEffect(() => {
         if (isOpen) {
@@ -64,7 +67,7 @@ const QuickStockModal: React.FC<QuickStockModalProps> = ({ isOpen, onClose, prod
                     updateStock(product.id, finalAdjustment);
 
                     // Background Sync
-                    fetchInventory();
+                    queryClient.invalidateQueries({ queryKey: ['inventory', currentLocationId] });
                     onClose();
                     return;
                 } else {

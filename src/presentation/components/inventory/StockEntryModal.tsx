@@ -6,12 +6,15 @@ import { useNetworkStatus } from '../../../hooks/useNetworkStatus';
 import { toast } from 'sonner';
 import CameraScanner from '../ui/CameraScanner';
 
+import { useQueryClient } from '@tanstack/react-query';
+
 interface StockEntryModalProps {
     isOpen: boolean;
     onClose: () => void;
 }
 
 const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) => {
+    const queryClient = useQueryClient();
     const {
         inventory,
         updateStock,
@@ -19,7 +22,6 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
         currentLocationId,
         currentWarehouseId,
         user,
-        fetchInventory,
         locations,
         fetchLocations
     } = usePharmaStore();
@@ -276,7 +278,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
             const result = await createProductSecure(payload as any);
             if (result.success) {
                 toast.success('Producto guardado correctamente');
-                await fetchInventory(currentLocationId, currentWarehouseId);
+                await queryClient.invalidateQueries({ queryKey: ['inventory', currentLocationId] });
                 resetFlow();
             } else {
                 toast.error('Error al guardar producto: ' + (result as any).error);

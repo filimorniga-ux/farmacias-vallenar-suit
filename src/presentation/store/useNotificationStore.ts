@@ -1,117 +1,102 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-
-// Notification Event Types
-export type NotificationEventType =
-    | 'STOCK_CRITICAL'
-    | 'AUTO_ORDER_GENERATED'
-    | 'CASH_REGISTER_OPEN'
-    | 'CASH_REGISTER_CLOSE'
-    | 'SHIFT_CHANGE'
-    | 'ATTENDANCE_LATE'
-    | 'ATTENDANCE_MISSING'
-    | 'CASH_MOVEMENT_LARGE'
-    | 'EXPENSE_ALERT'
-    | 'PO_RECEIVED'
-    | 'PO_DELAYED'
-    | 'PRODUCT_CREATED'
-    | 'PRODUCT_UPDATED'
-    | 'PRODUCT_DELETED'
-    | 'GENERAL';
-
-export type NotificationCategory = 'STOCK' | 'CASH' | 'HR' | 'OPERATIONS' | 'ALERT' | 'SYSTEM';
-export type NotificationSeverity = 'INFO' | 'WARNING' | 'CRITICAL';
-export type NotificationRole = 'ALL' | 'MANAGER' | 'CASHIER' | 'WAREHOUSE' | 'QF';
+import { getNotificationsSecure, markAsReadSecure, markAllAsReadSecure, NotificationType, NotificationSeverity } from '@/actions/notifications-v2';
 
 export interface Notification {
     id: string;
-    eventType: NotificationEventType;
-    category: NotificationCategory;
+    type: NotificationType;
+    category?: string;
     severity: NotificationSeverity;
     title: string;
     message: string;
-    roleTarget: NotificationRole;
+    roleTarget: string;
     read: boolean;
-    timestamp: number;
-    actionUrl?: string;
+    created_at: string;
     metadata?: Record<string, any>;
 }
 
+export type NotificationCategory = 'STOCK' | 'CASH' | 'HR' | 'OPERATIONS' | 'ALERT' | 'SYSTEM' | 'ALL';
+
 interface NotificationState {
     notifications: Notification[];
-    pushNotification: (notification: Omit<Notification, 'id' | 'read' | 'timestamp'>) => void;
-    markAsRead: (id: string) => void;
-    markAllAsRead: (category?: NotificationCategory) => void;
+    unreadCount: number;
+    isCenterOpen: boolean;
+
+    toggleCenter: () => void;
+    setCenterOpen: (isOpen: boolean) => void;
+    fetchNotifications: (locationId?: string) => Promise<void>;
+    markAsRead: (id: string) => Promise<void>;
+    markAllAsRead: (category?: NotificationCategory) => Promise<void>;
     deleteNotification: (id: string) => void;
-    clearAll: (category?: NotificationCategory) => void;
-    getUnreadCount: (userRole: string, category?: NotificationCategory) => number;
-    getByCategory: (category: NotificationCategory) => Notification[];
+    clearAll: (category?: NotificationCategory) => Promise<void>;
 }
 
-export const useNotificationStore = create<NotificationState>()(
-    persist(
-        (set, get) => ({
-            notifications: [],
+export const useNotificationStore = create<NotificationState>((set, get) => ({
+    notifications: [],
+    unreadCount: 0,
+    isCenterOpen: false,
 
-            pushNotification: (notification) => {
-                const newNotification: Notification = {
-                    ...notification,
-                    id: `notif-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                    read: false,
-                    timestamp: Date.now(),
-                };
-                set((state) => ({
-                    notifications: [newNotification, ...state.notifications],
+    toggleCenter: () => set((state) => ({ isCenterOpen: !state.isCenterOpen })),
+    setCenterOpen: (isOpen) => set({ isCenterOpen: isOpen }),
+
+    fetchNotifications: async (locationId) => {
+        try {
+            const res = await getNotificationsSecure(locationId);
+            if (res.success && res.data) {
+                const mapped: Notification[] = res.data.map((n: any) => ({
+                    id: n.id,
+                    type: n.type,
+                    category: n.type,
+                    severity: n.severity,
+                    title: n.title,
+                    message: n.message,
+                    metadata: n.metadata,
+                    read: n.is_read,
+                    created_at: n.created_at,
+                    roleTarget: 'ALL'
                 }));
-            },
-
-            markAsRead: (id) => {
-                set((state) => ({
-                    notifications: state.notifications.map((n) =>
-                        n.id === id ? { ...n, read: true } : n
-                    ),
-                }));
-            },
-
-            markAllAsRead: (category) => {
-                set((state) => ({
-                    notifications: state.notifications.map((n) =>
-                        category ? (n.category === category ? { ...n, read: true } : n) : { ...n, read: true }
-                    ),
-                }));
-            },
-
-            deleteNotification: (id) => {
-                set((state) => ({
-                    notifications: state.notifications.filter((n) => n.id !== id),
-                }));
-            },
-
-            clearAll: (category) => {
-                set((state) => ({
-                    notifications: category
-                        ? state.notifications.filter((n) => n.category !== category)
-                        : [],
-                }));
-            },
-
-            getUnreadCount: (userRole, category) => {
-                const { notifications } = get();
-                return notifications.filter(
-                    (n) =>
-                        !n.read &&
-                        (n.roleTarget === 'ALL' || n.roleTarget === userRole) &&
-                        (!category || n.category === category)
-                ).length;
-            },
-
-            getByCategory: (category) => {
-                const { notifications } = get();
-                return notifications.filter((n) => n.category === category);
-            },
-        }),
-        {
-            name: 'notification-storage',
+                set({
+                    notifications: mapped,
+                    unreadCount: res.unreadCount
+                });
+            }
+        } catch (e) {
+            console.error("Failed to fetch notifications", e);
         }
-    )
-);
+    },
+
+    markAsRead: async (id) => {
+        set((state) => ({
+            notifications: state.notifications.map(n => n.id === id ? { ...n, read: true } : n),
+            unreadCount: Math.max(0, state.unreadCount - 1)
+        }));
+        await markAsReadSecure([id]);
+    },
+
+    markAllAsRead: async (category) => {
+        set((state) => ({
+            notifications: state.notifications.map(n =>
+                (!category || category === 'ALL' || n.category === category)
+                    ? { ...n, read: true }
+                    : n
+            ),
+            unreadCount: 0 // Simplification, ideally calculate real unread count
+        }));
+        await markAllAsReadSecure(); // Server handles logic
+    },
+
+    deleteNotification: (id) => {
+        set((state) => ({
+            notifications: state.notifications.filter(n => n.id !== id)
+        }));
+    },
+
+    clearAll: async (category) => {
+        set((state) => ({
+            notifications: category && category !== 'ALL'
+                ? state.notifications.filter(n => n.category !== category)
+                : [],
+            unreadCount: 0
+        }));
+        // Server integration for delete not implemented yet, client side only for clear
+    }
+}));

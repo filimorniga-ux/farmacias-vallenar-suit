@@ -1,33 +1,37 @@
+
+import { Client } from 'pg';
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
 
-// Cargar variables de entorno ANTES de importar db
-dotenv.config({ path: '.env.migration' });
+// Load env vars
+dotenv.config();
+dotenv.config({ path: '.env.local' });
 
 async function runMigration() {
+    const migrationPath = path.join(process.cwd(), 'scripts/migrations/021_allow_negative_inventory.sql');
+    console.log(`Reading migration file from: ${migrationPath}`);
+
+    // Create direct client to avoid 'server-only' issues
+    const client = new Client({
+        connectionString: process.env.POSTGRES_URL || process.env.DATABASE_URL
+    });
+
     try {
-        // Importar dinámicamente para asegurar que las env vars ya estén cargadas
-        const { query, pool } = await import('../src/lib/db');
+        await client.connect();
+        console.log('Connected to DB.');
 
-        // 1. Ejecutar Schema Inicial (Base)
-        const schemaPath = path.join(process.cwd(), 'schema.sql');
-        const schemaSql = fs.readFileSync(schemaPath, 'utf8');
-        console.log('🚀 Ejecutando Schema Inicial...');
-        await query(schemaSql);
-        console.log('✅ Schema Inicial cargado.');
+        const sql = fs.readFileSync(migrationPath, 'utf8');
+        console.log('Executing migration...');
 
-        // 2. Ejecutar Migración Multi-Tienda
-        const migrationPath = path.join(process.cwd(), 'src/db/migrations/001_multi_store_setup.sql');
-        const migrationSql = fs.readFileSync(migrationPath, 'utf8');
+        await client.query(sql);
 
-        console.log('🚀 Ejecutando migración Multi-Tienda...');
-        await query(migrationSql);
-        console.log('✅ Migración completada exitosamente.');
-
-        await pool.end();
+        console.log('✅ Migration executed successfully.');
+        await client.end();
+        process.exit(0);
     } catch (error) {
-        console.error('❌ Error en la migración:', error);
+        console.error('❌ Error executing migration:', error);
+        await client.end();
         process.exit(1);
     }
 }

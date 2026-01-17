@@ -769,9 +769,14 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                             <div className="relative max-w-xs mx-auto mb-4">
                                                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-400 text-xl">$</span>
                                                 <input
-                                                    type="number"
+                                                    type="text"
+                                                    inputMode="numeric"
                                                     value={closingAmount}
-                                                    onChange={(e) => setClosingAmount(e.target.value)}
+                                                    onChange={(e) => {
+                                                        const raw = e.target.value.replace(/\D/g, '');
+                                                        const formatted = raw ? parseInt(raw).toLocaleString('es-CL') : '';
+                                                        setClosingAmount(formatted);
+                                                    }}
                                                     className="w-full pl-8 pr-4 py-4 text-3xl font-bold text-blue-900 bg-white border-2 border-blue-200 rounded-xl focus:ring-4 focus:ring-blue-200 outline-none text-center"
                                                     placeholder="0"
                                                     autoFocus
@@ -779,45 +784,10 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                             </div>
 
                                             {/* Manager PIN Input for Close */}
-                                            <form
-                                                onSubmit={async (e) => {
-                                                    e.preventDefault();
-                                                    const numAmount = parseInt(closingAmount);
-                                                    if (isNaN(numAmount) || !currentShift?.terminal_id || !currentShift?.id) return;
+                                            {/* Manager PIN Input for Close */}
+                                            <div className="space-y-4">
 
-                                                    setIsSubmitting(true);
-                                                    try {
-                                                        // 1. Server Close
-                                                        const result = await closeCashDrawerSecure({
-                                                            terminalId: currentShift.terminal_id,
-                                                            userId: user?.id || 'SYSTEM',
-                                                            managerPin: authPin,
-                                                            declaredCash: numAmount
-                                                        });
 
-                                                        if (!result.success) {
-                                                            toast.error(result.error || 'Error cerrando caja en servidor');
-                                                            setIsSubmitting(false);
-                                                            return;
-                                                        }
-
-                                                        // 2. Local Cleanup (Only if server success)
-                                                        closeShift(numAmount, 'Verified_Close');
-                                                        onClose();
-                                                        toast.success(
-                                                            <div>
-                                                                <p className="font-bold">¡Turno Cerrado Correctamente!</p>
-                                                                <p className="text-xs">Diferencia: ${result.summary?.difference.toLocaleString()}</p>
-                                                            </div>
-                                                        );
-
-                                                    } catch (error) {
-                                                        console.error(error);
-                                                        toast.error('Error de conexión al cerrar caja');
-                                                        setIsSubmitting(false);
-                                                    }
-                                                }}
-                                            >
                                                 <div className="mb-4">
                                                     <label className="block text-sm font-bold text-blue-900 mb-2 text-center">PIN DE GERENTE (VISTO BUENO)</label>
                                                     <input
@@ -832,7 +802,55 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                                 </div>
 
                                                 <button
-                                                    type="submit"
+                                                    onClick={async (e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation(); // Stop any form interference
+                                                        console.log('🔒 [CashManagement] Button Clicked - Manual Handler');
+
+                                                        // Sanitize input
+                                                        const rawAmount = closingAmount.replace(/\D/g, '');
+                                                        const numAmount = parseInt(rawAmount);
+
+                                                        if (isNaN(numAmount)) {
+                                                            toast.error('Monto de cierre inválido');
+                                                            return;
+                                                        }
+
+                                                        if (!currentShift?.terminal_id || !currentShift?.id) {
+                                                            console.error('❌ [CashManagement] Missing Shift Data:', currentShift);
+                                                            toast.error('Error crítico: Datos de turno incompleto');
+                                                            return;
+                                                        }
+
+                                                        console.log('🔒 [CashManagement] Processing Close...');
+                                                        setIsSubmitting(true);
+
+                                                        try {
+                                                            // 1. Server Close
+                                                            const result = await closeCashDrawerSecure({
+                                                                terminalId: currentShift.terminal_id,
+                                                                userId: user?.id || 'SYSTEM',
+                                                                managerPin: authPin,
+                                                                declaredCash: numAmount
+                                                            });
+
+                                                            if (!result.success) {
+                                                                toast.error(result.error || 'Error cerrando caja');
+                                                                setIsSubmitting(false);
+                                                                return;
+                                                            }
+
+                                                            // 2. Local Cleanup
+                                                            closeShift(numAmount, 'Verified_Close');
+                                                            onClose();
+                                                            toast.success('¡Turno Cerrado Correctamente!');
+
+                                                        } catch (error) {
+                                                            console.error(error);
+                                                            toast.error('Error de conexión');
+                                                            setIsSubmitting(false);
+                                                        }
+                                                    }}
                                                     disabled={!closingAmount || !authPin || isSubmitting}
                                                     className="w-full bg-red-600 hover:bg-red-700 text-white py-4 rounded-xl font-bold shadow-lg transition-all flex justify-center items-center gap-2"
                                                 >
@@ -845,7 +863,8 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                                         'Confirmar Cierre'
                                                     )}
                                                 </button>
-                                            </form>
+                                            </div>
+
                                         </div>
                                     )}
 
@@ -864,7 +883,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                             )}
                         </div>
                     </motion.div>
-                </motion.div>
+                </motion.div >
             </AnimatePresence >
 
             <SupervisorOverrideModal

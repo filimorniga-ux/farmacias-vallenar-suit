@@ -367,6 +367,22 @@ export async function createUserSecure(data: z.infer<typeof CreateUserSchema>): 
 
         await client.query('COMMIT');
 
+        // NOTIFICATION TRIGGER: New Employee/User
+        (async () => {
+            try {
+                const { createNotificationSecure } = await import('./notifications-v2');
+                await createNotificationSecure({
+                    type: 'GENERAL', // Or specialized HR type
+                    priority: 'INFO',
+                    title: 'Nueva Contratación',
+                    message: `Se ha registrado un nuevo colaborador: ${validated.data.name} (${validated.data.job_title})`,
+                    metadata: { newUserId, role: validated.data.role }
+                });
+            } catch (e) {
+                console.error('[Notification Trigger] Failed', e);
+            }
+        })();
+
         revalidatePath('/hr');
         revalidatePath('/settings');
 

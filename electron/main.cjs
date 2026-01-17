@@ -55,11 +55,12 @@ function createWindow() {
     loadContent();
 
     // Check for updates once window is loaded
-    win.webContents.did - finish - load = () => {
+    // Check for updates once window is loaded
+    win.webContents.on('did-finish-load', () => {
         if (app.isPackaged) {
             autoUpdater.checkForUpdatesAndNotify();
         }
-    };
+    });
 
     // Open external links in default browser
     win.webContents.setWindowOpenHandler(({ url }) => {
