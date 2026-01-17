@@ -373,7 +373,7 @@ export async function createUserSecure(data: z.infer<typeof CreateUserSchema>): 
                 const { createNotificationSecure } = await import('./notifications-v2');
                 await createNotificationSecure({
                     type: 'GENERAL', // Or specialized HR type
-                    priority: 'INFO',
+                    severity: 'INFO',
                     title: 'Nueva Contratación',
                     message: `Se ha registrado un nuevo colaborador: ${validated.data.name} (${validated.data.job_title})`,
                     metadata: { newUserId, role: validated.data.role }

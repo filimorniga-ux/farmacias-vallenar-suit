@@ -132,10 +132,7 @@ const NetworkPage = () => {
                                         {employees.filter(e => e.assigned_location_id === location.id || (!e.assigned_location_id && e.base_location_id === location.id)).length}
                                     </p>
                                 </div>
-                                <div className="text-center border-l border-slate-200">
-                                    <p className="text-xs text-slate-400 font-bold">ALERTAS</p>
-                                    <p className="text-sm font-bold text-red-500">3</p>
-                                </div>
+                                {/* Removed ALERTAS placeholder */}
                             </div>
 
                             <div className="p-6 space-y-4">
