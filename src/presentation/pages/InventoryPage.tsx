@@ -2,7 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
-Filter, Download, Upload, AlertTriangle, Search, Plus, FileSpreadsheet,
+import {
+    Filter, Download, Upload, AlertTriangle, Search, Plus, FileSpreadsheet,
     ChevronDown, ChevronUp, MoreHorizontal, History, RefreshCcw, Package, ScanBarcode, ArrowRightLeft, Edit, Trash2, Zap, Sparkles
 } from 'lucide-react';
 import { MobileScanner } from '../../components/shared/MobileScanner';
