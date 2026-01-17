@@ -74,9 +74,18 @@ const LandingPage: React.FC = () => {
     // Fetch employees if store is empty (Login Fix)
     useEffect(() => {
         if (employees.length > 0) {
+            console.log('📋 Using store employees:', employees.length);
             setLocalEmployees(employees);
         } else {
-            getUsersForLogin().then(setLocalEmployees);
+            console.log('📋 Fetching employees via server action...');
+            getUsersForLogin()
+                .then((users) => {
+                    console.log('📋 Fetched employees:', users.length, users.map(u => u.name));
+                    setLocalEmployees(users);
+                })
+                .catch(err => {
+                    console.error('❌ Error fetching employees:', err);
+                });
         }
     }, [employees]);
 
