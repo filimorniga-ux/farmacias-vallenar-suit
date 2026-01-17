@@ -24,17 +24,32 @@ body {
   -webkit-text-size-adjust: 100%;
 }
 
-/* Hide scrollbar for Chrome, Safari and Opera */
+/* Custom Scrollbars for Electron/Desktop Feel */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
 
-/* Hide scrollbar for IE, Edge and Firefox */
 .scrollbar-hide {
   -ms-overflow-style: none;
-  /* IE and Edge */
   scrollbar-width: none;
-  /* Firefox */
 }
 
 .pb-safe {
@@ -46,7 +61,7 @@ body {
   input,
   select,
   textarea {
-    @apply border-2 border-gray-400 bg-white text-gray-900 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500;
+    @apply border border-gray-300 bg-white text-gray-900 rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm;
   }
 }
 

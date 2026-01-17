@@ -35,19 +35,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
         return () => window.removeEventListener('resize', checkOrientation);
     }, []);
 
-    if (isLandscape) {
-        return (
-            <div className="fixed inset-0 z-[100] bg-slate-900 flex flex-col items-center justify-center text-white p-6 text-center">
-                <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mb-6 animate-pulse">
-                    <RotateCcw size={40} className="text-cyan-400" />
-                </div>
-                <h2 className="text-2xl font-bold mb-3">Gire su dispositivo</h2>
-                <p className="text-slate-400 max-w-xs mx-auto">
-                    Para una mejor experiencia, utilice la aplicación en modo vertical.
-                </p>
-            </div>
-        );
-    }
+
 
     const menuItems = [
         { icon: LayoutDashboard, label: 'Resumen General', path: '/dashboard', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'sky' as AppThemeColor },
@@ -70,7 +58,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
     const filteredMenu = menuItems.filter(item => user && item.roles.includes(user.role));
 
     return (
-        <div className="flex h-screen bg-slate-50 overflow-hidden">
+        <div className="flex h-screen bg-slate-50 overflow-hidden select-none">
             {/* Mobile Backdrop */}
             <AnimatePresence>
                 {isMobileMenuOpen && (
@@ -88,10 +76,10 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
             <motion.aside
                 className={`fixed inset-y-0 left-0 z-[60] bg-white border-r border-slate-100 flex flex-col transition-all duration-300 ease-in-out
                 lg:relative lg:translate-x-0 shadow-xl lg:shadow-none h-full
-                ${isCollapsed ? 'w-20' : 'w-72'}
+                ${isCollapsed ? 'w-20' : 'w-60'}
                 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
             `}>
-                <div className={`p-6 flex items-center mb-2 ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
+                <div className={`p-4 flex items-center mb-1 ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
                     {!isCollapsed && (
                         <div>
                             <h1 className="text-xl font-extrabold tracking-tight text-slate-900">
@@ -120,7 +108,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                     {isCollapsed ? <Menu size={12} /> : <X size={12} />}
                 </button>
 
-                <nav className="flex-1 overflow-y-auto px-3 space-y-1.5 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent py-4">
+                <nav className="flex-1 overflow-y-auto px-2 space-y-1 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent py-2">
                     {filteredMenu.map((item) => {
                         const isActive = location.pathname === item.path;
                         return (
@@ -129,7 +117,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                                 to={item.path}
                                 onClick={() => setIsMobileMenuOpen(false)}
                                 title={isCollapsed ? item.label : ''}
-                                className={`flex items-center gap-4 px-3 py-3 rounded-2xl transition-all duration-200 group ${isActive
+                                className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 group ${isActive
                                     ? 'bg-slate-50 border border-slate-100 shadow-sm'
                                     : 'hover:bg-slate-50 border border-transparent'
                                     } ${isCollapsed ? 'justify-center' : ''}`}

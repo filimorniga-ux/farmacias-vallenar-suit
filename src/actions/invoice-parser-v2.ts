@@ -1081,7 +1081,7 @@ export async function approveInvoiceParsingSecure(
 
         const parsing = parsingRes.rows[0];
 
-        if (!['PENDING', 'VALIDATED', 'MAPPING', 'ERROR'].includes(parsing.status)) {
+        if (!['PENDING', 'VALIDATED', 'MAPPING', 'ERROR', 'PARTIAL'].includes(parsing.status)) {
             await client.query('ROLLBACK');
             return { success: false, error: `No se puede aprobar un parsing con estado ${parsing.status}` };
         }

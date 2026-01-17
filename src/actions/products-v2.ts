@@ -109,6 +109,7 @@ const UpdateProductMasterSchema = z.object({
     maxStock: z.number().int().min(0).optional(),
     requiresPrescription: z.boolean().optional(),
     isColdChain: z.boolean().optional(),
+    barcode: z.string().max(50).optional(),
 
     // Financials
     price: z.number().min(0).optional(),
@@ -927,6 +928,7 @@ export async function updateProductMasterSecure(data: z.infer<typeof UpdateProdu
 
         if (validated.data.name !== undefined) addBatchUpdate('name', validated.data.name);
         if (validated.data.sku !== undefined) addBatchUpdate('sku', validated.data.sku);
+        if (validated.data.barcode !== undefined) addBatchUpdate('barcode', validated.data.barcode);
 
         // Sync Financials
         if (price !== undefined) {
@@ -937,8 +939,10 @@ export async function updateProductMasterSecure(data: z.infer<typeof UpdateProdu
         if (costPrice !== undefined) {
             addBatchUpdate('unit_cost', costPrice);
             addBatchUpdate('cost_net', costPrice);
-
         }
+
+        if (validated.data.minStock !== undefined) addBatchUpdate('stock_min', validated.data.minStock);
+        if (validated.data.maxStock !== undefined) addBatchUpdate('stock_max', validated.data.maxStock);
 
         if (batchUpdates.length > 0) {
             batchUpdates.push(`updated_at = NOW()`);
