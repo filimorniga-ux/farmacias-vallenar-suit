@@ -147,6 +147,59 @@ export async function findDuplicateBatchesSecure(
 }
 
 // ============================================================================
+// FIND DUPLICATE BARCODES (Products Table)
+// ============================================================================
+
+/**
+ * 🔍 Encontrar Productos con Código de Barras Duplicado
+ * Busca en la tabla products, donde realmente se almacenan los barcodes
+ */
+export async function findDuplicateBarcodesSecure(): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    const session = await getSession();
+    if (!session) {
+        return { success: false, error: 'No autenticado' };
+    }
+
+    if (!MANAGER_ROLES.includes(session.role)) {
+        return { success: false, error: 'Solo managers pueden ver diagnósticos' };
+    }
+
+    try {
+        // Buscar productos que compartan el mismo barcode (no vacío)
+        const res = await query(`
+            SELECT 
+                barcode,
+                COUNT(*) as count,
+                array_agg(id) as product_ids,
+                array_agg(sku) as skus,
+                array_agg(name) as names
+            FROM products
+            WHERE barcode IS NOT NULL 
+              AND barcode != ''
+              AND TRIM(barcode) != ''
+            GROUP BY barcode
+            HAVING COUNT(*) > 1
+            ORDER BY count DESC
+            LIMIT 100
+        `, []);
+
+        // Auditar
+        await query(`
+            INSERT INTO audit_log (user_id, action_code, entity_type, new_values, created_at)
+            VALUES ($1, 'INVENTORY_DIAGNOSTIC', 'PRODUCTS', $2::jsonb, NOW())
+        `, [session.userId, JSON.stringify({
+            type: 'duplicate_barcodes',
+            results_count: res.rows.length,
+        })]);
+
+        logger.info({ userId: session.userId, resultsCount: res.rows.length }, '🔍 [Diagnostics] Duplicate barcodes found');
+        return { success: true, data: res.rows };
+
+    } catch (error: any) {
+        logger.error({ error }, '[Diagnostics] Find duplicate barcodes error');
+        return { success: false, error: 'Error buscando barcodes duplicados' };
+    }
+}
 // FIND EXPIRED BATCHES
 // ============================================================================
 
