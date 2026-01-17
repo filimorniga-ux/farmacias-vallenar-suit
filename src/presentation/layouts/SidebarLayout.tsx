@@ -13,6 +13,8 @@ import NotificationBell from '../components/notifications/NotificationBell';
 import MobileBottomNav from '../components/layout/MobileBottomNav';
 import AppIcon, { AppThemeColor } from '../components/ui/AppIcon';
 import SyncStatusIndicator from '../components/ui/SyncStatusIndicator';
+import NotificationCenter from '../components/notifications/NotificationCenter';
+import { useNotificationStore } from '../store/useNotificationStore';
 
 const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
     const { user, logout } = usePharmaStore();
@@ -20,6 +22,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [isLandscape, setIsLandscape] = useState(false);
+    const { isCenterOpen, setCenterOpen } = useNotificationStore();
 
     useEffect(() => {
         const checkOrientation = () => {
@@ -236,6 +239,14 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
 
                 {/* Mobile Bottom Navigation */}
                 <MobileBottomNav onMenuClick={() => setIsMobileMenuOpen(true)} />
+
+                {/* Notification Center Portal */}
+                {isCenterOpen && (
+                    <NotificationCenter
+                        userRole={user?.role || 'ALL'}
+                        onClose={() => setCenterOpen(false)}
+                    />
+                )}
             </main>
         </div>
     );

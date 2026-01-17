@@ -106,3 +106,9 @@ export async function query(text: string, params?: any[]) {
         throw error;
     }
 }
+
+// Función Helper para obtener un cliente de la pool (para transacciones)
+export async function getClient() {
+    const client = await pool.connect();
+    return client;
+}

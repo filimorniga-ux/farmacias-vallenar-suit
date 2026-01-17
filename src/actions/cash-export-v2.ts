@@ -144,6 +144,10 @@ export async function generateCashReportSecure(
         const endD = new Date(params.endDate);
         endD.setHours(23, 59, 59, 999);
 
+        // 📝 FIX: Use 'shifts' table instead of 'cash_register_sessions'
+        // and ensure we cast params if needed, though Date objects usually work with TIMESTAMPTZ.
+        // We also align column name 'start_time' instead of 'opened_at'.
+
         // 1. Obtener Fondo Inicial (Opening Amount) de los turnos en el periodo
         const shiftParams: any[] = [startD, endD];
         let shiftFilter = '';
@@ -166,6 +170,31 @@ export async function generateCashReportSecure(
         `;
         const shiftRes = await query(shiftSql, shiftParams);
         const totalOpening = Number(shiftRes.rows[0]?.total_opening || 0);
+
+
+        const sqlParams: any[] = [params.startDate, params.endDate];
+        let locationFilter = '';
+        if (effectiveLocationId) {
+            locationFilter = 'AND t.location_id = $3::uuid';
+            sqlParams.push(effectiveLocationId);
+        }
+
+        const sql = `
+            SELECT s.id, s.opened_at as start_time, s.closed_at as end_time, s.status,
+                   s.opening_amount, s.closing_amount,
+                   (s.opening_amount + (
+                       SELECT COALESCE(SUM(total_amount), 0) FROM sales 
+                       WHERE session_id = s.id AND payment_method = 'CASH'
+                   )) as expected_amount,
+                   t.name as terminal_name, l.name as location_name, u.name as cashier_name
+            FROM cash_register_sessions s
+            LEFT JOIN terminals t ON s.terminal_id = t.id
+            LEFT JOIN locations l ON t.location_id = l.id
+            LEFT JOIN users u ON s.user_id = u.id
+            WHERE s.opened_at >= $1::timestamp AND (s.closed_at <= $2::timestamp OR s.closed_at IS NULL)
+            ${locationFilter}
+            ORDER BY s.opened_at DESC
+        `;
 
         // 2. Obtener Ventas
         const salesParams: any[] = [startD, endD];
@@ -567,16 +596,16 @@ export async function exportShiftSummarySecure(
         }
 
         const sql = `
-            SELECT s.id, s.start_time, s.end_time, s.status,
+            SELECT s.id, s.opened_at as start_time, s.closed_at as end_time, s.status,
                    s.opening_amount, s.closing_amount, s.expected_amount,
                    t.name as terminal_name, l.name as location_name, u.name as cashier_name
-            FROM shifts s
+            FROM cash_register_sessions s
             LEFT JOIN terminals t ON s.terminal_id = t.id
             LEFT JOIN locations l ON t.location_id = l.id
             LEFT JOIN users u ON s.user_id = u.id
-            WHERE s.start_time >= $1::timestamp AND (s.end_time <= $2::timestamp OR s.end_time IS NULL)
+            WHERE s.opened_at >= $1::timestamp AND (s.closed_at <= $2::timestamp OR s.closed_at IS NULL)
             ${locationFilter}
-            ORDER BY s.start_time DESC
+            ORDER BY s.opened_at DESC
         `;
 
         const res = await query(sql, sqlParams);

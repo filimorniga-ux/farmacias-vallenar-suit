@@ -6,12 +6,15 @@ import { getWarehousesSecure } from '@/actions/locations-v2';
 import { InventoryBatch } from '@/domain/types';
 import { toast } from 'sonner';
 
+import { useQueryClient } from '@tanstack/react-query';
+
 interface StockTransferModalProps {
     isOpen: boolean;
     onClose: () => void;
 }
 
 const StockTransferModal: React.FC<StockTransferModalProps> = ({ isOpen, onClose }) => {
+    const queryClient = useQueryClient();
     const { inventory, transferStock, currentWarehouseId, currentLocationId } = usePharmaStore();
 
     // State
@@ -87,7 +90,8 @@ const StockTransferModal: React.FC<StockTransferModalProps> = ({ isOpen, onClose
         setIsSubmitting(true);
         try {
             await transferStock(selectedBatchId, selectedTargetWarehouse, qtyNum);
-            toast.success('Transferencia realizada');
+            // toast.success('Transferencia realizada'); // Handled by Store
+            await queryClient.invalidateQueries({ queryKey: ['inventory', currentLocationId] });
             onClose();
             // Reset form
             setSelectedProductSku('');

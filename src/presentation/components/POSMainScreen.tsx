@@ -38,7 +38,9 @@ import { toast } from 'sonner';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { formatProductLabel } from '../../domain/logic/productDisplay';
 // useSettingsStore moved to useCheckout hook
+// useSettingsStore moved to useCheckout hook
 import { applyPromotions } from '../../domain/logic/promotionEngine';
+import { useInventoryQuery } from '../hooks/useInventoryQuery';
 
 
 // NEW MODULAR IMPORTS
@@ -70,7 +72,7 @@ const POSMainScreen: React.FC = () => {
         inventory, cart, addToCart, addManualItem, removeFromCart, clearCart,
         currentCustomer, getShiftMetrics, updateOpeningAmount,
         setCustomer, promotions, createQuote, retrieveQuote, updateCartItemQuantity,
-        fetchInventory
+        setInventory
         // NOTE: processSale, redeemPoints, calculateDiscountValue, loyaltyConfig, employees, printerConfig
         // are now accessed via useCheckout hook in PaymentModal
     } = usePharmaStore();
@@ -91,21 +93,31 @@ const POSMainScreen: React.FC = () => {
     const { currentLocation } = useLocationStore();
     console.log('🔍 [POSMainScreen] Current Location (Store):', currentLocation?.id, 'Current Location (Pharma):', currentLocationId);
 
-    // 🚀 Load inventory when location is available
+    // 🚀 Load inventory via React Query
+    const { data: inventoryData } = useInventoryQuery(currentLocationId);
+
+    // Sync React Query data to Zustand Store for compatibility
     useEffect(() => {
-        if (currentLocationId) {
-            // Force fetch on mount/location change to ensure freshness
-            // We ignore inventory.length to recover from stale empty states
-            console.log('🔄 [POS] Loading inventory for location:', currentLocationId);
-            fetchInventory(currentLocationId);
+        if (inventoryData) {
+            console.log('🔄 [POS] Syncing Inventory Query -> Zustand');
+            setInventory(inventoryData);
         }
-    }, [currentLocationId, fetchInventory]);
+    }, [inventoryData, setInventory]);
 
     // NOTE: enable_sii_integration, hardware now accessed via useCheckout hook in PaymentModal
 
     // ------------------------------------------------------------------
     // 🔄 SESSION RECOVERY: Persist session across reloads
     // ------------------------------------------------------------------
+
+    // Consistency Check: Ensure Terminal ID is set if Shift is Active
+    useEffect(() => {
+        if (currentShift?.status === 'ACTIVE' && currentShift.terminal_id && !currentTerminalId) {
+            console.log('🔄 Restoring Terminal Context from Active Shift:', currentShift.terminal_id);
+            usePharmaStore.setState({ currentTerminalId: currentShift.terminal_id });
+        }
+    }, [currentShift, currentTerminalId]);
+
     useEffect(() => {
         const checkActiveSession = async () => {
             // Only if we have a terminal selected but NO active shift in memory
@@ -674,10 +686,12 @@ const POSMainScreen: React.FC = () => {
                                             <div
                                                 className={`p-3 rounded-xl border transition-all group h-full cursor-pointer relative ${isSelected
                                                     ? 'bg-cyan-50 border-cyan-500 shadow-md ring-2 ring-cyan-200 z-10 scale-[1.02]'
-                                                    : 'bg-white border-slate-100 hover:border-cyan-200'
+                                                    : item.stock_actual <= 0
+                                                        ? 'bg-red-50 border-red-300 hover:bg-red-100 hover:border-red-400'
+                                                        : 'bg-white border-slate-100 hover:border-cyan-200'
                                                     }`}
                                             >
-                                                <h3 className="font-bold text-slate-800 text-sm leading-tight mb-1 group-hover:text-cyan-600">
+                                                <h3 className={`font-bold text-sm leading-tight mb-1 group-hover:text-cyan-600 ${item.stock_actual <= 0 ? 'text-red-700' : 'text-slate-800'}`}>
                                                     {item.name}
                                                 </h3>
                                                 <p className="text-[10px] text-slate-500 font-mono mb-1">{item.dci}</p>
@@ -698,7 +712,7 @@ const POSMainScreen: React.FC = () => {
                                                                 <Scissors size={16} />
                                                             </button>
                                                         )}
-                                                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${item.stock_actual > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>Stock: {item.stock_actual}</span>
+                                                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${item.stock_actual > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700 font-bold border border-red-200'}`}>Stock: {item.stock_actual}</span>
                                                     </div>
                                                 </div>
                                             </div>

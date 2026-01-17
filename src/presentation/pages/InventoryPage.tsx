@@ -19,9 +19,25 @@ import { hasPermission } from '../../domain/security/roles';
 import MobileActionScroll from '../components/ui/MobileActionScroll';
 import { toast } from 'sonner';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
+import InventorySkeleton from '../components/skeletons/InventorySkeleton';
+
+import { useInventoryQuery } from '../hooks/useInventoryQuery';
 
 const InventoryPage: React.FC = () => {
-    const { inventory, user, currentLocationId, setCurrentLocation, fetchInventory } = usePharmaStore();
+    // 1. Usar nuevo Hook de Query (Reemplaza inventory y fetchInventory del store global)
+    const { currentLocationId, setCurrentLocation, user, setInventory } = usePharmaStore();
+    const { data: inventoryData, isLoading, refetch } = useInventoryQuery(currentLocationId);
+
+    // Sincronizar con Zustand para compatibilidad con Modales Legacy
+    useEffect(() => {
+        if (inventoryData) {
+            setInventory(inventoryData);
+        }
+    }, [inventoryData, setInventory]);
+
+    // Adaptador para mantener compatibilidad con codigo existente que espera 'inventory'
+    const inventory = inventoryData || [];
+
     const { locations } = useLocationStore();
     const activeLocation = locations.find(l => l.id === currentLocationId);
     const [searchTerm, setSearchTerm] = useState('');
@@ -59,12 +75,6 @@ const InventoryPage: React.FC = () => {
         return 1; // Fallback
     };
 
-    // 🚀 Force Inventory Load on Mount (Fix for Navigation Bug)
-    useEffect(() => {
-        if (currentLocationId) {
-            fetchInventory(currentLocationId);
-        }
-    }, [currentLocationId, fetchInventory]);
 
     // Nuclear Delete State
     const [isNuclearModalOpen, setIsNuclearModalOpen] = useState(false);
@@ -187,13 +197,14 @@ const InventoryPage: React.FC = () => {
         overscan: 5,
     });
 
-    if (!inventory) {
-        return (
-            <div className="h-screen flex items-center justify-center bg-slate-50">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600"></div>
-            </div>
-        );
+
+
+    // ...
+
+    if (isLoading) {
+        return <InventorySkeleton />;
     }
+
 
     // --- Nuclear Option ---
     const handleNuclearDelete = async () => {
@@ -688,7 +699,7 @@ const InventoryPage: React.FC = () => {
                     onClose={() => setDeletingItem(null)}
                     onConfirm={() => {
                         setDeletingItem(null);
-                        fetchInventory(currentLocationId);
+                        refetch();
                     }}
                 />
             )}

@@ -7,6 +7,8 @@ import { toast } from 'sonner';
 import { createBatchSecure } from '../../../actions/inventory-v2';
 import { updateProductMasterSecure } from '../../../actions/products-v2';
 
+import { useQueryClient } from '@tanstack/react-query';
+
 interface InventoryEditModalProps {
     isOpen: boolean;
     onClose: () => void;
@@ -14,7 +16,8 @@ interface InventoryEditModalProps {
 }
 
 const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose, product }) => {
-    const { inventory, updateBatchDetails, addNewProduct, user, fetchInventory } = usePharmaStore();
+    const queryClient = useQueryClient();
+    const { inventory, updateBatchDetails, addNewProduct, user, currentLocationId } = usePharmaStore();
     const [formData, setFormData] = useState<Partial<InventoryBatch>>({});
     const [activeBatches, setActiveBatches] = useState<InventoryBatch[]>([]);
     const [newTag, setNewTag] = useState('');
@@ -134,7 +137,7 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
             }
 
             toast.success('Producto actualizado correctamente');
-            await fetchInventory();
+            await queryClient.invalidateQueries({ queryKey: ['inventory', currentLocationId] });
             onClose();
         } catch (error) {
             console.error(error);
@@ -192,7 +195,7 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
                 toast.success('Nuevo lote creado y registrado en sistema');
 
                 // Refresh Inventory in background
-                fetchInventory();
+                queryClient.invalidateQueries({ queryKey: ['inventory', currentLocationId] });
             } else {
                 toast.error('Error creando lote: ' + result.error);
             }

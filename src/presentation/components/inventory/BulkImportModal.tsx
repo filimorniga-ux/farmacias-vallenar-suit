@@ -36,8 +36,11 @@ interface ImportedRow {
 
 type ImportFormat = 'OFFICIAL' | 'LEGACY';
 
+import { useQueryClient } from '@tanstack/react-query';
+
 const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) => {
-    const { importInventory } = usePharmaStore();
+    const queryClient = useQueryClient();
+    const { importInventory, currentLocationId } = usePharmaStore();
     const [step, setStep] = useState<'UPLOAD' | 'PREVIEW'>('UPLOAD');
     const [importedData, setImportedData] = useState<ImportedRow[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -314,8 +317,9 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
             successCount = itemsToImport.length;
 
             // 3. Refresh Data
-            const { fetchInventorySecure } = await import('../../../actions/sync-v2');
-            await fetchInventorySecure();
+            // const { fetchInventorySecure } = await import('../../../actions/sync-v2');
+            // await fetchInventorySecure();
+            await queryClient.invalidateQueries({ queryKey: ['inventory', currentLocationId] });
 
             toast.success('Importación Completada', {
                 description: `Se importaron ${successCount} productos correctamente.`

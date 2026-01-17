@@ -299,12 +299,131 @@ export async function createSaleSecure(params: {
             `, [sortedBatchIds, locationId]);
         }
 
+        // 3.1 RECOVERY MODE: Si faltan batches, verificar si son Product IDs y resolver
         if (batchesRes.rows.length !== sortedBatchIds.length) {
-            await client.query('ROLLBACK');
-            return {
-                success: false,
-                error: 'Algunos productos no pertenecen a esta sucursal o no existen'
-            };
+            const foundIds = new Set(batchesRes.rows.map(r => r.id));
+            const missingIds = sortedBatchIds.filter(id => !foundIds.has(id));
+
+            logger.warn({ missingIds, locationId }, '⚠️ [Sales v2] Batches not found. Attempting to resolve from Products table...');
+
+            // Mapa para remapear los IDs en los items (OldID -> NewBatchID)
+            const idRemap = new Map<string, string>();
+
+            for (const missingId of missingIds) {
+                // Verificar si es un Producto válido
+                const productRes = await client.query(`
+                    SELECT id, sku, name, price_sell_box, cost_price
+                    FROM products 
+                    WHERE id = $1
+                `, [missingId]);
+
+                if (productRes.rows.length > 0) {
+                    const product = productRes.rows[0];
+
+                    // Buscar si YA existe un batch para este producto en la ubicación
+                    const existingBatchRes = await client.query(`
+                        SELECT id, quantity_real, sku, product_id, location_id
+                        FROM inventory_batches 
+                        WHERE product_id = $1 AND location_id = $2
+                        LIMIT 1
+                        FOR UPDATE NOWAIT
+                    `, [product.id, locationId]);
+
+                    let realBatch;
+
+                    if (existingBatchRes.rows.length > 0) {
+                        // Usar batch existente
+                        realBatch = existingBatchRes.rows[0];
+                        logger.info({ missingId, resolvedBatchId: realBatch.id }, '✅ [Sales v2] Resolved ProductID to Existing Batch');
+                    } else {
+                        // Resolver warehouse_id correcto para la ubicación
+                        let targetWarehouseId = locationId;
+                        try {
+                            const whRes = await client.query(
+                                'SELECT default_warehouse_id FROM locations WHERE id = $1',
+                                [locationId]
+                            );
+                            if (whRes.rows.length > 0 && whRes.rows[0].default_warehouse_id) {
+                                targetWarehouseId = whRes.rows[0].default_warehouse_id;
+                            }
+                        } catch (e) {
+                            logger.warn({ err: e }, '⚠️ [Sales v2] Failed to resolve warehouse_id, using locationId fallback');
+                        }
+
+                        // Crear nuevo batch (auto-inicialización)
+                        const newBatchId = uuidv4();
+                        const lotNumber = `AUTO-${Date.now()}`;
+
+                        await client.query(`
+                            INSERT INTO inventory_batches (
+                                id, product_id, sku, name, 
+                                location_id, warehouse_id, 
+                                quantity_real, lot_number,
+                                unit_cost, sale_price,
+                                stock_min, stock_max
+                            ) VALUES (
+                                $1, $2, $3, $4, 
+                                $5, $6, 
+                                0, $7,
+                                $8, $9, 
+                                0, 100
+                            )
+                        `, [
+                            newBatchId, product.id, product.sku, product.name,
+                            locationId, targetWarehouseId,
+                            lotNumber,
+                            product.cost_price || 0, product.price_sell_box || 0
+                        ]);
+
+                        realBatch = {
+                            id: newBatchId,
+                            quantity_real: 0,
+                            sku: product.sku,
+                            product_id: product.id,
+                            location_id: locationId
+                        };
+                        logger.info({ missingId, newBatchId, targetWarehouseId }, '✅ [Sales v2] Created New Batch for ProductID');
+                    }
+
+                    // Agregar a la lista de batches encontrados
+                    batchesRes.rows.push(realBatch);
+
+                    // Registrar el remapeo
+                    idRemap.set(missingId, realBatch.id);
+
+                } else {
+                    logger.error({ missingId }, '❌ [Sales v2] ID is neither Batch nor Product');
+                }
+            }
+
+            // Aplicar remapeo a los items de la venta
+            if (idRemap.size > 0) {
+                for (const item of items) {
+                    if (idRemap.has(item.batch_id)) {
+                        item.batch_id = idRemap.get(item.batch_id)!;
+                    }
+                }
+            }
+
+            // Re-verificar si seguimos teniendo faltantes (casos fatales)
+            const allIdsNow = batchesRes.rows.map(r => r.id); // Estos son UUIDs reales de batches
+            // OJO: sortedBatchIds tenía los IDs ORIGINALES. Ahora items tiene los NUEVOS.
+            // Necesitamos validar que todos los items.batch_id tengan correspondencia.
+
+            const currentItemBatchIds = items.map(i => i.batch_id).filter(id => {
+                const rawId = String(id || '').trim().toUpperCase();
+                return rawId !== 'MANUAL' && !rawId.startsWith('MANUAL');
+            });
+
+            const stillMissing = currentItemBatchIds.filter(id => !allIdsNow.find(found => found === id));
+
+            if (stillMissing.length > 0) {
+                await client.query('ROLLBACK');
+                return {
+                    success: false,
+                    error: `Error crítico: Productos no encontrados en inventario ni catálogo. IDs: ${stillMissing.join(', ')}`
+                };
+            }
         }
 
         // Crear mapa de stock disponible
@@ -340,13 +459,13 @@ export async function createSaleSecure(params: {
         }
 
         if (stockErrors.length > 0) {
-            await client.query('ROLLBACK');
-            logger.warn({ stockErrors }, '⚠️ [Sales v2] Insufficient stock');
-            return {
-                success: false,
-                error: ERROR_MESSAGES.INSUFFICIENT_STOCK,
-                stockErrors
-            };
+            // await client.query('ROLLBACK'); // DISABLED: Allow negative stock
+            logger.warn({ stockErrors }, '⚠️ [Sales v2] Insufficient stock - Proceeding with sale (Negative Inventory allowed)');
+            // return {
+            //     success: false,
+            //     error: ERROR_MESSAGES.INSUFFICIENT_STOCK,
+            //     stockErrors
+            // };
         }
 
         // 4. Calcular totales
@@ -411,8 +530,9 @@ export async function createSaleSecure(params: {
             await client.query(`
                 INSERT INTO sale_items (
                     id, sale_id, batch_id, quantity, 
-                    unit_price, discount_amount, total_price, product_name
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    unit_price, discount_amount, total_price, product_name,
+                    timestamp
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
             `, [
                 saleItemId, saleId, batchIdToInsert, item.quantity,
                 item.price, item.discount || 0,
@@ -477,6 +597,46 @@ export async function createSaleSecure(params: {
         await client.query('COMMIT');
 
         logger.info({ saleId, totalAmount }, '✅ [Sales v2] Sale completed successfully');
+
+        // NOTIFICATION TRIGGER: Check for Low Stock (Zero or Negative)
+        // Executed after commit to ensure data visibility
+        (async () => {
+            try {
+                const { createNotificationSecure } = await import('./notifications-v2');
+                const { pool } = await import('@/lib/db');
+                const notifyClient = await pool.connect();
+
+                try {
+                    for (const item of items) {
+                        if (!item.batch_id || item.batch_id.startsWith('MANUAL')) continue;
+
+                        const stockRes = await notifyClient.query(
+                            'SELECT quantity_real, name, sku FROM inventory_batches WHERE id = $1',
+                            [item.batch_id]
+                        );
+
+                        if (stockRes.rows.length > 0) {
+                            const { quantity_real, name, sku } = stockRes.rows[0];
+                            if (quantity_real <= 0) {
+                                await createNotificationSecure({
+                                    type: 'STOCK_CRITICAL',
+                                    severity: 'ERROR',
+                                    title: 'Stock Crítico / Negativo',
+                                    message: `El producto ${name} (SKU: ${sku}) ha quedado con stock ${quantity_real}.Revisar inventario físico.`,
+                                    metadata: { batchId: item.batch_id, saleId, locationId, currentStock: quantity_real }
+                                    // userId is inferred from session in createNotificationSecure
+                                });
+                            }
+                        }
+                    }
+                } finally {
+                    notifyClient.release();
+                }
+            } catch (e) {
+                console.error('[Notification Trigger] Failed', e);
+            }
+        })();
+
         revalidatePath('/caja');
         revalidatePath('/pos');
 

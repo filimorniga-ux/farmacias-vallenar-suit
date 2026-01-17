@@ -5,6 +5,8 @@ import { InventoryBatch } from '../../../domain/types';
 import { toast } from 'sonner';
 import CameraScanner from '../ui/CameraScanner';
 
+import { useQueryClient } from '@tanstack/react-query';
+
 interface ProductFormModalProps {
     product?: InventoryBatch;
     initialValues?: {
@@ -21,7 +23,8 @@ interface ProductFormModalProps {
 }
 
 const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialValues, onClose, onSuccess }) => {
-    const { fetchInventory, suppliers, currentLocationId, currentWarehouseId, locations } = usePharmaStore();
+    const queryClient = useQueryClient();
+    const { suppliers, currentLocationId, currentWarehouseId, locations } = usePharmaStore();
     const isEdit = !!product;
     const { createProductSecure } = require('../../../actions/products-v2'); // Import Server Action (require for client component compat if needed, or import at top)
 
@@ -143,7 +146,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                     toast.success('Producto guardado exitosamente en base de datos');
 
                     // 4. Trigger Real Fetch to Update UI
-                    await fetchInventory(currentLocationId, currentWarehouseId);
+                    await queryClient.invalidateQueries({ queryKey: ['inventory', currentLocationId] });
 
                     if (onSuccess && result.data?.id) {
                         onSuccess(result.data.id, payload);

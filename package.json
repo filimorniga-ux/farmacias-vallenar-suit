@@ -1,7 +1,7 @@
 {
   "name": "farmacias-vallenar-suit",
   "private": true,
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Sistema de gestión integral para Farmacias Vallenar",
   "repository": {
     "type": "git",
@@ -81,7 +81,9 @@
   "dependencies": {
     "@ai-sdk/openai": "^2.0.89",
     "@headlessui/react": "^2.2.9",
-    "@tanstack/react-query": "^5.90.10",
+    "@tanstack/query-sync-storage-persister": "^5.90.20",
+    "@tanstack/react-query": "^5.90.18",
+    "@tanstack/react-query-persist-client": "^5.90.20",
     "@tanstack/react-virtual": "^3.13.12",
     "@types/react-router-dom": "^5.3.3",
     "ai": "^6.0.34",

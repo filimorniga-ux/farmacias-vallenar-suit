@@ -69,6 +69,7 @@ const AdjustCashSchema = z.object({
 const CashHistorySchema = z.object({
     terminalId: UUIDSchema.optional(),
     sessionId: UUIDSchema.optional(),
+    locationId: UUIDSchema.optional(), // Added locationId
     startDate: z.date().optional(),
     endDate: z.date().optional(),
     paymentMethod: z.string().optional(),
@@ -903,7 +904,7 @@ export async function getCashMovementHistory(
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { terminalId, sessionId, startDate, endDate, paymentMethod, term, page, pageSize } = validated.data;
+    const { terminalId, sessionId, locationId, startDate, endDate, paymentMethod, term, page, pageSize } = validated.data;
     const offset = (page - 1) * pageSize;
 
     try {
@@ -916,6 +917,13 @@ export async function getCashMovementHistory(
         // Base filters for both queries
         let moveFilters = '1=1';
         let saleFilters = "s.status != 'VOIDED'"; // Base sales filter
+
+        if (locationId) {
+            moveFilters += ` AND cm.location_id = $${paramIndex}::uuid`;
+            saleFilters += ` AND s.location_id = $${paramIndex}::uuid`;
+            params.push(locationId);
+            paramIndex++;
+        }
 
         if (terminalId) {
             moveFilters += ` AND cm.terminal_id = $${paramIndex}::uuid`;
@@ -989,6 +997,8 @@ export async function getCashMovementHistory(
             params.push(searchPattern);
             paramIndex++;
         }
+
+        logger.info({ params, moveFilters, saleFilters }, '🔍 [Cash] Executing History Query');
 
         // 1. Get Total Count
         const countRes = await query(`
@@ -1132,6 +1142,8 @@ export async function getShiftMetricsSecure(
         const openingAmount = Number(session.opening_amount);
 
         // Get sales by payment method
+        logger.info({ terminalId, sessionId: session.id }, '🔍 [Cash] Fetching metrics for session');
+
         const salesRes = await query(`
             SELECT 
                 payment_method,
@@ -1143,6 +1155,8 @@ export async function getShiftMetricsSecure(
             AND status != 'VOIDED'
             GROUP BY payment_method
         `, [terminalId, session.id]);
+
+        logger.info({ salesCount: salesRes.rows.length, salesRows: salesRes.rows }, '🔍 [Cash] Metrics Sales Result');
 
         let cashSales = 0, cardSales = 0, transferSales = 0, otherSales = 0;
         let transactionCount = 0;

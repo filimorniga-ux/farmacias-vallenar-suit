@@ -164,8 +164,13 @@ export async function getShiftDetails(sessionId: string) {
         const transferSales = Number(sales.find(s => ['TRANSFER', 'TRANSFERENCIA'].includes(s.payment_method))?.total_amount || 0);
 
         // Movimientos
-        const withdrawals = Number(movements.find(m => m.type === 'RETIRO' || m.type === 'EGRESO')?.total || 0);
-        const deposits = Number(movements.find(m => m.type === 'INGRESO' || m.type === 'DEPOSITO')?.total || 0);
+        const withdrawals = movements
+            .filter(m => ['RETIRO', 'EGRESO', 'WITHDRAWAL', 'EXPENSE'].includes(m.type))
+            .reduce((sum, m) => sum + Number(m.total), 0);
+
+        const deposits = movements
+            .filter(m => ['INGRESO', 'DEPOSITO', 'EXTRA_INCOME', 'DEPOSIT'].includes(m.type))
+            .reduce((sum, m) => sum + Number(m.total), 0);
 
         // Efectivo Teórico
         // Inicial + Ventas Efectivo + Ingresos - Retiros

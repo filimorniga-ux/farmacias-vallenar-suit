@@ -57,13 +57,14 @@ interface PharmaState {
 
     // Inventory
     inventory: InventoryBatch[];
+    setInventory: (inventory: InventoryBatch[]) => void;
     suppliers: Supplier[];
     supplierDocuments: SupplierDocument[];
     purchaseOrders: PurchaseOrder[];
     updateStock: (batchId: string, quantity: number) => void;
     addStock: (batchId: string, quantity: number, expiry?: number) => void;
     addNewProduct: (product: InventoryBatch) => void;
-    fetchInventory: (locationId?: string, warehouseId?: string) => Promise<void>;
+    // fetchInventory removed - migrated to React Query
     transferStock: (batchId: string, targetLocation: string, quantity: number) => Promise<void>;
     addPurchaseOrder: (po: PurchaseOrder) => void;
     receivePurchaseOrder: (poId: string, receivedItems: { sku: string, receivedQty: number; lotNumber?: string; expiryDate?: number }[], destinationLocationId: string) => Promise<void>;
@@ -244,7 +245,7 @@ export const usePharmaStore = create<PharmaState>()(
 
                     // 2. Fetch new data
                     get().fetchTerminals(loc);
-                    get().fetchInventory(loc, wh);
+                    // fetchInventory removed - handled by React Query in components
                 }
             },
 
@@ -333,9 +334,9 @@ export const usePharmaStore = create<PharmaState>()(
                                             });
 
                                             // ⚡️ Refresh Inventory for the new context (Non-blocking)
-                                            if (warehouseId) {
-                                                get().fetchInventory(assignedLoc.id, warehouseId).catch(console.error);
-                                            }
+                                            // if (warehouseId) {
+                                            //    get().fetchInventory(assignedLoc.id, warehouseId).catch(console.error);
+                                            // }
                                         } else {
                                             console.log('📍 Context stable. Preserving session.');
                                         }
@@ -368,7 +369,7 @@ export const usePharmaStore = create<PharmaState>()(
                             });
 
                             // ⚡️ PERFORMANCE FIX: Fire-and-forget data fetching
-                            if (warehouseId) state.fetchInventory(locationId, warehouseId).catch(console.error);
+                            // fetchInventory removed
                             state.fetchTerminals(locationId).catch(console.error);
 
                         } catch (e) { console.error("Error persisting location context", e); }
@@ -548,33 +549,13 @@ export const usePharmaStore = create<PharmaState>()(
                 }
             },
 
-            fetchInventory: async (locationId: string | undefined, warehouseId: string | undefined) => {
-                set({ isLoading: true });
-                try {
-                    const state = get();
-                    const wh = warehouseId || state.currentWarehouseId;
-                    const targetLocation = locationId || state.currentLocationId;
+            // fetchInventory removed
 
-                    // Skip fetch if no location selected (prevents warnings)
-                    if (!targetLocation) {
-                        set({ inventory: [], isLoading: false });
-                        return;
-                    }
-
-                    // Use TigerDataService to fetch inventory consistent with syncData
-                    // Ensure TigerDataService is imported or available. It is imported at top.
-                    const { TigerDataService } = await import('../../domain/services/TigerDataService');
-                    const inventory = await TigerDataService.fetchInventory(targetLocation);
-                    set({ inventory, isLoading: false });
-                } catch (error) {
-                    console.error(error);
-                    set({ isLoading: false });
-                }
-            },
 
             // --- Inventory ---
             locations: [], // Initialize locations
             inventory: [],
+            setInventory: (inventory) => set({ inventory }),
             suppliers: [],
             supplierDocuments: [],
             purchaseOrders: [],
@@ -619,7 +600,7 @@ export const usePharmaStore = create<PharmaState>()(
 
                 if (result.success) {
                     import('sonner').then(({ toast }) => toast.success('Traspaso exitoso'));
-                    await get().fetchInventory(state.currentLocationId, state.currentWarehouseId);
+                    // await get().fetchInventory(state.currentLocationId, state.currentWarehouseId);
                 } else {
                     import('sonner').then(({ toast }) => toast.error('Error en traspaso: ' + result.error));
                 }
@@ -642,7 +623,7 @@ export const usePharmaStore = create<PharmaState>()(
 
                 if (result.success) {
                     import('sonner').then(({ toast }) => toast.success('Recepción de Orden exitosa'));
-                    await get().fetchInventory(state.currentLocationId, state.currentWarehouseId);
+                    // await get().fetchInventory(state.currentLocationId, state.currentWarehouseId);
 
                     // Update local PO list status optimistically or refetch
                     set((s) => ({
@@ -1043,8 +1024,9 @@ export const usePharmaStore = create<PharmaState>()(
                         saleTransaction.is_synced = false;
 
                         import('sonner').then(({ toast }) => {
-                            toast.warning('Venta guardada localmente (Sin conexión)', {
-                                description: 'Se sincronizará cuando recupere internet.'
+                            toast.warning('Error al guardar venta (Guardado local)', {
+                                description: result.error || 'Se sincronizará cuando recupere internet.',
+                                duration: 5000
                             });
                         });
                         // Allow to proceed to local update

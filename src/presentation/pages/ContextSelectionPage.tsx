@@ -24,16 +24,21 @@ const ContextSelectionPage: React.FC = () => {
     }, []);
 
     const handleLocationSelect = (loc: PublicLocation) => {
-        // Save preference locally and in cookies for Server Components
+        // 1. Save preference locally (Client-Side State)
         localStorage.setItem('preferred_location_id', loc.id);
         localStorage.setItem('preferred_location_name', loc.name);
         localStorage.setItem('preferred_location_type', loc.type);
 
-        // Set cookie for Next.js Server Component check
-        document.cookie = `preferred_location_id=${loc.id}; path=/; max-age=31536000`;
+        // 2. Clear potential conflicting cookies
+        document.cookie = "preferred_location_id=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
 
-        // Force full reload to re-run server-side logic in page.tsx
-        window.location.href = '/';
+        // 3. Set cookie for Server-Side props (Next.js)
+        // Adding SameSite=Lax to ensure it sticks across navigations
+        document.cookie = `preferred_location_id=${loc.id}; path=/; max-age=31536000; SameSite=Lax`;
+
+        // 4. Force full reload to update Server Context
+        // Using replace to avoid back-button causing loops
+        window.location.replace(`/?t=${Date.now()}`);
     };
 
     return (
