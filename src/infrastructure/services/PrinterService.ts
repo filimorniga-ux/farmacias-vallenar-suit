@@ -1,7 +1,68 @@
 import { HardwareConfig } from '../../domain/types';
 
+// Electron IPC type declarations
+declare global {
+    interface Window {
+        electronAPI?: {
+            getPrinters: () => Promise<Array<{ name: string; isDefault: boolean; status: number }>>;
+            printSilent: (options: { printerName: string; content: string; type: 'html' | 'raw' }) => Promise<boolean>;
+            isElectron: boolean;
+        };
+    }
+}
+
 export class PrinterService {
     private static styleId = 'printer-dynamic-styles';
+
+    /**
+     * Check if running in Electron desktop app
+     */
+    static isElectron(): boolean {
+        return typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
+    }
+
+    /**
+     * Get list of available printers (Electron only)
+     */
+    static async getAvailablePrinters(): Promise<Array<{ name: string; isDefault: boolean; status: number }>> {
+        if (this.isElectron() && window.electronAPI?.getPrinters) {
+            try {
+                return await window.electronAPI.getPrinters();
+            } catch (error) {
+                console.error('[PrinterService] Failed to get printers:', error);
+                return [];
+            }
+        }
+        // In browser, return empty (no native printer access)
+        return [];
+    }
+
+    /**
+     * Print silently to a specific printer (Electron only)
+     */
+    static async printSilent(printerName: string, contentHtml: string): Promise<boolean> {
+        if (this.isElectron() && window.electronAPI?.printSilent) {
+            try {
+                return await window.electronAPI.printSilent({
+                    printerName,
+                    content: contentHtml,
+                    type: 'html'
+                });
+            } catch (error) {
+                console.error('[PrinterService] Silent print failed:', error);
+                return false;
+            }
+        }
+        // Fallback: use browser print dialog
+        this.printTicket(contentHtml, {
+            pos_printer_width: '80mm',
+            label_printer_size: '50x25',
+            auto_print_pos: false,
+            auto_print_labels: false,
+            scanner_mode: 'KEYBOARD_WEDGE'
+        });
+        return true;
+    }
 
     /**
      * Injects dynamic CSS for printing based on hardware config
@@ -67,6 +128,13 @@ export class PrinterService {
     }
 
     static printTicket(contentHtml: string, config: HardwareConfig) {
+        // If Electron and auto-print enabled with a selected printer, use silent print
+        if (this.isElectron() && config.auto_print_pos && config.pos_printer_name) {
+            this.printSilent(config.pos_printer_name, contentHtml);
+            return;
+        }
+
+        // Fallback to browser print
         this.injectStyles(config);
 
         // Create a temporary print container

@@ -91,16 +91,39 @@ function createWindow() {
 // IPC Handlers for Desktop Features
 // ---------------------------------------------------------
 
+// Get list of available printers
+ipcMain.handle('get-printers', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return [];
+
+    try {
+        const printers = await win.webContents.getPrintersAsync();
+        return printers.map(p => ({
+            name: p.name,
+            isDefault: p.isDefault,
+            status: p.status
+        }));
+    } catch (error) {
+        console.error('Failed to get printers:', error);
+        return [];
+    }
+});
+
+// Silent print to specific printer
 ipcMain.handle('print-silent', async (event, options) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return { success: false, error: 'No window found' };
 
     try {
-        await win.webContents.print({
+        // If HTML content provided, we need to print the current page
+        // For now, we use the browser's print with silent mode
+        const printOptions = {
             silent: true,
             printBackground: true,
-            deviceName: ''
-        });
+            deviceName: options?.printerName || ''
+        };
+
+        await win.webContents.print(printOptions);
         return { success: true };
     } catch (error) {
         console.error('Silent print failed:', error);
