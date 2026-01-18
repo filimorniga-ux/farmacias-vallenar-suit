@@ -6,7 +6,8 @@ import RouteGuard from '@/components/auth/RouteGuard';
 import {
     ArrowLeft, Plus, RefreshCw, Search, Filter,
     Calendar, Eye, CheckCircle, XCircle, RotateCw,
-    FileText, Building2, DollarSign, Sparkles, ImageOff, Trash2, Edit
+    FileText, Building2, DollarSign, Sparkles, ImageOff, Trash2, Edit,
+    ChevronDown, Package, AlertCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -102,6 +103,7 @@ export default function InvoiceListPage() {
     const [selectedParsing, setSelectedParsing] = useState<any | null>(null);
     const [isDetailOpen, setIsDetailOpen] = useState(false);
     const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+    const [showItemsDetail, setShowItemsDetail] = useState(false);
 
     // Approval Modal
     const [isApproveModalOpen, setIsApproveModalOpen] = useState(false);
@@ -604,8 +606,8 @@ export default function InvoiceListPage() {
                                                         key={pageNum}
                                                         onClick={() => setCurrentPage(pageNum)}
                                                         className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${currentPage === pageNum
-                                                                ? 'z-10 bg-purple-50 border-purple-500 text-purple-600'
-                                                                : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
+                                                            ? 'z-10 bg-purple-50 border-purple-500 text-purple-600'
+                                                            : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
                                                             }`}
                                                     >
                                                         {pageNum}
@@ -750,10 +752,21 @@ export default function InvoiceListPage() {
                                         </div>
                                     </div>
 
-                                    {/* Items Summary */}
+                                    {/* Items Summary - Expandable */}
                                     <div className="bg-gray-50 rounded-lg p-4">
-                                        <h3 className="text-sm font-medium text-gray-500 mb-2">Items</h3>
-                                        <div className="flex items-center gap-4">
+                                        <button
+                                            onClick={() => setShowItemsDetail(!showItemsDetail)}
+                                            className="w-full flex items-center justify-between text-sm font-medium text-gray-700 mb-2 hover:text-gray-900"
+                                        >
+                                            <span className="flex items-center gap-2">
+                                                <Package size={16} />
+                                                Items ({selectedParsing.total_items})
+                                            </span>
+                                            <ChevronDown size={16} className={`transition-transform ${showItemsDetail ? 'rotate-180' : ''}`} />
+                                        </button>
+
+                                        {/* Quick Stats */}
+                                        <div className="flex items-center gap-4 mb-3">
                                             <div className="text-center">
                                                 <p className="text-2xl font-bold text-gray-900">{selectedParsing.total_items}</p>
                                                 <p className="text-xs text-gray-500">Total</p>
@@ -767,6 +780,63 @@ export default function InvoiceListPage() {
                                                 <p className="text-xs text-gray-500">Sin mapear</p>
                                             </div>
                                         </div>
+
+                                        {/* Expanded Items Detail */}
+                                        {showItemsDetail && selectedParsing.parsed_items && (
+                                            <div className="border-t border-gray-200 pt-3 mt-3 space-y-2 max-h-[300px] overflow-y-auto">
+                                                {(Array.isArray(selectedParsing.parsed_items)
+                                                    ? selectedParsing.parsed_items
+                                                    : JSON.parse(selectedParsing.parsed_items || '[]')
+                                                ).map((item: any, idx: number) => (
+                                                    <div
+                                                        key={idx}
+                                                        className={`p-2 rounded-lg border text-sm ${item.mapping_status === 'MAPPED'
+                                                            ? 'bg-green-50 border-green-200'
+                                                            : item.mapping_status === 'SKIPPED'
+                                                                ? 'bg-gray-50 border-gray-200 opacity-60'
+                                                                : 'bg-yellow-50 border-yellow-200'
+                                                            }`}
+                                                    >
+                                                        <div className="flex items-start justify-between gap-2">
+                                                            <div className="flex-1 min-w-0">
+                                                                <p className="font-medium text-gray-900 truncate" title={item.description}>
+                                                                    {item.description || item.mapped_product_name || 'Sin nombre'}
+                                                                </p>
+                                                                <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
+                                                                    <span>Cant: {item.quantity}</span>
+                                                                    <span>•</span>
+                                                                    <span>{formatCurrency(item.unit_cost)}</span>
+                                                                    {item.supplier_sku && (
+                                                                        <>
+                                                                            <span>•</span>
+                                                                            <span className="font-mono">{item.supplier_sku}</span>
+                                                                        </>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                {item.mapping_status === 'MAPPED' ? (
+                                                                    <CheckCircle size={14} className="text-green-600" />
+                                                                ) : item.mapping_status === 'SKIPPED' ? (
+                                                                    <XCircle size={14} className="text-gray-400" />
+                                                                ) : (
+                                                                    <AlertCircle size={14} className="text-yellow-600" />
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        {item.mapped_product_id && (
+                                                            <Link
+                                                                href={`/inventory?edit=${item.mapped_product_id}`}
+                                                                className="mt-1 text-xs text-blue-600 hover:underline flex items-center gap-1"
+                                                            >
+                                                                <Edit size={10} />
+                                                                Editar ficha de producto
+                                                            </Link>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Error */}

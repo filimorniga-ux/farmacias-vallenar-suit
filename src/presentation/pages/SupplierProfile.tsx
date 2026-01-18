@@ -325,7 +325,7 @@ export const SupplierProfile = () => {
                             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                                 <h3 className="text-lg font-bold text-slate-800 mb-4">Contactos</h3>
                                 <div className="space-y-4">
-                                    {supplier.contacts.map((contact, idx) => (
+                                    {(supplier.contacts || []).map((contact, idx) => (
                                         <div key={idx} className="pb-4 border-b border-slate-100 last:border-0 last:pb-0">
                                             <div className="flex justify-between items-start">
                                                 <p className="font-bold text-slate-800">{contact.name}</p>
@@ -344,7 +344,7 @@ export const SupplierProfile = () => {
                                             </div>
                                         </div>
                                     ))}
-                                    {supplier.contacts.length === 0 && (
+                                    {(!supplier.contacts || supplier.contacts.length === 0) && (
                                         <p className="text-slate-500 text-sm">No hay contactos registrados.</p>
                                     )}
                                 </div>
