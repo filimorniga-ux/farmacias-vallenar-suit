@@ -4,8 +4,24 @@ import { HardwareConfig } from '../../domain/types';
 declare global {
     interface Window {
         electronAPI?: {
+            // Printer Functions
             getPrinters: () => Promise<Array<{ name: string; isDefault: boolean; status: number }>>;
             printSilent: (options: { printerName: string; content: string; type: 'html' | 'raw' }) => Promise<boolean>;
+
+            // Price Audit Functions
+            startPriceAudit: (options: { batchId: number; products: any[]; startOffset?: number }) => Promise<{ success: boolean; error?: string }>;
+            pausePriceAudit: () => Promise<{ paused: boolean; lastOffset: number }>;
+            stopPriceAudit: () => Promise<{ stopped: boolean; lastOffset: number }>;
+            getPriceAuditStatus: () => Promise<{ isRunning: boolean; isPaused: boolean; processedCount: number; totalCount: number; progress: string }>;
+
+            // Price Audit Event Listeners
+            onPriceAuditProgress: (callback: (data: { batchId: number; processed: number; total: number; currentProduct: string; estimatedTimeRemaining: number }) => void) => void;
+            onPriceAuditResult: (callback: (proposal: any) => void) => void;
+            onPriceAuditComplete: (callback: (data: { batchId: number; processed: number; total: number }) => void) => void;
+            onPriceAuditError: (callback: (data: { batchId: number; error: string; lastOffset: number }) => void) => void;
+
+            // App Info
+            getVersion: () => Promise<string>;
             isElectron: boolean;
         };
     }
