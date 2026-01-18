@@ -523,6 +523,31 @@ export interface HardwareConfig {
     scanner_mode: 'KEYBOARD_WEDGE' | 'HID';
     kiosk_printer_width?: '58mm' | '80mm';
     kiosk_welcome_message?: string;
+
+    // Printer Device Selection (Electron native)
+    pos_printer_name?: string;          // Selected POS thermal printer
+    label_printer_name?: string;        // Selected label printer
+    document_printer_name?: string;     // Selected document printer (HP, Epson, etc.)
+
+    // Ticket Customization - Company Info
+    ticket_company_name?: string;       // Ej: "Farmacia Vallenar"
+    ticket_company_rut?: string;        // Ej: "76.123.456-7"
+    ticket_company_address?: string;    // Ej: "Av. Matta 123, Vallenar"
+    ticket_company_phone?: string;      // Ej: "+56 9 1234 5678"
+    ticket_company_giro?: string;       // Ej: "Venta al por menor de productos farmacéuticos"
+    ticket_logo_base64?: string;        // Logo encoded as base64
+
+    // Ticket Customization - Messages
+    ticket_header_message?: string;     // Message above items list
+    ticket_footer_message?: string;     // Ej: "¡Gracias por su compra!"
+    ticket_promo_message?: string;      // Ej: "20% OFF en protector solar"
+    ticket_social_media?: string;       // Ej: "@farmaciasvallenar"
+
+    // Ticket Customization - Features
+    ticket_show_loyalty_points?: boolean;   // Show customer accumulated points
+    ticket_show_savings?: boolean;          // Show "Ud. ahorró $X"
+    ticket_show_cashier_name?: boolean;     // Show who made the sale
+    ticket_show_barcode?: boolean;          // Show transaction barcode for returns
 }
 
 // --- Atención y Filas ---
