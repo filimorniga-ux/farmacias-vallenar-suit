@@ -44,12 +44,13 @@ function sleep(ms) {
 }
 
 /**
- * Make HTTP request to DuckDuckGo
+ * Make HTTP request to DuckDuckGo with Chilean region filter
  */
 function fetchDuckDuckGo(query) {
     return new Promise((resolve, reject) => {
         const encodedQuery = encodeURIComponent(query);
-        const url = `https://html.duckduckgo.com/html/?q=${encodedQuery}`;
+        // kl=cl-cl forces Chilean region results
+        const url = `https://html.duckduckgo.com/html/?q=${encodedQuery}&kl=cl-cl`;
 
         const options = {
             headers: {
@@ -76,41 +77,61 @@ function fetchDuckDuckGo(query) {
 
 /**
  * Extract prices from HTML using regex (no cheerio dependency)
+ * STRICT CHILE FILTERING: Only accepts CLP prices from .cl domains
  */
 function extractPricesFromHTML(html, productName) {
     const prices = [];
     const sources = [];
 
-    // Pattern to find Chilean peso prices
+    // Verify we have Chilean domain results (.cl)
+    const hasChileanDomains = /\.cl[\s\/"'>]/i.test(html);
+    if (!hasChileanDomains) {
+        console.log('[PriceAudit] No Chilean domains found, skipping extraction');
+        return { prices: [], sources: [] };
+    }
+
+    // Pattern to find Chilean peso prices (with $ symbol)
     const pricePatterns = [
-        /\$\s*([\d.,]+)/g,
-        /CLP\s*([\d.,]+)/g,
-        /([\d.]+)\s*pesos/gi
+        /\$\s*([\d.]+)/g,           // $1.990 or $1990
+        /CLP\s*([\d.]+)/g,          // CLP 1.990
+        /([\d.]+)\s*pesos/gi        // 1990 pesos
     ];
 
-    // Known pharmacy domains
+    // Known Chilean pharmacy domains (MUST end in .cl)
     const pharmacyPatterns = [
-        { name: 'Cruz Verde', pattern: /cruzverde/i },
-        { name: 'Salcobrand', pattern: /salcobrand/i },
-        { name: 'Ahumada', pattern: /ahumada|fahorro/i },
-        { name: 'Dr. Simi', pattern: /drsimi|similares/i },
-        { name: 'Farmex', pattern: /farmex/i },
-        { name: 'Farmacias Chile', pattern: /farmacia/i }
+        { name: 'Cruz Verde', pattern: /cruzverde\.cl/i },
+        { name: 'Salcobrand', pattern: /salcobrand\.cl/i },
+        { name: 'Ahumada', pattern: /(ahumada|fahorro)\.cl/i },
+        { name: 'Dr. Simi', pattern: /(drsimi|similares)\.cl/i },
+        { name: 'Farmex', pattern: /farmex\.cl/i },
+        { name: 'Farmacias.cl', pattern: /farmacias\.cl/i },
+        { name: 'Yapp', pattern: /yapp\.cl/i },
+        { name: 'Knop', pattern: /knop\.cl/i }
     ];
 
     // Extract all price-like patterns
     for (const pattern of pricePatterns) {
         let match;
         while ((match = pattern.exec(html)) !== null) {
+            // Remove thousands separator (.) and parse
             const priceStr = match[1].replace(/\./g, '').replace(',', '.');
             const price = parseFloat(priceStr);
-            if (price > 100 && price < 1000000) { // Reasonable price range
+
+            // STRICT CLP VALIDATION:
+            // - Minimum $500 CLP (avoids USD/MXN confusion)
+            // - Maximum $500,000 CLP (reasonable pharmacy limit)
+            // - Ignore suspicious round numbers that might be USD (like 50, 100, 200)
+            if (price >= 500 && price <= 500000) {
+                // Extra check: if price is suspiciously low and round, skip it
+                if (price < 1000 && price % 100 === 0) {
+                    continue; // Skip $500, $600, $700 etc (likely USD)
+                }
                 prices.push(price);
             }
         }
     }
 
-    // Check which pharmacies appear in results
+    // Check which Chilean pharmacies (.cl) appear in results
     for (const pharmacy of pharmacyPatterns) {
         if (pharmacy.pattern.test(html)) {
             sources.push(pharmacy.name);
@@ -173,7 +194,8 @@ function calculateSuggestedPrice(prices, costPrice) {
  * Process a single product
  */
 async function processProduct(win, product, batchId) {
-    const query = `${product.name} precio farmacia chile`;
+    // STRICT CHILE FILTER: Force .cl domains only
+    const query = `${product.name} precio farmacia site:.cl`;
 
     try {
         // Fetch search results
