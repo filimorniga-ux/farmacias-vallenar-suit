@@ -136,6 +136,40 @@ ipcMain.handle('get-app-version', () => {
 });
 
 // ---------------------------------------------------------
+// PRICE AUDIT IPC HANDLERS
+// ---------------------------------------------------------
+const priceAuditEngine = require('./priceAuditEngine.cjs');
+
+// Start price audit for a batch
+ipcMain.handle('start-price-audit', async (event, { batchId, products, startOffset }) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { success: false, error: 'No window found' };
+
+    try {
+        // Run audit in background (non-blocking)
+        priceAuditEngine.runAudit(win, batchId, products, startOffset || 0);
+        return { success: true, message: 'Audit started' };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+// Pause current audit
+ipcMain.handle('pause-price-audit', () => {
+    return priceAuditEngine.pauseAudit();
+});
+
+// Stop current audit
+ipcMain.handle('stop-price-audit', () => {
+    return priceAuditEngine.stopAudit();
+});
+
+// Get audit status
+ipcMain.handle('get-price-audit-status', () => {
+    return priceAuditEngine.getStatus();
+});
+
+// ---------------------------------------------------------
 // AUTO-UPDATER EVENTS
 // ---------------------------------------------------------
 autoUpdater.on('update-available', () => {
