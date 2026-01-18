@@ -256,14 +256,21 @@ const ApproveRequestSchema = z.object({
 // HELPERS
 // ============================================================================
 
-async function getSession(): Promise<{ userId: string; role: string; locationId?: string } | null> {
+async function getSession(): Promise<{ userId: string; role: string; locationId?: string; userName?: string } | null> {
     try {
         const headersList = await headers();
         const userId = headersList.get('x-user-id');
         const role = headersList.get('x-user-role');
         const locationId = headersList.get('x-user-location');
+        const userName = headersList.get('x-user-name'); // 👈 Add this
+
         if (!userId || !role) return null;
-        return { userId, role, locationId: locationId || undefined };
+        return {
+            userId,
+            role,
+            locationId: locationId || undefined,
+            userName: userName || undefined
+        };
     } catch {
         return null;
     }
@@ -915,7 +922,7 @@ export async function parseInvoiceDocumentSecure(
                 raw_ai_response, ai_provider, ai_model, processing_time_ms,
                 confidence_score, validation_warnings,
                 status, total_items, mapped_items, unmapped_items,
-                original_file_type, original_file_name, original_file_hash,
+                original_file_type, original_file_name, original_file_hash, original_file_data,
                 location_id, created_by
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
@@ -923,8 +930,8 @@ export async function parseInvoiceDocumentSecure(
                 $20, $21, $22, $23,
                 $24, $25,
                 $26, $27, $28, $29,
-                $30, $31, $32,
-                $33, $34
+                $30, $31, $32, $33,
+                $34, $35
             )
         `, [
             parsingId,
@@ -959,6 +966,7 @@ export async function parseInvoiceDocumentSecure(
             fileType,
             fileName || null,
             fileHash,
+            Buffer.from(fileBase64.includes(',') ? fileBase64.split(',')[1] : fileBase64, 'base64'), // original_file_data
             locationId,
             session.userId,
         ]);
@@ -1390,7 +1398,7 @@ export async function approveInvoiceParsingSecure(
                 account_payable_id = $4,
                 parsed_items = $5,
                 mapped_items = $6,
-                unmapped_items = $7,
+            unmapped_items = $7,
                 validated_by = $8,
                 validated_at = NOW(),
                 processed_at = NOW()
@@ -1406,6 +1414,43 @@ export async function approveInvoiceParsingSecure(
             session.userId,
             parsingId
         ]);
+
+        // 6. Copiar factura aprobada a supplier_account_documents (para perfil del proveedor)
+        if (supplierId && parsing.invoice_number) {
+            try {
+                await client.query(`
+                    INSERT INTO supplier_account_documents(
+            id, supplier_id, type, invoice_number, issue_date, due_date,
+            amount, status, file_name, file_mime, file_size, file_data,
+            uploaded_by, uploaded_by_name, uploaded_at
+        ) VALUES(
+            $1, $2, $3, $4, $5, $6,
+            $7, $8, $9, $10, $11, $12,
+            $13, $14, NOW()
+        )
+                    ON CONFLICT DO NOTHING
+            `, [
+                    randomUUID(),
+                    supplierId,
+                    parsing.document_type || 'FACTURA',
+                    parsing.invoice_number,
+                    parsing.issue_date || null,
+                    parsing.due_date || null,
+                    parsing.total_amount || 0,
+                    'PENDING', // Estado de pago pendiente
+                    parsing.original_file_name || `factura_${parsing.invoice_number}.${parsing.original_file_type || 'pdf'}`,
+                    parsing.original_file_type === 'pdf' ? 'application/pdf' : 'image/jpeg',
+                    parsing.original_file_size || 0,
+                    parsing.original_file_data || null,
+                    session.userId,
+                    session.userName || null
+                ]);
+                logger.info({ parsingId, supplierId }, '📎 Invoice copied to supplier_account_documents');
+            } catch (copyError: any) {
+                // No bloquear la aprobación si falla la copia
+                logger.warn({ parsingId, copyError: copyError.message }, '⚠️ Could not copy invoice to supplier docs');
+            }
+        }
 
         await client.query('COMMIT');
 
@@ -1455,12 +1500,12 @@ export async function rejectInvoiceParsingSecure(
         const res = await query(`
             UPDATE invoice_parsings SET
                 status = 'REJECTED',
-                rejection_reason = $1,
-                rejected_by = $2,
-                rejected_at = NOW()
-            WHERE id = $3 AND status IN ('PENDING', 'VALIDATED', 'MAPPING')
+            rejection_reason = $1,
+            rejected_by = $2,
+            rejected_at = NOW()
+            WHERE id = $3 AND status IN('PENDING', 'VALIDATED', 'MAPPING')
             RETURNING id
-        `, [reason, session.userId, parsingId]);
+            `, [reason, session.userId, parsingId]);
 
         if (res.rowCount === 0) {
             return { success: false, error: 'Parsing no encontrado o no se puede rechazar' };
@@ -1468,9 +1513,9 @@ export async function rejectInvoiceParsingSecure(
 
         // Auditar
         await query(`
-            INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values)
-            VALUES ($1, 'INVOICE_REJECTED', 'INVOICE_PARSING', $2, $3::jsonb)
-        `, [session.userId, parsingId, JSON.stringify({ reason })]);
+            INSERT INTO audit_log(user_id, action_code, entity_type, entity_id, new_values)
+            VALUES($1, 'INVOICE_REJECTED', 'INVOICE_PARSING', $2, $3:: jsonb)
+                `, [session.userId, parsingId, JSON.stringify({ reason })]);
 
         logger.info({ parsingId, reason }, '❌ Invoice parsing rejected');
 
@@ -1531,14 +1576,14 @@ export async function getPendingParsingsSecure(options: {
         }
 
         if (searchTerm) {
-            const term = `%${searchTerm.toLowerCase()}%`;
+            const term = `% ${searchTerm.toLowerCase()} % `;
             params.push(term);
-            whereClause += ` AND (
-                LOWER(ip.supplier_name) LIKE $${params.length} OR 
+            whereClause += ` AND(
+                    LOWER(ip.supplier_name) LIKE $${params.length} OR 
                 LOWER(ip.supplier_rut) LIKE $${params.length} OR 
                 LOWER(ip.invoice_number) LIKE $${params.length} OR
-                LOWER(ip.issue_date::text) LIKE $${params.length}
-            )`;
+                LOWER(ip.issue_date:: text) LIKE $${params.length}
+                )`;
         }
 
         if (dateFrom) {
@@ -1560,21 +1605,21 @@ export async function getPendingParsingsSecure(options: {
         const dataSql = `
             SELECT 
                 ip.id, ip.supplier_rut, ip.supplier_name, ip.location_id,
-                ip.supplier_address, ip.supplier_phone, ip.supplier_email, 
-                ip.supplier_website, ip.supplier_activity, ip.supplier_fantasy_name,
-                ip.document_type, ip.invoice_number, ip.issue_date,
-                ip.total_amount, ip.confidence_score, ip.status,
-                ip.total_items, ip.mapped_items, ip.unmapped_items,
-                ip.created_at,
-                u.name as created_by_name,
-                l.name as location_name
+            ip.supplier_address, ip.supplier_phone, ip.supplier_email,
+            ip.supplier_website, ip.supplier_activity, ip.supplier_fantasy_name,
+            ip.document_type, ip.invoice_number, ip.issue_date,
+            ip.total_amount, ip.confidence_score, ip.status,
+            ip.total_items, ip.mapped_items, ip.unmapped_items,
+            ip.created_at,
+            u.name as created_by_name,
+            l.name as location_name
             FROM invoice_parsings ip
-            LEFT JOIN users u ON ip.created_by::text = u.id
+            LEFT JOIN users u ON ip.created_by:: text = u.id
             LEFT JOIN locations l ON ip.location_id = l.id
             ${whereClause}
             ORDER BY ip.created_at DESC
             LIMIT ${pageSize} OFFSET ${offset}
-        `;
+            `;
 
         const dataRes = await query(dataSql, params);
 
@@ -1611,9 +1656,9 @@ export async function findProductBySupplierSkuSecure(
             COALESCE(
                 (SELECT SUM(quantity_real) FROM inventory_batches WHERE product_id = p.id),
             0
-                ) as current_stock
+        ) as current_stock
             FROM product_suppliers ps
-            JOIN products p ON ps.product_id::text = p.id
+            JOIN products p ON ps.product_id:: text = p.id
             WHERE ps.supplier_id = $1 AND ps.supplier_sku = $2
             LIMIT 1
             `, [supplierId, supplierSku]);
@@ -1715,7 +1760,7 @@ export async function getInvoiceParsingSecure(
             l.name as location_name
             FROM invoice_parsings ip
             LEFT JOIN suppliers s ON ip.supplier_id = s.id
-            LEFT JOIN users u ON ip.created_by::text = u.id
+            LEFT JOIN users u ON ip.created_by:: text = u.id
             LEFT JOIN users vu ON ip.validated_by = vu.id
             LEFT JOIN locations l ON ip.location_id = l.id
             WHERE ip.id = $1
@@ -1725,7 +1770,16 @@ export async function getInvoiceParsingSecure(
             return { success: false, error: 'Parsing no encontrado' };
         }
 
-        return { success: true, data: res.rows[0] };
+        const data = res.rows[0];
+
+        // Convertir imagen a base64 si existe
+        if (data.original_file_data) {
+            data.original_file_base64 = data.original_file_data.toString('base64');
+            // Eliminar buffer original para no sobrecargar el JSON
+            delete data.original_file_data;
+        }
+
+        return { success: true, data };
 
     } catch (error: any) {
         logger.error({ error, parsingId }, '[Invoice Parser] Error getting parsing');
@@ -1781,3 +1835,64 @@ export async function deleteInvoiceParsingSecure(
     }
 }
 
+/**
+ * 📋 Obtener parsings de facturas por ID de proveedor (para perfil del proveedor)
+ */
+export async function getParsingsBySupplierIdSecure(
+    supplierId: string
+): Promise<{
+    success: boolean;
+    data?: Array<{
+        id: string;
+        invoice_number: string;
+        issue_date: string | null;
+        due_date: string | null;
+        net_amount: number;
+        tax_amount: number;
+        total_amount: number;
+        parsed_items: any[];
+        status: string;
+        created_at: string;
+        original_file_type: string | null;
+    }>;
+    error?: string;
+}> {
+    const session = await getSession();
+    if (!session) {
+        return { success: false, error: 'No autenticado' };
+    }
+
+    if (!UUIDSchema.safeParse(supplierId).success) {
+        return { success: false, error: 'ID de proveedor inválido' };
+    }
+
+    try {
+        const result = await query(`
+        SELECT
+        id, invoice_number, issue_date, due_date,
+            net_amount, tax_amount, total_amount,
+            parsed_items, status, created_at, original_file_type
+            FROM invoice_parsings
+            WHERE supplier_id = $1
+            ORDER BY created_at DESC
+            LIMIT 50
+            `, [supplierId]);
+
+        return {
+            success: true,
+            data: result.rows.map(row => ({
+                ...row,
+                issue_date: row.issue_date ? new Date(row.issue_date).toISOString() : null,
+                due_date: row.due_date ? new Date(row.due_date).toISOString() : null,
+                created_at: row.created_at ? new Date(row.created_at).toISOString() : null,
+                net_amount: Number(row.net_amount) || 0,
+                tax_amount: Number(row.tax_amount) || 0,
+                total_amount: Number(row.total_amount) || 0,
+                parsed_items: row.parsed_items || []
+            }))
+        };
+    } catch (error: any) {
+        logger.error({ error, supplierId }, '[Invoice Parser] Error fetching parsings by supplier');
+        return { success: false, error: 'Error cargando facturas del proveedor' };
+    }
+}

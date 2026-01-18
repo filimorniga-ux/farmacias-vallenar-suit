@@ -6,6 +6,7 @@ import { Settings, MapPin, Volume2, VolumeX, Maximize, Monitor, LogOut, Users, C
 import { getPublicLocationsSecure } from '@/actions/public-network-v2';
 import { getQueueStatusSecure } from '@/actions/queue-v2';
 import { toast } from 'sonner';
+import { useRouter } from 'next/navigation';
 
 // ============================================================================
 // TYPES
@@ -33,6 +34,7 @@ interface Ticket {
 // ============================================================================
 
 export default function QueueDisplayPage() {
+    const router = useRouter();
     // SETUP STATE
     const [step, setStep] = useState<'SETUP' | 'DISPLAY'>('SETUP');
     const [locations, setLocations] = useState<Location[]>([]);
@@ -387,6 +389,15 @@ export default function QueueDisplayPage() {
                                 {loc.name}
                             </button>
                         ))}
+                    </div>
+
+                    <div className="mt-6 pt-6 border-t border-slate-100 flex justify-center">
+                        <button
+                            onClick={() => router.push('/')}
+                            className="px-4 py-2 text-slate-400 hover:text-slate-600 text-sm font-medium flex items-center gap-2 transition-colors rounded-lg hover:bg-slate-50"
+                        >
+                            <LogOut size={16} /> Volver al Menú Principal
+                        </button>
                     </div>
                 </div>
             </div>

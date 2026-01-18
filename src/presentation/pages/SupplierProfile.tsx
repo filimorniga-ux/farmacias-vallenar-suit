@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { usePharmaStore } from '../store/useStore';
 import {
     ArrowLeft, Building2, Mail, Phone, Globe,
-    FileText, CreditCard, History, Package
+    FileText, CreditCard, History, Package, Bot, Eye
 } from 'lucide-react';
 import SupplierAccountUploadModal from '../components/suppliers/SupplierAccountUploadModal';
 import SupplierCatalogUploadModal from '../components/suppliers/SupplierCatalogUploadModal';
@@ -14,8 +14,10 @@ import { SupplierAccountDocument, SupplierCatalogFile } from '../../domain/types
 export const SupplierProfile = () => {
     const { id } = useParams();
     const { suppliers, purchaseOrders } = usePharmaStore();
-    const [activeTab, setActiveTab] = useState<'PROFILE' | 'HISTORY' | 'ACCOUNT' | 'PRODUCTS'>('PROFILE');
+    const [activeTab, setActiveTab] = useState<'PROFILE' | 'HISTORY' | 'ACCOUNT' | 'ACCOUNT_AI' | 'PRODUCTS'>('PROFILE');
     const [accountDocs, setAccountDocs] = useState<SupplierAccountDocument[]>([]);
+    const [invoiceParsings, setInvoiceParsings] = useState<any[]>([]);
+    const [selectedParsing, setSelectedParsing] = useState<any | null>(null);
     const [catalogFiles, setCatalogFiles] = useState<SupplierCatalogFile[]>([]);
     const [accountSearch, setAccountSearch] = useState('');
     const [accountFrom, setAccountFrom] = useState('');
@@ -31,6 +33,7 @@ export const SupplierProfile = () => {
     const [previewBase64, setPreviewBase64] = useState('');
     const [previewDownload, setPreviewDownload] = useState<(() => void) | null>(null);
     const [isLoadingAccount, setIsLoadingAccount] = useState(false);
+    const [isLoadingParsings, setIsLoadingParsings] = useState(false);
     const [isLoadingCatalog, setIsLoadingCatalog] = useState(false);
 
     const supplier = suppliers.find(s => s.id === id);
@@ -49,6 +52,18 @@ export const SupplierProfile = () => {
         setIsLoadingAccount(false);
     };
 
+    const fetchParsings = async (supplierId: string) => {
+        setIsLoadingParsings(true);
+        const { getParsingsBySupplierIdSecure } = await import('@/actions/invoice-parser-v2');
+        const result = await getParsingsBySupplierIdSecure(supplierId);
+        if (result.success && result.data) {
+            setInvoiceParsings(result.data);
+        } else if (!result.success) {
+            toast.error(result.error || 'Error cargando recepciones IA');
+        }
+        setIsLoadingParsings(false);
+    };
+
     const fetchCatalogs = async (supplierId: string) => {
         setIsLoadingCatalog(true);
         const { listSupplierCatalogFilesSecure } = await import('@/actions/supplier-account-v2');
@@ -64,6 +79,7 @@ export const SupplierProfile = () => {
     useEffect(() => {
         if (!id) return;
         fetchAccountDocs(id);
+        fetchParsings(id);
         fetchCatalogs(id);
     }, [id]);
 
@@ -232,6 +248,7 @@ export const SupplierProfile = () => {
                             { id: 'PROFILE', label: 'Perfil & Contacto', icon: Building2 },
                             { id: 'HISTORY', label: 'Historial Pedidos', icon: History },
                             { id: 'ACCOUNT', label: 'Cuenta Corriente', icon: CreditCard },
+                            { id: 'ACCOUNT_AI', label: 'Recepciones IA', icon: Bot },
                             { id: 'PRODUCTS', label: 'Productos', icon: Package },
                         ].map(tab => (
                             <button
@@ -513,6 +530,78 @@ export const SupplierProfile = () => {
                     </div>
                 )}
 
+                {activeTab === 'ACCOUNT_AI' && (
+                    <div className="space-y-6">
+                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
+                                    <tr>
+                                        <th className="px-6 py-4">Fecha Proceso</th>
+                                        <th className="px-6 py-4">N° Factura</th>
+                                        <th className="px-6 py-4">Items</th>
+                                        <th className="px-6 py-4 text-right">Neto</th>
+                                        <th className="px-6 py-4 text-right">IVA</th>
+                                        <th className="px-6 py-4 text-right">Total</th>
+                                        <th className="px-6 py-4 text-center">Estado</th>
+                                        <th className="px-6 py-4 text-center">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {isLoadingParsings ? (
+                                        <tr>
+                                            <td colSpan={8} className="px-6 py-12 text-center text-slate-500">
+                                                Cargando recepciones inteligentes...
+                                            </td>
+                                        </tr>
+                                    ) : invoiceParsings.length > 0 ? (
+                                        invoiceParsings.map(parsing => (
+                                            <tr key={parsing.id} className="hover:bg-slate-50">
+                                                <td className="px-6 py-4 text-slate-600">
+                                                    {parsing.created_at ? new Date(parsing.created_at).toLocaleDateString() + ' ' + new Date(parsing.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-'}
+                                                </td>
+                                                <td className="px-6 py-4 font-medium text-slate-900">{parsing.invoice_number}</td>
+                                                <td className="px-6 py-4 text-slate-600">{parsing.parsed_items?.length || 0} items</td>
+                                                <td className="px-6 py-4 text-right text-slate-600">
+                                                    ${Number(parsing.net_amount || 0).toLocaleString()}
+                                                </td>
+                                                <td className="px-6 py-4 text-right text-slate-600">
+                                                    ${Number(parsing.tax_amount || 0).toLocaleString()}
+                                                </td>
+                                                <td className="px-6 py-4 text-right font-medium text-slate-900">
+                                                    ${Number(parsing.total_amount || 0).toLocaleString()}
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <span className={`px-2 py-1 rounded-full text-xs font-bold 
+                                                        ${parsing.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
+                                                            parsing.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' :
+                                                                parsing.status === 'ERROR' ? 'bg-red-100 text-red-700' :
+                                                                    'bg-blue-100 text-blue-700'}`}>
+                                                        {parsing.status}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <button
+                                                        onClick={() => setSelectedParsing(parsing)}
+                                                        className="text-blue-600 hover:text-blue-800 font-medium text-xs flex items-center justify-center gap-1 mx-auto"
+                                                    >
+                                                        <Eye size={14} /> Ver Detalle
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    ) : (
+                                        <tr>
+                                            <td colSpan={8} className="px-6 py-12 text-center text-slate-500">
+                                                No hay recepciones IA registradas.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+
                 {activeTab === 'PRODUCTS' && (
                     <div className="space-y-6">
                         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -629,6 +718,85 @@ export const SupplierProfile = () => {
                 onClose={() => setIsPreviewOpen(false)}
                 onDownload={() => previewDownload?.()}
             />
+
+            {/* Modal Detalle Parsing IA */}
+            {selectedParsing && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+                        <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                            <div>
+                                <h3 className="text-xl font-bold text-slate-900">Detalle Factura N° {selectedParsing.invoice_number}</h3>
+                                <p className="text-sm text-slate-500">Procesado el {new Date(selectedParsing.created_at).toLocaleString()}</p>
+                            </div>
+                            <button onClick={() => setSelectedParsing(null)} className="text-slate-400 hover:text-slate-600">
+                                <span className="text-2xl">&times;</span>
+                            </button>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto flex-1">
+                            {/* Resumen Cabecera */}
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8 bg-slate-50 p-4 rounded-lg border border-slate-100">
+                                <div>
+                                    <p className="text-xs font-semibold text-slate-500 uppercase">Neto</p>
+                                    <p className="text-lg font-bold text-slate-700">${Number(selectedParsing.net_amount || 0).toLocaleString()}</p>
+                                </div>
+                                <div>
+                                    <p className="text-xs font-semibold text-slate-500 uppercase">IVA</p>
+                                    <p className="text-lg font-bold text-slate-700">${Number(selectedParsing.tax_amount || 0).toLocaleString()}</p>
+                                </div>
+                                <div>
+                                    <p className="text-xs font-semibold text-slate-500 uppercase">Total</p>
+                                    <p className="text-lg font-bold text-blue-600">${Number(selectedParsing.total_amount || 0).toLocaleString()}</p>
+                                </div>
+                                <div>
+                                    <p className="text-xs font-semibold text-slate-500 uppercase">Items Detectados</p>
+                                    <p className="text-lg font-bold text-slate-700">{selectedParsing.parsed_items?.length || 0}</p>
+                                </div>
+                            </div>
+
+                            <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                                <Package size={18} className="text-blue-600" /> Detalle de Items
+                            </h4>
+
+                            <div className="border border-slate-200 rounded-lg overflow-hidden">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-slate-50 text-slate-600 font-medium">
+                                        <tr>
+                                            <th className="px-4 py-3">Descripción</th>
+                                            <th className="px-4 py-3 text-right">Cant.</th>
+                                            <th className="px-4 py-3 text-right">P. Unitario</th>
+                                            <th className="px-4 py-3 text-right">Total</th>
+                                            <th className="px-4 py-3">SKU Prov.</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {(selectedParsing.parsed_items || []).map((item: any, idx: number) => (
+                                            <tr key={idx} className="hover:bg-slate-50">
+                                                <td className="px-4 py-3 font-medium text-slate-800">{item.description}</td>
+                                                <td className="px-4 py-3 text-right text-slate-600">{item.quantity}</td>
+                                                <td className="px-4 py-3 text-right text-slate-600">${Number(item.unit_cost || 0).toLocaleString()}</td>
+                                                <td className="px-4 py-3 text-right font-medium text-slate-900">${Number(item.total_amount || 0).toLocaleString()}</td>
+                                                <td className="px-4 py-3 text-slate-500 text-xs font-mono">{item.supplier_sku || '-'}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div className="p-6 border-t border-slate-100 bg-slate-50 rounded-b-xl flex justify-end">
+                            <button
+                                onClick={() => setSelectedParsing(null)}
+                                className="px-4 py-2 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 font-medium text-sm shadow-sm"
+                            >
+                                Cerrar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+
         </div>
     );
 };

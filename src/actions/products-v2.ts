@@ -25,6 +25,26 @@ import { pool } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
+import { headers } from 'next/headers';
+
+async function getSession() {
+    try {
+        const headersList = await headers();
+        const userId = headersList.get('x-user-id');
+        const role = headersList.get('x-user-role') || 'GUEST';
+        const locationId = headersList.get('x-location-id');
+
+        if (!userId) return null;
+
+        return {
+            userId,
+            role,
+            locationId: locationId || undefined
+        };
+    } catch (e) {
+        return null;
+    }
+}
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -1082,4 +1102,56 @@ export async function quickCreateProductSecure(data: z.infer<typeof QuickCreateP
         client.release();
     }
 }
+
+
+/**
+ * 🔍 Get Product by ID (Full Detail)
+ */
+export async function getProductByIdSecure(productId: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    if (!UUIDSchema.safeParse(productId).success) {
+        return { success: false, error: 'ID inválido' };
+    }
+
+    const session = await getSession();
+    if (!session) {
+        return { success: false, error: 'No autenticado' };
+    }
+
+    try {
+        const res = await pool.query(`
+            SELECT 
+                p.*,
+                (
+                    SELECT COALESCE(s.fantasy_name, s.business_name)
+                    FROM product_suppliers ps 
+                    JOIN suppliers s ON ps.supplier_id::text = s.id::text
+                    WHERE ps.product_id::text = p.id::text AND ps.is_preferred = true
+                    LIMIT 1
+                ) as preferred_supplier_name,
+                (
+                    SELECT json_agg(json_build_object(
+                        'id', i.id,
+                        'lot_number', i.lot_number,
+                        'expiration_date', i.expiry_date,
+                        'quantity', i.quantity_real,
+                        'location_id', i.location_id
+                    ))
+                    FROM inventory_batches i
+                    WHERE i.product_id::text = p.id::text AND i.quantity_real > 0
+                ) as batches
+            FROM products p
+            WHERE p.id = $1
+        `, [productId]);
+
+        if (res.rowCount === 0) {
+            return { success: false, error: 'Producto no encontrado' };
+        }
+
+        return { success: true, data: res.rows[0] };
+    } catch (error: any) {
+        console.error('Error fetching product:', error);
+        return { success: false, error: `Error: ${error.message}` };
+    }
+}
+
 

@@ -25,6 +25,8 @@ import {
 } from '@/actions/invoice-parser-v2';
 import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { Store } from 'lucide-react';
+import ProductFormModal from '@/presentation/components/inventory/ProductFormModal';
+import { getProductByIdSecure } from '@/actions/products-v2';
 
 // ============================================================================
 // TIPOS
@@ -111,6 +113,10 @@ export default function InvoiceListPage() {
     const [targetLocationId, setTargetLocationId] = useState<string>('');
     const [isApproving, setIsApproving] = useState(false);
 
+    // Edit Product State
+    const [editingProduct, setEditingProduct] = useState<any>(null);
+    const [isLoadingProduct, setIsLoadingProduct] = useState(false);
+
     // Store
     const { locations, fetchLocations } = useLocationStore();
 
@@ -179,6 +185,39 @@ export default function InvoiceListPage() {
     // ========================================================================
     // HANDLERS
     // ========================================================================
+
+    const handleCloseDetail = () => {
+        setIsDetailOpen(false);
+        setSelectedParsing(null);
+        setShowItemsDetail(false); // Reset items view
+    };
+
+    const handleEditProduct = async (productId: string) => {
+        setIsLoadingProduct(true);
+        try {
+            const res = await getProductByIdSecure(productId);
+            if (res.success) {
+                setEditingProduct(res.data);
+            } else {
+                toast.error(res.error || 'Error al cargar producto');
+            }
+        } catch (err: any) {
+            console.error(err);
+            toast.error(`Error: ${err.message || 'Error desconocido al cargar producto'}`);
+        } finally {
+            setIsLoadingProduct(false);
+        }
+    };
+    const fetchDetail = async (id: string) => {
+        try {
+            const result = await getInvoiceParsingSecure(id);
+            if (result.success) {
+                setSelectedParsing(result.data);
+            }
+        } catch (error) {
+            console.error('Error refreshing details:', error);
+        }
+    };
 
     const handleViewDetail = async (parsing: InvoiceParsing) => {
         setIsDetailOpen(true);
@@ -635,13 +674,13 @@ export default function InvoiceListPage() {
                     <div className="fixed inset-0 z-50 flex justify-end">
                         <div
                             className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-                            onClick={() => setIsDetailOpen(false)}
+                            onClick={handleCloseDetail}
                         />
                         <div className="relative w-full max-w-lg bg-white shadow-2xl overflow-y-auto">
                             <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex items-center justify-between">
                                 <h2 className="font-semibold text-gray-900">Detalle de Factura</h2>
                                 <button
-                                    onClick={() => setIsDetailOpen(false)}
+                                    onClick={handleCloseDetail}
                                     className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                                 >
                                     <XCircle size={20} />
@@ -654,12 +693,23 @@ export default function InvoiceListPage() {
                                 </div>
                             ) : selectedParsing ? (
                                 <div className="p-4 space-y-4">
-                                    {/* Image Placeholder */}
-                                    <div className="bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg p-8 flex flex-col items-center justify-center text-center text-gray-500 min-h-[200px]">
-                                        <ImageOff size={48} className="mb-2 opacity-50" />
-                                        <p className="font-medium">Imagen no disponible</p>
-                                        <p className="text-xs max-w-[200px]">El almacenamiento de imágenes para facturas históricas no está habilitado.</p>
-                                    </div>
+                                    {/* Image Display */}
+                                    {selectedParsing.original_file_base64 ? (
+                                        <div className="relative w-full h-[600px] border rounded-lg overflow-hidden bg-gray-50 flex items-center justify-center">
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            <img
+                                                src={`data:${selectedParsing.original_file_type || 'image/jpeg'};base64,${selectedParsing.original_file_base64}`}
+                                                alt="Documento Original"
+                                                className="max-w-full max-h-full object-contain"
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div className="bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg p-8 flex flex-col items-center justify-center text-center text-gray-500 min-h-[400px]">
+                                            <ImageOff size={48} className="mb-2 opacity-50" />
+                                            <p className="font-medium">Imagen no disponible</p>
+                                            <p className="text-xs max-w-[200px]">El almacenamiento de imágenes para facturas históricas no está habilitado.</p>
+                                        </div>
+                                    )}
 
                                     {/* Status */}
                                     <div className="flex items-center justify-between">
@@ -814,25 +864,20 @@ export default function InvoiceListPage() {
                                                                     )}
                                                                 </div>
                                                             </div>
-                                                            <div className="flex items-center gap-1">
-                                                                {item.mapping_status === 'MAPPED' ? (
-                                                                    <CheckCircle size={14} className="text-green-600" />
-                                                                ) : item.mapping_status === 'SKIPPED' ? (
-                                                                    <XCircle size={14} className="text-gray-400" />
-                                                                ) : (
-                                                                    <AlertCircle size={14} className="text-yellow-600" />
+                                                            <div className="flex flex-col gap-1 items-end ml-4">
+                                                                <InvoiceStatusBadge status={item.mapping_status} />
+                                                                {item.mapped_product_id && (
+                                                                    <button
+                                                                        onClick={() => handleEditProduct(item.mapped_product_id)}
+                                                                        className="text-xs flex items-center gap-1 text-cyan-600 hover:text-cyan-800 transition-colors mt-1 hover:underline disabled:opacity-50"
+                                                                        disabled={isLoadingProduct}
+                                                                    >
+                                                                        <Edit size={12} />
+                                                                        {isLoadingProduct ? 'Cargando...' : 'Editar ficha de producto'}
+                                                                    </button>
                                                                 )}
                                                             </div>
                                                         </div>
-                                                        {item.mapped_product_id && (
-                                                            <Link
-                                                                href={`/inventory?edit=${item.mapped_product_id}`}
-                                                                className="mt-1 text-xs text-blue-600 hover:underline flex items-center gap-1"
-                                                            >
-                                                                <Edit size={10} />
-                                                                Editar ficha de producto
-                                                            </Link>
-                                                        )}
                                                     </div>
                                                 ))}
                                             </div>
@@ -890,6 +935,7 @@ export default function InvoiceListPage() {
                             className="absolute inset-0 bg-black/50 backdrop-blur-sm"
                             onClick={() => !isApproving && setIsApproveModalOpen(false)}
                         />
+                        {/* ... existing modal content ... */}
                         <div className="relative bg-white rounded-xl shadow-2xl max-w-md w-full p-6 space-y-4">
                             <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
                                 <CheckCircle className="text-green-600" size={24} />
@@ -966,6 +1012,21 @@ export default function InvoiceListPage() {
                         </div>
                     </div>
                 )}
+
+                {/* Product Edit Modal */}
+                {editingProduct && (
+                    <ProductFormModal
+                        product={editingProduct}
+                        onClose={() => setEditingProduct(null)}
+                        onSuccess={() => {
+                            setEditingProduct(null);
+                            loadParsings(); // Refresh list to reflect potential name changes
+                            if (selectedParsing) fetchDetail(selectedParsing.id); // Refresh detail
+                            toast.success('Producto actualizado');
+                        }}
+                    />
+                )}
+
             </div>
         </RouteGuard>
     );
