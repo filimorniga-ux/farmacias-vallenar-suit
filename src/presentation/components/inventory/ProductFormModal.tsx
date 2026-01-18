@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { X, Save, Package, Camera, Info, Sparkles, Search as SearchIcon, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { X, Save, Package, Camera, Info, Sparkles, Search as SearchIcon, AlertTriangle, Globe, Loader2, CheckCircle } from 'lucide-react';
 import { createProductSecure, updateProductMasterSecure } from '../../../actions/products-v2';
 import { usePharmaStore } from '../../store/useStore';
 import { InventoryBatch } from '../../../domain/types';
 import { toast } from 'sonner';
 import CameraScanner from '../ui/CameraScanner';
+import { lookupBarcode, BarcodeLookupResult } from '../../../infrastructure/services/BarcodeLookupService';
 
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -49,11 +50,60 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
 
     const [isScannerOpen, setIsScannerOpen] = useState(false);
 
+    // Barcode Lookup State
+    const [barcodeLookup, setBarcodeLookup] = useState<BarcodeLookupResult | null>(null);
+    const [isLookingUp, setIsLookingUp] = useState(false);
+    const [lastLookedUpBarcode, setLastLookedUpBarcode] = useState('');
+
     // Search State
     const [showSearch, setShowSearch] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [searchResults, setSearchResults] = useState<any[]>([]);
     const [isSearching, setIsSearching] = useState(false);
+
+    // Barcode Lookup Effect - triggers when barcode changes
+    const performBarcodeLookup = useCallback(async (barcode: string) => {
+        if (!barcode || barcode.length < 8 || barcode === lastLookedUpBarcode) return;
+
+        setIsLookingUp(true);
+        setLastLookedUpBarcode(barcode);
+
+        try {
+            const result = await lookupBarcode(barcode);
+            setBarcodeLookup(result);
+
+            if (result.found) {
+                // Auto-fill form if name is empty
+                if (!formData.name && result.name) {
+                    setFormData(prev => ({
+                        ...prev,
+                        name: result.name || prev.name,
+                        // Map category if applicable
+                        category: result.category?.toLowerCase().includes('cosm') || result.category?.toLowerCase().includes('beauty')
+                            ? 'PERFUMERIA'
+                            : prev.category
+                    }));
+                    toast.success(`Producto encontrado: ${result.name}`, {
+                        description: result.brand ? `Marca: ${result.brand}` : undefined
+                    });
+                }
+            }
+        } catch (error) {
+            console.error('Barcode lookup failed:', error);
+        } finally {
+            setIsLookingUp(false);
+        }
+    }, [formData.name, lastLookedUpBarcode]);
+
+    // Debounced barcode lookup
+    useEffect(() => {
+        if (formData.barcode.length >= 8 && formData.barcode !== lastLookedUpBarcode) {
+            const timer = setTimeout(() => {
+                performBarcodeLookup(formData.barcode);
+            }, 500);
+            return () => clearTimeout(timer);
+        }
+    }, [formData.barcode, performBarcodeLookup, lastLookedUpBarcode]);
 
     const handleSearch = async (term: string) => {
         if (term.length < 2) return;
@@ -296,10 +346,65 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                                             <Camera size={20} />
                                         </button>
                                     </div>
-                                    <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
-                                        <Info size={10} /> Compatible con lector USB
-                                    </p>
+                                    {/* Barcode Lookup Status */}
+                                    <div className="mt-1 flex items-center gap-2">
+                                        {isLookingUp && (
+                                            <span className="text-xs text-cyan-600 flex items-center gap-1">
+                                                <Loader2 size={12} className="animate-spin" />
+                                                Buscando en OpenFoodFacts...
+                                            </span>
+                                        )}
+                                        {!isLookingUp && barcodeLookup?.found && (
+                                            <span className="text-xs text-emerald-600 flex items-center gap-1">
+                                                <CheckCircle size={12} />
+                                                Encontrado en {barcodeLookup.source} ({barcodeLookup.region?.toUpperCase()})
+                                            </span>
+                                        )}
+                                        {!isLookingUp && formData.barcode.length >= 8 && barcodeLookup && !barcodeLookup.found && (
+                                            <span className="text-xs text-slate-400 flex items-center gap-1">
+                                                <Globe size={12} />
+                                                No encontrado en bases externas
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
+
+                                {/* Product Preview from Barcode Lookup */}
+                                {barcodeLookup?.found && barcodeLookup.imageUrl && (
+                                    <div className="col-span-3 bg-gradient-to-r from-emerald-50 to-cyan-50 border border-emerald-200 rounded-xl p-3 flex gap-4 items-center">
+                                        <img
+                                            src={barcodeLookup.imageUrl}
+                                            alt="Preview del producto"
+                                            className="w-20 h-20 object-contain bg-white rounded-lg border border-slate-200 p-1"
+                                            onError={(e) => {
+                                                // Hide image if fails to load
+                                                (e.target as HTMLImageElement).style.display = 'none';
+                                            }}
+                                        />
+                                        <div className="flex-1">
+                                            <p className="text-sm font-bold text-slate-800">{barcodeLookup.name}</p>
+                                            {barcodeLookup.brand && (
+                                                <p className="text-xs text-slate-500">Marca: <span className="font-medium">{barcodeLookup.brand}</span></p>
+                                            )}
+                                            {barcodeLookup.quantity && (
+                                                <p className="text-xs text-slate-500">Cantidad: {barcodeLookup.quantity}</p>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setFormData(prev => ({
+                                                        ...prev,
+                                                        name: barcodeLookup.name || prev.name,
+                                                    }));
+                                                    toast.success('Datos aplicados desde búsqueda');
+                                                }}
+                                                className="mt-2 text-xs bg-emerald-600 text-white px-3 py-1 rounded-lg hover:bg-emerald-700 transition"
+                                            >
+                                                Usar estos datos
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                             {!isEdit && (
                                 <div className="mt-2 flex justify-end">
