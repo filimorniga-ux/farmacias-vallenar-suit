@@ -1,3 +1,4 @@
+// DEPRECATED: Migrating to E2E
 /**
  * Unit Tests - Security V2 Module
  * Tests for secure session management, account locking, and security audit
@@ -7,7 +8,22 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as securityV2 from '@/actions/security-v2';
 import * as dbModule from '@/lib/db';
 
-// Mock dependencies
+// Mock content
+const validAdminId = '550e8400-e29b-41d4-a716-446655440001';
+const validUserId = '550e8400-e29b-41d4-a716-446655440002';
+
+const { mockHeaders } = vi.hoisted(() => ({
+    mockHeaders: new Map([
+        ['x-user-id', '550e8400-e29b-41d4-a716-446655440001'],
+        ['x-user-role', 'ADMIN']
+    ])
+}));
+
+vi.mock('next/headers', () => ({
+    headers: vi.fn().mockReturnValue(Promise.resolve(mockHeaders)),
+    cookies: vi.fn(() => ({ get: vi.fn() }))
+}));
+
 vi.mock('@/lib/db', () => ({
     pool: {
         connect: vi.fn()
@@ -17,13 +33,6 @@ vi.mock('@/lib/db', () => ({
 
 vi.mock('next/cache', () => ({
     revalidatePath: vi.fn()
-}));
-
-vi.mock('next/headers', () => ({
-    headers: vi.fn(async () => new Map([
-        ['x-user-id', 'admin-uuid-1234'],
-        ['x-user-role', 'ADMIN']
-    ]))
 }));
 
 vi.mock('bcryptjs', () => ({
@@ -57,9 +66,16 @@ vi.mock('crypto', () => ({
     randomBytes: vi.fn(() => ({ toString: () => 'mock-token-123456' }))
 }));
 
+// Reset mocks before each test
+beforeEach(() => {
+    vi.clearAllMocks();
+    mockHeaders.set('x-user-id', validAdminId); // Reset to default admin
+    mockHeaders.set('x-user-role', 'ADMIN');
+});
+
 // Test data
 const mockAdmin = {
-    id: 'admin-uuid-1234',
+    id: validAdminId,
     name: 'Admin User',
     role: 'ADMIN',
     access_pin_hash: 'hashed_1234',
@@ -67,7 +83,7 @@ const mockAdmin = {
 };
 
 const mockUser = {
-    id: 'user-uuid-9999',
+    id: '550e8400-e29b-41d4-a716-446655440002',
     name: 'Test User',
     role: 'CASHIER',
     token_version: 1,
@@ -77,7 +93,7 @@ const mockUser = {
 };
 
 // TODO: Refactor mocks - these tests fail due to complex pool.connect mock issues
-describe.skip('Security V2 - Session Validation', () => {
+describe('Security V2 - Session Validation', () => {
     it('should validate active session', async () => {
         const mockClient = createMockClient([
             { rows: [mockUser], rowCount: 1 }, // User query
@@ -85,14 +101,15 @@ describe.skip('Security V2 - Session Validation', () => {
         ]);
 
         const result = await securityV2.validateSessionSecure(
-            'user-uuid-9999',
+            '550e8400-e29b-41d4-a716-446655440002',
             1
         );
 
         expect(result.valid).toBe(true);
+        // validateSessionSecure uses direct query, not transaction
         expect(mockClient.query).toHaveBeenCalledWith(
-            expect.stringContaining('BEGIN ISOLATION LEVEL SERIALIZABLE'),
-            undefined
+            expect.stringContaining('SELECT id'),
+            expect.any(Array)
         );
     });
 
@@ -103,7 +120,7 @@ describe.skip('Security V2 - Session Validation', () => {
         ]);
 
         const result = await securityV2.validateSessionSecure(
-            'user-uuid-9999',
+            '550e8400-e29b-41d4-a716-446655440002',
             1 // Client has old version
         );
 
@@ -118,7 +135,7 @@ describe.skip('Security V2 - Session Validation', () => {
         ]);
 
         const result = await securityV2.validateSessionSecure(
-            'user-uuid-9999',
+            '550e8400-e29b-41d4-a716-446655440002',
             1
         );
 
@@ -133,7 +150,7 @@ describe.skip('Security V2 - Session Validation', () => {
         ]);
 
         const result = await securityV2.validateSessionSecure(
-            'user-uuid-9999',
+            '550e8400-e29b-41d4-a716-446655440002',
             1
         );
 
@@ -153,7 +170,7 @@ describe.skip('Security V2 - Session Validation', () => {
 });
 
 // TODO: Refactor mocks - these tests fail due to complex pool.connect mock issues
-describe.skip('Security V2 - Account Locking', () => {
+describe('Security V2 - Account Locking', () => {
     it('should lock account after threshold failures', async () => {
         const userWith4Failures = { ...mockUser, login_failure_count: 4 };
         const mockClient = createMockClient([
@@ -163,7 +180,7 @@ describe.skip('Security V2 - Account Locking', () => {
         ]);
 
         const result = await securityV2.lockAccountSecure(
-            'user-uuid-9999',
+            '550e8400-e29b-41d4-a716-446655440002',
             'Failed login attempt'
         );
 
@@ -183,7 +200,7 @@ describe.skip('Security V2 - Account Locking', () => {
         ]);
 
         await securityV2.lockAccountSecure(
-            'user-uuid-9999',
+            '550e8400-e29b-41d4-a716-446655440002',
             'Too many failures'
         );
 
@@ -197,7 +214,7 @@ describe.skip('Security V2 - Account Locking', () => {
 
     it('should require valid reason', async () => {
         const result = await securityV2.lockAccountSecure(
-            'user-uuid-9999',
+            '550e8400-e29b-41d4-a716-446655440002',
             'ab' // Too short
         );
 
@@ -207,7 +224,7 @@ describe.skip('Security V2 - Account Locking', () => {
 });
 
 // TODO: Refactor mocks - these tests fail due to complex pool.connect mock issues
-describe.skip('Security V2 - Account Unlocking', () => {
+describe('Security V2 - Account Unlocking', () => {
     it('should unlock with valid ADMIN PIN', async () => {
         const mockClient = createMockClient([
             { rows: [mockAdmin], rowCount: 1 }, // Auth query
@@ -217,7 +234,7 @@ describe.skip('Security V2 - Account Unlocking', () => {
         ]);
 
         const result = await securityV2.unlockAccountSecure(
-            'user-uuid-9999',
+            '550e8400-e29b-41d4-a716-446655440002',
             '1234',
             'User requested unlock'
         );
@@ -234,8 +251,8 @@ describe.skip('Security V2 - Account Unlocking', () => {
         vi.mocked(bcrypt.compare).mockImplementationOnce(async () => false);
 
         const result = await securityV2.unlockAccountSecure(
-            'user-uuid-9999',
-            'wrong-pin',
+            '550e8400-e29b-41d4-a716-446655440002',
+            '9999', // Invalid PIN (but valid length)
             'Unlock attempt'
         );
 
@@ -253,24 +270,24 @@ describe.skip('Security V2 - Account Unlocking', () => {
         ]);
 
         await securityV2.unlockAccountSecure(
-            'user-uuid-9999',
+            '550e8400-e29b-41d4-a716-446655440002',
             '1234',
             'Reset user'
         );
 
-        expect(rateLimiter.resetAttempts).toHaveBeenCalledWith('user-uuid-9999');
+        expect(rateLimiter.resetAttempts).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440002');
     });
 });
 
 // TODO: Refactor mocks - these tests fail due to complex pool.connect mock issues
-describe.skip('Security V2 - Token Rotation', () => {
+describe('Security V2 - Token Rotation', () => {
     it('should rotate token and increment version', async () => {
         const mockClient = createMockClient([
             { rows: [{ ...mockUser, token_version: 1 }], rowCount: 1 }, // Get user
             { rows: [], rowCount: 1 } // Update
         ]);
 
-        const result = await securityV2.rotateSessionSecure('user-uuid-9999');
+        const result = await securityV2.rotateSessionSecure('550e8400-e29b-41d4-a716-446655440002');
 
         expect(result.success).toBe(true);
         expect(result.newTokenVersion).toBe(2);
@@ -282,7 +299,7 @@ describe.skip('Security V2 - Token Rotation', () => {
             { rows: [], rowCount: 0 } // User not found
         ]);
 
-        const result = await securityV2.rotateSessionSecure('user-uuid-9999');
+        const result = await securityV2.rotateSessionSecure('550e8400-e29b-41d4-a716-446655440002');
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('no encontrado');
@@ -290,7 +307,7 @@ describe.skip('Security V2 - Token Rotation', () => {
 });
 
 // TODO: Refactor mocks - these tests fail due to complex pool.connect mock issues
-describe.skip('Security V2 - Force Logout', () => {
+describe('Security V2 - Force Logout', () => {
     it('should force logout with valid MANAGER PIN', async () => {
         const mockClient = createMockClient([
             { rows: [mockAdmin], rowCount: 1 }, // Auth
@@ -300,7 +317,7 @@ describe.skip('Security V2 - Force Logout', () => {
         ]);
 
         const result = await securityV2.forceLogoutSecure(
-            'user-uuid-9999',
+            '550e8400-e29b-41d4-a716-446655440002',
             '1234',
             'Security concern'
         );
@@ -314,7 +331,7 @@ describe.skip('Security V2 - Force Logout', () => {
         ]);
 
         const result = await securityV2.forceLogoutSecure(
-            'admin-uuid-1234', // Same as admin
+            '550e8400-e29b-41d4-a716-446655440001', // Same as admin
             '1234',
             'Test'
         );
@@ -332,7 +349,7 @@ describe.skip('Security V2 - Force Logout', () => {
         ]);
 
         await securityV2.forceLogoutSecure(
-            'user-uuid-9999',
+            '550e8400-e29b-41d4-a716-446655440002',
             '1234',
             'Force logout'
         );
@@ -346,7 +363,7 @@ describe.skip('Security V2 - Force Logout', () => {
 });
 
 // TODO: Refactor mocks - these tests fail due to complex pool.connect mock issues
-describe.skip('Security V2 - Audit Log', () => {
+describe('Security V2 - Audit Log', () => {
     it('should return paginated security logs', async () => {
         const mockDb = await import('@/lib/db');
         vi.mocked(mockDb.query)
@@ -375,12 +392,12 @@ describe.skip('Security V2 - Audit Log', () => {
         await securityV2.getSecurityAuditLog({
             page: 1,
             pageSize: 50,
-            userId: 'user-uuid-9999'
+            userId: '550e8400-e29b-41d4-a716-446655440002'
         });
 
         expect(mockDb.query).toHaveBeenCalledWith(
             expect.stringContaining('user_id'),
-            expect.arrayContaining(['user-uuid-9999'])
+            expect.arrayContaining(['550e8400-e29b-41d4-a716-446655440002'])
         );
     });
 });
@@ -411,6 +428,7 @@ function createMockClient(queryResults: any[] = []) {
     };
 
     vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
+    vi.mocked(dbModule.query).mockImplementation(mockClient.query as any); // Mock top-level query too
 
     return mockClient;
 }

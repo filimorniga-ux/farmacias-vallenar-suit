@@ -196,7 +196,7 @@ describe('Sales V2 - createSaleSecure', () => {
         expect(result.error).toContain('sesión de caja activa');
     });
 
-    it('should return stock errors when insufficient stock', async () => {
+    it('should allow sale with insufficient stock (negative inventory)', async () => {
         mockQuery
             .mockResolvedValueOnce({}) // BEGIN
             .mockResolvedValueOnce({ rows: [{ id: 'session-1' }] }) // Session check
@@ -206,14 +206,22 @@ describe('Sales V2 - createSaleSecure', () => {
                     quantity_real: 1, // Only 1 available, but requesting 2
                     sku: 'PARA-500'
                 }]
-            }); // Stock check with insufficient quantity
+            }) // Stock check with insufficient quantity
+            .mockResolvedValueOnce({}) // Insert sale
+            .mockResolvedValueOnce({}) // Insert item
+            .mockResolvedValueOnce({}) // Update stock (goes to -1)
+            .mockResolvedValueOnce({}) // Update customer points
+            .mockResolvedValueOnce({}) // Update customer points earned
+            // .mockResolvedValueOnce({}) // Notification check query (inside IIFE, might not be awaited in test flow)
+            // Audit log mock is next in main flow
+            .mockResolvedValueOnce({}) // Audit log
+            .mockResolvedValueOnce({}); // COMMIT
 
         const result = await createSaleSecure(validSaleParams);
 
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('Stock insuficiente');
-        expect(result.stockErrors).toBeDefined();
-        expect(result.stockErrors?.length).toBeGreaterThan(0);
+        // Expect SUCCESS (Negative stock allowed)
+        expect(result.success).toBe(true);
+        expect(result.stockErrors).toBeUndefined();
     });
 
     it('should handle lock errors gracefully', async () => {

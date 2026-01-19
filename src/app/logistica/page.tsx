@@ -11,7 +11,7 @@ export default async function LogisticaPage() {
     // const logisticsData = await getLogisticsData(); // Removed unused data fetch
 
     return (
-        <RouteGuard allowedRoles={['ADMIN', 'QF', 'WAREHOUSE']}>
+        <RouteGuard allowedRoles={['ADMIN', 'QF', 'WAREHOUSE', 'MANAGER', 'GERENTE_GENERAL']}>
             <div className="min-h-screen bg-gray-100 py-8">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="md:flex md:items-center md:justify-between mb-8">

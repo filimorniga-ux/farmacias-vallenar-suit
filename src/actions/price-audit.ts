@@ -1,6 +1,8 @@
 'use server';
 
 import { query, getClient } from '../lib/db';
+import { createNotificationSecure } from '@/actions/notifications-v2';
+import * as Sentry from "@sentry/nextjs";
 
 // ============================================================================
 // TYPES
@@ -165,6 +167,7 @@ export async function initializeMonthlyBatches(): Promise<{ success: boolean; ba
         return { success: true, batches };
     } catch (error) {
         console.error('[PriceAudit] initializeMonthlyBatches error:', error);
+        Sentry.captureException(error);
         return { success: false, error: 'Error al inicializar lotes' };
     }
 }
@@ -205,6 +208,7 @@ export async function getProductsForBatch(
         };
     } catch (error) {
         console.error('[PriceAudit] getProductsForBatch error:', error);
+        Sentry.captureException(error);
         return { success: false, error: 'Error al obtener productos' };
     }
 }
@@ -226,6 +230,40 @@ export async function updateBatchProgress(
                  WHERE id = $4`,
                 [processedProducts, lastOffset, status, batchId]
             );
+
+            // 🔔 Price Audit Complete Notification
+            try {
+                // Count suggestions found in this batch
+                const suggestionsRes = await query(
+                    `SELECT COUNT(*) as count FROM price_audit_results WHERE batch_id = $1 AND status = 'PENDING'`,
+                    [batchId]
+                );
+                const suggestionsCount = parseInt(suggestionsRes.rows[0]?.count || '0');
+
+                const severity = suggestionsCount > 0 ? 'WARNING' : 'SUCCESS';
+                const title = `Auditoría de Precios Finalizada (Lote #${batchId})`;
+                const message = suggestionsCount > 0
+                    ? `Se analizaron ${processedProducts} productos. Se encontraron ${suggestionsCount} sugerencias de cambio de precio.`
+                    : `Se analizaron ${processedProducts} productos sin discrepancias.`;
+
+                await createNotificationSecure({
+                    type: 'SYSTEM', // SYSTEM or INVENTORY fits well
+                    severity,
+                    title,
+                    message,
+                    metadata: {
+                        batchId,
+                        processedProducts,
+                        suggestionsCount,
+                        actionUrl: '/admin/pricing'
+                    },
+                    // Global system notification (no specific location or user, unless we want to target admins only? 
+                    // createNotificationSecure without user/loc defaults to global if schema allows, which strictly speaking we made nullable now)
+                });
+            } catch (notifError) {
+                console.error('[PriceAudit] Failed to send completion notification', notifError);
+            }
+
         } else if (status) {
             await query(
                 `UPDATE price_audit_batches 
@@ -242,7 +280,8 @@ export async function updateBatchProgress(
         return { success: true };
     } catch (error) {
         console.error('[PriceAudit] updateBatchProgress error:', error);
-        return { success: false, error: 'Error al actualizar progreso' };
+        Sentry.captureException(error);
+        throw error;
     }
 }
 
@@ -302,6 +341,7 @@ export async function savePriceProposal(proposal: {
         return { success: true, id: result.rows[0]?.id };
     } catch (error) {
         console.error('[PriceAudit] savePriceProposal error:', error);
+        Sentry.captureException(error);
         return { success: false, error: 'Error al guardar propuesta' };
     }
 }
@@ -390,6 +430,7 @@ export async function approveProposals(
     } catch (error) {
         await client.query('ROLLBACK');
         console.error('[PriceAudit] approveProposals error:', error);
+        Sentry.captureException(error);
         return { success: false, error: 'Error al aprobar propuestas' };
     } finally {
         client.release();

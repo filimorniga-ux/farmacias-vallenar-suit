@@ -1,3 +1,4 @@
+// DEPRECATED: Migrating to E2E
 /**
  * Unit Tests - Users V2 Module
  * Tests for secure user management with RBAC, bcrypt PINs, and audit logging
@@ -7,22 +8,41 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as usersV2 from '@/actions/users-v2';
 import * as dbModule from '@/lib/db';
 
-// Mock dependencies
-vi.mock('@/lib/db', () => ({
-    pool: {
-        connect: vi.fn()
-    }
-}));
+// Mock content
+const validAdminId = '550e8400-e29b-41d4-a716-446655440001';
+const validUserId = '550e8400-e29b-41d4-a716-446655440002';
+const newUserId = '550e8400-e29b-41d4-a716-446655440003';
 
-vi.mock('next/cache', () => ({
-    revalidatePath: vi.fn()
+const { mockHeaders } = vi.hoisted(() => ({
+    mockHeaders: new Map([
+        ['x-user-id', '550e8400-e29b-41d4-a716-446655440001'],
+        ['x-user-role', 'ADMIN']
+    ])
 }));
 
 vi.mock('next/headers', () => ({
-    headers: vi.fn(async () => new Map([
-        ['x-user-id', 'admin-uuid-1234'],
-        ['x-user-role', 'ADMIN']
-    ]))
+    headers: vi.fn().mockReturnValue(Promise.resolve(mockHeaders)),
+    cookies: vi.fn(() => ({ get: vi.fn() }))
+}));
+
+vi.mock('@/lib/db', () => {
+    const mockClient = {
+        query: vi.fn(),
+        release: vi.fn(),
+    };
+    return {
+        pool: {
+            connect: vi.fn().mockResolvedValue(mockClient),
+            query: vi.fn(),
+            on: vi.fn(),
+        },
+        getClient: vi.fn().mockResolvedValue(mockClient),
+        query: vi.fn()
+    };
+});
+
+vi.mock('next/cache', () => ({
+    revalidatePath: vi.fn()
 }));
 
 vi.mock('bcryptjs', () => ({
@@ -44,24 +64,26 @@ vi.mock('@/lib/rate-limiter', () => ({
 }));
 
 vi.mock('crypto', () => ({
-    randomUUID: vi.fn(() => 'new-user-uuid-5678')
+    randomUUID: vi.fn(() => '550e8400-e29b-41d4-a716-446655440003')
 }));
 
 // Reset mocks before each test
 beforeEach(() => {
     vi.clearAllMocks();
+    mockHeaders.set('x-user-id', validAdminId); // Reset to default admin
+    mockHeaders.set('x-user-role', 'ADMIN');
 });
 
 // Test data
 const mockAdmin = {
-    id: 'admin-uuid-1234',
+    id: validAdminId,
     name: 'Admin User',
     role: 'ADMIN',
     is_active: true
 };
 
 const mockUser = {
-    id: 'user-uuid-9999',
+    id: validUserId,
     rut: '12345678-9',
     name: 'John Doe',
     email: 'john@example.com',
@@ -165,7 +187,7 @@ describe.skip('Users V2 - RBAC Enforcement', () => {
         const mockClient = createMockClient([
             { rows: [mockAdmin], rowCount: 1 }, // Admin check
             { rows: [], rowCount: 0 }, // RUT exists check
-            { rows: [{ ...mockUser, id: 'new-user-uuid-5678' }], rowCount: 1 }, // Create
+            { rows: [{ ...mockUser, id: '550e8400-e29b-41d4-a716-446655440003' }], rowCount: 1 }, // Create
             { rows: [], rowCount: 0 } // Audit
         ]);
 
@@ -227,7 +249,7 @@ describe.skip('Users V2 - RBAC Enforcement', () => {
         ]);
 
         const result = await usersV2.updateUserSecure({
-            userId: 'user-uuid-9999',
+            userId: '550e8400-e29b-41d4-a716-446655440002',
             name: 'Updated Name'
         });
 
@@ -274,7 +296,7 @@ describe.skip('Users V2 - PIN Security', () => {
         ]);
 
         await usersV2.resetUserPinSecure({
-            userId: 'user-uuid-9999',
+            userId: '550e8400-e29b-41d4-a716-446655440002',
             newPin: '5678'
         });
 
@@ -324,12 +346,12 @@ describe.skip('Users V2 - PIN Security', () => {
         ]);
 
         await usersV2.resetUserPinSecure({
-            userId: 'user-uuid-9999',
+            userId: '550e8400-e29b-41d4-a716-446655440002',
             newPin: '5678'
         });
 
-        expect(rateLimiter.checkRateLimit).toHaveBeenCalledWith('user-uuid-9999');
-        expect(rateLimiter.resetAttempts).toHaveBeenCalledWith('user-uuid-9999');
+        expect(rateLimiter.checkRateLimit).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440002');
+        expect(rateLimiter.resetAttempts).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440002');
     });
 
     it('should block PIN reset if rate limited', async () => {
@@ -346,7 +368,7 @@ describe.skip('Users V2 - PIN Security', () => {
         ]);
 
         const result = await usersV2.resetUserPinSecure({
-            userId: 'user-uuid-9999',
+            userId: '550e8400-e29b-41d4-a716-446655440002',
             newPin: '5678'
         });
 
@@ -359,7 +381,7 @@ describe.skip('Users V2 - PIN Security', () => {
 describe.skip('Users V2 - Role Change Logic', () => {
     it('should require justification for role change', async () => {
         const result = await usersV2.changeUserRoleSecure({
-            userId: 'user-uuid-9999',
+            userId: '550e8400-e29b-41d4-a716-446655440002',
             newRole: 'MANAGER',
             justification: 'Short' // Too short
         });
@@ -374,7 +396,7 @@ describe.skip('Users V2 - Role Change Logic', () => {
         ]);
 
         const result = await usersV2.changeUserRoleSecure({
-            userId: 'admin-uuid-1234', // Same as current user
+            userId: '550e8400-e29b-41d4-a716-446655440001', // Same as current user
             newRole: 'GERENTE_GENERAL',
             justification: 'Attempting self-promotion'
         });
@@ -391,7 +413,7 @@ describe.skip('Users V2 - Role Change Logic', () => {
         ]);
 
         const result = await usersV2.changeUserRoleSecure({
-            userId: 'user-uuid-9999',
+            userId: '550e8400-e29b-41d4-a716-446655440002',
             newRole: 'CASHIER',
             justification: 'Removing admin privileges'
         });
@@ -404,12 +426,12 @@ describe.skip('Users V2 - Role Change Logic', () => {
         const mockClient = createMockClient([
             { rows: [mockAdmin], rowCount: 1 },
             { rows: [mockUser], rowCount: 1 },
-            { rows: [], rowCount: 0 }, // Update
-            { rows: [], rowCount: 0 } // Audit
+            { rows: [], rowCount: 1 }, // Update
+            { rows: [], rowCount: 1 } // Audit
         ]);
 
         const result = await usersV2.changeUserRoleSecure({
-            userId: 'user-uuid-9999',
+            userId: '550e8400-e29b-41d4-a716-446655440002',
             newRole: 'MANAGER',
             justification: 'Promoted due to excellent performance and leadership skills'
         });
@@ -421,12 +443,12 @@ describe.skip('Users V2 - Role Change Logic', () => {
         const mockClient = createMockClient([
             { rows: [mockAdmin], rowCount: 1 },
             { rows: [mockUser], rowCount: 1 },
-            { rows: [], rowCount: 0 },
-            { rows: [], rowCount: 0 }
+            { rows: [], rowCount: 1 },
+            { rows: [], rowCount: 1 }
         ]);
 
         await usersV2.changeUserRoleSecure({
-            userId: 'user-uuid-9999',
+            userId: '550e8400-e29b-41d4-a716-446655440002',
             newRole: 'MANAGER',
             justification: 'Promotion'
         });
@@ -449,7 +471,7 @@ describe.skip('Users V2 - Deactivation Logic', () => {
         ]);
 
         const result = await usersV2.deactivateUserSecure({
-            userId: 'admin-uuid-1234', // Same as current admin
+            userId: '550e8400-e29b-41d4-a716-446655440001', // Same as current admin
             reason: 'Leaving company'
         });
 
@@ -465,7 +487,7 @@ describe.skip('Users V2 - Deactivation Logic', () => {
         ]);
 
         const result = await usersV2.deactivateUserSecure({
-            userId: 'user-uuid-9999',
+            userId: '550e8400-e29b-41d4-a716-446655440002',
             reason: 'No longer needed'
         });
 
@@ -477,12 +499,12 @@ describe.skip('Users V2 - Deactivation Logic', () => {
         const mockClient = createMockClient([
             { rows: [mockAdmin], rowCount: 1 },
             { rows: [mockUser], rowCount: 1 },
-            { rows: [], rowCount: 0 }, // Update
-            { rows: [], rowCount: 0 } // Audit
+            { rows: [], rowCount: 1 }, // Update
+            { rows: [], rowCount: 1 } // Audit
         ]);
 
         await usersV2.deactivateUserSecure({
-            userId: 'user-uuid-9999',
+            userId: '550e8400-e29b-41d4-a716-446655440002',
             reason: 'Employee resigned'
         });
 
@@ -501,7 +523,7 @@ describe.skip('Users V2 - Deactivation Logic', () => {
 
     it('should require deactivation reason', async () => {
         const result = await usersV2.deactivateUserSecure({
-            userId: 'user-uuid-9999',
+            userId: '550e8400-e29b-41d4-a716-446655440002',
             reason: 'Short' // Too short
         });
 
@@ -513,12 +535,12 @@ describe.skip('Users V2 - Deactivation Logic', () => {
         const mockClient = createMockClient([
             { rows: [mockAdmin], rowCount: 1 },
             { rows: [mockUser], rowCount: 1 },
-            { rows: [], rowCount: 0 },
-            { rows: [], rowCount: 0 }
+            { rows: [], rowCount: 1 },
+            { rows: [], rowCount: 1 }
         ]);
 
         await usersV2.deactivateUserSecure({
-            userId: 'user-uuid-9999',
+            userId: '550e8400-e29b-41d4-a716-446655440002',
             reason: 'Contract ended naturally'
         });
 
@@ -579,7 +601,7 @@ describe.skip('Users V2 - Additional Cases', () => {
         ]);
 
         await usersV2.updateUserSecure({
-            userId: 'user-uuid-9999',
+            userId: '550e8400-e29b-41d4-a716-446655440002',
             name: 'Updated Name'
         });
 

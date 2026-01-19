@@ -20,6 +20,7 @@ import { query } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
+import { createNotificationSecure } from '@/actions/notifications-v2';
 
 // =====================================================
 // SCHEMAS DE VALIDACIÓN
@@ -477,6 +478,39 @@ export async function adjustStockSecure(params: {
         await client.query('COMMIT');
 
         logger.info({ batchId, adjustment, newQuantity }, '✅ [Inventory v2] Stock adjusted');
+
+        // 🔔 Low Stock Alert: Check if below minimum threshold
+        try {
+            // Fetch stock_min for this batch
+            const thresholdRes = await client.query(
+                'SELECT stock_min FROM inventory_batches WHERE id = $1',
+                [batchId]
+            );
+            const stockMin = thresholdRes.rows[0]?.stock_min || 10;
+
+            if (newQuantity <= stockMin && newQuantity > 0) {
+                await createNotificationSecure({
+                    type: 'INVENTORY',
+                    severity: 'WARNING',
+                    title: 'Stock Bajo',
+                    message: `${batch.name} (${batch.sku}) llegó a ${newQuantity} unidades (mínimo: ${stockMin})`,
+                    metadata: { batchId, sku: batch.sku, newQuantity, stockMin, adjustment },
+                    locationId: batch.location_id
+                });
+            } else if (newQuantity === 0) {
+                await createNotificationSecure({
+                    type: 'INVENTORY',
+                    severity: 'ERROR',
+                    title: 'Stock Agotado',
+                    message: `${batch.name} (${batch.sku}) se agotó completamente`,
+                    metadata: { batchId, sku: batch.sku, adjustment },
+                    locationId: batch.location_id
+                });
+            }
+        } catch (notifError) {
+            logger.warn({ notifError }, '[Inventory] Failed to create stock notification');
+        }
+
         revalidatePath('/inventory');
 
         return { success: true, newQuantity };
