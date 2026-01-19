@@ -1,170 +1,191 @@
-import React, { useState, useMemo } from 'react';
-import { createPortal } from 'react-dom';
-import { X, Bell, Trash2, CheckCheck, Filter } from 'lucide-react';
+'use client';
+
+import React, { useMemo } from 'react';
+import { Bell, CheckCheck, Loader2, Package, DollarSign, Users, Warehouse, Settings, X } from 'lucide-react';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useNotificationStore, NotificationCategory } from '../../store/useNotificationStore';
 import NotificationItem from './NotificationItem';
 
 interface NotificationCenterProps {
-    userRole: string;
-    onClose: () => void;
+    userRole?: string;
+    onClose?: () => void;
 }
 
 const NotificationCenter: React.FC<NotificationCenterProps> = ({ userRole, onClose }) => {
-    const { notifications, markAllAsRead, clearAll } = useNotificationStore();
-    const [activeCategory, setActiveCategory] = useState<NotificationCategory | 'ALL'>('ALL');
+    const {
+        notifications,
+        isOpen,
+        isCenterOpen,
+        setOpen,
+        setCenterOpen,
+        markAllAsRead,
+        isLoading,
+        error,
+        unreadCount
+    } = useNotificationStore();
 
-    // Filter notifications by role and category
+    const [activeCategory, setActiveCategory] = React.useState<NotificationCategory>('ALL');
+
+    // Use isCenterOpen for backward compatibility or isOpen for new usage
+    const isCurrentlyOpen = isCenterOpen || isOpen;
+
+    // Handle close - use provided onClose or store action
+    const handleClose = () => {
+        if (onClose) {
+            onClose();
+        } else {
+            setOpen(false);
+            setCenterOpen(false);
+        }
+    };
+
+    // Filter notifications by category and optionally by role
     const filteredNotifications = useMemo(() => {
-        return notifications.filter(n => {
-            const roleMatch = n.roleTarget === 'ALL' || n.roleTarget === userRole;
-            const categoryMatch = activeCategory === 'ALL' || n.category === activeCategory;
-            return roleMatch && categoryMatch;
-        });
-    }, [notifications, userRole, activeCategory]);
+        let filtered = notifications;
 
-    const unreadCount = filteredNotifications.filter(n => !n.read).length;
+        // Filter by category
+        if (activeCategory !== 'ALL') {
+            filtered = filtered.filter(n => n.category === activeCategory);
+        }
 
-    const categories: Array<{ key: NotificationCategory | 'ALL'; label: string; icon: string }> = [
-        { key: 'ALL', label: 'Todas', icon: '📋' },
-        { key: 'STOCK', label: 'Stock', icon: '📦' },
-        { key: 'CASH', label: 'Caja', icon: '💰' },
-        { key: 'HR', label: 'RRHH', icon: '👥' },
-        { key: 'OPERATIONS', label: 'Operaciones', icon: '⚙️' },
-        { key: 'ALERT', label: 'Alertas', icon: '⚠️' },
-        { key: 'SYSTEM', label: 'Sistema', icon: '🔧' },
+        // Filter by role if provided
+        if (userRole) {
+            filtered = filtered.filter(n => n.roleTarget === 'ALL' || n.roleTarget === userRole);
+        }
+
+        return filtered;
+    }, [notifications, activeCategory, userRole]);
+
+    const categories: Array<{ key: NotificationCategory; label: string; icon: React.ReactNode }> = [
+        { key: 'ALL', label: 'Todas', icon: <Bell size={16} /> },
+        { key: 'INVENTORY', label: 'Stock', icon: <Package size={16} /> },
+        { key: 'CASH', label: 'Caja', icon: <DollarSign size={16} /> },
+        { key: 'HR', label: 'RRHH', icon: <Users size={16} /> },
+        { key: 'WMS', label: 'Logística', icon: <Warehouse size={16} /> },
+        { key: 'SYSTEM', label: 'Sistema', icon: <Settings size={16} /> },
     ];
 
-    const handleMarkAllAsRead = () => {
-        if (activeCategory === 'ALL') {
-            markAllAsRead();
-        } else {
-            markAllAsRead(activeCategory);
-        }
+    const handleMarkAllAsRead = async () => {
+        await markAllAsRead();
     };
 
-    const handleClearAll = () => {
-        if (confirm(`¿Borrar todas las notificaciones${activeCategory !== 'ALL' ? ` de ${categories.find(c => c.key === activeCategory)?.label}` : ''}?`)) {
-            if (activeCategory === 'ALL') {
-                clearAll();
-            } else {
-                clearAll(activeCategory);
-            }
-        }
+    const getCategoryCount = (category: NotificationCategory) => {
+        if (category === 'ALL') return notifications.filter(n => !n.read).length;
+        return notifications.filter(n => n.category === category && !n.read).length;
     };
 
-    if (typeof document === 'undefined') return null;
-
-    return createPortal(
-        <>
-            {/* Backdrop */}
-            <div
-                className="fixed inset-0 bg-black/30 z-[100] animate-fadeIn"
-                onClick={onClose}
-            />
-
-            {/* Sidebar Panel */}
-            <div className="fixed right-0 top-0 h-full w-full md:w-[480px] bg-white shadow-2xl z-[101] flex flex-col animate-slideInRight">
+    return (
+        <Sheet open={isCurrentlyOpen} onOpenChange={(open) => open ? null : handleClose()}>
+            <SheetContent className="w-full sm:max-w-lg flex flex-col p-0">
                 {/* Header */}
-                <div className="p-6 border-b border-slate-200 bg-gradient-to-r from-purple-50 to-indigo-50">
-                    <div className="flex justify-between items-center mb-4">
+                <SheetHeader className="p-6 pb-4 border-b bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/30 dark:to-indigo-950/30">
+                    <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                            <div className="p-2 bg-purple-100 text-purple-600 rounded-lg">
+                            <div className="p-2 bg-purple-100 dark:bg-purple-900 text-purple-600 dark:text-purple-300 rounded-lg">
                                 <Bell size={24} />
                             </div>
                             <div>
-                                <h2 className="text-xl font-bold text-slate-900">
-                                    Notificaciones
-                                </h2>
-                                <p className="text-sm text-slate-500">
+                                <SheetTitle className="text-xl">Centro de Notificaciones</SheetTitle>
+                                <p className="text-sm text-muted-foreground">
                                     {unreadCount} sin leer
                                 </p>
                             </div>
                         </div>
-                        <button
-                            onClick={onClose}
-                            className="p-2 hover:bg-slate-100 rounded-lg transition"
-                        >
-                            <X size={24} />
-                        </button>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={handleMarkAllAsRead}
+                                disabled={unreadCount === 0}
+                                className="flex items-center gap-2"
+                            >
+                                <CheckCheck size={16} />
+                                <span className="hidden sm:inline">Marcar todas leídas</span>
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={handleClose}>
+                                <X size={20} />
+                            </Button>
+                        </div>
                     </div>
+                </SheetHeader>
 
-                    {/* Categories Tabs */}
-                    <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                        {categories.map(cat => {
-                            const catCount = cat.key === 'ALL'
-                                ? filteredNotifications.length
-                                : notifications.filter(n => n.category === cat.key && (n.roleTarget === 'ALL' || n.roleTarget === userRole)).length;
-
-                            return (
-                                <button
-                                    key={cat.key}
-                                    onClick={() => setActiveCategory(cat.key)}
-                                    className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm transition whitespace-nowrap ${activeCategory === cat.key
-                                        ? 'bg-purple-600 text-white shadow-lg'
-                                        : 'bg-white text-slate-600 hover:bg-slate-100'
-                                        }`}
-                                >
-                                    <span>{cat.icon}</span>
-                                    <span>{cat.label}</span>
-                                    {catCount > 0 && (
-                                        <span className={`px-2 py-0.5 rounded-full text-xs ${activeCategory === cat.key
-                                            ? 'bg-white/30'
-                                            : 'bg-slate-200'
-                                            }`}>
-                                            {catCount}
-                                        </span>
-                                    )}
-                                </button>
-                            );
-                        })}
-                    </div>
+                {/* Tabs - Category Filter */}
+                <div className="px-4 py-3 border-b">
+                    <Tabs value={activeCategory} onValueChange={(v) => setActiveCategory(v as NotificationCategory)}>
+                        <TabsList className="w-full grid grid-cols-6 h-auto p-1">
+                            {categories.map(cat => {
+                                const count = getCategoryCount(cat.key);
+                                return (
+                                    <TabsTrigger
+                                        key={cat.key}
+                                        value={cat.key}
+                                        className="relative flex flex-col gap-1 py-2 px-2 text-xs data-[state=active]:bg-purple-100 dark:data-[state=active]:bg-purple-900"
+                                    >
+                                        {cat.icon}
+                                        <span className="hidden sm:inline">{cat.label}</span>
+                                        {count > 0 && (
+                                            <Badge
+                                                variant="destructive"
+                                                className="h-4 min-w-4 p-0 flex items-center justify-center text-[10px] absolute -top-1 -right-1"
+                                            >
+                                                {count > 9 ? '9+' : count}
+                                            </Badge>
+                                        )}
+                                    </TabsTrigger>
+                                );
+                            })}
+                        </TabsList>
+                    </Tabs>
                 </div>
 
-                {/* Actions */}
-                {filteredNotifications.length > 0 && (
-                    <div className="px-6 py-3 border-b border-slate-100 flex gap-2">
-                        <button
-                            onClick={handleMarkAllAsRead}
-                            className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-600 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition"
-                        >
-                            <CheckCheck size={16} />
-                            Marcar todas leídas
-                        </button>
-                        <button
-                            onClick={handleClearAll}
-                            className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
-                        >
-                            <Trash2 size={16} />
-                            Borrar todas
-                        </button>
-                    </div>
-                )}
-
                 {/* Notifications List */}
-                <div className="flex-1 overflow-y-auto">
-                    {filteredNotifications.length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center text-slate-400 p-8">
-                            <Bell size={64} className="mb-4 opacity-50" />
-                            <p className="text-lg font-bold mb-2">Sin notificaciones</p>
+                <ScrollArea className="flex-1">
+                    {isLoading ? (
+                        <div className="p-4 space-y-4">
+                            {[1, 2, 3].map(i => (
+                                <div key={i} className="flex gap-3 p-4">
+                                    <Skeleton className="h-10 w-10 rounded-lg" />
+                                    <div className="flex-1 space-y-2">
+                                        <Skeleton className="h-4 w-3/4" />
+                                        <Skeleton className="h-3 w-full" />
+                                        <Skeleton className="h-3 w-1/2" />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : error ? (
+                        <div className="h-full flex flex-col items-center justify-center text-muted-foreground p-8">
+                            <Settings size={64} className="mb-4 opacity-30" />
+                            <p className="text-lg font-semibold mb-2">Error de conexión</p>
+                            <p className="text-sm text-center">{error}</p>
+                        </div>
+                    ) : filteredNotifications.length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center text-muted-foreground p-8 min-h-[300px]">
+                            <Bell size={64} className="mb-4 opacity-30" />
+                            <p className="text-lg font-semibold mb-2">Sin notificaciones</p>
                             <p className="text-sm text-center">
-                                No hay notificaciones {activeCategory !== 'ALL' && `de ${categories.find(c => c.key === activeCategory)?.label}`}
+                                No hay notificaciones
+                                {activeCategory !== 'ALL' && ` de ${categories.find(c => c.key === activeCategory)?.label}`}
                             </p>
                         </div>
                     ) : (
-                        <div className="divide-y divide-slate-100">
+                        <div className="divide-y">
                             {filteredNotifications.map(notification => (
                                 <NotificationItem
                                     key={notification.id}
                                     notification={notification}
-                                    onClose={onClose}
                                 />
                             ))}
                         </div>
                     )}
-                </div>
-            </div>
-        </>,
-        document.body
+                </ScrollArea>
+            </SheetContent>
+        </Sheet>
     );
 };
 

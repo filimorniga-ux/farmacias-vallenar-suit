@@ -25,6 +25,7 @@ import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
 import { randomUUID } from 'crypto';
 import { logger } from '@/lib/logger';
+import { createNotificationSecure } from '@/actions/notifications-v2';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -342,6 +343,21 @@ export async function openCashDrawerSecure(
         await client.query('COMMIT');
 
         logger.info({ sessionId, terminalId, openingAmount }, '💵 [Cash] Drawer opened');
+
+        // 🔔 Notification: Shift opened
+        try {
+            await createNotificationSecure({
+                type: 'CASH',
+                severity: 'INFO',
+                title: 'Caja Abierta',
+                message: `${user.name} abrió la caja con $${openingAmount.toLocaleString()}`,
+                metadata: { sessionId, terminalId, openingAmount, userId: user.id },
+                locationId: terminal.location_id
+            });
+        } catch (notifError) {
+            logger.warn({ notifError }, '[Cash] Failed to create open notification');
+        }
+
         revalidatePath('/caja');
         revalidatePath('/pos');
 
@@ -515,6 +531,22 @@ export async function closeCashDrawerSecure(
         await client.query('COMMIT');
 
         logger.info({ sessionId: session.id, difference, status }, '🔒 [Cash] Drawer closed');
+
+        // 🔔 Notification: Shift closed
+        try {
+            const severity = Math.abs(difference) > 5000 ? 'WARNING' : 'SUCCESS';
+            await createNotificationSecure({
+                type: 'CASH',
+                severity,
+                title: 'Caja Cerrada',
+                message: `Turno cerrado. Diferencia: $${difference.toLocaleString()} (${status})`,
+                metadata: { sessionId: session.id, terminalId, expectedCash, declaredCash, difference, status },
+                locationId: terminalRes.rows[0].location_id
+            });
+        } catch (notifError) {
+            logger.warn({ notifError }, '[Cash] Failed to create close notification');
+        }
+
         revalidatePath('/caja');
         revalidatePath('/pos');
 

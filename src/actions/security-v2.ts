@@ -267,6 +267,11 @@ export async function validateSessionSecure(
             return { valid: false, error: 'Sesión revocada remotamente' };
         }
 
+        // Check permanent lock
+        if (user.account_locked_permanently) {
+            return { valid: false, error: 'Cuenta bloqueada permanentemente' };
+        }
+
         // Update activity ONLY if not updated recently (Throttling DB writes)
         // This query will only write if last_active_at is older than 60 seconds
         // "fire-and-forget" style (no await on result processing, just await execution)
@@ -349,13 +354,15 @@ export async function lockAccountSecure(
             }
         }
 
-        // Update user (only failure count - lock columns don't exist)
+        // Update user with lock status
         await client.query(`
             UPDATE users 
             SET login_failure_count = $2,
+                account_locked_permanently = $3,
+                account_locked_until = $4,
                 updated_at = NOW()
             WHERE id = $1
-        `, [userId, newFailureCount]);
+        `, [userId, newFailureCount, permanentLock, lockUntil]);
 
         // Audit
         await insertSecurityAudit(client, {

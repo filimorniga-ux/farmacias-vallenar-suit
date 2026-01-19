@@ -79,6 +79,9 @@ export async function getNotificationsSecure(locationId?: string, limit = 50) {
 }
 
 export async function markAsReadSecure(notificationIds: string[]) {
+    const session = await getSession();
+    if (!session) return { success: false, error: 'Usuario no autenticado' };
+
     const client = await getClient();
     try {
         if (notificationIds.length === 0) return { success: true };
@@ -100,6 +103,9 @@ export async function markAsReadSecure(notificationIds: string[]) {
 }
 
 export async function markAllAsReadSecure(locationId?: string) {
+    const session = await getSession();
+    if (!session) return { success: false, error: 'Usuario no autenticado' };
+
     const client = await getClient();
     try {
         await client.query(`
@@ -171,6 +177,144 @@ export async function notifyManagersSecure(data: { locationId?: string; title: s
     } catch (error) {
         console.error('Failed to notify managers:', error);
         return { success: false, error: 'Failed to notify managers' };
+    } finally {
+        client.release();
+    }
+}
+import { headers } from 'next/headers';
+
+async function getSession() {
+    const headersList = await headers();
+    const userId = headersList.get('x-user-id');
+    const userRole = headersList.get('x-user-role');
+    const userLocation = headersList.get('x-user-location');
+
+    if (!userId) return null;
+
+    return {
+        userId,
+        role: userRole || 'GUEST',
+        locationId: userLocation
+    };
+}
+
+export async function getMyNotifications(limit = 20) {
+    const session = await getSession();
+    if (!session) return { success: false, error: 'Usuario no autenticado' };
+
+    const client = await getClient();
+    try {
+        // Fetch notifications for:
+        // 1. My specific user_id
+        // 2. My location (location_id = my_location)
+        // 3. Global notifications (location_id IS NULL AND user_id IS NULL)
+
+        const params: any[] = [session.userId];
+        let query = `
+            SELECT * FROM notifications 
+            WHERE user_id = $1
+        `;
+
+        // If I have a location, include location-based notifs
+        if (session.locationId) {
+            query += ` OR location_id = $2`;
+            params.push(session.locationId);
+        } else {
+            // Should I assume NULL location means global? Yes.
+            query += ` OR location_id IS NULL`;
+        }
+
+        // Also include global non-targeted notifications if strictly needed, 
+        // but typically location_id IS NULL covers system-wide.
+        // Let's refine logical OR grouping:
+        // (user_id = me) OR (location_id = my_loc AND user_id IS NULL) OR (location_id IS NULL AND user_id IS NULL)
+
+        // Simplified for Vallenar typical use:
+        // 1. Direct to me (user_id)
+        // 2. To my store (location_id) -- usually implied for all staff there? Or just managers?
+        //    Let's assume "To my store" means everyone in that store unless user_id is set.
+
+        // Correct Query Re-write:
+        // WHERE (user_id = $1)
+        //    OR (location_id = $2 AND user_id IS NULL)
+        //    OR (location_id IS NULL AND user_id IS NULL) -- Global System
+
+        query = `
+            SELECT * FROM notifications 
+            WHERE (user_id = $1)
+        `;
+
+        if (session.locationId) {
+            query += ` OR (location_id = $2 AND user_id IS NULL)`;
+        }
+
+        query += ` OR (location_id IS NULL AND user_id IS NULL)`;
+        query += ` ORDER BY created_at DESC LIMIT $${params.length + 1}`;
+        params.push(limit);
+
+        const res = await client.query(query, params);
+
+        // Count unread
+        // Similar logic for count
+        let countQuery = `
+            SELECT COUNT(*) FROM notifications
+            WHERE is_read = FALSE AND (
+                (user_id = $1)
+        `;
+        if (session.locationId) {
+            countQuery += ` OR (location_id = $2 AND user_id IS NULL)`;
+        }
+        countQuery += ` OR (location_id IS NULL AND user_id IS NULL) )`;
+
+        const countRes = await client.query(countQuery, filterParamsForCount(params));
+        // Helper inside: params for count are just user and location. 
+        // Actually simpler to just reuse params.slice(0, used_params_idx) but let's be safe.
+        // We can just use the same params array since LIMIT is at the end and not used here.
+        // Wait, params has 'limit' at the end. Slice it off.
+
+        const countParams = params.slice(0, params.length - 1);
+        const countResExec = await client.query(countQuery, countParams);
+
+        return {
+            success: true,
+            data: res.rows,
+            unreadCount: parseInt(countResExec.rows[0].count)
+        };
+
+    } catch (error) {
+        console.error('Failed to get my notifications:', error);
+        return { success: false, error: 'Failed to fetch personal notifications' };
+    } finally {
+        client.release();
+    }
+}
+
+function filterParamsForCount(p: any[]) {
+    // Just to keep logic clean in code block above
+    return p;
+}
+
+export async function deleteOldNotifications(days: number) {
+    const session = await getSession();
+    if (!session || !['ADMIN', 'GERENTE_GENERAL'].includes(session.role)) {
+        return { success: false, error: 'Acceso denegado: Se requieren permisos de administradores' };
+    }
+
+    if (days < 7) {
+        return { success: false, error: 'El periodo mínimo de retención es de 7 días' };
+    }
+
+    const client = await getClient();
+    try {
+        const res = await client.query(`
+            DELETE FROM notifications 
+            WHERE created_at < NOW() - make_interval(days => $1)
+        `, [days]);
+
+        return { success: true, deletedCount: res.rowCount };
+    } catch (error) {
+        console.error('Failed to cleanup notifications:', error);
+        return { success: false, error: 'Failed to delete old notifications' };
     } finally {
         client.release();
     }
