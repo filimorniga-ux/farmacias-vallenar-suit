@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePharmaStore } from '../store/useStore';
-import { Store, UserCircle, Clock, Ticket, ArrowRight, Loader2, RefreshCw, Search, Monitor, Command, Download } from 'lucide-react';
+import { Store, UserCircle, Clock, Ticket, ArrowRight, Loader2, RefreshCw, Search, Monitor, Command, Download, Smartphone } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { EmployeeProfile } from '../../domain/types';
 import PriceCheckerModal from '../components/public/PriceCheckerModal';
@@ -288,25 +288,26 @@ const LandingPage: React.FC = () => {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.5 }}
-                    className="mt-12 flex flex-col md:flex-row items-center justify-center gap-6"
+                    className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-5xl mx-auto"
                 >
-                    <div className="bg-white/80 backdrop-blur-md border border-sky-100 rounded-3xl p-8 flex items-center gap-8 max-w-2xl w-full shadow-xl shadow-sky-900/5 transition-all">
+                    {/* Desktop App Downloads */}
+                    <div className="bg-white/80 backdrop-blur-md border border-sky-100 rounded-3xl p-8 flex items-center gap-6 shadow-xl shadow-sky-900/5 transition-all hover:shadow-2xl hover:border-sky-200">
                         <div className="bg-sky-100 w-16 h-16 rounded-2xl flex items-center justify-center text-sky-600 shrink-0 border border-sky-200">
-                            <Download size={32} />
+                            <Monitor size={32} />
                         </div>
                         <div className="flex-1">
-                            <h3 className="text-slate-900 font-bold text-xl mb-1">Instalar App Escritorio</h3>
-                            <p className="text-slate-500 text-sm mb-5 leading-relaxed">
-                                Versión profesional para Windows y Mac con impresión directa y modo POS optimizado.
+                            <h3 className="text-slate-900 font-bold text-xl mb-1">App Escritorio</h3>
+                            <p className="text-slate-500 text-sm mb-4 leading-relaxed">
+                                Versión completa para Windows y macOS.
                             </p>
-                            <div className="flex flex-wrap gap-4">
+                            <div className="flex flex-wrap gap-3">
                                 <a
                                     href="https://github.com/filimorniga-ux/farmacias-vallenar-suit/releases/latest/download/FarmaciasVallenar-Setup.exe"
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="flex items-center gap-2.5 px-5 py-2.5 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-xl transition-all text-sm font-bold border border-sky-100 shadow-sm"
+                                    className="flex items-center gap-2 px-4 py-2 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-lg transition-all text-xs font-bold border border-sky-100 shadow-sm"
                                 >
-                                    <Monitor size={18} className="text-sky-500" />
+                                    <Monitor size={14} className="text-sky-500" />
                                     <span>Windows</span>
                                 </a>
                                 <div className="h-8 w-px bg-slate-200 hidden md:block"></div>
@@ -314,12 +315,33 @@ const LandingPage: React.FC = () => {
                                     href="https://github.com/filimorniga-ux/farmacias-vallenar-suit/releases/latest/download/FarmaciasVallenar-Mac-Universal.dmg"
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="flex items-center gap-2.5 px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all text-sm font-bold border border-slate-200 shadow-sm"
+                                    className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-all text-xs font-bold border border-slate-200 shadow-sm"
                                 >
-                                    <Command size={18} className="text-slate-500" />
+                                    <Command size={14} className="text-slate-500" />
                                     <span>macOS</span>
                                 </a>
                             </div>
+                        </div>
+                    </div>
+
+                    {/* Android App Download */}
+                    <div className="bg-white/80 backdrop-blur-md border border-emerald-100 rounded-3xl p-8 flex items-center gap-6 shadow-xl shadow-emerald-900/5 transition-all hover:shadow-2xl hover:border-emerald-200">
+                        <div className="bg-emerald-100 w-16 h-16 rounded-2xl flex items-center justify-center text-emerald-600 shrink-0 border border-emerald-200">
+                            <Smartphone size={32} />
+                        </div>
+                        <div className="flex-1">
+                            <h3 className="text-slate-900 font-bold text-xl mb-1">App para Android</h3>
+                            <p className="text-slate-500 text-sm mb-4 leading-relaxed">
+                                Gestiona tu sucursal y audita precios desde tu celular.
+                            </p>
+                            <a
+                                href="/downloads/farmacias-vallenar.apk"
+                                download
+                                className="flex items-center gap-2 justify-center px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-all text-sm font-bold shadow-lg shadow-emerald-600/20 w-full md:w-auto"
+                            >
+                                <Download size={18} />
+                                <span>Descargar APK</span>
+                            </a>
                         </div>
                     </div>
                 </motion.div>
