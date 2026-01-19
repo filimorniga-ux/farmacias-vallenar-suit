@@ -5,10 +5,10 @@ const config: CapacitorConfig = {
   appName: 'Farmacias Vallenar Suit',
   webDir: 'out',
   server: {
-    url: 'https://farmacias-vallenar-suit.vercel.app',
+    url: 'https://farmaciasvallenar.vercel.app',
     cleartext: true,
     androidScheme: 'https',
-    allowNavigation: ['farmacias-vallenar-suit.vercel.app', '*.vercel.app']
+    allowNavigation: ['farmaciasvallenar.vercel.app', '*.vercel.app']
   }
 };
 
