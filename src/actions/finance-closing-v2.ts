@@ -573,7 +573,7 @@ export async function getClosingDataSecure(month: number, year: number) {
             pool.query(
                 `SELECT e.*, u.name as created_by_name
                  FROM monthly_closing_entries e
-                 LEFT JOIN users u ON u.id = e.created_by
+                 LEFT JOIN users u ON u.id = e.created_by::text
                  WHERE e.month = $1 AND e.year = $2
                  ORDER BY e.reference_date DESC, e.created_at DESC`,
                 [month, year],

@@ -42,7 +42,7 @@ const AUTHORIZATION_THRESHOLDS = {
 
 
 export default function TreasuryPage() {
-    const { user, locations } = usePharmaStore();
+    const { user, locations, currentLocationId } = usePharmaStore();
 
     const [accounts, setAccounts] = useState<FinancialAccount[]>([]);
     const [transactions, setTransactions] = useState<TreasuryTransaction[]>([]);
@@ -75,7 +75,7 @@ export default function TreasuryPage() {
     // Load Data
     const loadTreasuryData = async () => {
         if (!user) return;
-        if (!user.assigned_location_id) {
+        if (!currentLocationId) {
             setLoading(false);
             return;
         }
@@ -83,7 +83,7 @@ export default function TreasuryPage() {
         setLoading(true);
         try {
             // V2: getFinancialAccountsSecure
-            const accRes = await getFinancialAccountsSecure(user.assigned_location_id);
+            const accRes = await getFinancialAccountsSecure(currentLocationId);
             if (accRes.success && accRes.data) {
                 setAccounts(accRes.data);
 
@@ -96,7 +96,7 @@ export default function TreasuryPage() {
             }
 
             // V2: getPendingRemittancesSecure
-            const remRes = await getPendingRemittancesSecure(user.assigned_location_id);
+            const remRes = await getPendingRemittancesSecure(currentLocationId);
             if (remRes.success && remRes.data) setRemittances(remRes.data);
 
         } catch (error) {
@@ -115,7 +115,7 @@ export default function TreasuryPage() {
 
     useEffect(() => {
         loadTreasuryData();
-    }, [user?.assigned_location_id]);
+    }, [currentLocationId]);
 
     // =====================================================
     // SECURE TRANSFER HANDLER (v2)
@@ -258,18 +258,18 @@ export default function TreasuryPage() {
 
     if (!user) return <div className="p-8 text-center text-slate-500">Cargando perfil...</div>;
 
-    if (!user.assigned_location_id) {
+    if (!currentLocationId) {
         return (
             <div className="p-8 max-w-7xl mx-auto text-center space-y-4">
                 <h1 className="text-2xl font-bold text-slate-800">No tiene sucursal asignada</h1>
-                <p className="text-slate-500">Por favor solicite a su administrador que le asigne una sucursal para acceder a Tesorería.</p>
+                <p className="text-slate-500">Por favor seleccione una sucursal para acceder a Tesorería.</p>
             </div>
         );
     }
 
     const safeAccount = accounts.find(a => a.type === 'SAFE');
     const bankAccount = accounts.find(a => a.type === 'BANK');
-    const currentLocationName = locations.find(l => l.id === user.assigned_location_id)?.name || 'Sucursal desconocida';
+    const currentLocationName = locations.find(l => l.id === currentLocationId)?.name || 'Sucursal desconocida';
 
     return (
         <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-300">

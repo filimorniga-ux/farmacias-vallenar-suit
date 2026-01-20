@@ -896,7 +896,7 @@ export async function getInventorySecure(
                 p.source_system::text,
                 p.created_at::timestamp as created_at_ts
             FROM products p
-            WHERE (p.location_id::text = $1 OR p.location_id IS NULL)
+            WHERE (p.location_id = $1 OR p.location_id IS NULL)
             
             UNION ALL
             
@@ -931,7 +931,7 @@ export async function getInventorySecure(
                 ib.source_system::text,
                 ib.created_at::timestamp as created_at_ts
             FROM inventory_batches ib
-            WHERE ib.location_id::text = $1
+            WHERE ib.location_id = $1::uuid
             
             ORDER BY name ASC
         `;

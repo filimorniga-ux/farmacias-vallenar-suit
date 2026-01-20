@@ -3,7 +3,9 @@
 import { useState } from 'react';
 import { Users, Activity, History, Search, Filter } from 'lucide-react';
 import { EmployeeProfile } from '@/domain/types';
-import EmployeeGrid from '@/components/rrhh/EmployeeGrid'; // Converting to use as Monitor view? Or Directory?
+import { EmployeeModal } from './EmployeeModal';
+import { updateUserSecure } from '@/actions/users-v2';
+import { useRouter } from 'next/navigation';
 // We will create specific sub-views
 
 interface HumanResourcesDashboardProps {
@@ -19,6 +21,46 @@ export default function HumanResourcesDashboard({
 }: HumanResourcesDashboardProps) {
     const [activeTab, setActiveTab] = useState<'directory' | 'monitor' | 'history'>('directory');
     const [searchTerm, setSearchTerm] = useState('');
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [selectedEmployee, setSelectedEmployee] = useState<EmployeeProfile | null>(null);
+    const router = useRouter();
+
+    const handleEdit = (employee: any) => {
+        setSelectedEmployee(employee);
+        setIsModalOpen(true);
+    };
+
+    const handleSaveEmployee = async (data: Partial<EmployeeProfile>) => {
+        if (!selectedEmployee) return;
+
+        try {
+            const result = await updateUserSecure({
+                userId: selectedEmployee.id,
+                name: data.name,
+                email: data.email,
+                role: data.role as any,
+                job_title: data.job_title || undefined,
+                contact_phone: data.contact_phone || undefined,
+                base_salary: data.base_salary || undefined,
+                pension_fund: data.pension_fund || undefined,
+                health_system: data.health_system || undefined,
+                weekly_hours: data.weekly_hours || undefined,
+                assigned_location_id: data.assigned_location_id || undefined,
+                allowed_modules: data.allowed_modules
+            });
+
+            if (result.success) {
+                setIsModalOpen(false);
+                router.refresh(); // Refresh server data
+                // Ideally show toast
+            } else {
+                alert('Error al guardar: ' + result.error);
+            }
+        } catch (error) {
+            console.error('Save error:', error);
+            alert('Error inesperado al guardar');
+        }
+    };
 
     // Filter logic
     const filteredEmployees = employees.filter(e =>
@@ -38,8 +80,8 @@ export default function HumanResourcesDashboard({
                     <button
                         onClick={() => setActiveTab('directory')}
                         className={`w-1/4 py-4 px-1 text-center border-b-2 font-medium text-sm flex items-center justify-center gap-2 ${activeTab === 'directory'
-                                ? 'border-blue-500 text-blue-600'
-                                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                            ? 'border-blue-500 text-blue-600'
+                            : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
                             }`}
                     >
                         <Users size={18} />
@@ -48,8 +90,8 @@ export default function HumanResourcesDashboard({
                     <button
                         onClick={() => setActiveTab('monitor')}
                         className={`w-1/4 py-4 px-1 text-center border-b-2 font-medium text-sm flex items-center justify-center gap-2 ${activeTab === 'monitor'
-                                ? 'border-blue-500 text-blue-600'
-                                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                            ? 'border-blue-500 text-blue-600'
+                            : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
                             }`}
                     >
                         <Activity size={18} />
@@ -58,8 +100,8 @@ export default function HumanResourcesDashboard({
                     <button
                         onClick={() => setActiveTab('history')}
                         className={`w-1/4 py-4 px-1 text-center border-b-2 font-medium text-sm flex items-center justify-center gap-2 ${activeTab === 'history'
-                                ? 'border-blue-500 text-blue-600'
-                                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                            ? 'border-blue-500 text-blue-600'
+                            : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
                             }`}
                     >
                         <History size={18} />
@@ -89,7 +131,10 @@ export default function HumanResourcesDashboard({
                 )}
 
                 {activeTab === 'directory' && (
-                    <DirectoryView employees={filteredEmployees} />
+                    <DirectoryView
+                        employees={filteredEmployees}
+                        onEdit={handleEdit}
+                    />
                 )}
 
                 {activeTab === 'monitor' && (
@@ -100,13 +145,25 @@ export default function HumanResourcesDashboard({
                     <HistoryView initialData={initialHistory} />
                 )}
             </div>
-        </div>
+
+            {/* Employee Edit Modal */}
+            {
+                isModalOpen && selectedEmployee && (
+                    <EmployeeModal
+                        isOpen={isModalOpen}
+                        onClose={() => setIsModalOpen(false)}
+                        employee={selectedEmployee}
+                        onSave={handleSaveEmployee}
+                    />
+                )
+            }
+        </div >
     );
 }
 
 // --- Sub-components (can be extracted later) ---
 
-function DirectoryView({ employees }: { employees: any[] }) {
+function DirectoryView({ employees, onEdit }: { employees: any[], onEdit: (emp: any) => void }) {
     return (
         <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200">
@@ -152,14 +209,17 @@ function DirectoryView({ employees }: { employees: any[] }) {
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                                 <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${employee.isActive
-                                        ? 'bg-green-100 text-green-800'
-                                        : 'bg-red-100 text-red-800'
+                                    ? 'bg-green-100 text-green-800'
+                                    : 'bg-red-100 text-red-800'
                                     }`}>
                                     {employee.isActive ? 'ACTIVO' : 'INACTIVO'}
                                 </span>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                <button className="text-blue-600 hover:text-blue-900 border border-slate-200 px-3 py-1 rounded hover:bg-slate-50">
+                                <button
+                                    onClick={() => onEdit(employee)}
+                                    className="text-blue-600 hover:text-blue-900 border border-slate-200 px-3 py-1 rounded hover:bg-slate-50"
+                                >
                                     Editar
                                 </button>
                             </td>
@@ -194,7 +254,7 @@ function LiveMonitorView({ employees }: { employees: any[] }) {
 
                             <div className="mt-2 flex items-center space-x-2">
                                 <span className={`flex h-3 w-3 rounded-full ${emp.current_status === 'IN' ? 'bg-green-500' :
-                                        emp.current_status === 'LUNCH' ? 'bg-yellow-500' : 'bg-red-500'
+                                    emp.current_status === 'LUNCH' ? 'bg-yellow-500' : 'bg-red-500'
                                     }`} />
                                 <span className="text-xs font-semibold text-slate-700">
                                     {emp.current_status === 'IN' ? 'EN TAREA' :
@@ -249,8 +309,8 @@ function HistoryView({ initialData }: { initialData: any[] }) {
                                 </td>
                                 <td className="px-4 py-2 whitespace-nowrap text-sm">
                                     <span className={`px-2 py-0.5 rounded text-xs font-bold ${log.type === 'CHECK_IN' ? 'bg-green-100 text-green-800' :
-                                            log.type === 'CHECK_OUT' ? 'bg-red-100 text-red-800' :
-                                                'bg-yellow-100 text-yellow-800'
+                                        log.type === 'CHECK_OUT' ? 'bg-red-100 text-red-800' :
+                                            'bg-yellow-100 text-yellow-800'
                                         }`}>
                                         {log.type}
                                     </span>

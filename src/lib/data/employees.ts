@@ -8,7 +8,7 @@ export async function getEmployees(): Promise<any[]> {
             SELECT 
                 id, rut, name, role, access_pin, status, 
                 assigned_location_id, job_title, base_salary,
-                afp as pension_fund, health_system
+                afp as pension_fund, health_system, allowed_modules
             FROM users
             ORDER BY name ASC
         `);
@@ -21,7 +21,8 @@ export async function getEmployees(): Promise<any[]> {
             isActive: row.status === 'ACTIVE',
             photoUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(row.name)}&background=random`,
             pension_fund: row.pension_fund,
-            health_system: row.health_system
+            health_system: row.health_system,
+            allowed_modules: row.allowed_modules || []
         }));
     } catch (error) {
         console.error('Failed to fetch employees:', error);

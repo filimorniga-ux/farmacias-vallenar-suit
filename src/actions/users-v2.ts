@@ -60,6 +60,7 @@ const CreateUserSchema = z.object({
     health_system: z.string().max(50).optional(),
     weekly_hours: z.number().min(1).max(168).optional(),
     contact_phone: z.string().max(20).optional(),
+    allowed_modules: z.array(z.string()).optional(),
 });
 
 const UpdateUserSchema = z.object({
@@ -73,6 +74,7 @@ const UpdateUserSchema = z.object({
     health_system: z.string().max(50).optional(),
     weekly_hours: z.number().min(1).max(168).optional(),
     assigned_location_id: UUIDSchema.optional(),
+    allowed_modules: z.array(z.string()).optional(),
 });
 
 const ChangeRoleSchema = z.object({
@@ -326,10 +328,10 @@ export async function createUserSecure(data: z.infer<typeof CreateUserSchema>): 
                 id, rut, name, email, role, access_pin_hash,
                 job_title, status, is_active, phone,
                 base_salary, afp, health_system, weekly_hours,
-                assigned_location_id, created_at, updated_at
+                assigned_location_id, allowed_modules, created_at, updated_at
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, 'ACTIVE', true, $8,
-                $9, $10, $11, $12, $13, NOW(), NOW()
+                $9, $10, $11, $12, $13, $14, NOW(), NOW()
             )
             RETURNING 
                 id, rut, name, email, role, job_title, status, is_active,
@@ -349,7 +351,8 @@ export async function createUserSecure(data: z.infer<typeof CreateUserSchema>): 
             validated.data.pension_fund || null,
             validated.data.health_system || null,
             validated.data.weekly_hours || 45,
-            validated.data.assigned_location_id || null
+            validated.data.assigned_location_id || null,
+            validated.data.allowed_modules || null
         ]);
 
         // 6. Audit log
@@ -490,6 +493,10 @@ export async function updateUserSecure(data: z.infer<typeof UpdateUserSchema>): 
         if (validated.data.assigned_location_id !== undefined) {
             updates.push(`assigned_location_id = $${paramIndex++}`);
             values.push(validated.data.assigned_location_id);
+        }
+        if (validated.data.allowed_modules !== undefined) {
+            updates.push(`allowed_modules = $${paramIndex++}`);
+            values.push(validated.data.allowed_modules);
         }
 
         if (updates.length === 0) {
