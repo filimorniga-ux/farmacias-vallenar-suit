@@ -55,7 +55,7 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
         try {
             // SECURITY FIX: Server-side validation with bcrypt + retry for network issues
             const result = await withServerActionRetry(
-                () => validateSupervisorPin(pin, actionDescription, user?.id),
+                () => validateSupervisorPin(pin),
                 {
                     maxAttempts: 3,
                     baseDelay: 500,
@@ -66,7 +66,7 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
                 }
             );
 
-            if (!result.success) {
+            if (!result.valid) {
                 setError(result.error || 'PIN inválido. Intente nuevamente.');
                 setPin('');
                 setIsVerifying(false);
@@ -74,7 +74,7 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
             }
 
             // Server already verifies role (MANAGER, ADMIN, GERENTE_GENERAL)
-            if (!result.supervisorId) {
+            if (!result.authorizedBy?.id) {
                 setError('Error de validación. Intente nuevamente.');
                 setPin('');
                 setIsVerifying(false);
@@ -86,9 +86,10 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
             if (retryInfo && retryInfo.attempts > 1) {
                 console.log(`✅ [SupervisorOverride] Authorized after ${retryInfo.attempts} attempts`);
             } else {
-                console.log('✅ [SupervisorOverride] Authorized by:', result.supervisorName, '(bcrypt validated)');
+            } else {
+                console.log('✅ [SupervisorOverride] Authorized by:', result.authorizedBy?.name, '(bcrypt validated)');
             }
-            onAuthorize(result.supervisorId);
+            onAuthorize(result.authorizedBy?.id!);
             setPin('');
             // onClose(); // Removed to prevent race condition with parent state update
         } catch (error) {

@@ -475,8 +475,8 @@ const POSMainScreen: React.FC = () => {
         }
 
         try {
-            const result = await validateSupervisorPin(supervisorPin, 'UPDATE_BASE_AMOUNT', user?.id);
-            if (result.success) {
+            const result = await validateSupervisorPin(supervisorPin);
+            if (result.valid) {
                 updateOpeningAmount(parseFormattedNumber(newBaseAmount));
                 setIsEditBaseModalOpen(false);
                 setSupervisorPin('');
