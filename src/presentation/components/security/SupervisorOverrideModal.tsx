@@ -66,7 +66,7 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
                 }
             );
 
-            if (!result.valid) {
+            if (!result.success) {
                 setError(result.error || 'PIN inválido. Intente nuevamente.');
                 setPin('');
                 setIsVerifying(false);
@@ -85,7 +85,6 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
             const retryInfo = (result as any)._retryInfo;
             if (retryInfo && retryInfo.attempts > 1) {
                 console.log(`✅ [SupervisorOverride] Authorized after ${retryInfo.attempts} attempts`);
-            } else {
             } else {
                 console.log('✅ [SupervisorOverride] Authorized by:', result.authorizedBy?.name, '(bcrypt validated)');
             }

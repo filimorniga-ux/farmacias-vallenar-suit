@@ -76,17 +76,17 @@ export async function validateSupervisorPin(pin: string, requiredRoles: string[]
             if ((res.rowCount ?? 0) > 0) {
                 const user = res.rows[0];
                 return {
-                    valid: true,
+                    success: true,
                     authorizedBy: { id: user.id, name: user.name, role: user.role }
                 };
             }
-            return { valid: false };
+            return { success: false, error: 'PIN inválido o sin permisos' };
         } finally {
             client.release();
         }
     } catch (error) {
         console.error('Validate Supervisor PIN Error:', error);
-        return { valid: false };
+        return { success: false, error: 'Error de servidor' };
     }
 }
 

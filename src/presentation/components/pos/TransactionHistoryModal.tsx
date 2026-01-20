@@ -62,7 +62,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
         try {
             const result = await validateSupervisorPin(adminPin);
 
-            if (result.valid) {
+            if (result.success) {
                 setIsAuthenticated(true);
                 toast.success(`Acceso autorizado: ${result.authorizedBy?.name || 'Supervisor'}`);
             } else {
