@@ -999,10 +999,10 @@ export async function getSalesHistorySecure(params: {
     // A. Vía PIN (Elevación o Rol Manager/Admin)
     if (supervisorPin) {
         // Usamos la función importada de auth-v2 que maneja su propia conexión/query
-        const auth = await validateSupervisorPin(supervisorPin, 'SALES_HISTORY_VIEW');
-        if (auth.success && auth.supervisorId) {
+        const auth = await validateSupervisorPin(supervisorPin);
+        if (auth.valid && auth.authorizedBy) {
             isAuthorized = true;
-            authorizedUserId = auth.supervisorId; // Auditoría a nombre del supervisor
+            authorizedUserId = auth.authorizedBy.id; // Auditoría a nombre del supervisor
         }
     }
     // B. Vía Sesión (si el usuario ya tiene rol alto)
