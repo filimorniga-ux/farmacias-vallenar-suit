@@ -219,16 +219,16 @@ export async function getAuditEvents(filters: {
         const params: any[] = [];
         let paramIndex = 1;
 
-        if (filters.userId) {
-            conditions.push(`user_id = $${paramIndex++}`);
+        if (filters.userId && filters.userId !== '') {
+            conditions.push(`user_id = $${paramIndex++}::uuid`);
             params.push(filters.userId);
         }
-        if (filters.locationId) {
-            conditions.push(`location_id = $${paramIndex++}`);
+        if (filters.locationId && filters.locationId !== '') {
+            conditions.push(`location_id = $${paramIndex++}::uuid`);
             params.push(filters.locationId);
         }
-        if (filters.terminalId) {
-            conditions.push(`terminal_id = $${paramIndex++}`);
+        if (filters.terminalId && filters.terminalId !== '') {
+            conditions.push(`terminal_id = $${paramIndex++}::uuid`);
             params.push(filters.terminalId);
         }
         if (filters.sessionId) {
@@ -314,7 +314,7 @@ export async function getPendingReviews(locationId?: string): Promise<{ success:
         const params: any[] = [];
 
         if (locationId) {
-            whereClause += ' AND (location_id = $1 OR location_id IS NULL)';
+            whereClause += ' AND (location_id = $1::uuid OR location_id IS NULL)';
             params.push(locationId);
         }
 

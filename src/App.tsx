@@ -34,6 +34,8 @@ import MonthlyClosingPage from './app/finance/monthly-closing/page';
 import { ProductSalesReportPage } from './presentation/pages/reports/ProductSalesReportPage';
 import SmartInvoicePage from './app/procurement/smart-invoice/page';
 
+import BoardPage from './presentation/components/board/BoardPage';
+
 // DEV NOTE: To test Mobile Native Experience (Camera, Swipe Tabs, Layout),
 // use Chrome DevTools (F12) -> Toggle Device Toolbar (Cmd+Shift+M)
 // and select "iPhone 12" or "Pixel 5".
@@ -68,8 +70,9 @@ function App({ forceContextSelection }: { forceContextSelection?: boolean }) {
                 <Route path="/select-context" element={<ContextSelectionPage />} />
 
                 {/* Protected Routes */}
-                <Route path="/settings/printing" element={<ProtectedRoute><PrintingSettingsPage /></ProtectedRoute>} />
                 <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+                <Route path="/board" element={<ProtectedRoute><BoardPage /></ProtectedRoute>} />
+                <Route path="/settings/printing" element={<ProtectedRoute><PrintingSettingsPage /></ProtectedRoute>} />
                 <Route path="/pos" element={<ProtectedRoute><POSMainScreen /></ProtectedRoute>} />
                 <Route path="/inventory" element={<ProtectedRoute><InventoryPage /></ProtectedRoute>} />
                 <Route path="/inventory/maintenance" element={<ProtectedRoute><InventorySettings /></ProtectedRoute>} />

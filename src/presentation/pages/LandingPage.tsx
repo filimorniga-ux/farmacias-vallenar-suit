@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { usePharmaStore } from '../store/useStore';
 import { Store, UserCircle, Clock, Ticket, ArrowRight, Loader2, RefreshCw, Search, Monitor, Command, Download, Smartphone } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { EmployeeProfile } from '../../domain/types';
+import { EmployeeProfile, Role } from '../../domain/types';
 import PriceCheckerModal from '../components/public/PriceCheckerModal';
 
 import { getUsersForLogin } from '../actions/login';
@@ -19,6 +19,7 @@ const LandingPage: React.FC = () => {
 
     // Login UI State
     const [isLoginOpen, setIsLoginOpen] = useState(false);
+    const [loginMode, setLoginMode] = useState<'GENERAL' | 'LOGISTICS'>('GENERAL');
     const [isPriceCheckOpen, setIsPriceCheckOpen] = useState(false);
     const [selectedEmployee, setSelectedEmployee] = useState<EmployeeProfile | null>(null);
     const [pin, setPin] = useState('');
@@ -35,8 +36,24 @@ const LandingPage: React.FC = () => {
     // Queue Modal State
     const [isQueueOptionsOpen, setIsQueueOptionsOpen] = useState(false);
 
+    // Dynamic Role Filtering State
+    const [requiredRoles, setRequiredRoles] = useState<Role[] | null>(null);
+    const [targetUrl, setTargetUrl] = useState<string>('/dashboard');
+
     // 🚀 AUTO-REDIRECT: Si ya hay sesión, ir directo al dashboard
-    // 🚀 AUTO-REDIRECT: Si ya hay sesión, ir directo al dashboard
+    // 🚀 AUTO-REDIRECT
+    useEffect(() => {
+        // Reset login state when modal closes
+        if (!isLoginOpen) {
+            setRequiredRoles(null);
+            setTargetUrl('/dashboard');
+            setLoginMode('GENERAL');
+            setSelectedEmployee(null);
+            setPin('');
+            setError('');
+        }
+    }, [isLoginOpen]);
+
     useEffect(() => {
         // Check for session revocation flag to prevent infinite loops
         const params = new URLSearchParams(window.location.search);
@@ -49,10 +66,18 @@ const LandingPage: React.FC = () => {
         }
 
         if (user) {
-            console.log('🔄 Sesión restaurada, redirigiendo al dashboard...');
+            console.log('🔄 Sesión restaurada, redirigiendo...');
             // Cargar datos en background después de restaurar sesión
             syncData().catch(console.error);
-            navigate('/dashboard', { replace: true });
+
+            // Role-based redirection logic
+            if (user.role === 'CASHIER') {
+                navigate('/pos', { replace: true });
+            } else if (user.role === 'WAREHOUSE' || user.role === 'WAREHOUSE_CHIEF') {
+                navigate('/warehouse', { replace: true });
+            } else {
+                navigate('/dashboard', { replace: true });
+            }
         }
     }, [user, navigate, syncData]);
 
@@ -102,12 +127,18 @@ const LandingPage: React.FC = () => {
             // The useEffect hook monitors 'user' and handles navigation/sync
             const result = await login(selectedEmployee.id, pin, context.id);
 
-            if (!result.success) {
+            if (result.success) {
+                // Determine redirect path
+                const finalPath = targetUrl || '/dashboard';
+                // Sync data in background
+                syncData().catch(console.error);
+                // Redirect
+                navigate(finalPath, { replace: true });
+            } else {
                 setError(result.error || 'Credenciales inválidas o sin permiso en esta sucursal');
                 setPin('');
-                setIsLoading(false); // Only stop loading on failure
+                setIsLoading(false);
             }
-            // If success, keep loading true until redirect occurs via useEffect
         } catch (err) {
             console.error(err);
             setError('Error de conexión');
@@ -146,18 +177,50 @@ const LandingPage: React.FC = () => {
     const validEmployees = localEmployees.filter(e => {
         if (e.status !== 'ACTIVE') return false;
 
-        // Admins and Managers are visible everywhere (Global Access)
-        if (e.role === 'ADMIN' || e.role === 'MANAGER') return true;
+        // Admins and Managers are typically visible everywhere
+        const isGlobal = e.role === 'ADMIN' || e.role === 'MANAGER' || e.role === 'GERENTE_GENERAL';
 
-        // Regular staff only visible in their assigned location
-        return e.assigned_location_id === context.id;
+        // Base location check
+        const isLocal = e.assigned_location_id === context.id;
+
+        // Special Case: In LOGISTICS mode, show all warehouse staff regardless of location assignment
+        // This is necessary because warehouse staff might be assigned to a central "Bodega" location
+        // but need to login from a Store terminal.
+        if (loginMode === 'LOGISTICS') {
+            const isWarehouseRole = ['WAREHOUSE', 'WAREHOUSE_CHIEF', 'DRIVER', 'ASISTENTE_BODEGA', 'JEFE_BODEGA', 'BODEGUERO', 'AUXILIAR_FARMACIA'].includes(e.role);
+            if (isWarehouseRole) return true;
+        }
+
+        return isGlobal || isLocal;
     });
 
-    const filteredEmployees = validEmployees.filter(emp =>
-        emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (emp.role || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (emp.job_title || '').toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const filteredEmployees = validEmployees.filter(emp => {
+        // 1. Text Search Filter
+        const matchesSearch = emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (emp.role || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (emp.job_title || '').toLowerCase().includes(searchTerm.toLowerCase());
+
+        if (!matchesSearch) return false;
+
+        // 2. Required Roles Filter (Priority)
+        if (requiredRoles && requiredRoles.length > 0) {
+            return requiredRoles.includes(emp.role);
+        }
+
+        // 3. Mode Filter (Logistics vs General)
+        if (loginMode === 'LOGISTICS') {
+            // Show only Warehouse staff and Drivers
+            return ['WAREHOUSE', 'WAREHOUSE_CHIEF', 'DRIVER', 'ASISTENTE_BODEGA', 'JEFE_BODEGA', 'BODEGUERO', 'AUXILIAR_FARMACIA'].includes(emp.role) ||
+                ['WAREHOUSE', 'WAREHOUSE_CHIEF', 'DRIVER', 'ASISTENTE_BODEGA', 'JEFE_BODEGA', 'BODEGUERO', 'AUXILIAR_FARMACIA'].includes(emp.job_title);
+        } else {
+            // General Mode (Fallback if no requiredRoles set)
+            // If General Mode, exclude pure warehouse roles if possible
+            const isWarehouseRole = ['WAREHOUSE', 'WAREHOUSE_CHIEF', 'DRIVER'].includes(emp.role);
+            if (isWarehouseRole) return false;
+
+            return true;
+        }
+    });
 
     if (!context) return null; // Or Loader
 
@@ -189,21 +252,47 @@ const LandingPage: React.FC = () => {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
 
-                    {/* 1. Main System (ERP/POS) - Light Blue */}
+                    {/* 1. Main System (ERP/POS) - Light Blue -> Now explicitly "Administración" or "Acceso General" */}
                     <motion.div
                         whileHover={{ scale: 1.02, y: -5 }}
                         whileTap={{ scale: 0.98 }}
-                        onClick={() => setIsLoginOpen(true)}
+                        onClick={() => {
+                            setLoginMode('GENERAL');
+                            setRequiredRoles(['ADMIN', 'MANAGER', 'GERENTE_GENERAL']); // STRICT ADMIN FILTER
+                            setIsLoginOpen(true);
+                        }}
                         className="cursor-pointer bg-white border border-sky-100 rounded-3xl p-8 relative overflow-hidden shadow-xl shadow-sky-900/5 group hover:border-sky-300 transition-all hover:shadow-2xl hover:shadow-sky-900/10"
                     >
                         <div className="absolute top-0 right-0 p-4 opacity-10 bg-sky-500 blur-3xl w-32 h-32 rounded-full -mr-10 -mt-10 group-hover:opacity-20 transition-opacity" />
                         <div className="bg-sky-50 w-16 h-16 rounded-2xl flex items-center justify-center mb-6 border border-sky-100 group-hover:scale-110 transition-transform">
                             <UserCircle size={40} className="text-sky-500" />
                         </div>
-                        <h3 className="text-2xl font-bold text-slate-800 mb-2">Iniciar Sesión</h3>
-                        <p className="text-slate-500 text-sm mb-6 leading-relaxed">Acceso clínico integral: ERP, Punto de Venta y Gestión.</p>
+                        <h3 className="text-2xl font-bold text-slate-800 mb-2">Administración</h3>
+                        <p className="text-slate-500 text-sm mb-6 leading-relaxed">Acceso general: Gestión, Finanzas y Configuración.</p>
                         <div className="flex items-center text-xs font-bold text-sky-600 uppercase tracking-wider bg-sky-50 px-4 py-2 rounded-lg w-fit border border-sky-100 group-hover:bg-sky-500 group-hover:text-white transition-all">
                             Acceder <ArrowRight size={14} className="ml-2" />
+                        </div>
+                    </motion.div>
+
+                    {/* NEW CARD: Caja / POS - Light Purple */}
+                    <motion.div
+                        whileHover={{ scale: 1.02, y: -5 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => {
+                            setRequiredRoles(['CASHIER', 'QF']); // Cashiers and Pharmacists primarily
+                            setTargetUrl('/caja');
+                            setIsLoginOpen(true);
+                        }}
+                        className="cursor-pointer bg-white border border-slate-100 rounded-3xl p-8 relative overflow-hidden shadow-lg shadow-slate-900/5 group hover:border-purple-300 transition-all hover:shadow-xl"
+                    >
+                        <div className="absolute top-0 right-0 p-4 opacity-5 bg-purple-500 blur-3xl w-32 h-32 rounded-full -mr-10 -mt-10 group-hover:opacity-10 transition-opacity" />
+                        <div className="bg-slate-50 w-16 h-16 rounded-2xl flex items-center justify-center mb-6 border border-slate-100 group-hover:border-purple-200 group-hover:scale-110 transition-transform">
+                            <Monitor size={40} className="text-purple-500" />
+                        </div>
+                        <h3 className="text-2xl font-bold text-slate-800 mb-2">Punto de Venta</h3>
+                        <p className="text-slate-500 text-sm mb-6 leading-relaxed">Caja rápida y atención a público.</p>
+                        <div className="flex items-center text-xs font-bold text-slate-500 uppercase tracking-wider bg-slate-50 px-4 py-2 rounded-lg w-fit border border-slate-100 group-hover:text-purple-600 group-hover:border-purple-200 transition-all">
+                            Vender <ArrowRight size={14} className="ml-2" />
                         </div>
                     </motion.div>
 
@@ -247,7 +336,11 @@ const LandingPage: React.FC = () => {
                     <motion.div
                         whileHover={{ scale: 1.02, y: -5 }}
                         whileTap={{ scale: 0.98 }}
-                        onClick={() => navigate('/logistica')}
+                        onClick={() => {
+                            setLoginMode('LOGISTICS');
+                            setTargetUrl('/logistica');
+                            setIsLoginOpen(true);
+                        }}
                         className="cursor-pointer bg-white border border-slate-100 rounded-3xl p-8 relative overflow-hidden shadow-lg shadow-slate-900/5 group hover:border-amber-300 transition-all hover:shadow-xl"
                     >
                         <div className="absolute top-0 right-0 p-4 opacity-5 bg-amber-500 blur-3xl w-32 h-32 rounded-full -mr-10 -mt-10 group-hover:opacity-10 transition-opacity" />
@@ -359,7 +452,9 @@ const LandingPage: React.FC = () => {
                                 <button onClick={() => setIsLoginOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600">✕</button>
 
                                 <div className="text-center mb-6">
-                                    <h2 className="text-2xl font-bold text-slate-800">Iniciar Sesión</h2>
+                                    <h2 className="text-2xl font-bold text-slate-800">
+                                        {loginMode === 'LOGISTICS' ? 'Acceso Logística' : 'Iniciar Sesión'}
+                                    </h2>
                                     <p className="text-slate-500 text-sm">Validando para: <span className="font-bold text-sky-600">{context.name}</span></p>
                                 </div>
 

@@ -3,7 +3,7 @@ import { useLocation, Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
     LayoutDashboard, ShoppingCart, Users, Settings, LogOut, X, Menu,
-    Package, BarChart3, Truck, UserCircle, Clock, Building2, MapPin, Wrench, RotateCcw, Landmark, FileSpreadsheet, Sparkles
+    Package, BarChart3, Truck, UserCircle, Clock, Building2, MapPin, Wrench, RotateCcw, Landmark, FileSpreadsheet, Sparkles, MessageSquare
 } from 'lucide-react';
 import ContextBadge from '../components/layout/ContextBadge';
 import { usePharmaStore } from '../store/useStore';
@@ -40,6 +40,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
     const menuItems = [
         { icon: LayoutDashboard, label: 'Resumen General', path: '/dashboard', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'sky' as AppThemeColor },
         { icon: ShoppingCart, label: 'Punto de Venta', path: '/pos', roles: ['CASHIER', 'QF', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'sky' as AppThemeColor },
+        { icon: MessageSquare, label: 'Pizarra', path: '/board', roles: ['ALL'], color: 'blue' as AppThemeColor },
         { icon: Package, label: 'Inventario', path: '/inventory', roles: ['WAREHOUSE', 'WAREHOUSE_CHIEF', 'MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'], color: 'slate' as AppThemeColor },
         { icon: Truck, label: 'Operaciones WMS', path: '/warehouse', roles: ['WAREHOUSE', 'WAREHOUSE_CHIEF', 'MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL', 'CASHIER'], color: 'slate' as AppThemeColor },
         { icon: Building2, label: 'Proveedores', path: '/suppliers', roles: ['MANAGER', 'QF', 'WAREHOUSE', 'WAREHOUSE_CHIEF', 'ADMIN', 'GERENTE_GENERAL'], color: 'sky' as AppThemeColor },
@@ -55,7 +56,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
         { icon: Settings, label: 'Configuración', path: '/settings', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'slate' as AppThemeColor },
     ];
 
-    const filteredMenu = menuItems.filter(item => user && item.roles.includes(user.role));
+    const filteredMenu = menuItems.filter(item => user && (item.roles.includes('ALL') || item.roles.includes(user.role)));
 
     return (
         <div className="flex h-screen bg-slate-50 overflow-hidden select-none">
