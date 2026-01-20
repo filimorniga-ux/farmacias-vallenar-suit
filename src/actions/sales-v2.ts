@@ -1000,7 +1000,7 @@ export async function getSalesHistorySecure(params: {
     if (supervisorPin) {
         // Usamos la función importada de auth-v2 que maneja su propia conexión/query
         const auth = await validateSupervisorPin(supervisorPin);
-        if (auth.valid && auth.authorizedBy) {
+        if (auth.success && auth.authorizedBy) {
             isAuthorized = true;
             authorizedUserId = auth.authorizedBy.id; // Auditoría a nombre del supervisor
         }
