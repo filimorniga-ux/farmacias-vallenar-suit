@@ -10,12 +10,13 @@ export async function getSessionSecure() {
     const cookieStore = await cookies();
     const userId = cookieStore.get('user_id')?.value;
     const role = cookieStore.get('user_role')?.value;
+    const locationId = cookieStore.get('user_location')?.value;
 
     if (!userId || !role) {
         return null;
     }
 
-    return { userId, role };
+    return { userId, role, locationId };
 }
 
 export async function verifyUserPin(userId: string, pin: string) {
@@ -122,8 +123,11 @@ export async function authenticateUserSecure(userId: string, pin: string, locati
             cookieStore.set('user_id', user.id, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
             cookieStore.set('user_role', user.role, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
 
-            // Context Logic could go here (setting location cookie) instead of client side
-            // For now, minimal auth.
+            // Set Location Cookie (if user has one or if provided)
+            const targetLocationId = locationId || user.assigned_location_id;
+            if (targetLocationId) {
+                cookieStore.set('user_location', targetLocationId, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
+            }
 
             return {
                 success: true,
