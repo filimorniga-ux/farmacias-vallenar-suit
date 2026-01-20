@@ -165,6 +165,7 @@ export interface EmployeeProfile {
     name: string;
     role: Role; // System Role (Permissions)
     access_pin?: string; // 4 dígitos (Optional for Secure Mode)
+    email?: string; // Contact/System email
     status: 'ACTIVE' | 'ON_LEAVE' | 'TERMINATED' | 'INACTIVE';
     base_location_id?: string; // Sucursal Base (Contractual)
     assigned_location_id?: string; // Dónde trabaja hoy (Operativo)
