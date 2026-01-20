@@ -986,13 +986,11 @@ export async function getSalesHistorySecure(params: {
     const { startDate, endDate, searchTerm = '', paymentMethod, sessionId, limit = 50, offset = 0 } = filters;
     const { locationId, supervisorPin } = security;
 
-    const { verifySessionSecure, validateSupervisorPin } = await import('./auth-v2');
-    const { cookies } = await import('next/headers');
-    const cookieStore = await cookies();
+    const { getSessionSecure, validateSupervisorPin } = await import('./auth-v2');
 
-    // 1. Identificar usuario que solicita
-    const userId = cookieStore.get('user_id')?.value;
-    const userRole = cookieStore.get('user_role')?.value;
+    const session = await getSessionSecure();
+    const userId = session?.userId;
+    const userRole = session?.role;
 
     let authorizedUserId = userId;
     let isAuthorized = false;
