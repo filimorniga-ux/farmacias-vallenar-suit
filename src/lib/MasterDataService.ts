@@ -204,8 +204,8 @@ export class MasterDataService {
                         cleanName, // 3
                         lab, // 4
                         isp || null, // 5
-                        safeInt(p.inventario.find(i => i.precioVenta > 0)?.precioVenta || 0), // 6
-                        safeInt(p.inventario.find(i => i.costoNeto > 0)?.costoNeto || 0), // 7
+                        safeInt(p.inventario.find(i => (i.precioVenta || 0) > 0)?.precioVenta || 0), // 6
+                        safeInt(p.inventario.find(i => (i.costoNeto || 0) > 0)?.costoNeto || 0), // 7
                         p.inventario.reduce((acc, inv) => acc + safeInt(inv.stock), 0), // 8
                         p.esBioequivalente || false, // 9
                         new Date(), // 10
