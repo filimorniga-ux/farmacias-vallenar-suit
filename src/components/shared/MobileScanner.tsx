@@ -7,11 +7,13 @@ import { useRouter } from 'next/navigation';
 interface MobileScannerProps {
     onClose: () => void;
     onScan?: (code: string) => void;
+    continuous?: boolean;
 }
 
-export function MobileScanner({ onClose, onScan }: MobileScannerProps) {
+export function MobileScanner({ onClose, onScan, continuous }: MobileScannerProps) {
     const regionId = "mobile-scanner-region";
     const scannerRef = useRef<Html5Qrcode | null>(null);
+    const lastScanRef = useRef<{ code: string, time: number } | null>(null);
     const [isMounted, setIsMounted] = useState(false);
     const { processScan, scannedProduct, showModal, resetScan, isLoading } = useScannerLogic();
     const router = useRouter();
@@ -47,7 +49,19 @@ export function MobileScanner({ onClose, onScan }: MobileScannerProps) {
                     { facingMode: "environment" },
                     { ...config, videoConstraints },
                     (decodedText) => {
-                        scanner.pause();
+                        // Throttling for continuous mode
+                        if (continuous) {
+                            const now = Date.now();
+                            if (lastScanRef.current &&
+                                lastScanRef.current.code === decodedText &&
+                                (now - lastScanRef.current.time < 2000)) {
+                                return; // Skip duplicate scan within 2s
+                            }
+                            lastScanRef.current = { code: decodedText, time: now };
+                        } else {
+                            scanner.pause();
+                        }
+
                         if (onScan) {
                             onScan(decodedText);
                         } else {
