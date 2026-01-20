@@ -38,7 +38,7 @@ export default function HumanResourcesDashboard({
                 userId: selectedEmployee.id,
                 name: data.name,
                 email: data.email,
-                role: data.role as any,
+                // role: data.role, // Roles must be updated via changeUserRoleSecure with justification
                 job_title: data.job_title || undefined,
                 contact_phone: data.contact_phone || undefined,
                 base_salary: data.base_salary || undefined,
