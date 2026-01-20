@@ -11,12 +11,13 @@ export async function getSessionSecure() {
     const userId = cookieStore.get('user_id')?.value;
     const role = cookieStore.get('user_role')?.value;
     const locationId = cookieStore.get('user_location')?.value;
+    const userName = cookieStore.get('user_name')?.value;
 
     if (!userId || !role) {
         return null;
     }
 
-    return { userId, role, locationId };
+    return { userId, role, locationId, userName: userName || 'Usuario' };
 }
 
 export async function verifyUserPin(userId: string, pin: string) {
@@ -122,6 +123,7 @@ export async function authenticateUserSecure(userId: string, pin: string, locati
             // Set session cookies (HTTPOnly)
             cookieStore.set('user_id', user.id, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
             cookieStore.set('user_role', user.role, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
+            cookieStore.set('user_name', user.name, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
 
             // Set Location Cookie (if user has one or if provided)
             const targetLocationId = locationId || user.assigned_location_id;
