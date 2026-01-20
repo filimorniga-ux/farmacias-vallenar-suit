@@ -1,0 +1,157 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - heading "Cierre Mensual Financiero" [level=1] [ref=e5]:
+          - img [ref=e6]
+          - text: Cierre Mensual Financiero
+        - paragraph [ref=e9]:
+          - text: Conciliación manual de ingresos y egresos mensuales.
+          - generic [ref=e10]:
+            - img [ref=e11]
+            - text: V2 Seguro
+      - generic [ref=e13]:
+        - combobox [ref=e14]:
+          - option "Enero" [selected]
+          - option "Febrero"
+          - option "Marzo"
+          - option "Abril"
+          - option "Mayo"
+          - option "Junio"
+          - option "Julio"
+          - option "Agosto"
+          - option "Septiembre"
+          - option "Octubre"
+          - option "Noviembre"
+          - option "Diciembre"
+        - combobox [ref=e15]:
+          - option "2024"
+          - option "2025"
+          - option "2026" [selected]
+    - generic [ref=e18]:
+      - img [ref=e19]
+      - text: BORRADOR - Editable
+    - generic [ref=e22]:
+      - generic [ref=e23]:
+        - generic [ref=e24]:
+          - generic [ref=e25]:
+            - img [ref=e27]
+            - heading "Ingresos Reales" [level=2] [ref=e30]
+          - generic [ref=e31]:
+            - generic [ref=e32]: $0
+            - generic [ref=e33]: Total Recaudado
+        - generic [ref=e34]:
+          - generic [ref=e35]:
+            - button "Efectivo Recaudado$0" [ref=e36]:
+              - text: Efectivo Recaudado
+              - generic [ref=e37]: $0
+            - button "Transferencias Recibidas$0" [ref=e38]:
+              - text: Transferencias Recibidas
+              - generic [ref=e39]: $0
+            - button "Abonos Ventas con Tarjeta$0" [ref=e40]:
+              - text: Abonos Ventas con Tarjeta
+              - generic [ref=e41]: $0
+          - generic [ref=e42]:
+            - generic [ref=e43]:
+              - text: Fecha del movimiento
+              - textbox [ref=e44]: 2026-01-01
+            - generic [ref=e45]:
+              - text: Monto
+              - generic [ref=e46]:
+                - text: $
+                - spinbutton [ref=e47]
+          - generic [ref=e48]:
+            - text: Descripción / referencia
+            - textbox "Monto en efectivo" [ref=e49]
+          - generic [ref=e50]:
+            - generic [ref=e51]:
+              - img [ref=e52]
+              - text: Ingresos en caja
+            - button "Agregar" [ref=e54]:
+              - img [ref=e55]
+              - text: Agregar
+          - generic [ref=e57]: Sin movimientos aún.
+      - generic [ref=e58]:
+        - generic [ref=e59]:
+          - generic [ref=e60]:
+            - img [ref=e62]
+            - heading "Egresos & Nómina" [level=2] [ref=e65]
+          - generic [ref=e66]:
+            - generic [ref=e67]: $0
+            - generic [ref=e68]: Total Egresos
+        - generic [ref=e69]:
+          - generic [ref=e70]:
+            - button "Gastos Diarios$0" [ref=e71]:
+              - text: Gastos Diarios
+              - generic [ref=e72]: $0
+            - button "Transferencias Realizadas$0" [ref=e73]:
+              - text: Transferencias Realizadas
+              - generic [ref=e74]: $0
+            - button "Pago de Nóminas$0" [ref=e75]:
+              - text: Pago de Nóminas
+              - generic [ref=e76]: $0
+            - button "Gastos Fijos$0" [ref=e77]:
+              - text: Gastos Fijos
+              - generic [ref=e78]: $0
+            - button "Impuestos$0" [ref=e79]:
+              - text: Impuestos
+              - generic [ref=e80]: $0
+            - button "Retiros del Dueño$0" [ref=e81]:
+              - text: Retiros del Dueño
+              - generic [ref=e82]: $0
+          - generic [ref=e83]:
+            - generic [ref=e84]:
+              - text: Fecha del gasto
+              - textbox [ref=e85]: 2026-01-01
+            - generic [ref=e86]:
+              - text: Monto
+              - generic [ref=e87]:
+                - text: $
+                - spinbutton [ref=e88]
+          - generic [ref=e89]:
+            - text: Descripción / referencia
+            - textbox "Detalle" [ref=e90]
+          - generic [ref=e91]:
+            - generic [ref=e92]:
+              - img [ref=e93]
+              - text: Caja chica, insumos
+            - button "Agregar" [ref=e95]:
+              - img [ref=e96]
+              - text: Agregar
+          - generic [ref=e98]: Sin movimientos aún.
+    - generic [ref=e99]:
+      - generic [ref=e100]:
+        - heading "Resultado Neto Mensual" [level=3] [ref=e101]
+        - generic [ref=e102]: $0
+        - generic [ref=e103]:
+          - generic [ref=e104]:
+            - generic [ref=e105]: Ingresos
+            - generic [ref=e106]: $0
+          - generic [ref=e107]:
+            - generic [ref=e108]: Egresos
+            - generic [ref=e109]: $0
+      - generic [ref=e110]:
+        - button "Guardar Borrador" [ref=e111]:
+          - img [ref=e112]
+          - text: Guardar Borrador
+        - button "CERRAR MES" [disabled] [ref=e116]:
+          - img [ref=e117]
+          - text: CERRAR MES
+    - generic [ref=e120]:
+      - generic [ref=e121]:
+        - img [ref=e123]
+        - text: Observaciones del Periodo
+      - textbox "Registra cualquier detalle relevante sobre ingresos/egresos manuales..." [ref=e125]
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e131] [cursor=pointer]:
+    - generic [ref=e134]:
+      - text: Compiling
+      - generic [ref=e135]:
+        - generic [ref=e136]: .
+        - generic [ref=e137]: .
+        - generic [ref=e138]: .
+  - alert [ref=e139]: Farmacias Vallenar Suit
+```
