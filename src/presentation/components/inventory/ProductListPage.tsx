@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { usePharmaStore } from '../../store/useStore';
-import { Plus, Search, Edit2, Trash2, Settings, Package } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Settings, Package, Percent } from 'lucide-react';
 import { InventoryBatch } from '../../../domain/types';
 import ProductFormModal from './ProductFormModal';
 import ProductDeleteConfirm from './ProductDeleteConfirm';
+import PriceAdjustmentModal from './PriceAdjustmentModal';
 
 const ProductListPage: React.FC = () => {
     const { inventory } = usePharmaStore();
@@ -14,6 +15,13 @@ const ProductListPage: React.FC = () => {
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState<InventoryBatch | undefined>();
     const [deletingProduct, setDeletingProduct] = useState<InventoryBatch | undefined>();
+
+    // Price Adjustment State
+    const [priceAdjState, setPriceAdjState] = useState<{
+        isOpen: boolean;
+        mode: 'SINGLE' | 'ALL';
+        product?: InventoryBatch;
+    }>({ isOpen: false, mode: 'SINGLE' });
 
     const filteredProducts = useMemo(() => {
         return inventory.filter(product => {
@@ -60,16 +68,25 @@ const ProductListPage: React.FC = () => {
                             <p className="text-slate-500 text-sm">{filteredProducts.length} producto(s)</p>
                         </div>
                     </div>
-                    <button
-                        onClick={() => {
-                            setEditingProduct(undefined);
-                            setIsFormOpen(true);
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-xl font-bold hover:bg-cyan-700 transition"
-                    >
-                        <Plus size={18} />
-                        Nuevo Producto
-                    </button>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => setPriceAdjState({ isOpen: true, mode: 'ALL' })}
+                            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition shadow-sm"
+                        >
+                            <Percent size={18} />
+                            Ajuste Masivo
+                        </button>
+                        <button
+                            onClick={() => {
+                                setEditingProduct(undefined);
+                                setIsFormOpen(true);
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-xl font-bold hover:bg-cyan-700 transition shadow-sm"
+                        >
+                            <Plus size={18} />
+                            Nuevo Producto
+                        </button>
+                    </div>
                 </div>
 
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 mb-6">
@@ -157,6 +174,17 @@ const ProductListPage: React.FC = () => {
                                                 <td className="p-4 text-center">
                                                     <div className="flex justify-center gap-2">
                                                         <button
+                                                            onClick={() => setPriceAdjState({
+                                                                isOpen: true,
+                                                                mode: 'SINGLE',
+                                                                product
+                                                            })}
+                                                            className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition"
+                                                            title="Ajuste de Precio (%)"
+                                                        >
+                                                            <Percent size={16} />
+                                                        </button>
+                                                        <button
                                                             onClick={() => {
                                                                 setEditingProduct(product);
                                                                 setIsFormOpen(true);
@@ -168,7 +196,7 @@ const ProductListPage: React.FC = () => {
                                                         </button>
                                                         <button
                                                             onClick={() => { }}
-                                                            className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition"
+                                                            className="p-2 text-slate-400 hover:bg-slate-50 rounded-lg transition"
                                                             title="Config Auto-Reorden"
                                                         >
                                                             <Settings size={16} />
@@ -209,13 +237,24 @@ const ProductListPage: React.FC = () => {
                     onConfirm={() => setDeletingProduct(undefined)}
                 />
             )}
+
+            {priceAdjState.isOpen && (
+                <PriceAdjustmentModal
+                    mode={priceAdjState.mode}
+                    productName={priceAdjState.product?.name}
+                    sku={priceAdjState.product?.sku}
+                    currentPrice={priceAdjState.product?.price_sell_unit}
+                    onClose={() => setPriceAdjState(prev => ({ ...prev, isOpen: false }))}
+                />
+            )}
         </div>
     );
 };
 
 export default ProductListPage;
-    const formatSku = (sku?: string) => {
-        if (!sku) return '---';
-        if (sku.startsWith('AUTO-') || sku.startsWith('TEMP-')) return '---';
-        return sku;
-    };
+
+const formatSku = (sku?: string) => {
+    if (!sku) return '---';
+    if (sku.startsWith('AUTO-') || sku.startsWith('TEMP-')) return '---';
+    return sku;
+};
