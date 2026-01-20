@@ -33,6 +33,9 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScan, onClose }) => {
                             Html5QrcodeSupportedFormats.UPC_E,
                             Html5QrcodeSupportedFormats.ITF
                         ],
+                        experimentalFeatures: {
+                            useBarCodeDetectorIfSupported: true
+                        },
                         verbose: false
                     });
                     scannerRef.current = html5QrCode;
@@ -40,8 +43,8 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScan, onClose }) => {
                     await html5QrCode.start(
                         { facingMode: facingMode },
                         {
-                            fps: 10,
-                            qrbox: { width: 250, height: 250 },
+                            fps: 15, // Increased FPS for smoother scanning
+                            qrbox: { width: 300, height: 300 }, // Larger scan area
                             aspectRatio: 1.0
                         },
                         (decodedText) => {

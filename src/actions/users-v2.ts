@@ -44,7 +44,7 @@ const RoleSchema = z.enum(['CASHIER', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'DR
 
 const PINSchema = z.string()
     .min(4, 'PIN debe tener al menos 4 dígitos')
-    .max(8, 'PIN no puede exceder 8 dígitos')
+    .max(6, 'PIN no puede exceder 6 dígitos')
     .regex(/^\d+$/, 'PIN debe contener solo números');
 
 const CreateUserSchema = z.object({

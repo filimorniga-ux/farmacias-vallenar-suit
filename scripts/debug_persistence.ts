@@ -22,7 +22,7 @@ async function main() {
     const testProduct: UnifiedProduct = {
         nombreComercial: "TEST PRODUCT PERSISTENCE",
         primaryParams: { barcode: "TEST-99999", sku: "TEST-99999" },
-        inventario: [{ stock: 10, precioVenta: 1000, costoNeto: 500, bodega: "Test" }],
+        inventario: [{ stock: 10, precioVenta: 1000, costoNeto: 500, sucursal: "Test" }],
         origen: ["TestScript"],
         laboratorio: "TEST LAB",
         principioActivo: "TEST DCI",

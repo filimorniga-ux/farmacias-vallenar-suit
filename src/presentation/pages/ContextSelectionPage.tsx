@@ -16,10 +16,13 @@ const ContextSelectionPage: React.FC = () => {
         const load = async () => {
             setIsLoading(true);
             setError(null);
+            console.log('DEBUG: ContextSelectionPage calling getPublicLocationsSecure...');
             const res = await getPublicLocationsSecure();
+            console.log('DEBUG: ContextSelectionPage Result:', res.success, res.data?.length);
             if (res.success && res.data) {
                 setPublicLocations(res.data);
             } else {
+                console.error('DEBUG: ContextSelectionPage Error:', res.error);
                 setError(res.error || 'Error desconocido al cargar sucursales');
             }
             setIsLoading(false);

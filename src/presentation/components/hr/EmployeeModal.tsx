@@ -66,15 +66,15 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 relative z-10">
                                 <div>
-                                    <label className="block text-sm font-bold text-red-800 mb-2">PIN de Acceso (4 dígitos)</label>
+                                    <label className="block text-sm font-bold text-red-800 mb-2">PIN de Acceso (4-6 dígitos)</label>
                                     <input
                                         type="password"
-                                        maxLength={4}
+                                        maxLength={6}
                                         autoComplete="new-password"
                                         value={formData.access_pin}
                                         onChange={e => setFormData({ ...formData, access_pin: e.target.value })}
                                         className="w-full p-4 bg-white border-2 border-red-200 rounded-xl focus:ring-4 focus:ring-red-200 focus:border-red-500 outline-none font-mono text-center text-2xl tracking-[0.5em] text-red-900 placeholder-red-200"
-                                        placeholder="••••"
+                                        placeholder="••••••"
                                     />
                                     <p className="text-xs text-red-600 mt-2 font-medium">
                                         * Este PIN es el que el empleado usará en el Totem de entrada.

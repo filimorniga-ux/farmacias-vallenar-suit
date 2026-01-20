@@ -25,6 +25,7 @@ export interface PublicLocation {
 }
 
 // Caché de 5 minutos
+// Caché de 5 minutos
 const getCachedLocations = unstable_cache(
     async (): Promise<PublicLocation[]> => {
         const res = await query(`
@@ -43,7 +44,7 @@ const getCachedLocations = unstable_cache(
         }));
     },
     ['public-locations'],
-    { revalidate: 1 } // 1 segundo para evitar stale data en desktop
+    { revalidate: 60 } // Aumentado a 60s para reducir carga en DB lenta
 );
 
 /**
