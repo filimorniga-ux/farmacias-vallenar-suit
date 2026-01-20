@@ -60,11 +60,11 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
 
         setIsValidatingPin(true);
         try {
-            const result = await validateSupervisorPin(adminPin, 'SALES_HISTORY_VIEW', user?.id);
+            const result = await validateSupervisorPin(adminPin);
 
-            if (result.success) {
+            if (result.valid) {
                 setIsAuthenticated(true);
-                toast.success(`Acceso autorizado: ${result.supervisorName || 'Supervisor'}`);
+                toast.success(`Acceso autorizado: ${result.authorizedBy?.name || 'Supervisor'}`);
             } else {
                 toast.error(result.error || 'PIN inválido');
                 setAdminPin('');
