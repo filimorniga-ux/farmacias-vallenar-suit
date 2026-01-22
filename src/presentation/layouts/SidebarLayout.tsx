@@ -86,7 +86,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                             {/* <h1 className="text-xl font-extrabold tracking-tight text-slate-900">
                                 Farmacias <span className="text-sky-600">Vallenar</span>
                             </h1> */}
-                            <img src="/logo.png" alt="Farmacia Vallenar" className="h-10 object-contain mb-1" />
+                            <img src="/logo-horizontal.png" alt="Farmacia Vallenar" className="h-12 w-auto object-contain mb-1" />
                             <p className="text-[10px] uppercase font-bold text-slate-400 mt-1 tracking-wider">Suit Enterprise v2.1</p>
                         </div>
                     )}
@@ -180,7 +180,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                         >
                             <Menu size={24} />
                         </button>
-                        <img src="/logo.png" alt="Farmacia Vallenar" className="h-8 object-contain" />
+                        <img src="/logo-horizontal.png" alt="Farmacia Vallenar" className="h-8 object-contain" />
                         {/* <span className="font-bold text-slate-800">Farmacias Vallenar</span> */}
                         <NotificationBell userRole={user?.role || 'ALL'} />
                     </div>
