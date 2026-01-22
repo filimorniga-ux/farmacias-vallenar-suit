@@ -324,7 +324,7 @@ export async function openCashDrawerSecure(
                 id, location_id, terminal_id, session_id, user_id,
                 type, amount, reason, timestamp
             ) VALUES ($1, $2, $3, $4, $5, 'OPENING', $6, 'Apertura de caja', NOW())
-        `, [randomUUID(), sessionId, terminalId, sessionId, userId, openingAmount]);
+        `, [randomUUID(), terminal.location_id, terminalId, sessionId, userId, openingAmount]);
 
         // Audit
         await insertCashAudit(client, {
@@ -736,9 +736,10 @@ export async function adjustCashSecure(
 
         // Get session
         const sessionRes = await client.query(`
-            SELECT id, terminal_id, user_id
-            FROM cash_register_sessions 
-            WHERE id = $1::uuid AND closed_at IS NULL
+            SELECT crs.id, crs.terminal_id, crs.user_id, t.location_id
+            FROM cash_register_sessions crs
+            JOIN terminals t ON crs.terminal_id = t.id
+            WHERE crs.id = $1::uuid AND crs.closed_at IS NULL
             FOR UPDATE NOWAIT
         `, [sessionId]);
 
@@ -761,7 +762,7 @@ export async function adjustCashSecure(
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
         `, [
             movementId,
-            sessionId, // Legacy: location_id stores session_id
+            session.location_id,
             session.terminal_id,
             sessionId,
             userId,
