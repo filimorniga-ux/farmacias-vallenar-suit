@@ -236,7 +236,7 @@ const LandingPage: React.FC = () => {
 
                 <header className="mb-12 text-center">
                     <div className="flex justify-center mb-6">
-                        <img src="/logo.png" alt="Farmacia Vallenar" className="h-32 object-contain drop-shadow-xl" />
+                        <img src="/logo-horizontal.png" alt="Farmacia Vallenar" className="h-32 w-auto object-contain drop-shadow-xl" />
                     </div>
                     {/* <h1 className="text-4xl md:text-6xl font-extrabold text-slate-900 tracking-tight mb-3">
                         Farmacias <span className="text-sky-600">Vallenar</span> Suit
