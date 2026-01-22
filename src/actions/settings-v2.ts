@@ -349,7 +349,7 @@ export async function getSettingHistorySecure(
         const res = await query(`
             SELECT al.*, u.name as user_name
             FROM audit_log al
-            LEFT JOIN users u ON al.user_id = u.id
+            LEFT JOIN users u ON al.user_id::text = u.id::text
             WHERE al.entity_type = 'SETTING' AND al.entity_id = $1
             ORDER BY al.created_at DESC
             LIMIT 50

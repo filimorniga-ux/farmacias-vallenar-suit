@@ -235,9 +235,12 @@ const LandingPage: React.FC = () => {
             <div className="relative z-10 w-full max-w-6xl">
 
                 <header className="mb-12 text-center">
-                    <h1 className="text-4xl md:text-6xl font-extrabold text-slate-900 tracking-tight mb-3">
+                    <div className="flex justify-center mb-6">
+                        <img src="/logo.png" alt="Farmacia Vallenar" className="h-32 object-contain drop-shadow-xl" />
+                    </div>
+                    {/* <h1 className="text-4xl md:text-6xl font-extrabold text-slate-900 tracking-tight mb-3">
                         Farmacias <span className="text-sky-600">Vallenar</span> Suit
-                    </h1>
+                    </h1> */}
                     <div className="flex items-center justify-center gap-3 text-sky-800/80 mt-4 bg-white/80 py-2 px-5 rounded-full border border-sky-200 shadow-sm backdrop-blur-md inline-flex">
                         <Store size={18} className={context.type === 'WAREHOUSE' ? 'text-amber-500' : 'text-sky-500'} />
                         <span className="font-medium tracking-wide">Sucursal: <span className="font-bold text-slate-800">{context.name}</span></span>

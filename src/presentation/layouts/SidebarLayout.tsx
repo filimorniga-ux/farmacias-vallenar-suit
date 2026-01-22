@@ -83,15 +83,16 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                 <div className={`p-4 flex items-center mb-1 ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
                     {!isCollapsed && (
                         <div>
-                            <h1 className="text-xl font-extrabold tracking-tight text-slate-900">
+                            {/* <h1 className="text-xl font-extrabold tracking-tight text-slate-900">
                                 Farmacias <span className="text-sky-600">Vallenar</span>
-                            </h1>
+                            </h1> */}
+                            <img src="/logo.png" alt="Farmacia Vallenar" className="h-10 object-contain mb-1" />
                             <p className="text-[10px] uppercase font-bold text-slate-400 mt-1 tracking-wider">Suit Enterprise v2.1</p>
                         </div>
                     )}
                     {isCollapsed && (
-                        <div className="w-10 h-10 bg-sky-50 rounded-xl flex items-center justify-center text-sky-600 font-bold text-xl border border-sky-100">
-                            FV
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center border border-slate-100 p-1">
+                            <img src="/icon.png" alt="FV" className="w-full h-full object-contain" />
                         </div>
                     )}
 
@@ -179,7 +180,8 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                         >
                             <Menu size={24} />
                         </button>
-                        <span className="font-bold text-slate-800">Farmacias Vallenar</span>
+                        <img src="/logo.png" alt="Farmacia Vallenar" className="h-8 object-contain" />
+                        {/* <span className="font-bold text-slate-800">Farmacias Vallenar</span> */}
                         <NotificationBell userRole={user?.role || 'ALL'} />
                     </div>
                     <div className="flex items-center gap-2 flex-1 justify-end min-w-0">
