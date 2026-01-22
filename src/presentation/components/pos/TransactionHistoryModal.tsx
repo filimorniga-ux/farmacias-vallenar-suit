@@ -110,8 +110,6 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
             // Let's pass 'ALL' if it's a movement type to get everything, then filter in frontend? 
             // Better: Let's assume standard fetching and client-side filter for now to guarantee functionality without backend risks.
 
-            const isMovementFilter = ['EXTRA_INCOME', 'EXPENSE', 'WITHDRAWAL'].includes(filterType);
-            const backendPaymentMethod = isMovementFilter ? undefined : (filterType === 'ALL' ? undefined : filterType);
 
             // Ensure we cover the full day in local time
             // We construct the dates to be explicitly 00:00:00 to 23:59:59 in the local environment
@@ -129,23 +127,14 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
                 locationId: activeLocationId, // ADDED: Filter by Location
                 startDate: start,
                 endDate: end,
-                paymentMethod: backendPaymentMethod,
+                paymentMethod: filterType === 'ALL' ? undefined : filterType,
                 term: searchTerm.trim() || undefined,
                 page: 1,
                 pageSize: 100 // Reasonable limit
             });
 
             if (result.success && result.data) {
-                let data = result.data.movements;
-
-                // Client-side filtering for specific Movement Types if backend didn't handle it
-                if (filterType === 'EXTRA_INCOME') {
-                    data = data.filter((t: any) => t.type === 'EXTRA_INCOME');
-                } else if (filterType === 'EXPENSE') {
-                    data = data.filter((t: any) => t.type === 'EXPENSE' || t.type === 'WITHDRAWAL');
-                }
-
-                setTransactions(data);
+                setTransactions(result.data.movements);
             } else {
                 setError(result.error || 'Error al cargar historial');
             }
@@ -210,7 +199,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
                 sessionId: undefined,
                 startDate: start,
                 endDate: end,
-                paymentMethod: filterType === 'ALL' ? undefined : (['EXTRA_INCOME', 'EXPENSE', 'WITHDRAWAL'].includes(filterType) ? undefined : filterType),
+                paymentMethod: filterType === 'ALL' ? undefined : filterType,
                 term: searchTerm.trim() || undefined,
             });
 
@@ -218,10 +207,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
                 throw new Error(result.error || 'Error obteniendo datos');
             }
 
-            let data = result.data;
-            if (['EXTRA_INCOME', 'EXPENSE', 'WITHDRAWAL'].includes(filterType)) {
-                data = data.filter(item => item.type === filterType);
-            }
+            const data = result.data;
 
             if (data.length === 0) {
                 toast.info('No hay datos para exportar');
