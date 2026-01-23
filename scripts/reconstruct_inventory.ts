@@ -20,13 +20,20 @@ interface MasterProduct {
     isBioequivalent: boolean;
     description: string;
     source: string[];
+
+    // New Fields
+    ispCode: string;
+    therapeuticAction: string;
+    units: string;
+    concentration: string;
+    prescriptionType: string;
 }
 
 // --- Config ---
 const SOURCES = {
     GOLAN_CSV: 'data_imports/golan.csv',
     SUC_FILES: [
-        'data_imports/inventario golan.xlsx', // User said same as golan.csv but different format. Treat as enrichment?
+        'data_imports/inventario golan.xlsx',
         'data_imports/VALLENAR_SUC_1.xlsx',
         'data_imports/VALLENAR_SUC_2.xlsx',
         'data_imports/farmacias vallenar colchagua.xlsx',
@@ -43,7 +50,7 @@ const normalize = (str: string) => {
     if (!str) return '';
     return str.toString().trim().toUpperCase()
         .replace(/\s+/g, ' ')
-        .replace(/[.,]/g, ''); // Remove punctuation for better matching? Maybe keep logic simple first.
+        .replace(/[.,]/g, '');
 };
 
 const parsePrice = (val: any) => {
@@ -87,14 +94,18 @@ async function reconstruct() {
                     activeIngredients: [],
                     isBioequivalent: false,
                     description: '',
-                    source: ['GOLAN_CSV']
+                    source: ['GOLAN_CSV'],
+                    ispCode: '',
+                    therapeuticAction: '',
+                    units: '',
+                    concentration: '',
+                    prescriptionType: ''
                 });
                 added++;
             } else {
-                // Determine if we update (e.g. price > 0?)
                 const p = masterMap.get(name)!;
                 if (barcode && !p.barcodes.includes(barcode)) p.barcodes.push(barcode);
-                if (price > p.price) p.price = price; // Keep highest price?
+                if (price > p.price) p.price = price;
             }
         });
         console.log(`   ✅ Loaded ${added} products from Golan CSV.`);
@@ -115,13 +126,13 @@ async function reconstruct() {
             const wb = XLSX.readFile(fullPath);
             console.log(`   🐛 Sheets in ${path.basename(file)}:`, wb.SheetNames);
             const sheet = wb.Sheets[wb.SheetNames[0]];
-            const rows: any[] = XLSX.utils.sheet_to_json(sheet); // Uses headers automatically?
+            const rows: any[] = XLSX.utils.sheet_to_json(sheet);
 
             let enriched = 0;
             let newItems = 0;
 
             rows.forEach(row => {
-                const title = row['TITULO'] || row['PRODUCTO']; // Fallback
+                const title = row['TITULO'] || row['PRODUCTO'] || row['Producto'] || row['Descripción'] || row['DESCRIPCION'];
                 if (!title) return;
 
                 const name = normalize(title);
@@ -132,6 +143,14 @@ async function reconstruct() {
                 const barcodesRaw = row['CODIGOS_BARRA'] || row['CODIGO BARRAS'];
                 const price = parsePrice(row['PRECIO']);
 
+                // New Fields
+                const isp = row['CODIGO ISP'] || '';
+                const action = row['ACCION_TERAPEUTICA'] || '';
+                const units = row['UNIDADES'] || '';
+                const conc = row['PA CONCENTRACION'] || '';
+                const recipe = row['RECETA MEDICA'] || '';
+                const bio = row['BIOEQUIVALENTE'] || '';
+
                 const barcodes = barcodesRaw ? barcodesRaw.toString().split(',').map((b: string) => b.trim()).filter((b: string) => b) : [];
 
                 if (masterMap.has(name)) {
@@ -140,7 +159,17 @@ async function reconstruct() {
                     if (sku && !p.sku) p.sku = sku;
                     if (cat && !p.category) p.category = cat;
                     if (lab && !p.laboratory) p.laboratory = lab;
-                    if (active && p.activeIngredients.length === 0) p.activeIngredients = [active];
+                    if (active && p.activeIngredients.length === 0) p.activeIngredients = [active.toString()];
+
+                    // Enrich New Fields if missing
+                    if (isp && !p.ispCode) p.ispCode = isp.toString();
+                    if (action && !p.therapeuticAction) p.therapeuticAction = action.toString();
+                    if (units && !p.units) p.units = units.toString();
+                    if (conc && !p.concentration) p.concentration = conc.toString();
+                    if (recipe && !p.prescriptionType) p.prescriptionType = recipe.toString();
+
+                    // Logic: If BIOEQUIVALENTE says "SI", use it. (Override ISP matches? Maybe yes, safer)
+                    if (bio && normalize(bio.toString()) === 'SI') p.isBioequivalent = true;
 
                     barcodes.forEach((b: string) => {
                         if (!p.barcodes.includes(b)) p.barcodes.push(b);
@@ -151,8 +180,7 @@ async function reconstruct() {
                     if (!p.source.includes(path.basename(file))) p.source.push(path.basename(file));
                     enriched++;
                 } else {
-                    // Add new? User said "Source of truth... duplicates by name". 
-                    // If it's not in Golan CSV but in SUC, it's likely a valid product.
+                    // Add new
                     masterMap.set(name, {
                         name,
                         originalName: title.trim(),
@@ -162,10 +190,15 @@ async function reconstruct() {
                         stock: 100, // Fixed
                         category: cat,
                         laboratory: lab,
-                        activeIngredients: active ? [active] : [],
-                        isBioequivalent: false,
-                        description: row['ACCION_TERAPEUTICA'] || '',
-                        source: [path.basename(file)]
+                        activeIngredients: active ? [active.toString()] : [],
+                        isBioequivalent: bio && normalize(bio.toString()) === 'SI',
+                        description: action || row['ACCION_TERAPEUTICA'] || '',
+                        source: [path.basename(file)],
+                        ispCode: isp ? isp.toString() : '',
+                        therapeuticAction: action ? action.toString() : '',
+                        units: units ? units.toString() : '',
+                        concentration: conc ? conc.toString() : '',
+                        prescriptionType: recipe ? recipe.toString() : ''
                     });
                     newItems++;
                 }
@@ -182,16 +215,10 @@ async function reconstruct() {
         const ispContent = fs.readFileSync(path.resolve(process.cwd(), SOURCES.ISP_CSV), 'latin1');
 
         const ispLines = ispContent.split('\n');
-        // Headers: No;Principio Activo;Producto ;Registro;Titular;Estado;Vigencia;Uso / Tratamiento
         let bioMatches = 0;
-
-        // Debug Headers
-        const headerRow = ispLines[0].split(';');
-        console.log('   🐛 ISP Headers Raw:', headerRow);
-
+        let headerRowIdx = -1;
         let productIdx = -1;
         let estadoIdx = -1;
-        let startLine = 1;
 
         // Dynamic Header Search
         for (let i = 0; i < ispLines.length; i++) {
@@ -199,32 +226,30 @@ async function reconstruct() {
             const pIdx = row.findIndex(h => h && h.trim().toLowerCase().includes('producto'));
             const eIdx = row.findIndex(h => h && h.trim().toLowerCase().includes('estado'));
             if (pIdx > -1 && eIdx > -1) {
+                headerRowIdx = i;
                 productIdx = pIdx;
                 estadoIdx = eIdx;
-                startLine = i + 1;
                 console.log(`   🐛 Found ISP Headers at line ${i}: Product=${pIdx}, State=${eIdx}`);
                 break;
             }
         }
 
-        console.log(`   🐛 ISP Columns: Product Index: ${productIdx}, State Index: ${estadoIdx}`);
+        if (headerRowIdx !== -1) {
+            ispLines.slice(headerRowIdx + 1).forEach(line => {
+                const cols = line.split(';');
+                if (cols.length <= Math.max(productIdx, estadoIdx)) return;
 
-        ispLines.slice(startLine).forEach(line => {
-            const cols = line.split(';');
-            if (cols.length < 3) return;
+                const productISP = normalize(cols[productIdx]);
+                const estado = normalize(cols[estadoIdx]);
 
-            if (productIdx === -1 || estadoIdx === -1) return;
-
-            const productISP = normalize(cols[productIdx]); // Producto column
-            const estado = normalize(cols[estadoIdx]); // Estado
-
-            if (estado.includes('EQUIVALENTE')) {
-                if (masterMap.has(productISP)) {
-                    masterMap.get(productISP)!.isBioequivalent = true;
-                    bioMatches++;
+                if (estado.includes('EQUIVALENTE')) {
+                    if (masterMap.has(productISP)) {
+                        masterMap.get(productISP)!.isBioequivalent = true;
+                        bioMatches++;
+                    }
                 }
-            }
-        });
+            });
+        }
         console.log(`   ✅ Bioequivalence matched: ${bioMatches} products.`);
     } catch (e: any) {
         console.error('   ❌ Error reading ISP CSV:', e.message);
@@ -238,9 +263,9 @@ async function reconstruct() {
     console.log(`   💾 Saved JSON to ${OUTPUT_JSON}`);
 
     // CSV Output
-    const csvHeader = 'Name;SKU;Barcodes;Price;Stock;Category;Laboratory;ActiveIngredients;Bioequivalent;Description\n';
+    const csvHeader = 'Name;SKU;Barcodes;Price;Stock;Category;Laboratory;ActiveIngredients;Bioequivalent;Description;ISP_Code;TherapeuticAction;Units;Concentration;PrescriptionType\n';
     const csvRows = products.map(p => {
-        return `${p.originalName};${p.sku};${p.barcodes.join(',')};${p.price};${p.stock};${p.category};${p.laboratory};${p.activeIngredients.join('|')};${p.isBioequivalent};${p.description}`;
+        return `${p.originalName};${p.sku};${p.barcodes.join(',')};${p.price};${p.stock};${p.category};${p.laboratory};${p.activeIngredients.join('|')};${p.isBioequivalent};${p.description};${p.ispCode};${p.therapeuticAction};${p.units};${p.concentration};${p.prescriptionType}`;
     }).join('\n');
 
     fs.writeFileSync(path.resolve(process.cwd(), OUTPUT_CSV), csvHeader + csvRows);
