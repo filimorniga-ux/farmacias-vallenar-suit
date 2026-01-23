@@ -69,33 +69,38 @@ async function reimportV2() {
 
                 // Prepare Data
                 for (const item of batch) {
-                    // --- Product Mapping ---
+
+                    // --- Product Mapping (Enriched) ---
                     const prodId = randomUUID();
-                    const name = (item.originalName || item.name || '').substring(0, 255);
-                    const sku = (item.sku || item.barcodes?.[0] || `SKU-${prodId.substring(0, 8)}`).substring(0, 100);
+                    const name = (item.name || '').substring(0, 255);
+                    const sku = (item.sku || `SKU-${prodId.substring(0, 8)}`).substring(0, 100);
                     const barcode = (item.barcodes && item.barcodes.length > 0) ? item.barcodes.join(',') : sku;
-                    // Truncate to 255 just in case, but allow more than 100
                     const finalBarcode = barcode.substring(0, 255);
+
                     const price = item.price || 0;
-                    const cost = Math.floor(price * 0.6);
+                    const cost = Math.floor(price * 0.6); // Estimated cost
                     const category = (item.category || 'GENERAL').substring(0, 100);
                     const lab = (item.laboratory || 'GENERICO').substring(0, 100);
-                    const dci = (item.activeIngredients?.join(', ') || '').substring(0, 255);
+                    const dci = (item.activeIngredients?.join(', ') || item.dci || '').substring(0, 255);
                     const isBio = !!item.isBioequivalent;
+                    const condicion = item.condicion || item.condition || 'VD'; // 'R' or 'VD'
 
-                    // Condicion Venta: Map to App Defaults if possible, else 'VD'
-                    // Sample showed 'VD'. Let's use 'VD' for OTC and 'R' for Prescription if determined.
-                    let condicion = 'VD';
-                    if (item.prescriptionType?.includes('RECETA')) condicion = 'R';
+                    // New Fields
+                    const ispCode = (item.ispCode || '').substring(0, 100);
+                    const therapeuticAction = (item.therapeuticAction || '').substring(0, 255);
+                    const concentration = (item.concentration || '').substring(0, 100);
+                    const units = (item.units || '').substring(0, 50);
 
                     productValues.push(
                         prodId, sku, name, category, dci, lab,
-                        isBio, condicion, price, cost, finalBarcode, 400
+                        isBio, condicion, price, cost, finalBarcode, 400,
+                        // New Values
+                        ispCode, therapeuticAction, concentration, units
                     );
 
-                    // ($1, $2, $3, ... $12)
-                    productPlaceholders.push(`($${pIndex}, $${pIndex + 1}, $${pIndex + 2}, $${pIndex + 3}, $${pIndex + 4}, $${pIndex + 5}, $${pIndex + 6}, $${pIndex + 7}, $${pIndex + 8}, $${pIndex + 9}, $${pIndex + 10}, $${pIndex + 11})`);
-                    pIndex += 12;
+                    // ($1 ... $12) + 4 new ($13, $14, $15, $16)
+                    productPlaceholders.push(`($${pIndex}, $${pIndex + 1}, $${pIndex + 2}, $${pIndex + 3}, $${pIndex + 4}, $${pIndex + 5}, $${pIndex + 6}, $${pIndex + 7}, $${pIndex + 8}, $${pIndex + 9}, $${pIndex + 10}, $${pIndex + 11}, $${pIndex + 12}, $${pIndex + 13}, $${pIndex + 14}, $${pIndex + 15})`);
+                    pIndex += 16;
 
                     // --- Inventory Batches Mapping (Fan out to all warehouses) ---
                     for (const wh of warehouses) {
@@ -121,6 +126,7 @@ async function reimportV2() {
                         INSERT INTO products (
                             id, sku, name, category, dci, laboratory, 
                             is_bioequivalent, condicion_venta, price, cost_net, barcode, stock_total,
+                            isp_register, therapeutic_action, concentration, units,
                             created_at, updated_at
                         ) VALUES 
                         ${productPlaceholders.map(p => p.replace(')', ', NOW(), NOW())')).join(', ')}

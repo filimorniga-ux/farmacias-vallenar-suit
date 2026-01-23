@@ -929,7 +929,12 @@ export async function getInventorySecure(
                     NULL::timestamp as expiry_date_ts,
                     'products' as source,
                     p.source_system::text,
-                    p.created_at::timestamp as created_at_ts
+                    p.created_at::timestamp as created_at_ts,
+                    -- New Fields
+                    p.concentration::text,
+                    p.therapeutic_action::text,
+                    p.units::text,
+                    p.prescription_type::text
                 FROM products p
                 WHERE (p.location_id = $1 OR p.location_id IS NULL)
                 AND NOT EXISTS (
