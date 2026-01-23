@@ -403,8 +403,13 @@ export async function executeHandoverSecure(params: {
 
         const terminal = termRes.rows[0];
 
-        // Verificar que el usuario es el cajero actual
-        if (terminal.current_cashier_id && terminal.current_cashier_id !== userId) {
+        // Verificar que el usuario es el cajero actual O es un administrador/gerente
+        const userRes = await client.query('SELECT role FROM users WHERE id = $1', [userId]);
+        const userRole = userRes.rows[0]?.role;
+
+        const isAuthorizedOverride = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL'].includes(userRole);
+
+        if (terminal.current_cashier_id && terminal.current_cashier_id !== userId && !isAuthorizedOverride) {
             throw new Error(ERROR_MESSAGES.USER_MISMATCH);
         }
 

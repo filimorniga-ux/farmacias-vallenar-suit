@@ -221,7 +221,7 @@ export async function openTerminalAtomic(
                 type, amount, reason, timestamp
             ) VALUES (
                 $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid,
-                'APERTURA', $6, 'Apertura de Caja', NOW()
+                'OPENING', $6, 'Apertura de Caja', NOW()
             )
         `, [moveId, terminal.location_id, terminalId, newSessionId, userId, initialCash]);
 
@@ -449,7 +449,7 @@ export async function openTerminalWithPinValidation(
                 type, amount, reason, timestamp
             ) VALUES (
                 $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid,
-                'APERTURA', $6, 'Apertura de Caja', NOW()
+                'OPENING', $6, 'Apertura de Caja', NOW()
             )
         `, [moveId, terminal.location_id, terminalId, newSessionId, userId, initialCash]);
 
@@ -1155,9 +1155,9 @@ export async function getActiveSession(terminalId: string): Promise<{
         `, [terminalId]);
 
         if (result.rows.length === 0) {
-            return { 
-                success: false, 
-                error: 'No hay sesión de caja activa. Abra turno para comenzar.' 
+            return {
+                success: false,
+                error: 'No hay sesión de caja activa. Abra turno para comenzar.'
             };
         }
 
