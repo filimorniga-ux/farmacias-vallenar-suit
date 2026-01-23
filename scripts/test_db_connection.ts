@@ -6,6 +6,8 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
+console.log('Testing connection to:', process.env.DATABASE_URL ? 'URL SET' : 'URL MISSING');
+
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
@@ -13,15 +15,16 @@ const pool = new Pool({
 });
 
 pool.connect().then(client => {
+    console.log('✅ Connected!');
     client.query('SELECT COUNT(*) FROM productos').then(r => {
-        console.log('📊 Current Product Count:', r.rows[0].count);
+        console.log('📊 Count:', r.rows[0].count);
         client.release();
         process.exit(0);
     }).catch(e => {
-        console.error(e);
+        console.error('❌ Query Error:', e.message);
         process.exit(1);
     });
 }).catch(e => {
-    console.error(e);
+    console.error('❌ Connection Error:', e.message);
     process.exit(1);
 });
