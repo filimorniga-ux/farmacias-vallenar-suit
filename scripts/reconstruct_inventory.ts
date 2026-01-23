@@ -142,7 +142,7 @@ async function reconstruct() {
                     if (lab && !p.laboratory) p.laboratory = lab;
                     if (active && p.activeIngredients.length === 0) p.activeIngredients = [active];
 
-                    barcodes.forEach(b => {
+                    barcodes.forEach((b: string) => {
                         if (!p.barcodes.includes(b)) p.barcodes.push(b);
                     });
 
