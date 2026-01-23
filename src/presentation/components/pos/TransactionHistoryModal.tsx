@@ -525,7 +525,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
                                             <div className="flex justify-between items-start mb-2">
                                                 <div>
                                                     <span className="text-xs font-bold text-slate-400 block mb-1">
-                                                        {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {new Date(item.timestamp).toLocaleDateString()}
+                                                        {new Date(item.timestamp).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago' })} • {new Date(item.timestamp).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}
                                                     </span>
                                                     <h3 className="font-bold text-slate-800 text-sm truncate max-w-[200px]">
                                                         {item.type === 'SALE' ? `Venta #${item.reason?.split('#')[1] || item.id.slice(0, 6)}` : item.type === 'EXTRA_INCOME' ? 'Ingreso Extra' : 'Gasto / Retiro'}
@@ -582,7 +582,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
                                     <div className="grid grid-cols-2 gap-4 text-sm">
                                         <div>
                                             <p className="text-slate-400 mb-1">Fecha y Hora</p>
-                                            <p className="font-bold text-slate-800">{new Date(selectedItem.timestamp).toLocaleString()}</p>
+                                            <p className="font-bold text-slate-800">{new Date(selectedItem.timestamp).toLocaleString('es-CL', { timeZone: 'America/Santiago' })}</p>
                                         </div>
                                         <div>
                                             <p className="text-slate-400 mb-1">Usuario</p>

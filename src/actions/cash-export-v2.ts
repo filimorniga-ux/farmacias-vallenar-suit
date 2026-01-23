@@ -306,7 +306,7 @@ export async function generateCashReportSecure(
         summarySheet.getCell('A1').alignment = { horizontal: 'center' };
 
         summarySheet.mergeCells('A2:C2');
-        summarySheet.getCell('A2').value = `${startD.toLocaleDateString()} - ${endD.toLocaleDateString()}`;
+        summarySheet.getCell('A2').value = `${startD.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })} - ${endD.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}`;
         summarySheet.getCell('A2').alignment = { horizontal: 'center' };
 
         // Sección 1: Flujo de Efectivo (The Math)
@@ -387,8 +387,8 @@ export async function generateCashReportSecure(
         });
 
         const salesRows = sales.map((s: any) => ({
-            date: new Date(s.timestamp).toLocaleDateString(),
-            time: new Date(s.timestamp).toLocaleTimeString(),
+            date: new Date(s.timestamp).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }),
+            time: new Date(s.timestamp).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago' }),
             dte: s.dte_folio || 'S/N',
             seller: s.seller_name,
             total: s.total_amount,
@@ -427,8 +427,8 @@ export async function generateCashReportSecure(
         });
 
         const movRows = movements.map((m: any) => ({
-            date: new Date(m.timestamp).toLocaleDateString(),
-            time: new Date(m.timestamp).toLocaleTimeString(),
+            date: new Date(m.timestamp).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }),
+            time: new Date(m.timestamp).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago' }),
             type: m.type === 'EXTRA_INCOME' ? 'INGRESO' : (m.type === 'EXPENSE' ? 'GASTO' : 'RETIRO'),
             reason: m.reason,
             user: m.user_name,
@@ -517,7 +517,7 @@ export async function exportSalesDetailSecure(
 
         const data = res.rows.map((row: any) => ({
             id: row.id,
-            date: new Date(row.timestamp).toLocaleString('es-CL'),
+            date: new Date(row.timestamp).toLocaleString('es-CL', { timeZone: 'America/Santiago' }),
             location: row.location_name || '-',
             seller: row.seller_name || '-',
             subtotal: Number(row.subtotal || 0),
@@ -614,8 +614,8 @@ export async function exportShiftSummarySecure(
             location: row.location_name || '-',
             terminal: row.terminal_name || '-',
             cashier: row.cashier_name || '-',
-            start: new Date(Number(row.start_time)).toLocaleString('es-CL'),
-            end: row.end_time ? new Date(Number(row.end_time)).toLocaleString('es-CL') : 'Activo',
+            start: new Date(Number(row.start_time)).toLocaleString('es-CL', { timeZone: 'America/Santiago' }),
+            end: row.end_time ? new Date(Number(row.end_time)).toLocaleString('es-CL', { timeZone: 'America/Santiago' }) : 'Activo',
             opening: Number(row.opening_amount || 0),
             closing: Number(row.closing_amount || 0),
             expected: Number(row.expected_amount || 0),

@@ -64,7 +64,7 @@ function generatePrintHTML(quote: any): string {
         <div class="divider"></div>
         <div class="quote-code">COTIZACIÓN</div>
         <div class="quote-code">${quote.code}</div>
-        <div style="font-size: 10px; margin-top: 4px;">${new Date(quote.created_at).toLocaleString('es-CL')}</div>
+        <div style="font-size: 10px; margin-top: 4px;">${new Date(quote.created_at).toLocaleString('es-CL', { timeZone: 'America/Santiago' })}</div>
     </div>
 
     <div class="customer">
@@ -272,8 +272,8 @@ export default function QuoteHistoryModal({ isOpen, onClose }: QuoteHistoryModal
                                             >
                                                 <td className="px-6 py-4 font-mono font-bold text-slate-700">{q.code}</td>
                                                 <td className="px-6 py-4 text-slate-600">
-                                                    {new Date(q.created_at).toLocaleDateString()}
-                                                    <span className="text-xs text-slate-400 block">{new Date(q.created_at).toLocaleTimeString().slice(0, 5)}</span>
+                                                    {new Date(q.created_at).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}
+                                                    <span className="text-xs text-slate-400 block">{new Date(q.created_at).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago' }).slice(0, 5)}</span>
                                                 </td>
                                                 <td className="px-6 py-4 font-medium text-slate-800">
                                                     {q.customer_name || 'Particular'}
@@ -340,7 +340,7 @@ export default function QuoteHistoryModal({ isOpen, onClose }: QuoteHistoryModal
                             </div>
                             <div>
                                 <label className="text-slate-500 block text-xs uppercase font-bold">Fecha</label>
-                                <div className="font-medium">{new Date(viewQuote.created_at).toLocaleString()}</div>
+                                <div className="font-medium">{new Date(viewQuote.created_at).toLocaleString('es-CL', { timeZone: 'America/Santiago' })}</div>
                             </div>
                             <div>
                                 <label className="text-slate-500 block text-xs uppercase font-bold">Total</label>

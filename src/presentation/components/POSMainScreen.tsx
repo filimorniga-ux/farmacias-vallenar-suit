@@ -1090,9 +1090,12 @@ const POSMainScreen: React.FC = () => {
                             <button
                                 onClick={handlePrePayment}
                                 disabled={cart.length === 0 || !currentShift || currentShift.status !== 'ACTIVE' || isLoadingQuote}
-                                className={`w-full md:w-auto px-10 md:px-16 py-6 md:py-8 rounded-3xl font-extrabold text-2xl md:text-4xl shadow-xl transition-all transform hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none ${isQuoteMode ? 'bg-amber-500 hover:bg-amber-400 text-white shadow-amber-900/30' : 'bg-pharma-primary hover:bg-pharma-primary-hover text-white shadow-pharma-primary-dark/30'}`}
+                                className={`w-full md:w-auto px-10 md:px-16 py-6 md:py-8 rounded-xl font-extrabold text-2xl md:text-4xl shadow-xl transition-all transform hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none ${isQuoteMode
+                                        ? 'bg-slate-700 hover:bg-slate-600 text-white shadow-slate-900/30'
+                                        : 'bg-gradient-to-br from-amber-300 via-amber-400 to-amber-500 border-2 border-amber-600/50 text-slate-900 shadow-amber-500/40'
+                                    }`}
                             >
-                                {isLoadingQuote ? 'GUARDANDO...' : (isQuoteMode ? 'GUARDAR (F9)' : 'PAGAR (F9)')}
+                                {isLoadingQuote ? 'GUARDANDO...' : (isQuoteMode ? 'GUARDAR COTIZACIÓN' : 'PAGAR')}
                             </button>
                         </div>
                     </div>
