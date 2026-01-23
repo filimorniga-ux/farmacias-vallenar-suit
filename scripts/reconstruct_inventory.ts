@@ -43,7 +43,7 @@ const SOURCES = {
 };
 
 const OUTPUT_JSON = 'data_imports/master_inventory.json';
-const OUTPUT_CSV = 'data_imports/master_inventory.csv';
+const OUTPUT_CSV = 'data_imports/master_inventory_FINAL.csv';
 
 // --- Helpers ---
 const normalize = (str: string) => {
@@ -57,6 +57,46 @@ const parsePrice = (val: any) => {
     if (!val) return 0;
     const num = parseInt(val.toString().replace(/[^0-9]/g, ''));
     return isNaN(num) ? 0 : num;
+};
+
+// --- Super-Prompt Logic ---
+const cleanBarcodes = (input: any): string[] => {
+    if (!input) return [];
+
+    // 1. Convert to string
+    let str = input.toString();
+
+    // 2. Handle Scientific Notation (e.g. 7.804945E+12)
+    // If it looks like scientific notation, convert to number then to fixed string
+    if (str.toUpperCase().includes('E+')) {
+        try {
+            const num = parseFloat(str);
+            if (!isNaN(num)) {
+                str = num.toLocaleString('fullwide', { useGrouping: false });
+            }
+        } catch (e) {
+            // keep original if parse fails
+        }
+    }
+
+    // 3. Resolution of Multiple Codes (Split by , ; space |)
+    const candidates = str.split(/[,;|\s]+/).map((s: string) => s.trim());
+
+    const validBarcodes: string[] = [];
+
+    for (const raw of candidates) {
+        // 4. Quality & Formatting
+        // Remove non-alphanumeric (except maybe hyphens? User said "remove special characters", usually imply just digits/letters)
+        // We will allow A-Z 0-9.
+        const clean = raw.replace(/[^a-zA-Z0-9]/g, '');
+
+        // 5. Length Check (>= 7 digits)
+        if (clean.length >= 7) {
+            validBarcodes.push(clean);
+        }
+    }
+
+    return [...new Set(validBarcodes)]; // Deduplicate
 };
 
 // --- Main ---
@@ -78,7 +118,7 @@ async function reconstruct() {
             const name = normalize(cols[1]); // Producto
             if (!name) return;
 
-            const barcode = cols[2]?.trim();
+            const barcodes = cleanBarcodes(cols[2]); // Apply Cleaning
             const price = parsePrice(cols[5]);
 
             if (!masterMap.has(name)) {
@@ -86,7 +126,7 @@ async function reconstruct() {
                     name,
                     originalName: cols[1].trim(),
                     sku: '',
-                    barcodes: barcode ? [barcode] : [],
+                    barcodes,
                     price,
                     stock: 100, // Fixed
                     category: normalize(cols[0]), // Grupo
@@ -104,7 +144,10 @@ async function reconstruct() {
                 added++;
             } else {
                 const p = masterMap.get(name)!;
-                if (barcode && !p.barcodes.includes(barcode)) p.barcodes.push(barcode);
+                // Also legacy check? No, cleanBarcodes returns array.
+                barcodes.forEach(b => {
+                    if (!p.barcodes.includes(b)) p.barcodes.push(b);
+                });
                 if (price > p.price) p.price = price;
             }
         });
@@ -151,7 +194,7 @@ async function reconstruct() {
                 const recipe = row['RECETA MEDICA'] || '';
                 const bio = row['BIOEQUIVALENTE'] || '';
 
-                const barcodes = barcodesRaw ? barcodesRaw.toString().split(',').map((b: string) => b.trim()).filter((b: string) => b) : [];
+                const barcodes = cleanBarcodes(barcodesRaw);
 
                 if (masterMap.has(name)) {
                     // Enrich

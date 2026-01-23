@@ -73,7 +73,9 @@ async function reimportV2() {
                     const prodId = randomUUID();
                     const name = (item.originalName || item.name || '').substring(0, 255);
                     const sku = (item.sku || item.barcodes?.[0] || `SKU-${prodId.substring(0, 8)}`).substring(0, 100);
-                    const barcode = (item.barcodes?.[0] || sku).substring(0, 100);
+                    const barcode = (item.barcodes && item.barcodes.length > 0) ? item.barcodes.join(',') : sku;
+                    // Truncate to 255 just in case, but allow more than 100
+                    const finalBarcode = barcode.substring(0, 255);
                     const price = item.price || 0;
                     const cost = Math.floor(price * 0.6);
                     const category = (item.category || 'GENERAL').substring(0, 100);
@@ -88,7 +90,7 @@ async function reimportV2() {
 
                     productValues.push(
                         prodId, sku, name, category, dci, lab,
-                        isBio, condicion, price, cost, barcode, 400
+                        isBio, condicion, price, cost, finalBarcode, 400
                     );
 
                     // ($1, $2, $3, ... $12)
