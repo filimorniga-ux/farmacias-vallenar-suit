@@ -895,7 +895,12 @@ export async function getInventorySecure(
                     ib.expiry_date::timestamp as expiry_date_ts,
                     'inventory_batches' as source,
                     ib.source_system::text,
-                    ib.created_at::timestamp as created_at_ts
+                    ib.created_at::timestamp as created_at_ts,
+                    -- New Fields (Placeholders for UNION compatibility)
+                    NULL::text as concentration,
+                    NULL::text as therapeutic_action,
+                    NULL::text as units,
+                    NULL::text as prescription_type
                 FROM inventory_batches ib
                 WHERE ib.location_id = $1::uuid
             ),
