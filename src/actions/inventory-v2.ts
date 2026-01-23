@@ -865,74 +865,82 @@ export async function getInventorySecure(
     try {
         // UNION: Get both new products AND legacy inventory (22,980 items)
         const sql = `
-            -- New products (from products table)
-            SELECT 
-                p.id::text as product_id,
-                p.id::text as batch_id,
-                p.sku::text,
-                p.name::text,
-                p.dci::text,
-                p.laboratory::text,
-                p.isp_register::text,
-                p.format::text,
-                p.units_per_box,
-                p.is_bioequivalent,
-                p.price as price_sell_box,
-                p.price_sell_box as price_sell_box_alt,
-                p.price_sell_unit,
-                p.cost_net,
-                p.cost_price,
-                p.tax_percent,
-                p.stock_actual,
-                p.stock_total,
-                p.stock_minimo_seguridad as stock_min,
-                p.location_id::text,
-                p.es_frio,
-                p.comisionable,
-                p.condicion_venta::text as condition,
-                NULL::text as lot_number,
-                NULL::timestamp as expiry_date_ts,
-                'products' as source,
-                p.source_system::text,
-                p.created_at::timestamp as created_at_ts
-            FROM products p
-            WHERE (p.location_id = $1 OR p.location_id IS NULL)
+            -- Batches reales en la ubicación
+            WITH location_batches AS (
+                SELECT 
+                    ib.product_id::text,
+                    ib.id::text as batch_id,
+                    ib.sku::text,
+                    ib.name::text,
+                    NULL::text as dci,
+                    NULL::text as laboratory,
+                    NULL::text as isp_register,
+                    NULL::text as format,
+                    1 as units_per_box,
+                    false as is_bioequivalent,
+                    COALESCE(ib.sale_price, 0) as price_sell_box,
+                    COALESCE(ib.price_sell_box, 0) as price_sell_box_alt,
+                    COALESCE(ib.sale_price, 0) as price_sell_unit,
+                    COALESCE(ib.cost_net, 0) as cost_net,
+                    COALESCE(ib.unit_cost, 0) as cost_price,
+                    19 as tax_percent,
+                    COALESCE(ib.quantity_real, 0) as stock_actual,
+                    COALESCE(ib.quantity_real, 0) as stock_total,
+                    COALESCE(ib.stock_min, 5) as stock_min,
+                    ib.location_id::text,
+                    false as es_frio,
+                    false as comisionable,
+                    'VD'::text as condition,
+                    ib.lot_number::text,
+                    ib.expiry_date::timestamp as expiry_date_ts,
+                    'inventory_batches' as source,
+                    ib.source_system::text,
+                    ib.created_at::timestamp as created_at_ts
+                FROM inventory_batches ib
+                WHERE ib.location_id = $1::uuid
+            ),
+            -- Productos del catálogo (solo si no tienen lotes en esta ubicación)
+            catalog_products AS (
+                SELECT 
+                    p.id::text as product_id,
+                    p.id::text as batch_id,
+                    p.sku::text,
+                    p.name::text,
+                    p.dci::text,
+                    p.laboratory::text,
+                    p.isp_register::text,
+                    p.format::text,
+                    p.units_per_box,
+                    p.is_bioequivalent,
+                    p.price as price_sell_box,
+                    p.price_sell_box as price_sell_box_alt,
+                    p.price_sell_unit,
+                    p.cost_net,
+                    p.cost_price,
+                    p.tax_percent,
+                    p.stock_actual,
+                    p.stock_total,
+                    p.stock_minimo_seguridad as stock_min,
+                    p.location_id::text,
+                    p.es_frio,
+                    p.comisionable,
+                    p.condicion_venta::text as condition,
+                    NULL::text as lot_number,
+                    NULL::timestamp as expiry_date_ts,
+                    'products' as source,
+                    p.source_system::text,
+                    p.created_at::timestamp as created_at_ts
+                FROM products p
+                WHERE (p.location_id = $1 OR p.location_id IS NULL)
+                AND NOT EXISTS (
+                    SELECT 1 FROM location_batches lb 
+                    WHERE lb.sku = p.sku
+                )
+            )
             
+            SELECT * FROM location_batches
             UNION ALL
-            
-            -- Legacy inventory (real schema - 22,980 items)
-            SELECT 
-                ib.product_id::text,
-                ib.id::text as batch_id,
-                ib.sku::text,
-                ib.name::text,
-                NULL::text as dci,
-                NULL::text as laboratory,
-                NULL::text as isp_register,
-                NULL::text as format,
-                1 as units_per_box,
-                false as is_bioequivalent,
-                COALESCE(ib.sale_price, 0) as price_sell_box,
-                COALESCE(ib.price_sell_box, 0) as price_sell_box_alt,
-                COALESCE(ib.sale_price, 0) as price_sell_unit,
-                COALESCE(ib.cost_net, 0) as cost_net,
-                COALESCE(ib.unit_cost, 0) as cost_price,
-                19 as tax_percent,
-                COALESCE(ib.quantity_real, 0) as stock_actual,
-                COALESCE(ib.quantity_real, 0) as stock_total,
-                COALESCE(ib.stock_min, 5) as stock_min,
-                ib.location_id::text,
-                false as es_frio,
-                false as comisionable,
-                'VD'::text as condition,
-                ib.lot_number::text,
-                ib.expiry_date::timestamp as expiry_date_ts,
-                'inventory_batches' as source,
-                ib.source_system::text,
-                ib.created_at::timestamp as created_at_ts
-            FROM inventory_batches ib
-            WHERE ib.location_id = $1::uuid
-            
+            SELECT * FROM catalog_products
             ORDER BY name ASC
         `;
 
