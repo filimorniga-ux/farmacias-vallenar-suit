@@ -37,6 +37,7 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
         const res = await calculateHandoverSecure(currentTerminalId, amount);
 
         if (res.success && res.data) {
+            console.log('✅ Handover Summary:', res.data);
             setSummary(res.data);
             setStep('SUMMARY');
         } else {
@@ -179,6 +180,9 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
                                 <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
                                     <p className="text-xs text-gray-500 uppercase font-bold mb-1">Sistema Espera</p>
                                     <p className="text-xl font-mono font-bold text-gray-800">${summary.expectedCash.toLocaleString('es-CL')}</p>
+                                    <p className="text-[10px] text-gray-400 mt-1">
+                                        (Base: ${summary.openingAmount.toLocaleString('es-CL')} + Ventas: ${summary.totalSales.toLocaleString('es-CL')})
+                                    </p>
                                 </div>
                                 <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
                                     <p className="text-xs text-gray-500 uppercase font-bold mb-1">Tú Declaraste</p>
