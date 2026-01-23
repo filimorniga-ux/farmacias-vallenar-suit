@@ -62,46 +62,33 @@ const parsePrice = (val: any) => {
 // --- Super-Prompt Logic ---
 const cleanBarcodes = (input: any): string[] => {
     if (!input) return [];
-
-    // 1. Convert to string
     let str = input.toString();
 
-    // 2. Handle Scientific Notation (e.g. 7.804945E+12)
-    // If it looks like scientific notation, convert to number then to fixed string
+    // Handle Scientific Notation
     if (str.toUpperCase().includes('E+')) {
         try {
             const num = parseFloat(str);
             if (!isNaN(num)) {
                 str = num.toLocaleString('fullwide', { useGrouping: false });
             }
-        } catch (e) {
-            // keep original if parse fails
-        }
+        } catch (e) { }
     }
 
-    // 3. Resolution of Multiple Codes (Split by , ; space |)
     const candidates = str.split(/[,;|\s]+/).map((s: string) => s.trim());
-
     const validBarcodes: string[] = [];
 
     for (const raw of candidates) {
-        // 4. Quality & Formatting
-        // Remove non-alphanumeric (except maybe hyphens? User said "remove special characters", usually imply just digits/letters)
-        // We will allow A-Z 0-9.
         const clean = raw.replace(/[^a-zA-Z0-9]/g, '');
-
-        // 5. Length Check (>= 7 digits)
         if (clean.length >= 7) {
             validBarcodes.push(clean);
         }
     }
-
-    return [...new Set(validBarcodes)]; // Deduplicate
+    return [...new Set(validBarcodes)];
 };
 
 // --- Main ---
 async function reconstruct() {
-    console.log('🚀 Starting Inventory Reconstruction...');
+    console.log('🚀 Starting Inventory Reconstruction (With ISP Fuzzy Match)...');
     const masterMap = new Map<string, MasterProduct>();
 
     // 1. Process Golan CSV (Base)
@@ -109,7 +96,6 @@ async function reconstruct() {
     try {
         const content = fs.readFileSync(path.resolve(process.cwd(), SOURCES.GOLAN_CSV), 'utf-8');
         const lines = content.split('\n');
-        // Header: Grupo de Producto;Producto;Código Barras;Stock;Costo Neto Prom. Unitario;Precio Venta
         let added = 0;
         lines.slice(1).forEach(line => {
             const cols = line.split(';');
@@ -144,7 +130,6 @@ async function reconstruct() {
                 added++;
             } else {
                 const p = masterMap.get(name)!;
-                // Also legacy check? No, cleanBarcodes returns array.
                 barcodes.forEach(b => {
                     if (!p.barcodes.includes(b)) p.barcodes.push(b);
                 });
@@ -156,8 +141,7 @@ async function reconstruct() {
         console.error('   ❌ Error reading Golan CSV:', e.message);
     }
 
-    // 2. Process SUC Files (Enrichment + Union)
-    // Headers: SUCURSAL, SKU, TITULO, CATEGORIA, LABORATORIO, ACCION_TERAPEUTICA, PRINCIPIOS ACTIVOS, STOCK, PRECIO, BIOEQUIVALENTE, CODIGO ISP, UNIDADES, PA CONCENTRACION, RECETA MEDICA, CODIGOS_BARRA
+    // 2. Process SUC Files
     for (const file of SOURCES.SUC_FILES) {
         console.log(`\n📄 Reading ${file}...`);
         try {
@@ -167,7 +151,6 @@ async function reconstruct() {
                 continue;
             }
             const wb = XLSX.readFile(fullPath);
-            console.log(`   🐛 Sheets in ${path.basename(file)}:`, wb.SheetNames);
             const sheet = wb.Sheets[wb.SheetNames[0]];
             const rows: any[] = XLSX.utils.sheet_to_json(sheet);
 
@@ -185,8 +168,6 @@ async function reconstruct() {
                 const active = row['PRINCIPIOS ACTIVOS'] || '';
                 const barcodesRaw = row['CODIGOS_BARRA'] || row['CODIGO BARRAS'];
                 const price = parsePrice(row['PRECIO']);
-
-                // New Fields
                 const isp = row['CODIGO ISP'] || '';
                 const action = row['ACCION_TERAPEUTICA'] || '';
                 const units = row['UNIDADES'] || '';
@@ -197,40 +178,32 @@ async function reconstruct() {
                 const barcodes = cleanBarcodes(barcodesRaw);
 
                 if (masterMap.has(name)) {
-                    // Enrich
                     const p = masterMap.get(name)!;
                     if (sku && !p.sku) p.sku = sku;
                     if (cat && !p.category) p.category = cat;
                     if (lab && !p.laboratory) p.laboratory = lab;
                     if (active && p.activeIngredients.length === 0) p.activeIngredients = [active.toString()];
-
-                    // Enrich New Fields if missing
                     if (isp && !p.ispCode) p.ispCode = isp.toString();
                     if (action && !p.therapeuticAction) p.therapeuticAction = action.toString();
                     if (units && !p.units) p.units = units.toString();
                     if (conc && !p.concentration) p.concentration = conc.toString();
                     if (recipe && !p.prescriptionType) p.prescriptionType = recipe.toString();
-
-                    // Logic: If BIOEQUIVALENTE says "SI", use it. (Override ISP matches? Maybe yes, safer)
                     if (bio && normalize(bio.toString()) === 'SI') p.isBioequivalent = true;
 
                     barcodes.forEach((b: string) => {
                         if (!p.barcodes.includes(b)) p.barcodes.push(b);
                     });
-
                     if (price > p.price) p.price = price;
-
                     if (!p.source.includes(path.basename(file))) p.source.push(path.basename(file));
                     enriched++;
                 } else {
-                    // Add new
                     masterMap.set(name, {
                         name,
                         originalName: title.trim(),
                         sku,
                         barcodes,
                         price,
-                        stock: 100, // Fixed
+                        stock: 100,
                         category: cat,
                         laboratory: lab,
                         activeIngredients: active ? [active.toString()] : [],
@@ -252,27 +225,33 @@ async function reconstruct() {
         }
     }
 
-    // 3. Process ISP for Bioequivalence
+    // 3. Process ISP for Bioequivalence (Fuzzy Match)
     console.log(`\n📄 Reading ${SOURCES.ISP_CSV}...`);
     try {
         const ispContent = fs.readFileSync(path.resolve(process.cwd(), SOURCES.ISP_CSV), 'latin1');
-
         const ispLines = ispContent.split('\n');
-        let bioMatches = 0;
+
+        const bioProducts = new Set<string>();
+        const bioIngredients = new Set<string>();
+
         let headerRowIdx = -1;
         let productIdx = -1;
+        let activeIdx = -1;
         let estadoIdx = -1;
 
         // Dynamic Header Search
-        for (let i = 0; i < ispLines.length; i++) {
+        for (let i = 0; i < Math.min(20, ispLines.length); i++) {
             const row = ispLines[i].split(';');
             const pIdx = row.findIndex(h => h && h.trim().toLowerCase().includes('producto'));
+            const aIdx = row.findIndex(h => h && h.trim().toLowerCase().includes('principio'));
             const eIdx = row.findIndex(h => h && h.trim().toLowerCase().includes('estado'));
+
             if (pIdx > -1 && eIdx > -1) {
                 headerRowIdx = i;
                 productIdx = pIdx;
+                activeIdx = aIdx;
                 estadoIdx = eIdx;
-                console.log(`   🐛 Found ISP Headers at line ${i}: Product=${pIdx}, State=${eIdx}`);
+                console.log(`   🐛 Found ISP Headers at line ${i}: Product=${pIdx}, Active=${aIdx}, State=${eIdx}`);
                 break;
             }
         }
@@ -282,18 +261,50 @@ async function reconstruct() {
                 const cols = line.split(';');
                 if (cols.length <= Math.max(productIdx, estadoIdx)) return;
 
-                const productISP = normalize(cols[productIdx]);
                 const estado = normalize(cols[estadoIdx]);
-
                 if (estado.includes('EQUIVALENTE')) {
-                    if (masterMap.has(productISP)) {
-                        masterMap.get(productISP)!.isBioequivalent = true;
-                        bioMatches++;
+                    const productISP = normalize(cols[productIdx]);
+                    if (productISP) bioProducts.add(productISP);
+
+                    if (activeIdx > -1) {
+                        const activeISP = normalize(cols[activeIdx]);
+                        if (activeISP) bioIngredients.add(activeISP);
                     }
                 }
             });
         }
-        console.log(`   ✅ Bioequivalence matched: ${bioMatches} products.`);
+        console.log(`   ✅ ISP Loaded: ${bioProducts.size} Bio-Products, ${bioIngredients.size} Bio-Ingredients.`);
+
+        // 4. Cross-Reference Master Inventory
+        let bioMatches = 0;
+        let activeMatches = 0;
+
+        for (const p of masterMap.values()) {
+            if (p.isBioequivalent) continue; // Already marked from SUC
+
+            // Name Match
+            if (bioProducts.has(p.name)) {
+                p.isBioequivalent = true;
+                p.source.push('ISP_MATCH_NAME');
+                bioMatches++;
+                continue;
+            }
+
+            // Active Ingredient Match
+            if (p.activeIngredients.length > 0) {
+                for (const ing of p.activeIngredients) {
+                    const normIng = normalize(ing);
+                    if (bioIngredients.has(normIng)) {
+                        p.isBioequivalent = true;
+                        p.source.push('ISP_MATCH_ACTIVE');
+                        activeMatches++;
+                        break;
+                    }
+                }
+            }
+        }
+        console.log(`   ✅ Bioequivalence Matches: Name=${bioMatches}, Ingredient=${activeMatches}`);
+
     } catch (e: any) {
         console.error('   ❌ Error reading ISP CSV:', e.message);
     }
@@ -301,16 +312,13 @@ async function reconstruct() {
     // 4. Output
     const products = Array.from(masterMap.values());
     console.log(`\n📊 Final Inventory Count: ${products.length}`);
-
     fs.writeFileSync(path.resolve(process.cwd(), OUTPUT_JSON), JSON.stringify(products, null, 2));
     console.log(`   💾 Saved JSON to ${OUTPUT_JSON}`);
 
-    // CSV Output
     const csvHeader = 'Name;SKU;Barcodes;Price;Stock;Category;Laboratory;ActiveIngredients;Bioequivalent;Description;ISP_Code;TherapeuticAction;Units;Concentration;PrescriptionType\n';
     const csvRows = products.map(p => {
         return `${p.originalName};${p.sku};${p.barcodes.join(',')};${p.price};${p.stock};${p.category};${p.laboratory};${p.activeIngredients.join('|')};${p.isBioequivalent};${p.description};${p.ispCode};${p.therapeuticAction};${p.units};${p.concentration};${p.prescriptionType}`;
     }).join('\n');
-
     fs.writeFileSync(path.resolve(process.cwd(), OUTPUT_CSV), csvHeader + csvRows);
     console.log(`   💾 Saved CSV to ${OUTPUT_CSV}`);
 }
