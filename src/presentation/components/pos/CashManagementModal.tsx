@@ -434,7 +434,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
 
         // 2. Cash Movements
         // 2. Cash Movements
-        const initialBase = m.openingAmount || m.opening_amount || 0;
+        const initialBase = m.openingAmount ?? m.opening_amount ?? currentShift?.opening_amount ?? 0;
 
         // Handle V2 adjustments structure if manual_movements missing
         let cashIn = m.manual_movements?.total_in || 0;
@@ -727,6 +727,17 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                                                         <div className="flex justify-between items-center bg-slate-800 text-white p-3 rounded-xl shadow-lg">
                                                             <span className="font-bold text-sm">ESPERADO EN CAJA</span>
                                                             <span className="font-mono text-xl font-black">${auditData.cashSection.expectedTotal.toLocaleString()}</span>
+                                                        </div>
+
+                                                        {/* Client Request: Explicit Total + Fund Box */}
+                                                        <div className="mt-2 bg-emerald-50 p-2 rounded-lg flex justify-between items-center border border-emerald-100">
+                                                            <div className="flex flex-col">
+                                                                <span className="text-xs font-bold text-emerald-800 uppercase">Total Efectivo + Fondo Inicial</span>
+                                                                <span className="text-[10px] text-emerald-600">Total a contar en caja</span>
+                                                            </div>
+                                                            <span className="font-mono text-lg font-bold text-emerald-900">
+                                                                ${auditData.cashSection.expectedTotal.toLocaleString()}
+                                                            </span>
                                                         </div>
                                                     </div>
                                                 </div>

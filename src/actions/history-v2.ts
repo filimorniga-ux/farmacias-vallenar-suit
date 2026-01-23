@@ -227,6 +227,7 @@ export async function reopenShift(sessionId: string) {
         }
 
         const session = sessionRes.rows[0];
+        console.log(`🔧 Attempting to reopen session ${sessionId}. Current terminal status: ${session.terminal_status}`);
 
         // 2. Validar conflicto con sesión activa (Soporte para "Void & Swap")
         if (session.terminal_status === 'OPEN') {

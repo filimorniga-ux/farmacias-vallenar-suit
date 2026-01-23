@@ -2,9 +2,10 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Printer, Search, FileText, Calendar, Filter } from 'lucide-react';
+import { X, Printer, Search, FileText, Calendar, Filter, ShoppingCart, ArrowDownToLine } from 'lucide-react';
 import { getQuotesSecure, getQuoteDetailsSecure } from '@/actions/quotes-v2';
 import { toast } from 'sonner';
+import { usePharmaStore } from '../../store/useStore';
 
 interface QuoteHistoryModalProps {
     isOpen: boolean;
@@ -129,6 +130,7 @@ export default function QuoteHistoryModal({ isOpen, onClose }: QuoteHistoryModal
 
     // Viewing Details
     const [viewQuote, setViewQuote] = useState<any>(null);
+    const { retrieveQuote } = usePharmaStore();
 
     const loadQuotes = async () => {
         setLoading(true);
@@ -385,6 +387,20 @@ export default function QuoteHistoryModal({ isOpen, onClose }: QuoteHistoryModal
                             className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-blue-200 shadow-lg"
                         >
                             <Printer size={18} /> Imprimir Ticket
+                        </button>
+                        <button
+                            onClick={async () => {
+                                if (viewQuote) {
+                                    const success = await retrieveQuote(viewQuote.code);
+                                    if (success) {
+                                        setViewQuote(null);
+                                        onClose();
+                                    }
+                                }
+                            }}
+                            className="px-4 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-emerald-200 shadow-lg"
+                        >
+                            <ShoppingCart size={18} /> Cargar al Carrito
                         </button>
                     </div>
                 </div>

@@ -60,6 +60,48 @@ const formatWithThousands = (value: string | number): string => {
     return parseInt(numericValue).toLocaleString('es-CL');
 };
 
+// Helper Component for Quantity Input
+const QuantityInput = ({ value, onChange, min = 1, className }: { value: number, onChange: (val: number) => void, min?: number, className?: string }) => {
+    const [localValue, setLocalValue] = useState<string>(value.toString());
+
+    useEffect(() => {
+        setLocalValue(value.toString());
+    }, [value]);
+
+    const handleBlur = () => {
+        let val = parseInt(localValue);
+        if (isNaN(val) || val < min) val = min;
+        setLocalValue(val.toString());
+        onChange(val);
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') {
+            handleBlur();
+            (e.target as HTMLInputElement).blur();
+        }
+    };
+
+    return (
+        <input
+            type="number"
+            value={localValue}
+            onChange={(e) => {
+                setLocalValue(e.target.value);
+                const val = parseInt(e.target.value);
+                if (!isNaN(val) && val >= min) {
+                    // Optional: Live update if valid, or just wait for blur
+                    // For cart responsiveness, we might want live update if valid
+                    onChange(val);
+                }
+            }}
+            onBlur={handleBlur}
+            onKeyDown={handleKeyDown}
+            className={className}
+        />
+    );
+};
+
 // Helper: Obtener valor numérico limpio (sin puntos)
 const parseFormattedNumber = (formatted: string): number => {
     return parseInt(formatted.replace(/\./g, '').replace(/[^0-9]/g, '') || '0');
@@ -589,8 +631,8 @@ const POSMainScreen: React.FC = () => {
     return (
         <div className="flex h-[calc(100vh-80px)] bg-slate-100 overflow-hidden">
 
-            {/* COL 1: Búsqueda (Fixed 350px Desktop, 100% Mobile Catalog View) */}
-            <div className={`w-full md:w-[350px] flex-col p-4 md:p-6 md:pr-3 gap-4 h-full ${mobileView === 'CART' ? 'hidden md:flex' : 'flex'}`}>
+            {/* COL 1: Búsqueda (Fixed 400px Desktop, 100% Mobile Catalog View) */}
+            <div className={`w-full md:w-[400px] flex-col p-4 md:p-6 md:pr-3 gap-4 h-full ${mobileView === 'CART' ? 'hidden md:flex' : 'flex'}`}>
                 {/* ... (existing content logic is fine, we just want to replace the container logic if needed, but here we cover lines 82-607, so we need to be careful with the huge replacement) */}
                 {/* Wait, I cannot replace 500 lines efficiently if they haven't changed. */}
                 {/* I should target smaller chunks. */}
@@ -605,7 +647,7 @@ const POSMainScreen: React.FC = () => {
                                 type="text"
                                 ref={searchInputRef}
                                 placeholder="Buscar o Escanear (COT-...)"
-                                className="w-full pl-11 pr-12 py-2.5 bg-slate-100/50 hover:bg-slate-100 focus:bg-white rounded-xl border border-transparent focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 outline-none transition-all text-base font-medium"
+                                className="w-full pl-11 pr-12 py-3 bg-slate-100/50 hover:bg-slate-100 focus:bg-white rounded-xl border border-transparent focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 outline-none transition-all text-lg font-medium"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                                 onKeyDown={handleKeyDownInput}
@@ -919,11 +961,9 @@ const POSMainScreen: React.FC = () => {
                                                                 >
                                                                     <Minus size={16} />
                                                                 </button>
-                                                                <input
-                                                                    type="number"
+                                                                <QuantityInput
                                                                     value={item.quantity}
-                                                                    onChange={(e) => updateCartItemQuantity(item.sku, parseInt(e.target.value) || 1)}
-                                                                    className="w-16 h-8 text-center bg-white font-bold text-lg border border-slate-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none p-0"
+                                                                    onChange={(val) => updateCartItemQuantity(item.sku, val)}
                                                                 />
                                                                 <button
                                                                     onClick={() => updateCartItemQuantity(item.sku, item.quantity + 1)}
@@ -997,10 +1037,9 @@ const POSMainScreen: React.FC = () => {
                                                             >
                                                                 <Minus size={14} />
                                                             </button>
-                                                            <input
-                                                                type="number"
+                                                            <QuantityInput
                                                                 value={item.quantity}
-                                                                onChange={(e) => updateCartItemQuantity(item.sku, parseInt(e.target.value) || 1)}
+                                                                onChange={(val) => updateCartItemQuantity(item.sku, val)}
                                                                 className="w-10 text-center bg-transparent font-mono font-bold text-slate-800 outline-none text-sm appearance-none m-0"
                                                             />
                                                             <button
@@ -1051,7 +1090,7 @@ const POSMainScreen: React.FC = () => {
                             <button
                                 onClick={handlePrePayment}
                                 disabled={cart.length === 0 || !currentShift || currentShift.status !== 'ACTIVE' || isLoadingQuote}
-                                className={`w - full md: w - auto px - 8 md: px - 12 py - 4 md: py - 6 rounded - 2xl font - extrabold text - xl md: text - 2xl shadow - lg transition - all transform hover: scale - 105 disabled: opacity - 50 disabled: cursor - not - allowed disabled: transform - none ${isQuoteMode ? 'bg-amber-500 hover:bg-amber-400 text-amber-950 shadow-amber-900/50' : 'bg-emerald-500 hover:bg-emerald-400 text-emerald-950 shadow-emerald-900/50'} `}
+                                className={`w-full md:w-auto px-10 md:px-16 py-6 md:py-8 rounded-3xl font-extrabold text-2xl md:text-4xl shadow-xl transition-all transform hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none ${isQuoteMode ? 'bg-amber-500 hover:bg-amber-400 text-white shadow-amber-900/30' : 'bg-pharma-primary hover:bg-pharma-primary-hover text-white shadow-pharma-primary-dark/30'}`}
                             >
                                 {isLoadingQuote ? 'GUARDANDO...' : (isQuoteMode ? 'GUARDAR (F9)' : 'PAGAR (F9)')}
                             </button>
