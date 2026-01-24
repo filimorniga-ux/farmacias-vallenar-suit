@@ -108,3 +108,5 @@ export function CameraScanner({ onScan, onClose }: CameraScannerProps) {
         </div>
     );
 }
+
+export default CameraScanner;
