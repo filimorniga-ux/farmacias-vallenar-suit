@@ -114,6 +114,7 @@
     "commander": "^14.0.2",
     "csv-parse": "^6.1.0",
     "csv-parser": "^3.2.0",
+    "csv-stringify": "^6.6.0",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
     "electron-updater": "^6.7.3",

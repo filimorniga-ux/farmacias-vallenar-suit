@@ -5,6 +5,7 @@ import path from 'path';
 import { parse } from 'csv-parse/sync';
 import { query } from '@/lib/db';
 import { ProductResult } from './search-products';
+import { parseProductDetails } from '@/lib/product-parser';
 
 // Interface for ISP CSV Record
 interface ISPRecord {
@@ -25,6 +26,7 @@ export interface BioequivalentResult {
     holder: string;
     status: string;
     usage: string;
+    validity: string;
 }
 
 const ISP_FILE_PATH = path.join(process.cwd(), 'data_imports', 'isp_oficial.csv');
@@ -34,42 +36,69 @@ const ISP_FILE_PATH = path.join(process.cwd(), 'data_imports', 'isp_oficial.csv'
  * This reads the file on every request (simple approach) or caches it if memory allows.
  * effective for < 10MB files.
  */
-export async function searchBioequivalentsAction(term: string): Promise<BioequivalentResult[]> {
-    if (!term || term.length < 3) return [];
+/**
+ * Searches for Bioequivalents in the ISP CSV file.
+ * This reads the file on every request (simple approach) or caches it if memory allows.
+ * effective for < 10MB files.
+ */
+export async function searchBioequivalentsAction(term: string, page: number = 1, limit: number = 50): Promise<BioequivalentResult[]> {
+    // If term is empty, return initial list (e.g. first 50 records)
+    // allowing the user to scroll through the list immediately.
 
     try {
-        const fileContent = fs.readFileSync(ISP_FILE_PATH, 'latin1'); // Usually these gov CSVs are latin1/windows-1252
+        const fileContent = fs.readFileSync(ISP_FILE_PATH, 'latin1');
 
         const records = parse(fileContent, {
             columns: true,
             skip_empty_lines: true,
             delimiter: ';',
             trim: true,
-            relax_column_count: true
+            relax_column_count: true,
+            from_line: 4 // Skip the first 3 metadata lines
         });
 
-        const normalizedTerm = term.toLowerCase().trim();
+        let filtered = records;
 
-        const filtered = records.filter((record: any) => {
-            // Flexible matching on keys due to potential encoding issues in headers
-            const producto = record['Producto'] || record['Producto '];
-            const principio = record['Principio Activo'];
+        // Only filter if there is a term
+        if (term && term.trim() !== '') {
+            const normalizedTerm = term.toLowerCase().trim();
+            const isLetterFilter = normalizedTerm.length === 1 && /^[a-z]$/i.test(normalizedTerm);
 
-            if (!producto && !principio) return false;
+            filtered = records.filter((record: any) => {
+                // Flexible matching on keys due to potential encoding issues in headers
+                // Based on 'head' output: "Producto " (with space) or just "Producto"
+                const producto = String(record['Producto'] || record['Producto '] || '').trim();
+                const principio = String(record['Principio Activo'] || '').trim();
+                const registro = String(record['Registro'] || '').trim();
 
-            return (
-                (producto && String(producto).toLowerCase().includes(normalizedTerm)) ||
-                (principio && String(principio).toLowerCase().includes(normalizedTerm))
-            );
-        });
+                if (!producto && !principio) return false;
 
-        return filtered.slice(0, 50).map((r: any) => ({
+                if (isLetterFilter) {
+                    // Strict Starts With for A-Z Index Navigation
+                    return producto.toLowerCase().startsWith(normalizedTerm);
+                }
+
+                // General Search (Includes)
+                return (
+                    producto.toLowerCase().includes(normalizedTerm) ||
+                    principio.toLowerCase().includes(normalizedTerm) ||
+                    registro.toLowerCase().includes(normalizedTerm)
+                );
+            });
+        }
+
+        // Pagination Logic
+        const startIndex = (page - 1) * limit;
+        const endIndex = startIndex + limit;
+
+        return filtered.slice(startIndex, endIndex).map((r: any) => ({
             registry_number: r['Registro'] || '',
             product_name: r['Producto'] || r['Producto '] || '',
             active_ingredient: r['Principio Activo'] || '',
             holder: r['Titular'] || '',
             status: r['Estado'] || '',
-            usage: r['Uso / Tratamiento'] || ''
+            usage: r['Uso / Tratamiento'] || '',
+            validity: r['Vigencia'] || ''
         }));
 
     } catch (error) {
@@ -83,85 +112,182 @@ export async function searchBioequivalentsAction(term: string): Promise<Bioequiv
  * Used when user clicks on a bioequivalent result.
  */
 /**
- * Finds products in the LOCAL INVENTORY that match a given Active Ingredient or Name.
- * Implements Fuzzy Search by splitting words to find "close enough" matches.
+ * Finds products in the LOCAL INVENTORY that match a given Active Ingredient (DCI).
+ * Searches in: (1) dci column, (2) name column, (3) inventory_batches name column.
  */
-export async function findInventoryMatchesAction(dciOrName: string): Promise<ProductResult[]> {
-    if (!dciOrName) return [];
+export async function findInventoryMatchesAction(dci: string, ispProductName: string = ''): Promise<ProductResult[]> {
+    if (!dci && !ispProductName) return [];
 
     try {
-        const cleanTerm = dciOrName.trim().replace(/[^\w\s]/gi, ''); // Remove special chars
-        const words = cleanTerm.split(/\s+/).filter(w => w.length > 2); // Only words > 2 chars
+        const cleanDci = dci ? dci.trim().replace(/[^\w\sáéíóúñ]/gi, '') : '';
+        const cleanIspName = ispProductName ? ispProductName.trim().replace(/[^\w\sáéíóúñ]/gi, '') : '';
 
-        let paramCounter = 1;
-        const params: any[] = [];
-        const conditions: string[] = [];
+        // Extract first word of ISP name for brand matching (e.g., "ORALNE" from "ORALNE CÁPSULAS")
+        const ispWords = cleanIspName.split(/\s+/).filter(w => w.length > 3);
+        const brandWord = ispWords.length > 0 ? ispWords[0] : '';
 
-        // Strategy 1: Exact/Partial Match on DCI (High Priority)
-        conditions.push(`dci ILIKE $${paramCounter}`);
-        params.push(`%${cleanTerm}%`);
-        paramCounter++;
+        // Build the pattern for DCI search
+        const dciPattern = cleanDci.length > 2 ? `%${cleanDci}%` : null;
+        const brandPattern = brandWord.length > 2 ? `%${brandWord}%` : null;
 
-        // Strategy 2: All words present in Name (Medium Priority)
-        if (words.length > 0) {
-            const nameConditions = words.map((_, i) => `name ILIKE $${paramCounter + i}`).join(' AND ');
-            conditions.push(`(${nameConditions})`);
-            words.forEach(w => params.push(`%${w}%`));
-            paramCounter += words.length;
-        }
-
-        // Strategy 3: Just simple exact name match as fallback
-        conditions.push(`name ILIKE $${paramCounter}`);
-        params.push(`%${cleanTerm}%`);
-
-        // Construct the OR clause
-        const whereClause = conditions.join(' OR ');
-
+        // Simple SQL: Search for DCI in dci column OR name column
         const sql = `
             WITH matches AS (
+                -- 1. Master Products
                 SELECT 
                     id::text,
                     name::text,
                     sku::text,
                     dci::text,
                     laboratory::text,
+                    format::text,
+                    isp_register::text,
                     price_sell_box as price,
                     stock_actual as stock,
                     units_per_box,
                     is_bioequivalent,
                     CASE 
-                        WHEN dci ILIKE $1 THEN 1             -- Best: DCI match
-                        WHEN name ILIKE $1 THEN 2            -- Good: Exact name match
-                        ELSE 3                               -- Ok: Fuzzy words match
-                    END as priority
+                        WHEN $1::text IS NOT NULL AND dci ILIKE $1 THEN 1  -- Best: DCI column match
+                        WHEN $1::text IS NOT NULL AND name ILIKE $1 THEN 2 -- Good: DCI in name
+                        WHEN $2::text IS NOT NULL AND name ILIKE $2 THEN 3 -- Fallback: Brand name match
+                        ELSE 4 
+                    END as match_priority
                 FROM products
-                WHERE stock_actual > 0
-                AND (${whereClause})
+                WHERE 
+                    ($1::text IS NOT NULL AND (dci ILIKE $1 OR name ILIKE $1))
+                    OR ($2::text IS NOT NULL AND name ILIKE $2)
+                
+                UNION ALL
+                
+                -- 2. Inventory Batches (Legacy/Active Stock) - only search by name
+                SELECT 
+                    id::text,
+                    name::text,
+                    sku::text,
+                    NULL::text as dci,
+                    NULL::text as laboratory,
+                    NULL::text as format,
+                    NULL::text as isp_register,
+                    COALESCE(sale_price, 0) as price,
+                    quantity_real as stock,
+                    1 as units_per_box,
+                    false as is_bioequivalent,
+                    CASE 
+                        WHEN $1::text IS NOT NULL AND name ILIKE $1 THEN 2 -- DCI in name
+                        WHEN $2::text IS NOT NULL AND name ILIKE $2 THEN 3 -- Brand in name
+                        ELSE 5
+                    END as match_priority
+                FROM inventory_batches
+                WHERE 
+                    quantity_real > 0 
+                    AND (
+                        ($1::text IS NOT NULL AND name ILIKE $1)
+                        OR ($2::text IS NOT NULL AND name ILIKE $2)
+                    )
             )
-            SELECT * FROM matches
-            ORDER BY priority ASC, price ASC
-            LIMIT 30
+            SELECT DISTINCT ON (name) * FROM matches
+            WHERE price > 50
+            ORDER BY 
+                name ASC,
+                CASE WHEN stock > 0 THEN 0 ELSE 1 END ASC,
+                match_priority ASC,
+                price ASC
+            LIMIT 50
         `;
 
-        const result = await query(sql, params);
+        const result = await query(sql, [dciPattern, brandPattern]);
 
-        return result.rows.map(row => ({
-            id: row.id,
-            name: row.name,
-            sku: row.sku || 'S/SKU',
-            is_bioequivalent: row.is_bioequivalent || false,
-            stock: Number(row.stock),
-            price: Number(row.price),
-            laboratory: row.laboratory || 'Generico',
-            category: 'Farmacia',
-            action: '',
-            dci: row.dci,
-            units_per_box: row.units_per_box || 1,
-            location_name: ''
-        }));
+        console.log('Ejecutando query', { dciPattern, brandPattern, rows: result.rows.length });
+
+        return result.rows.map(row => {
+            const details = parseProductDetails(
+                row.name,
+                row.units_per_box,
+                row.dci,
+                row.laboratory,
+                row.format
+            );
+
+            return {
+                id: row.id,
+                name: row.name,
+                sku: row.sku || 'S/SKU',
+                is_bioequivalent: row.is_bioequivalent || false,
+                stock: Number(row.stock),
+                price: Number(row.price),
+                laboratory: details.lab || 'Generico', // Parsed or Original
+                category: 'Farmacia',
+                action: '',
+                dci: details.dci || '',
+                units_per_box: details.units,
+                format: details.format || '',
+                isp_register: row.isp_register || '',
+                location_name: ''
+            };
+        });
 
     } catch (error) {
         console.error('❌ Error finding inventory matches:', error);
+        return [];
+    }
+}
+
+/**
+ * Gets a unique list of Active Ingredients from the ISP CSV.
+ * Sorted alphabetically and paginated.
+ */
+export async function getUniqueActiveIngredientsAction(term: string, page: number = 1, limit: number = 50): Promise<string[]> {
+    try {
+        const fileContent = fs.readFileSync(ISP_FILE_PATH, 'latin1');
+
+        const records = parse(fileContent, {
+            columns: true,
+            skip_empty_lines: true,
+            delimiter: ';',
+            trim: true,
+            relax_column_count: true,
+            from_line: 4
+        });
+
+        // Extract unique active ingredients
+        const uniqueIngredients = new Set<string>();
+
+        console.log(`🔍 [ActiveIngredients] Reading file from: ${ISP_FILE_PATH}`);
+        console.log(`🔍 [ActiveIngredients] Records parsed: ${records.length}`);
+        if (records.length > 0) {
+            console.log(`🔍 [ActiveIngredients] Sample Keys: ${Object.keys(records[0] as object).join(', ')}`);
+        }
+
+        records.forEach((r: any) => {
+            const val = r['Principio Activo']; // Try exact match from script finding
+            if (val && typeof val === 'string' && val.trim().length > 2) {
+                uniqueIngredients.add(val.trim().toUpperCase());
+            }
+        });
+
+        console.log(`🔍 [ActiveIngredients] Unique ingredients found: ${uniqueIngredients.size}`);
+
+        let sortedList = Array.from(uniqueIngredients).sort();
+
+        // Filter if term exists
+        if (term && term.trim() !== '') {
+            const normalizedTerm = term.toUpperCase().trim();
+            // If term is a single letter, assume "Starts With" filter
+            if (normalizedTerm.length === 1 && /^[A-Z]$/.test(normalizedTerm)) {
+                sortedList = sortedList.filter(item => item.startsWith(normalizedTerm));
+            } else {
+                sortedList = sortedList.filter(item => item.includes(normalizedTerm));
+            }
+        }
+
+        // Pagination
+        const startIndex = (page - 1) * limit;
+        const endIndex = startIndex + limit;
+
+        return sortedList.slice(startIndex, endIndex);
+
+    } catch (error) {
+        console.error('❌ Error getting active ingredients:', error);
         return [];
     }
 }
