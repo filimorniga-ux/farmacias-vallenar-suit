@@ -82,14 +82,41 @@ export async function searchBioequivalentsAction(term: string): Promise<Bioequiv
  * Finds products in the LOCAL INVENTORY that match a given Active Ingredient or Name.
  * Used when user clicks on a bioequivalent result.
  */
+/**
+ * Finds products in the LOCAL INVENTORY that match a given Active Ingredient or Name.
+ * Implements Fuzzy Search by splitting words to find "close enough" matches.
+ */
 export async function findInventoryMatchesAction(dciOrName: string): Promise<ProductResult[]> {
     if (!dciOrName) return [];
 
     try {
-        const searchTerm = `%${dciOrName.trim()}%`;
+        const cleanTerm = dciOrName.trim().replace(/[^\w\s]/gi, ''); // Remove special chars
+        const words = cleanTerm.split(/\s+/).filter(w => w.length > 2); // Only words > 2 chars
 
-        // Search in Products (Preferred) and Batches
-        // Specific logic: Match DCI strongly, then Name
+        let paramCounter = 1;
+        const params: any[] = [];
+        const conditions: string[] = [];
+
+        // Strategy 1: Exact/Partial Match on DCI (High Priority)
+        conditions.push(`dci ILIKE $${paramCounter}`);
+        params.push(`%${cleanTerm}%`);
+        paramCounter++;
+
+        // Strategy 2: All words present in Name (Medium Priority)
+        if (words.length > 0) {
+            const nameConditions = words.map((_, i) => `name ILIKE $${paramCounter + i}`).join(' AND ');
+            conditions.push(`(${nameConditions})`);
+            words.forEach(w => params.push(`%${w}%`));
+            paramCounter += words.length;
+        }
+
+        // Strategy 3: Just simple exact name match as fallback
+        conditions.push(`name ILIKE $${paramCounter}`);
+        params.push(`%${cleanTerm}%`);
+
+        // Construct the OR clause
+        const whereClause = conditions.join(' OR ');
+
         const sql = `
             WITH matches AS (
                 SELECT 
@@ -103,20 +130,20 @@ export async function findInventoryMatchesAction(dciOrName: string): Promise<Pro
                     units_per_box,
                     is_bioequivalent,
                     CASE 
-                        WHEN dci ILIKE $1 THEN 1 
-                        WHEN name ILIKE $1 THEN 2
-                        ELSE 3 
+                        WHEN dci ILIKE $1 THEN 1             -- Best: DCI match
+                        WHEN name ILIKE $1 THEN 2            -- Good: Exact name match
+                        ELSE 3                               -- Ok: Fuzzy words match
                     END as priority
                 FROM products
                 WHERE stock_actual > 0
-                AND (dci ILIKE $1 OR name ILIKE $1)
+                AND (${whereClause})
             )
             SELECT * FROM matches
             ORDER BY priority ASC, price ASC
-            LIMIT 20
+            LIMIT 30
         `;
 
-        const result = await query(sql, [searchTerm]);
+        const result = await query(sql, params);
 
         return result.rows.map(row => ({
             id: row.id,
