@@ -12,16 +12,16 @@ const pool = new Pool({
     connectionTimeoutMillis: 5000
 });
 
-pool.connect().then(client => {
-    client.query('SELECT COUNT(*) FROM productos').then(r => {
+pool.connect().then((client: any) => {
+    client.query('SELECT COUNT(*) FROM productos').then((r: any) => {
         console.log('📊 Current Product Count:', r.rows[0].count);
         client.release();
         process.exit(0);
-    }).catch(e => {
+    }).catch((e: any) => {
         console.error(e);
         process.exit(1);
     });
-}).catch(e => {
+}).catch((e: any) => {
     console.error(e);
     process.exit(1);
 });
