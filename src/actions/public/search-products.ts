@@ -1,6 +1,7 @@
 'use server';
 
 import { query } from '@/lib/db';
+import { parseProductDetails } from '@/lib/product-parser';
 
 export interface ProductResult {
     id: string;
@@ -15,6 +16,7 @@ export interface ProductResult {
     laboratory?: string;
     dci?: string;
     units_per_box?: number;
+    isp_register?: string;
 }
 
 // Enhanced Search with Optimized Performance (Push-down Predicates)
@@ -64,6 +66,8 @@ export async function searchProductsAction(
                     sku::text,
                     dci::text,
                     laboratory::text,
+                    format::text,
+                    isp_register::text,
                     price_sell_box as price,
                     stock_actual as stock,
                     units_per_box,
@@ -82,6 +86,8 @@ export async function searchProductsAction(
                     sku::text,
                     NULL::text as dci,
                     NULL::text as laboratory,
+                    NULL::text as format,
+                    NULL::text as isp_register,
                     COALESCE(sale_price, 0) as price,
                     quantity_real as stock,
                     1 as units_per_box,
@@ -97,6 +103,8 @@ export async function searchProductsAction(
                 sku,
                 dci,
                 laboratory,
+                format,
+                isp_register,
                 price,
                 stock,
                 units_per_box,
@@ -112,21 +120,31 @@ export async function searchProductsAction(
 
         console.log(`✅ [Search AI] Optimizado: ${result.rows.length} encontrados.`);
 
-        return result.rows.map(row => ({
-            id: row.id,
-            name: row.name,
-            sku: row.sku || 'S/SKU',
-            is_bioequivalent: row.is_bioequivalent || false,
-            stock: Number(row.stock),
-            price: Number(row.price),
-            laboratory: row.laboratory || 'Generico',
-            category: 'Farmacia',
-            action: '',
-            dci: row.dci,
-            units_per_box: row.units_per_box || 1,
-            format: '',
-            location_name: ''
-        }));
+        return result.rows.map(row => {
+            const details = parseProductDetails(
+                row.name,
+                row.units_per_box,
+                row.dci,
+                row.laboratory,
+                row.format
+            );
+            return {
+                id: row.id,
+                name: row.name,
+                sku: row.sku || 'S/SKU',
+                is_bioequivalent: row.is_bioequivalent || false,
+                stock: Number(row.stock),
+                price: Number(row.price),
+                laboratory: details.lab || 'Generico',
+                category: 'Farmacia',
+                action: '',
+                dci: details.dci || '',
+                units_per_box: details.units,
+                format: details.format || '',
+                isp_register: row.isp_register || '',
+                location_name: ''
+            };
+        });
 
     } catch (error) {
         console.error('❌ Error in search:', error);
