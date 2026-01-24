@@ -941,7 +941,7 @@ export async function getInventorySecure(
                     p.units::text,
                     p.prescription_type::text
                 FROM products p
-                WHERE (p.location_id = $1 OR p.location_id IS NULL)
+                WHERE (p.location_id = $1::text OR p.location_id IS NULL)
                 AND NOT EXISTS (
                     SELECT 1 FROM location_batches lb 
                     WHERE lb.sku = p.sku
