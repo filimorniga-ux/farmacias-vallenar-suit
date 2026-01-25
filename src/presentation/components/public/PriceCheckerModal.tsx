@@ -119,7 +119,9 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
         const timeoutId = setTimeout(() => {
             if (activeLetter) return; // Ignore query updates if letter filter is active (handled separately)
 
-            if (query.length >= 2) {
+            // Allow search if >= 2 chars OR if it's a number (for ID/Registry search)
+            const isNumeric = /^\d+$/.test(query);
+            if (query.length >= 2 || (isNumeric && query.length >= 1)) {
                 startTransition(async () => {
                     setPage(1); // Reset page on new search
                     if (mode === 'SEARCH_BIO') {
@@ -363,7 +365,7 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 w-screen h-screen z-[9999] bg-slate-50 flex flex-col overflow-hidden font-sans">
+        <div className="fixed inset-0 w-screen h-[100dvh] z-[9999] bg-slate-50 flex flex-col overflow-hidden font-sans">
 
             {/* TOP BAR */}
             <div className="bg-white border-b border-slate-200 p-4 shadow-sm z-20 flex justify-between items-center shrink-0 h-20">
@@ -406,7 +408,7 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
 
                 {/* 1. LANDING PAGE (3 BIG BUTTONS) */}
                 {mode === 'LANDING' && (
-                    <div className="flex-1 flex flex-col items-center justify-center p-8 animate-in fade-in duration-500">
+                    <div className="flex-1 flex flex-col items-center justify-start md:justify-center p-4 md:p-8 overflow-y-auto animate-in fade-in duration-500 w-full">
                         <h1 className="text-4xl md:text-5xl font-black text-slate-800 mb-2 text-center">
                             ¿Qué estás buscando hoy?
                         </h1>
@@ -535,7 +537,7 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                         </div>
 
                         {/* LIST RESULTS */}
-                        <div className="flex-1 overflow-y-auto px-6 pb-6 custom-scrollbar relative">
+                        <div className="flex-1 overflow-y-auto px-4 md:px-6 pb-6 custom-scrollbar relative min-h-0">
                             {/* ALPHABET FILTER */}
                             {(mode === 'SEARCH_PRODUCT' || mode === 'SEARCH_ACTIVE' || mode === 'SEARCH_BIO') && (
                                 <AlphabetFilter onSelectLetter={handleLetterSelect} activeLetter={activeLetter} />
