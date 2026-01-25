@@ -29,7 +29,7 @@ export interface BioequivalentResult {
     validity: string;
 }
 
-const ISP_FILE_PATH = path.join(process.cwd(), 'data_imports', 'isp_oficial.csv');
+const ISP_FILE_PATH = path.join(process.cwd(), 'public', 'data', 'isp_oficial.csv');
 
 /**
  * Searches for Bioequivalents in the ISP CSV file.
