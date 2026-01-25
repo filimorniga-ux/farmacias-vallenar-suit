@@ -141,6 +141,7 @@ interface PharmaState {
 
     openShift: (amount: number, cashierId: string, authorizedBy: string, terminalId: string, locationId: string, sessionId?: string) => void;
     resumeShift: (shift: Shift) => void;
+    logoutShift: () => void; // Force local logout of shift
     closeShift: (finalAmount: number, authorizedBy: string) => void;
     updateOpeningAmount: (newAmount: number) => void;
     registerCashMovement: (movement: Omit<CashMovement, 'id' | 'timestamp' | 'shift_id' | 'user_id'>) => void;
@@ -1589,6 +1590,18 @@ export const usePharmaStore = create<PharmaState>()(
                     currentTerminalId: shift.terminal_id
                 }));
                 import('sonner').then(({ toast }) => toast.success('Turno reanudado'));
+            },
+
+            logoutShift: () => {
+                try {
+                    localStorage.removeItem('pos_session_id');
+                } catch (e) { }
+
+                set((state) => ({
+                    currentShift: null,
+                    cart: [],
+                    currentCustomer: null
+                }));
             },
 
             closeShift: async (finalAmount, authorizedBy) => {
