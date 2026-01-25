@@ -59,6 +59,12 @@ const RegisterCashCountSchema = z.object({
     notes: z.string().max(500).optional(),
 });
 
+const CloseSystemSchema = z.object({
+    terminalId: UUIDSchema,
+    userId: UUIDSchema, // The NEW user triggering the close (or system admin ID)
+    reason: z.string()
+});
+
 const AdjustCashSchema = z.object({
     sessionId: UUIDSchema,
     userId: UUIDSchema,
@@ -576,8 +582,119 @@ export async function closeCashDrawerSecure(
 }
 
 /**
- * 📊 Register Cash Count (Partial count during shift)
+ * 🤖 System Auto-Close Cash Drawer (No PIN)
+ * Used when a different user logs in to a terminal with an active session.
  */
+export async function closeCashDrawerSystem(
+    data: z.infer<typeof CloseSystemSchema>
+): Promise<{ success: boolean; error?: string }> {
+    const validated = CloseSystemSchema.safeParse(data);
+    if (!validated.success) {
+        return { success: false, error: validated.error.issues[0]?.message };
+    }
+
+    const { terminalId, userId, reason } = validated.data;
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        // Get active session
+        const sessionRes = await client.query(`
+            SELECT id, opening_amount, opened_at, user_id
+            FROM cash_register_sessions 
+            WHERE terminal_id = $1::uuid AND closed_at IS NULL
+            FOR UPDATE NOWAIT
+        `, [terminalId]);
+
+        if (sessionRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'No hay sesión activa para cerrar' };
+        }
+
+        const session = sessionRes.rows[0];
+        const openingAmount = Number(session.opening_amount);
+
+        // Calculate expected cash (to assume perfect close)
+        const salesRes = await client.query(`
+            SELECT COALESCE(SUM(COALESCE(total_amount, total)), 0) as cash_sales
+            FROM sales 
+            WHERE terminal_id = $1::uuid 
+            AND session_id = $2
+            AND payment_method = 'CASH'
+            AND status != 'VOIDED'
+        `, [terminalId, session.id]);
+
+        const movementsRes = await client.query(`
+            SELECT 
+                COALESCE(SUM(CASE WHEN type IN ('EXTRA_INCOME') THEN amount ELSE 0 END), 0) as total_in,
+                COALESCE(SUM(CASE WHEN type IN ('WITHDRAWAL', 'EXPENSE') THEN amount ELSE 0 END), 0) as total_out
+            FROM cash_movements
+            WHERE session_id = $1::uuid AND type NOT IN ('OPENING')
+        `, [session.id]);
+
+        const cashSales = Number(salesRes.rows[0].cash_sales);
+        const cashIn = Number(movementsRes.rows[0].total_in);
+        const cashOut = Number(movementsRes.rows[0].total_out);
+        const expectedCash = openingAmount + cashSales + cashIn - cashOut;
+
+        // Auto-close with 0 difference
+        await client.query(`
+            UPDATE cash_register_sessions 
+            SET closed_at = NOW(),
+                closing_amount = $2,
+                status = 'CLOSED_SYSTEM', 
+                cash_difference = 0,
+                notes = COALESCE(notes, '') || E'\n[SISTEMA] ' || $3
+            WHERE id = $1::uuid
+        `, [session.id, expectedCash, reason]);
+
+        // Release terminal
+        await client.query(`
+            UPDATE terminals 
+            SET current_cashier_id = NULL, status = 'CLOSED', updated_at = NOW()
+            WHERE id = $1::uuid
+        `, [terminalId]);
+
+        // Audit
+        await insertCashAudit(client, {
+            userId: userId, // The new user closing the old session
+            sessionId: session.id,
+            terminalId,
+            actionCode: 'CASH_DRAWER_AUTO_CLOSED',
+            amount: expectedCash,
+            notes: reason,
+            newValues: {
+                closed_by: 'SYSTEM',
+                reason
+            }
+        });
+
+        await client.query('COMMIT');
+
+        // Notify
+        try {
+            await createNotificationSecure({
+                type: 'CASH',
+                severity: 'WARNING', // Warning so admin sees it
+                title: 'Cierre Automático de Caja',
+                message: `Cierre forzado por sistema. Motivo: ${reason}`,
+                metadata: { sessionId: session.id, terminalId, reason },
+                locationId: (await client.query('SELECT location_id FROM terminals WHERE id = $1', [terminalId])).rows[0]?.location_id
+            });
+        } catch (e) { }
+
+        revalidatePath('/caja');
+        return { success: true };
+
+    } catch (error: any) {
+        await client.query('ROLLBACK');
+        logger.error({ error }, '[Cash] System close error');
+        return { success: false, error: 'Error en cierre automático' };
+    } finally {
+        client.release();
+    }
+}
 export async function registerCashCountSecure(
     data: z.infer<typeof RegisterCashCountSchema>
 ): Promise<{ success: boolean; difference?: number; error?: string }> {

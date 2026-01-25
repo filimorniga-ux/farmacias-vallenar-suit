@@ -162,40 +162,85 @@ const POSMainScreen: React.FC = () => {
 
     useEffect(() => {
         const checkActiveSession = async () => {
-            // Only if we have a terminal selected but NO active shift in memory
-            if (currentTerminalId && !currentShift) {
-                try {
-                    // Check server for open session
-                    const { getCashDrawerStatus } = await import('../../actions/cash-management-v2');
-                    const status = await getCashDrawerStatus(currentTerminalId);
+            try {
+                // Import actions dynamically
+                const { getCashDrawerStatus, closeCashDrawerSystem } = await import('../../actions/cash-management-v2');
 
-                    if (status.success && status.data?.isOpen && status.data.sessionId) {
-                        console.log('🔄 [POS] Recovering active session:', status.data.sessionId);
+                // Guard: Need a terminal to check status
+                if (!currentTerminalId) return;
 
-                        // Reconstruct minimal shift object for store
+                const status = await getCashDrawerStatus(currentTerminalId);
+
+                // --- CASE A: Validate Persisted Local Session ---
+                if (currentShift) {
+                    // If server says open and IDs match, we are good.
+                    const serverSessionId = status.data?.isOpen ? status.data.sessionId : null;
+
+                    if (serverSessionId !== currentShift.id) {
+                        console.warn('⚠️ [POS] Local session mismatch with server. Invalidating local session.');
+                        // If we are here, frontend has a stale session.
+                        // Force logout local to unlock UI state.
+                        usePharmaStore.getState().logoutShift();
+                        toast.error('Sesión local no válida', { description: 'Su sesión expiró o fue cerrada remotamente.' });
+
+                        // After invalidating, we might want to recover if there is a valid one (e.g. system closed and re-opened?)
+                        // But usually this means we just reset to Blocked state.
+                    } else {
+                        console.log('✅ [POS] Local session validated with server.');
+                    }
+                    return;
+                }
+
+                // --- CASE B: Attempt Recovery (No Local Session) ---
+                if (status.success && status.data?.isOpen && status.data.sessionId) {
+                    const sessionUser = status.data.cashierId;
+                    const currentUser = user?.id;
+
+                    // SCENARIO 1: SAME USER -> RESUME SESSION (PERSISTENCE)
+                    if (sessionUser === currentUser) {
+                        console.log('🔄 [POS] Recovering active session for SAME user:', status.data.sessionId);
                         const recoveredShift: any = {
                             id: status.data.sessionId,
                             terminal_id: currentTerminalId,
-                            user_id: status.data.cashierId || user?.id || '',
+                            user_id: currentUser || '',
                             opening_amount: Number(status.data.openingAmount || 0),
                             start_time: status.data.openedAt ? new Date(status.data.openedAt).getTime() : Date.now(),
-                            status: 'ACTIVE' // Force active locally
+                            status: 'ACTIVE'
                         };
-
-                        // Hydrate store
                         usePharmaStore.getState().resumeShift(recoveredShift);
                         toast.success('Sesión recuperada', {
-                            description: `Cajero: ${status.data.cashierName || 'Usuario'}`
+                            description: `Continuando turno de: ${status.data.cashierName || 'Usuario'}`
                         });
                     }
-                } catch (error) {
-                    console.error('Failed to recover session', error);
+                    // SCENARIO 2: DIFFERENT USER -> AUTO-CLOSE PREVIOUS SESSION
+                    else if (currentUser) {
+                        console.warn('⚠️ [POS] Session User Mismatch. Auto-closing previous session.');
+
+                        const closeResult = await closeCashDrawerSystem({
+                            terminalId: currentTerminalId,
+                            userId: currentUser, // action performed by current user
+                            reason: `Cierre automático por cambio de usuario. (Anterior: ${status.data.cashierName}, Nuevo: ${user?.name})`
+                        });
+
+                        if (closeResult.success) {
+                            toast.info('Turno anterior cerrado automáticamente', {
+                                description: `Se cerró la sesión de ${status.data.cashierName} para que puedas operar.`,
+                                duration: 8000,
+                                icon: <RefreshCw className="animate-spin" />
+                            });
+                            // Do NOT resume. Let the UI show "Blocked" state so user can open new shift.
+                        } else {
+                            toast.error('Error cerrando turno anterior', { description: closeResult.error });
+                        }
+                    }
                 }
+            } catch (error) {
+                console.error('Failed to recover/check session', error);
             }
         };
 
         checkActiveSession();
-    }, [currentTerminalId, currentShift, user?.id]);
+    }, [currentTerminalId, currentShift?.id, user?.id]);
 
     const metrics = getShiftMetrics();
     const [isEditBaseModalOpen, setIsEditBaseModalOpen] = useState(false);
@@ -1091,8 +1136,8 @@ const POSMainScreen: React.FC = () => {
                                 onClick={handlePrePayment}
                                 disabled={cart.length === 0 || !currentShift || currentShift.status !== 'ACTIVE' || isLoadingQuote}
                                 className={`w-full md:w-auto px-10 md:px-16 py-6 md:py-8 rounded-xl font-extrabold text-2xl md:text-4xl shadow-xl transition-all transform hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none ${isQuoteMode
-                                        ? 'bg-slate-700 hover:bg-slate-600 text-white shadow-slate-900/30'
-                                        : 'bg-gradient-to-br from-amber-300 via-amber-400 to-amber-500 border-2 border-amber-600/50 text-slate-900 shadow-amber-500/40'
+                                    ? 'bg-slate-700 hover:bg-slate-600 text-white shadow-slate-900/30'
+                                    : 'bg-gradient-to-br from-amber-300 via-amber-400 to-amber-500 border-2 border-amber-600/50 text-slate-900 shadow-amber-500/40'
                                     }`}
                             >
                                 {isLoadingQuote ? 'GUARDANDO...' : (isQuoteMode ? 'GUARDAR COTIZACIÓN' : 'PAGAR')}
