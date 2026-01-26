@@ -1,6 +1,9 @@
 'use server';
 
 import ispData from '@/data/isp-data.json';
+import { query } from '@/lib/db';
+import { ProductResult } from './search-products';
+import { parseProductDetails } from '@/lib/product-parser';
 
 // Type definition based on the JSON structure
 interface ISPJsonRecord {
@@ -12,6 +15,18 @@ interface ISPJsonRecord {
     usage: string;
     validity: string;
 }
+
+export interface BioequivalentResult {
+    registry_number: string;
+    product_name: string;
+    active_ingredient: string;
+    holder: string;
+    status: string;
+    usage: string;
+    validity: string;
+}
+
+const records: ISPJsonRecord[] = ispData as ISPJsonRecord[];
 
 const records: ISPJsonRecord[] = ispData as ISPJsonRecord[];
 
