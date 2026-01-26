@@ -8,6 +8,7 @@ import { searchProductsAction, type ProductResult } from '@/actions/public/searc
 import { browseProductsAction } from '@/actions/public/browse-products';
 import { searchBioequivalentsAction, findInventoryMatchesAction, getUniqueActiveIngredientsAction, type BioequivalentResult } from '@/actions/public/bioequivalents';
 import { getAlternativesAction, type AlternativeResult } from '@/actions/public/get-alternatives';
+import { diagnoseDbConnection } from '@/actions/debug/diagnose-db';
 import { LegalModal } from './LegalModal';
 import { VirtualKeyboard } from '../ui/VirtualKeyboard';
 import { AlphabetFilter } from '../ui/AlphabetFilter';
@@ -404,6 +405,21 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                 </div>
 
                 <div className="flex gap-3">
+                    <button
+                        onClick={async () => {
+                            if (confirm('¿Ejecutar diagnóstico de conexión?')) {
+                                try {
+                                    const res = await diagnoseDbConnection();
+                                    alert(JSON.stringify(res, null, 2));
+                                } catch (e: any) {
+                                    alert('Error: ' + e.message);
+                                }
+                            }
+                        }}
+                        className="p-2 opacity-50 hover:opacity-100 text-xs text-slate-400"
+                    >
+                        🔍
+                    </button>
                     <button
                         onClick={() => setIsExitPinOpen(true)}
                         className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 transition-colors font-bold text-sm tracking-wide"
