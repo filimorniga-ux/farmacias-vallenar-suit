@@ -32,6 +32,19 @@ export async function diagnoseDbConnection() {
         // 3. Run Query
         const res = await client.query('SELECT NOW() as now, version() as version');
         diagnosis.timestamp = res.rows[0].now;
+
+        // 4. Check Data Counts
+        try {
+            const countProducts = await client.query('SELECT COUNT(*) as count FROM products');
+            const countBatches = await client.query('SELECT COUNT(*) as count FROM inventory_batches');
+            (diagnosis as any).dataCounts = {
+                products: countProducts.rows[0].count,
+                batches: countBatches.rows[0].count
+            };
+        } catch (e: any) {
+            (diagnosis as any).dataError = e.message;
+        }
+
         diagnosis.connectionStatus = 'SUCCESS';
 
         client.release();
