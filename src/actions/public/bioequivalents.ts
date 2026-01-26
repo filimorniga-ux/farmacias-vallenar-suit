@@ -29,24 +29,56 @@ export interface BioequivalentResult {
     validity: string;
 }
 
-const ISP_FILE_PATH = path.join(process.cwd(), 'public', 'data', 'isp_oficial.csv');
+const ISP_FILENAME = 'isp_oficial.csv';
 
-/**
- * Searches for Bioequivalents in the ISP CSV file.
- * This reads the file on every request (simple approach) or caches it if memory allows.
- * effective for < 10MB files.
- */
+// Helper to find the file in Vercel's unpredictable environment
+function getISPFilePath(): string | null {
+    const candidates = [
+        path.join(process.cwd(), 'public', 'data', ISP_FILENAME), // Standard Local / Vercel sometimes
+        path.resolve('./public/data', ISP_FILENAME),              // Resolve relative
+        path.join(process.cwd(), 'data', ISP_FILENAME),           // Some Vercel deployments flatten public
+        path.join(__dirname, '..', 'public', 'data', ISP_FILENAME), // Dir relative
+        path.join(process.cwd(), ISP_FILENAME)                    // Root fallback
+    ];
+
+    for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) {
+            console.log(`✅ [ISP] File found at: ${candidate}`);
+            return candidate;
+        }
+    }
+
+    // LIST DIRECTORY FOR DEBUGGING IF NOT FOUND
+    console.error(`❌ [ISP] File NOT found. CWD: ${process.cwd()}`);
+    try {
+        const publicDir = path.join(process.cwd(), 'public');
+        if (fs.existsSync(publicDir)) {
+            console.log('📂 Public Dir Contents:', fs.readdirSync(publicDir));
+            const dataDir = path.join(publicDir, 'data');
+            if (fs.existsSync(dataDir)) {
+                console.log('📂 Public/Data Dir Contents:', fs.readdirSync(dataDir));
+            }
+        } else {
+            console.log('📂 Root Dir Contents:', fs.readdirSync(process.cwd()));
+        }
+    } catch (e) {
+        console.error('Error listing dirs:', e);
+    }
+
+    return null;
+}
+
 /**
  * Searches for Bioequivalents in the ISP CSV file.
  * This reads the file on every request (simple approach) or caches it if memory allows.
  * effective for < 10MB files.
  */
 export async function searchBioequivalentsAction(term: string, page: number = 1, limit: number = 50): Promise<BioequivalentResult[]> {
-    // If term is empty, return initial list (e.g. first 50 records)
-    // allowing the user to scroll through the list immediately.
-
     try {
-        const fileContent = fs.readFileSync(ISP_FILE_PATH, 'latin1');
+        const filePath = getISPFilePath();
+        if (!filePath) throw new Error('ISP Database File not found in deployment');
+
+        const fileContent = fs.readFileSync(filePath, 'latin1');
 
         const records = parse(fileContent, {
             columns: true,
@@ -56,6 +88,8 @@ export async function searchBioequivalentsAction(term: string, page: number = 1,
             relax_column_count: true,
             from_line: 4 // Skip the first 3 metadata lines
         });
+
+        console.log(`📊 [ISP] Loaded ${records.length} records`);
 
         let filtered = records;
 
@@ -238,7 +272,10 @@ export async function findInventoryMatchesAction(dci: string, ispProductName: st
  */
 export async function getUniqueActiveIngredientsAction(term: string, page: number = 1, limit: number = 50): Promise<string[]> {
     try {
-        const fileContent = fs.readFileSync(ISP_FILE_PATH, 'latin1');
+        const filePath = getISPFilePath();
+        if (!filePath) throw new Error('ISP Database File not found');
+
+        const fileContent = fs.readFileSync(filePath, 'latin1');
 
         const records = parse(fileContent, {
             columns: true,
@@ -252,7 +289,7 @@ export async function getUniqueActiveIngredientsAction(term: string, page: numbe
         // Extract unique active ingredients
         const uniqueIngredients = new Set<string>();
 
-        console.log(`🔍 [ActiveIngredients] Reading file from: ${ISP_FILE_PATH}`);
+        console.log(`🔍 [ActiveIngredients] Reading file from: ${filePath}`);
         console.log(`🔍 [ActiveIngredients] Records parsed: ${records.length}`);
         if (records.length > 0) {
             console.log(`🔍 [ActiveIngredients] Sample Keys: ${Object.keys(records[0] as object).join(', ')}`);
