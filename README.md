@@ -59,6 +59,24 @@ npm run build
 npm preview
 ```
 
+### **Ejecutar Tests**
+
+```bash
+# Tests unitarios (con mocks, sin DB real)
+npm test
+
+# Tests con cobertura
+npm run test:coverage
+
+# Tests de integración (requiere DB real)
+# 1. Configura POSTGRES_URL en .env.test
+# 2. Ejecuta:
+POSTGRES_URL=postgres://user:pass@host:5432/db npm test
+```
+
+> **Nota:** Los tests unitarios usan `DATABASE_URL` mock definido en `vitest.config.ts`.  
+> Los tests de integración se saltan automáticamente si no hay `POSTGRES_URL` configurado.
+
 ### **Acceso a la Aplicación**
 
 **URL:** `http://localhost:5173`
