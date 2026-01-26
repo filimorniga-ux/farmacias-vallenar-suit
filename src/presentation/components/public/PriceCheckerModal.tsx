@@ -580,7 +580,7 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                                 </div>
                             )}
 
-                            <div className={`mx-auto space-y-4 ${mode === 'SEARCH_BIO' ? 'w-full' : 'max-w-6xl'}`}>
+                            <div className={`mx-auto space-y-4 ${mode === 'SEARCH_BIO' ? 'w-full' : 'max-w-7xl'}`}>
                                 {isPending && <div className="text-center py-10 text-slate-400 font-bold">Buscando...</div>}
 
                                 {/* BIO RESULTS TABLE */}
@@ -658,7 +658,7 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
 
                                 {/* PRODUCT RESULTS */}
                                 {mode === 'SEARCH_ACTIVE' && bioResults.length > 0 && !selectedProduct && inventoryMatches.length === 0 && (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                                         {bioResults.map((ingredient: any, idx) => (
                                             <button
                                                 key={idx}
@@ -690,34 +690,40 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                                     </div>
                                 )}
 
-                                {/* PRODUCT RESULTS */}
-                                {mode !== 'SEARCH_BIO' && productResults.map((product) => (
-                                    <div
-                                        key={product.id}
-                                        onClick={() => handleProductSelect(product)}
-                                        className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-blue-400 hover:shadow-lg cursor-pointer transition-all flex items-center justify-between group"
-                                    >
-                                        <div>
-                                            <h3 className="text-xl font-black text-slate-800 group-hover:text-blue-700">{product.name}</h3>
-                                            <div className="flex items-center gap-2 mt-1">
-                                                <span className="text-sm font-bold text-slate-500">{product.laboratory}</span>
-                                                {product.dci && <span className="text-xs bg-slate-100 px-2 py-0.5 rounded text-slate-600 font-medium">{product.dci}</span>}
+                                {/* PRODUCT RESULTS GRID */}
+                                {mode !== 'SEARCH_BIO' && productResults.length > 0 && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                        {productResults.map((product) => (
+                                            <div
+                                                key={product.id}
+                                                onClick={() => handleProductSelect(product)}
+                                                className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-blue-400 hover:shadow-lg cursor-pointer transition-all flex flex-col justify-between group h-full"
+                                            >
+                                                <div className="mb-4">
+                                                    <h3 className="text-xl font-black text-slate-800 group-hover:text-blue-700 leading-tight mb-2">{product.name}</h3>
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <span className="text-sm font-bold text-slate-500">{product.laboratory}</span>
+                                                        {product.dci && <span className="text-xs bg-slate-100 px-2 py-0.5 rounded text-slate-600 font-medium">{product.dci}</span>}
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-end justify-between border-t border-slate-50 pt-3 mt-auto">
+                                                    <div className="flex flex-col">
+                                                        {/* Unit Price aligned bottom left */}
+                                                        <div className="text-[11px] font-bold text-slate-400">
+                                                            ${Math.ceil(product.price / (product.units_per_box || 1)).toLocaleString()} c/u
+                                                        </div>
+                                                        {product.stock > 0 ? (
+                                                            <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded inline-block w-fit mt-1">Disponible</span>
+                                                        ) : (
+                                                            <span className="text-xs font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded inline-block w-fit mt-1">Agotado</span>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-2xl font-black text-slate-800">${product.price.toLocaleString()}</div>
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div className="text-right">
-                                            <div className="text-2xl font-black text-slate-800">${product.price.toLocaleString()}</div>
-                                            {/* Unit Price in List */}
-                                            <div className="text-[10px] font-bold text-slate-400">
-                                                ${Math.ceil(product.price / (product.units_per_box || 1)).toLocaleString()} c/u
-                                            </div>
-                                            {product.stock > 0 ? (
-                                                <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded inline-block mt-1">Disponible</span>
-                                            ) : (
-                                                <span className="text-xs font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded inline-block mt-1">Agotado</span>
-                                            )}
-                                        </div>
+                                        ))}
                                     </div>
-                                ))}
+                                )}
 
                                 {mode === 'SEARCH_PRODUCT' && hasMore && productResults.length > 0 && (
                                     <div className="text-center py-4">
