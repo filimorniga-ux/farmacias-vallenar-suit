@@ -18,7 +18,7 @@ async function testSearch(term: string) {
             trim: true,
             relax_column_count: true,
             from_line: 4 // Skip metadata
-        });
+        }) as any[];
 
         console.log(`   - Total Records: ${records.length}`);
         if (records.length > 0) {
