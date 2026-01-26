@@ -1,27 +1,11 @@
 'use server';
 
-import fs from 'fs';
-import path from 'path';
-import { parse } from 'csv-parse/sync';
-import { query } from '@/lib/db';
-import { ProductResult } from './search-products';
-import { parseProductDetails } from '@/lib/product-parser';
+import ispData from '@/data/isp-data.json';
 
-// Interface for ISP CSV Record
-interface ISPRecord {
-    'N': string; // Note: Encoding might make this key weird, handle with index if needed
-    'Principio Activo': string;
-    'Producto ': string; // Note the trailing space in header based on user sample
-    'Registro': string;
-    'Titular': string;
-    'Estado': string;
-    'Vigencia': string;
-    'Uso / Tratamiento': string;
-}
-
-export interface BioequivalentResult {
-    registry_number: string;
-    product_name: string;
+// Type definition based on the JSON structure
+interface ISPJsonRecord {
+    registry: string;
+    product: string;
     active_ingredient: string;
     holder: string;
     status: string;
@@ -29,67 +13,15 @@ export interface BioequivalentResult {
     validity: string;
 }
 
-const ISP_FILENAME = 'isp_oficial.csv';
-
-// Helper to find the file in Vercel's unpredictable environment
-function getISPFilePath(): string | null {
-    const candidates = [
-        path.join(process.cwd(), 'public', 'data', ISP_FILENAME), // Standard Local / Vercel sometimes
-        path.resolve('./public/data', ISP_FILENAME),              // Resolve relative
-        path.join(process.cwd(), 'data', ISP_FILENAME),           // Some Vercel deployments flatten public
-        path.join(__dirname, '..', 'public', 'data', ISP_FILENAME), // Dir relative
-        path.join(process.cwd(), ISP_FILENAME)                    // Root fallback
-    ];
-
-    for (const candidate of candidates) {
-        if (fs.existsSync(candidate)) {
-            console.log(`✅ [ISP] File found at: ${candidate}`);
-            return candidate;
-        }
-    }
-
-    // LIST DIRECTORY FOR DEBUGGING IF NOT FOUND
-    console.error(`❌ [ISP] File NOT found. CWD: ${process.cwd()}`);
-    try {
-        const publicDir = path.join(process.cwd(), 'public');
-        if (fs.existsSync(publicDir)) {
-            console.log('📂 Public Dir Contents:', fs.readdirSync(publicDir));
-            const dataDir = path.join(publicDir, 'data');
-            if (fs.existsSync(dataDir)) {
-                console.log('📂 Public/Data Dir Contents:', fs.readdirSync(dataDir));
-            }
-        } else {
-            console.log('📂 Root Dir Contents:', fs.readdirSync(process.cwd()));
-        }
-    } catch (e) {
-        console.error('Error listing dirs:', e);
-    }
-
-    return null;
-}
+const records: ISPJsonRecord[] = ispData as ISPJsonRecord[];
 
 /**
- * Searches for Bioequivalents in the ISP CSV file.
- * This reads the file on every request (simple approach) or caches it if memory allows.
- * effective for < 10MB files.
+ * Searches for Bioequivalents in the BUNDLED JSON data.
+ * No file reading required at runtime.
  */
 export async function searchBioequivalentsAction(term: string, page: number = 1, limit: number = 50): Promise<BioequivalentResult[]> {
     try {
-        const filePath = getISPFilePath();
-        if (!filePath) throw new Error('ISP Database File not found in deployment');
-
-        const fileContent = fs.readFileSync(filePath, 'latin1');
-
-        const records = parse(fileContent, {
-            columns: true,
-            skip_empty_lines: true,
-            delimiter: ';',
-            trim: true,
-            relax_column_count: true,
-            from_line: 4 // Skip the first 3 metadata lines
-        });
-
-        console.log(`📊 [ISP] Loaded ${records.length} records`);
+        console.log(`📊 [ISP] Searching in ${records.length} bundled records`);
 
         let filtered = records;
 
@@ -98,12 +30,10 @@ export async function searchBioequivalentsAction(term: string, page: number = 1,
             const normalizedTerm = term.toLowerCase().trim();
             const isLetterFilter = normalizedTerm.length === 1 && /^[a-z]$/i.test(normalizedTerm);
 
-            filtered = records.filter((record: any) => {
-                // Flexible matching on keys due to potential encoding issues in headers
-                // Based on 'head' output: "Producto " (with space) or just "Producto"
-                const producto = String(record['Producto'] || record['Producto '] || '').trim();
-                const principio = String(record['Principio Activo'] || '').trim();
-                const registro = String(record['Registro'] || '').trim();
+            filtered = records.filter((record) => {
+                const producto = record.product;
+                const principio = record.active_ingredient;
+                const registro = record.registry;
 
                 if (!producto && !principio) return false;
 
@@ -125,18 +55,18 @@ export async function searchBioequivalentsAction(term: string, page: number = 1,
         const startIndex = (page - 1) * limit;
         const endIndex = startIndex + limit;
 
-        return filtered.slice(startIndex, endIndex).map((r: any) => ({
-            registry_number: r['Registro'] || '',
-            product_name: r['Producto'] || r['Producto '] || '',
-            active_ingredient: r['Principio Activo'] || '',
-            holder: r['Titular'] || '',
-            status: r['Estado'] || '',
-            usage: r['Uso / Tratamiento'] || '',
-            validity: r['Vigencia'] || ''
+        return filtered.slice(startIndex, endIndex).map((r) => ({
+            registry_number: r.registry,
+            product_name: r.product,
+            active_ingredient: r.active_ingredient,
+            holder: r.holder,
+            status: r.status,
+            usage: r.usage,
+            validity: r.validity
         }));
 
     } catch (error) {
-        console.error('❌ Error searching ISP CSV:', error);
+        console.error('❌ Error searching ISP Data:', error);
         return [];
     }
 }
@@ -267,38 +197,18 @@ export async function findInventoryMatchesAction(dci: string, ispProductName: st
 }
 
 /**
- * Gets a unique list of Active Ingredients from the ISP CSV.
+ * Gets a unique list of Active Ingredients from the BUNDLED JSON data.
  * Sorted alphabetically and paginated.
  */
 export async function getUniqueActiveIngredientsAction(term: string, page: number = 1, limit: number = 50): Promise<string[]> {
     try {
-        const filePath = getISPFilePath();
-        if (!filePath) throw new Error('ISP Database File not found');
-
-        const fileContent = fs.readFileSync(filePath, 'latin1');
-
-        const records = parse(fileContent, {
-            columns: true,
-            skip_empty_lines: true,
-            delimiter: ';',
-            trim: true,
-            relax_column_count: true,
-            from_line: 4
-        });
-
         // Extract unique active ingredients
         const uniqueIngredients = new Set<string>();
 
-        console.log(`🔍 [ActiveIngredients] Reading file from: ${filePath}`);
-        console.log(`🔍 [ActiveIngredients] Records parsed: ${records.length}`);
-        if (records.length > 0) {
-            console.log(`🔍 [ActiveIngredients] Sample Keys: ${Object.keys(records[0] as object).join(', ')}`);
-        }
-
-        records.forEach((r: any) => {
-            const val = r['Principio Activo']; // Try exact match from script finding
-            if (val && typeof val === 'string' && val.trim().length > 2) {
-                uniqueIngredients.add(val.trim().toUpperCase());
+        records.forEach((r) => {
+            const val = r.active_ingredient;
+            if (val && val.length > 2) {
+                uniqueIngredients.add(val.toUpperCase());
             }
         });
 
