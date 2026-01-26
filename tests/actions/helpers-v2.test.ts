@@ -11,7 +11,7 @@ vi.mock('next/headers', () => ({ headers: vi.fn(async () => new Map([['x-user-id
 vi.mock('next/cache', () => ({ unstable_cache: (fn: any) => fn }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), error: vi.fn() } }));
 
-describe.skip('Get Locations V2 - Auth Required', () => {
+describe('Get Locations V2 - Auth Required', () => {
     it('should require authentication', async () => {
         const mockHeaders = await import('next/headers');
         vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map() as any);
@@ -21,7 +21,7 @@ describe.skip('Get Locations V2 - Auth Required', () => {
     });
 });
 
-describe.skip('Public Network V2 - Rate Limit', () => {
+describe('Public Network V2 - Rate Limit', () => {
     it('should have rate limit implemented', async () => {
         const mockDb = await import('@/lib/db');
         vi.mocked(mockDb.query).mockResolvedValue({ rows: [] } as any);
