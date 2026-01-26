@@ -354,6 +354,30 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
 
         await client.query('COMMIT');
 
+        // NOTIFICATION TRIGGER: Alert on critical/negative stock after WMS movement
+        if (newQty <= 0) {
+            (async () => {
+                try {
+                    const { createNotificationSecure } = await import('./notifications-v2');
+                    await createNotificationSecure({
+                        type: 'STOCK_CRITICAL',
+                        severity: newQty < 0 ? 'ERROR' : 'WARNING',
+                        title: 'Stock Crítico por Movimiento WMS',
+                        message: `El producto ${productName} (SKU: ${productSku}) quedó con stock ${newQty} después de ${validated.data.type}.`,
+                        metadata: {
+                            batchId: targetBatchId,
+                            warehouseId: validated.data.warehouseId,
+                            movementType: validated.data.type,
+                            userId: validated.data.userId,
+                            newStock: newQty
+                        }
+                    });
+                } catch (e) {
+                    console.error('[WMS-V2] Stock notification failed:', e);
+                }
+            })();
+        }
+
         return {
             success: true,
             data: { newStock: newQty }

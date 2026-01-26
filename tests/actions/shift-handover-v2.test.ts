@@ -401,6 +401,6 @@ describe('quickHandoverSecure', () => {
         });
 
         expect(result.success).toBe(false);
-        expect(result.error).toContain('bloqueada');
+        expect(result.error).toContain('utilizada por otro proceso');
     });
 });

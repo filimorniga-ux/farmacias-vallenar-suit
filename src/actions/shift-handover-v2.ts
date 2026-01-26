@@ -524,12 +524,21 @@ export async function executeHandoverSecure(params: {
     } catch (error: any) {
         await client.query('ROLLBACK');
 
+        // Handle retryable errors with user-friendly messaging
         if (error.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
-            return { success: false, error: ERROR_MESSAGES.SESSION_LOCKED };
+            logger.warn({ terminalId, errorCode: error.code }, '⏳ [Handover v2] Lock contention detected');
+            return {
+                success: false,
+                error: 'La caja está siendo utilizada por otro proceso. Por favor, intente nuevamente en unos segundos.'
+            };
         }
 
-        if (error.code === ERROR_CODES.SERIALIZATION_FAILURE) {
-            return { success: false, error: ERROR_MESSAGES.SERIALIZATION_ERROR };
+        if (error.code === ERROR_CODES.SERIALIZATION_FAILURE || error.code === ERROR_CODES.DEADLOCK_DETECTED) {
+            logger.warn({ terminalId, errorCode: error.code }, '🔄 [Handover v2] Serialization/Deadlock conflict');
+            return {
+                success: false,
+                error: 'Conflicto de concurrencia detectado. Por favor, reintente la operación.'
+            };
         }
 
         logger.error({ err: error }, '❌ [Handover v2] Handover failed');
@@ -679,12 +688,21 @@ export async function quickHandoverSecure(params: {
     } catch (error: any) {
         await client.query('ROLLBACK');
 
+        // Handle retryable errors with user-friendly messaging
         if (error.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
-            return { success: false, error: ERROR_MESSAGES.SESSION_LOCKED };
+            logger.warn({ terminalId, errorCode: error.code }, '⏳ [Handover v2] Lock contention in quick handover');
+            return {
+                success: false,
+                error: 'La caja está siendo utilizada por otro proceso. Por favor, intente nuevamente en unos segundos.'
+            };
         }
 
-        if (error.code === ERROR_CODES.SERIALIZATION_FAILURE) {
-            return { success: false, error: ERROR_MESSAGES.SERIALIZATION_ERROR };
+        if (error.code === ERROR_CODES.SERIALIZATION_FAILURE || error.code === ERROR_CODES.DEADLOCK_DETECTED) {
+            logger.warn({ terminalId, errorCode: error.code }, '🔄 [Handover v2] Serialization conflict in quick handover');
+            return {
+                success: false,
+                error: 'Conflicto de concurrencia detectado. Por favor, reintente la operación.'
+            };
         }
 
         logger.error({ err: error }, '❌ [Handover v2] Quick handover failed');
