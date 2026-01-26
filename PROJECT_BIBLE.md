@@ -1,15 +1,15 @@
 # PROJECT BIBLE: Farmacias Vallenar Suit (Pharma-Synapse)
 
-**Version:** 3.2 (Secure V2 Actions Era)  
+**Version:** 3.3 (Cross-Platform Price Checker Stable)  
 **Role:** Critical Pharmaceutical ERP & Public Consultant  
 **Target:** Farmacias Vallenar (Admin, POS & Public Views)  
-**Last Updated:** 27 Diciembre 2024
+**Last Updated:** 26 Enero 2026
 
 ---
 
 ## 1. RESUMEN EJECUTIVO
 
-**Pharma-Synapse v3.2** consolida la migración completa a **Server Actions V2 Seguros**, eliminando 50 archivos legacy y estableciendo un nuevo estándar de seguridad con validación Zod, transacciones SERIALIZABLE, y auditoría forense.
+**Pharma-Synapse v3.3** consolida la estabilidad del **Consultor de Precios Público**, asegurando compatibilidad total en ecosistemas móviles (iOS/Android) y escritorio (Mac/Windows). Se completa la integración profunda con la base de datos ISP para búsqueda de bioequivalentes y principios activos, con una interfaz resiliente a errores de renderizado.
 
 ### Métricas de Calidad
 | Métrica | Valor |
@@ -17,10 +17,10 @@
 | Tests | **236 passed** / 0 failed |
 | Build | ✅ Exitoso |
 | Archivos V2 | 54 |
-| Cobertura Seguridad | 100% acciones protegidas |
+| Compatibilidad UI | 100% Mobile/Desktop |
 
 ### Pilares Tecnológicos
-*   **Frontend:** React 18, Vite, Tailwind CSS (Design System Premium).
+*   **Frontend:** React 18, Vite, Tailwind CSS (Design System Premium, Responsive).
 *   **State Management:** Zustand (Session & Cart) + React Query.
 *   **Backend Actions:** Next.js Server Actions V2 (Secure - Zod validated).
 *   **Database:** PostgreSQL (Tiger Cloud Production).
@@ -60,9 +60,13 @@ El sistema opera sobre PostgreSQL (Tiger Cloud). Se ha resuelto una estricta tip
 
 ## 4. MÓDULOS ACTIVOS & FUNCIONALIDAD
 
-### A. Consultor Público (Smart Search)
+### A. Consultor Público (Smart Search v3.3)
 *   **Objetivo:** Tótem de auto-consulta de precios y stock.
-*   **Features:** Búsqueda Inteligente, Bioequivalencia (Ahorro %), Semáforo de Stock.
+*   **Features:**
+    *   **Búsqueda Inteligente:** Nombre comercial, Código Barras, Principio Activo.
+    *   **Bioequivalencia:** Integración ISP (Instituto Salud Pública) para mostrar alternativas genéricas certificadas.
+    *   **Interfaz Adaptable:** Layout de 3 columnas en escritorio, Stack en móviles.
+    *   **Semáforo de Stock:** Indicadores de disponibilidad real.
 
 ### B. Gestión de Caja (POS Fiscal)
 *   **Arqueo Dinámico:** Soporte nativo para múltiples métodos de pago.
@@ -80,6 +84,7 @@ El sistema opera sobre PostgreSQL (Tiger Cloud). Se ha resuelto una estricta tip
 *   `src/actions/*-v2.ts`: Lógica de servidor segura (`use server`, Zod validated).
 *   `src/lib/utils.ts`: Utilidades compartidas (Formatos, Validadores UUID).
 *   `src/presentation/store/useStore.ts`: Estado global migrado a V2.
+*   `src/presentation/components/public/PriceCheckerModal.tsx`: Núcleo de la experiencia pública.
 *   `src/middleware.ts`: Control de acceso y Modo Mantenimiento.
 
 ---
@@ -88,6 +93,7 @@ El sistema opera sobre PostgreSQL (Tiger Cloud). Se ha resuelto una estricta tip
 
 *   [x] **Migración V2 Completa:** 54 archivos seguros, 50 legacy eliminados.
 *   [x] **Tests 100% Passing:** 236 tests verificados.
+*   [x] **Estabilización Consultor Público:** Fixes de layout y bioequivalencia.
 *   [ ] **Despliegue Producción:** `vercel --prod`
 *   [ ] **Conciliación Financiera (Fase 2):** Justificaciones post-cierre.
 *   [ ] **Integración DTE Real:** Conexión con SII para boletas fiscales.

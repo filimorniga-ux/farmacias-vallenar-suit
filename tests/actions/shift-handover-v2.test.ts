@@ -186,6 +186,7 @@ describe('executeHandoverSecure', () => {
         const responses = [
             { rows: [] }, // BEGIN
             { rows: [{ id: OUTGOING_USER_ID, name: 'Cajero Test', role: 'CASHIER', access_pin_hash: 'hashed' }] }, // PIN validation
+            { rows: [{ role: 'CASHIER' }] }, // Role check
             { rows: [{ id: VALID_TERMINAL_ID, location_id: VALID_LOCATION_ID, current_cashier_id: OUTGOING_USER_ID, status: 'OPEN' }] }, // Terminal lock
             { rows: [{ id: VALID_SESSION_ID, user_id: OUTGOING_USER_ID, opening_amount: 50000, opened_at: new Date() }] }, // Session lock
             { rows: [] }, // Insert remittance

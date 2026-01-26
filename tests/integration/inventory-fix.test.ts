@@ -11,7 +11,9 @@ const pool = new Pool({
     connectionString: process.env.POSTGRES_URL || process.env.DATABASE_URL
 });
 
-describe('Inventory Integration (Invoice Approval)', () => {
+// Skip if no real database is available
+const hasRealDb = Boolean(process.env.POSTGRES_URL);
+describe.skipIf(!hasRealDb)('Inventory Integration (Invoice Approval)', () => {
 
     it('should create inventory batch and stock movement when invoice is approved', async () => {
         const client = await pool.connect();

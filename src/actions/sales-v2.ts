@@ -615,7 +615,7 @@ export async function createSaleSecure(params: {
                             [item.batch_id]
                         );
 
-                        if (stockRes.rows.length > 0) {
+                        if (stockRes && stockRes.rows && stockRes.rows.length > 0) {
                             const { quantity_real, name, sku } = stockRes.rows[0];
                             if (quantity_real <= 0) {
                                 await createNotificationSecure({
