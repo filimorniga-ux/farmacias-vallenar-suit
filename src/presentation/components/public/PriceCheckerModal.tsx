@@ -56,6 +56,7 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
 
     const [page, setPage] = useState(1);
     const [hasMore, setHasMore] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
     // Initializer
     useEffect(() => {
@@ -78,6 +79,7 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
         setIsExitPinOpen(false);
         setPage(1);
         setHasMore(true);
+        setError(null);
     };
 
     // Auto-focus input when entering search modes (ONLY if not mobile to avoid keyboard popup)
@@ -124,20 +126,28 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
             if (query.length >= 2 || (isNumeric && query.length >= 1)) {
                 startTransition(async () => {
                     setPage(1); // Reset page on new search
-                    if (mode === 'SEARCH_BIO') {
-                        // ISP Search
-                        const results = await searchBioequivalentsAction(query, 1, 50);
-                        setBioResults(results);
-                        setHasMore(results.length === 50);
-                    } else if (mode === 'SEARCH_ACTIVE') {
-                        // Filter Ingredients List
-                        const ingredients = await getUniqueActiveIngredientsAction(query, 1, 50);
-                        setBioResults(ingredients);
-                        setHasMore(ingredients.length === 50);
-                    } else {
-                        // Product Search
-                        const results = await searchProductsAction(query);
-                        setProductResults(results);
+                    setError(null);
+                    try {
+                        if (mode === 'SEARCH_BIO') {
+                            // ISP Search
+                            const results = await searchBioequivalentsAction(query, 1, 50);
+                            setBioResults(results);
+                            setHasMore(results.length === 50);
+                        } else if (mode === 'SEARCH_ACTIVE') {
+                            // Filter Ingredients List
+                            const ingredients = await getUniqueActiveIngredientsAction(query, 1, 50);
+                            setBioResults(ingredients);
+                            setHasMore(ingredients.length === 50);
+                        } else {
+                            // Product Search
+                            const results = await searchProductsAction(query);
+                            setProductResults(results);
+                        }
+                    } catch (err: any) {
+                        console.error("Search error:", err);
+                        setError(err.message || 'Error al buscar productos');
+                        setProductResults([]);
+                        setBioResults([]);
                     }
                 });
             } else if (query.length === 0) {
@@ -704,10 +714,23 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                                     </div>
                                 )}
 
-                                {!isPending && query.length > 2 && productResults.length === 0 && bioResults.length === 0 && (
+                                {!isPending && query.length > 2 && productResults.length === 0 && bioResults.length === 0 && !error && (
                                     <div className="text-center py-20 opacity-50">
                                         <Search size={48} className="mx-auto mb-4 text-slate-300" />
                                         <p className="text-xl font-bold text-slate-400">No se encontraron resultados</p>
+                                    </div>
+                                )}
+
+                                {!isPending && error && (
+                                    <div className="text-center py-20 opacity-80 animate-in fade-in">
+                                        <div className="mx-auto mb-4 w-16 h-16 bg-red-100 rounded-full flex items-center justify-center text-red-500">
+                                            <Search size={32} />
+                                        </div>
+                                        <h3 className="text-xl font-black text-slate-700 mb-2">Error de Conexión</h3>
+                                        <p className="text-slate-500 max-w-md mx-auto mb-4">{error}</p>
+                                        <p className="text-sm text-slate-400">
+                                            Por favor verifique la conexión a Internet o configure las variables de entorno correctamente.
+                                        </p>
                                     </div>
                                 )}
                             </div>

@@ -146,8 +146,9 @@ export async function searchProductsAction(
             };
         });
 
-    } catch (error) {
+    } catch (error: any) {
         console.error('❌ Error in search:', error);
-        return [];
+        // Re-throw the error so the UI handles it as a failure, not "0 results"
+        throw new Error(`Database Error: ${error.message || 'Unknown error'}`);
     }
 }
