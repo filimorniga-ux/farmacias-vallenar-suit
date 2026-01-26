@@ -9,7 +9,7 @@ vi.mock('@/lib/rate-limiter', () => ({ checkRateLimit: vi.fn().mockResolvedValue
 vi.mock('next/headers', () => ({ headers: vi.fn(async () => new Map([['x-user-id', 'u1'], ['x-user-role', 'ADMIN']])) }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), error: vi.fn() } }));
 
-describe.skip('Audit Dashboard V2 - RBAC', () => {
+describe('Audit Dashboard V2 - RBAC', () => {
     it('should require ADMIN/MANAGER role', async () => {
         const mockHeaders = await import('next/headers');
         vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map([['x-user-id', 'u1'], ['x-user-role', 'CASHIER']]) as any);
@@ -19,7 +19,7 @@ describe.skip('Audit Dashboard V2 - RBAC', () => {
     });
 });
 
-describe.skip('Audit Dashboard V2 - Export PIN', () => {
+describe('Audit Dashboard V2 - Export PIN', () => {
     it('should require PIN for export >1000 records', async () => {
         const mockDb = await import('@/lib/db');
         vi.mocked(mockDb.query).mockResolvedValueOnce({ rows: [{ total: 2000 }] } as any); // Count
