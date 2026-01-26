@@ -50,10 +50,11 @@ Sin datos seed, los tests de integración fallan silenciosamente.
 - No hay telemetría para medir frecuencia de conflictos
 
 ### Acciones Requeridas
-- [ ] Implementar retry con backoff exponencial (max 3 intentos, delay 100ms, 500ms, 2s)
-- [ ] Añadir logging estructurado para eventos `55P03` (métricas de contención)
-- [ ] Definir UX en frontend: mostrar "Operación en uso, reintentando..." vs "Intente de nuevo"
-- [ ] Considerar `FOR UPDATE SKIP LOCKED` para operaciones menos críticas
+- [x] Mejorar mensajes de error para `55P03` y `40001` (user-friendly)
+- [x] Añadir logging estructurado para eventos de lock contention
+- [x] Crear helper `retryWithBackoff` en `utils.ts` para uso futuro
+- [ ] Implementar retry automático en UI (frontend) con toast de "reintentando..."
+- [ ] Añadir telemetría/métricas para frecuencia de conflictos
 
 ---
 
@@ -78,22 +79,11 @@ Sin datos seed, los tests de integración fallan silenciosamente.
 
 ### Estado Actual
 - `sales-v2.ts` tiene trigger de notificación cuando stock ≤ 0 post-venta
-- `wms-v2.ts` no tiene trigger equivalente para movimientos manuales (`LOSS`, `ADJUSTMENT`)
+- ~~`wms-v2.ts` no tiene trigger equivalente para movimientos manuales (`LOSS`, `ADJUSTMENT`)~~
 
 ### Acciones Requeridas
-- [ ] Replicar lógica de notificación en `executeStockMovementSecure`:
-  ```typescript
-  if (newStock <= 0) {
-    await createNotificationSecure({
-      type: 'STOCK_CRITICAL',
-      severity: 'ERROR',
-      title: 'Stock Crítico por Movimiento WMS',
-      message: `...`,
-      metadata: { batchId, movementType, userId }
-    });
-  }
-  ```
-- [ ] Unificar en helper `checkAndNotifyLowStock(batchId, newStock, context)`
+- [x] Añadir trigger de notificación en `executeStockMovementSecure` cuando `newQty <= 0`
+- [ ] Unificar en helper `checkAndNotifyLowStock(batchId, newStock, context)` (opcional)
 
 ---
 
