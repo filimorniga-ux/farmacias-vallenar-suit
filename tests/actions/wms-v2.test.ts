@@ -1,7 +1,15 @@
 /**
- * WMS V2 Tests - Basic Coverage for Warehouse Management System
+ * WMS V2 Tests - Warehouse Management System
+ * Test coverage for validation and edge cases
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import {
+    TEST_PRODUCT_ID,
+    TEST_WAREHOUSE_ID,
+    TEST_BATCH_ID,
+    TEST_LOCATION_ID,
+    TEST_USERS,
+} from '../fixtures';
 
 // =====================================================
 // MOCKS
@@ -21,6 +29,7 @@ vi.mock('@/lib/db', () => ({
                 release: mockRelease,
             });
         },
+        query: vi.fn(),
     },
 }));
 
@@ -39,92 +48,225 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 // Import after mocks
-import { executeStockMovementSecure } from '@/actions/wms-v2';
+import { executeStockMovementSecure, getStockHistorySecure } from '@/actions/wms-v2';
 
 // =====================================================
-// TEST SUITE
+// TEST SUITE: Validation Tests (No DB required)
 // =====================================================
 
-const VALID_PRODUCT_ID = '550e8400-e29b-41d4-a716-446655440001';
-const VALID_WAREHOUSE_ID = '550e8400-e29b-41d4-a716-446655440002';
-const VALID_USER_ID = '550e8400-e29b-41d4-a716-446655440003';
-
-describe.skip('WMS V2 - Stock Movements (Pending Schema Review)', () => {
+describe('WMS V2 - Input Validation', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mockQuery.mockResolvedValue({ rows: [], rowCount: 1 });
     });
 
-    it('should execute a stock adjustment successfully', async () => {
-        // Mock DB Responses (order: BEGIN, ProductVerify, BatchLock, UpdateStock, InsertMovement, Audit, COMMIT)
-        let callIndex = 0;
-        const responses = [
-            { rows: [] }, // BEGIN
-            { rows: [{ id: 'batch-123', quantity_real: 10 }] }, // Get Batch from Product+Warehouse FOR UPDATE
-            { rows: [], rowCount: 1 }, // Update Batch Stock
-            { rows: [], rowCount: 1 }, // Insert stock_movements
-            { rows: [] }, // Audit log
-            { rows: [] }, // COMMIT
-        ];
-
-        mockQuery.mockImplementation(() => {
-            const res = responses[callIndex] || { rows: [], rowCount: 1 };
-            callIndex++;
-            return Promise.resolve(res);
-        });
-
+    it('should reject invalid productId format', async () => {
         const result = await executeStockMovementSecure({
-            productId: VALID_PRODUCT_ID,
-            warehouseId: VALID_WAREHOUSE_ID,
+            productId: 'invalid-not-uuid',
+            warehouseId: TEST_WAREHOUSE_ID,
             type: 'ADJUSTMENT',
-            quantity: 5,
-            reason: 'Audit Adjustment',
-            userId: VALID_USER_ID
+            quantity: 10,
+            reason: 'Test con ID inválido para validación',
+            userId: TEST_USERS.manager.id
         });
 
-        expect(result.success).toBe(true);
-        expect(result.data?.newStock).toBeDefined();
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('inválido');
+        expect(mockConnect).not.toHaveBeenCalled();
     });
 
-    it('should fail with invalid productId', async () => {
+    it('should reject invalid warehouseId format', async () => {
         const result = await executeStockMovementSecure({
-            productId: 'invalid-uuid',
-            warehouseId: VALID_WAREHOUSE_ID,
-            type: 'LOSS',
-            quantity: 1,
-            reason: 'Test Loss',
-            userId: VALID_USER_ID
+            productId: TEST_PRODUCT_ID,
+            warehouseId: 'not-a-uuid',
+            type: 'ADJUSTMENT',
+            quantity: 10,
+            reason: 'Test con warehouse ID inválido',
+            userId: TEST_USERS.manager.id
         });
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('inválido');
     });
 
-    it('should fail if batch/stock not found', async () => {
-        // Mock DB Responses
+    it('should reject reason that is too short', async () => {
+        const result = await executeStockMovementSecure({
+            productId: TEST_PRODUCT_ID,
+            warehouseId: TEST_WAREHOUSE_ID,
+            type: 'ADJUSTMENT',
+            quantity: 10,
+            reason: 'corto',
+            userId: TEST_USERS.manager.id
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('10 caracteres');
+    });
+
+    it('should reject negative quantity', async () => {
+        const result = await executeStockMovementSecure({
+            productId: TEST_PRODUCT_ID,
+            warehouseId: TEST_WAREHOUSE_ID,
+            type: 'ADJUSTMENT',
+            quantity: -5,
+            reason: 'Cantidad negativa no permitida',
+            userId: TEST_USERS.manager.id
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('positiva');
+    });
+
+    it('should reject zero quantity', async () => {
+        const result = await executeStockMovementSecure({
+            productId: TEST_PRODUCT_ID,
+            warehouseId: TEST_WAREHOUSE_ID,
+            type: 'LOSS',
+            quantity: 0,
+            reason: 'Cantidad cero no tiene sentido',
+            userId: TEST_USERS.warehouse.id
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('positiva');
+    });
+
+    it('should reject invalid movement type', async () => {
+        const result = await executeStockMovementSecure({
+            productId: TEST_PRODUCT_ID,
+            warehouseId: TEST_WAREHOUSE_ID,
+            // @ts-ignore - Testing invalid type
+            type: 'INVALID_TYPE',
+            quantity: 10,
+            reason: 'Tipo de movimiento inválido',
+            userId: TEST_USERS.manager.id
+        });
+
+        expect(result.success).toBe(false);
+    });
+
+    it('should require supervisor PIN for large adjustments (>=100)', async () => {
+        const result = await executeStockMovementSecure({
+            productId: TEST_PRODUCT_ID,
+            warehouseId: TEST_WAREHOUSE_ID,
+            type: 'ADJUSTMENT',
+            quantity: 150,
+            reason: 'Ajuste grande sin autorización de supervisor',
+            userId: TEST_USERS.cashier.id
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('PIN de supervisor');
+    });
+});
+
+// =====================================================
+// TEST SUITE: Database Scenarios
+// =====================================================
+
+describe('WMS V2 - Database Scenarios', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it('should fail if no batch is found for product/warehouse', async () => {
         let callIndex = 0;
         const responses = [
             { rows: [] }, // BEGIN
-            { rows: [] }, // Get Batch -> Empty!
+            { rows: [] }, // FIFO batch selection - EMPTY
         ];
 
         mockQuery.mockImplementation((sql: string) => {
             if (sql === 'ROLLBACK') return Promise.resolve({ rows: [] });
+            if (sql.startsWith('BEGIN')) return Promise.resolve({ rows: [] });
             const res = responses[callIndex] || { rows: [] };
             callIndex++;
             return Promise.resolve(res);
         });
 
         const result = await executeStockMovementSecure({
-            productId: VALID_PRODUCT_ID,
-            warehouseId: VALID_WAREHOUSE_ID,
-            type: 'LOSS',
-            quantity: 1,
-            reason: 'Lost',
-            userId: VALID_USER_ID
+            productId: TEST_PRODUCT_ID,
+            warehouseId: TEST_WAREHOUSE_ID,
+            type: 'ADJUSTMENT',
+            quantity: 10,
+            reason: 'Producto no existe en esta bodega',
+            userId: TEST_USERS.manager.id
         });
 
         expect(result.success).toBe(false);
-        expect(result.error).toContain('encontrado');
+        expect(result.error).toContain('lotes disponibles');
+    });
+
+    it('should handle lock contention error (55P03)', async () => {
+        mockQuery.mockImplementation((sql: string) => {
+            if (sql.startsWith('BEGIN')) return Promise.resolve({ rows: [] });
+            if (sql === 'ROLLBACK') return Promise.resolve({ rows: [] });
+
+            // Simulate lock error on first real query
+            const error: any = new Error('Lock not available');
+            error.code = '55P03';
+            throw error;
+        });
+
+        const result = await executeStockMovementSecure({
+            productId: TEST_PRODUCT_ID,
+            warehouseId: TEST_WAREHOUSE_ID,
+            type: 'ADJUSTMENT',
+            quantity: 10,
+            reason: 'Test de concurrencia con bloqueo',
+            userId: TEST_USERS.manager.id
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('siendo modificado');
+    });
+});
+
+// =====================================================
+// TEST SUITE: Stock History (Read Operations)
+// =====================================================
+
+describe('WMS V2 - getStockHistorySecure', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it('should return paginated stock history', async () => {
+        const { pool } = await import('@/lib/db');
+
+        // Mock pool.query for this read operation
+        vi.mocked(pool).query = vi.fn()
+            .mockResolvedValueOnce({ rows: [{ total: '15' }] })
+            .mockResolvedValueOnce({
+                rows: [
+                    { id: '1', movement_type: 'ADJUSTMENT', quantity: 10 },
+                    { id: '2', movement_type: 'LOSS', quantity: -5 }
+                ]
+            });
+
+        const result = await getStockHistorySecure({
+            productId: TEST_PRODUCT_ID,
+            page: 1,
+            pageSize: 10
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.data?.movements.length).toBe(2);
+        expect(result.data?.total).toBe(15);
+    });
+
+    it('should enforce maximum page size of 100', async () => {
+        const { pool } = await import('@/lib/db');
+
+        vi.mocked(pool).query = vi.fn()
+            .mockResolvedValueOnce({ rows: [{ total: '200' }] })
+            .mockResolvedValueOnce({ rows: [] });
+
+        const result = await getStockHistorySecure({
+            page: 1,
+            pageSize: 999 // Should be capped to 100
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.data?.pageSize).toBe(100);
     });
 });

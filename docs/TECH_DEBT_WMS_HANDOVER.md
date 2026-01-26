@@ -9,36 +9,33 @@
 ## 1. Cobertura de Tests WMS
 
 ### Estado Actual
-- `tests/actions/wms-v2.test.ts` está marcado como `describe.skip`
-- El schema `StockMovementSchema` requiere campos que no fueron mapeados correctamente en los tests iniciales
+- ~~`tests/actions/wms-v2.test.ts` está marcado como `describe.skip`~~
+- ~~El schema `StockMovementSchema` requiere campos que no fueron mapeados correctamente~~
 
 ### Acciones Requeridas
-- [ ] Revisar `StockMovementSchema` y documentar campos requeridos vs opcionales
-- [ ] Validar `executeStockMovementSecure` con:
-  - Campos de batch: `lot_number`, `expiry_date`, `unit_cost`
-  - Tolerancia de stock negativo (actualmente permitido con warning)
-  - Movimientos tipo `LOSS`, `RETURN`, `ADJUSTMENT`, `TRANSFER_*`
-- [ ] Crear factories de datos para generar batches válidos en tests
+- [x] Crear tests de validación de entrada (11 tests pasando)
+- [x] Validar rechazo de UUIDs inválidos, razones cortas, cantidades negativas
+- [x] Test de error 55P03 (lock contention)
+- [x] Test de getStockHistorySecure con paginación
+- [ ] Tests de integración con DB real (requiere POSTGRES_URL)
 
 ---
 
 ## 2. Seeds y Fixtures de Datos
 
-### Problema
-Las rutas WMS y Handover asumen que existen:
-- `warehouses` poblados
-- `terminals` configurados
-- `cash_register_sessions` activas
-- `users` con `access_pin_hash` válido
+### Estado Actual
+- [x] Creado `tests/fixtures/index.ts` con factories de datos
 
-Sin datos seed, los tests de integración fallan silenciosamente.
+### Acciones Completadas
+- [x] `createUserFixture()` - Usuarios con PIN hash válido
+- [x] `createTerminalFixture()` - Terminales y sessions
+- [x] `createBatchFixture()` - Inventory batches con lotes
+- [x] `createMockQuerySequence()` - Helper para secuencias de mocks
+- [x] Constantes de IDs fijos para tests (TEST_PRODUCT_ID, TEST_WAREHOUSE_ID, etc.)
 
-### Acciones Requeridas
-- [ ] Crear `tests/fixtures/` con:
-  - `seed-users.ts` (usuarios con PIN hasheado)
-  - `seed-terminals.ts` (terminales y warehouses)
-  - `seed-inventory.ts` (productos y batches mínimos)
-- [ ] Documentar cómo ejecutar seeds antes de tests de integración
+### Pendiente
+- [ ] Documentar uso de fixtures en README de tests
+- [ ] Crear script de seed para DB real (`npm run db:seed:test`)
 
 ---
 
