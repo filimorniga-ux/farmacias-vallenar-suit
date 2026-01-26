@@ -1,6 +1,8 @@
 'use server';
 
 import { pool } from '@/lib/db';
+import fs from 'fs';
+import path from 'path';
 
 export async function diagnoseDbConnection() {
     console.log('🕵️‍♂️ [DIAGNOSTIC] Starting DB Check...');
@@ -27,6 +29,7 @@ export async function diagnoseDbConnection() {
         const start = Date.now();
         console.log('🕵️‍♂️ [DIAGNOSTIC] Connecting to Pool...');
         const client = await pool.connect();
+        diagnosis.connectionStatus = 'SUCCESS';
         console.log(`✅ [DIAGNOSTIC] Connected in ${Date.now() - start}ms`);
 
         // 3. Run Query
@@ -45,9 +48,29 @@ export async function diagnoseDbConnection() {
             (diagnosis as any).dataError = e.message;
         }
 
-        diagnosis.connectionStatus = 'SUCCESS';
-
         client.release();
+
+        // 5. File System Check (ISP CSV) - CRITICAL FOR BIOEQUIVALENTS
+        try {
+            const candidates = [
+                path.join(process.cwd(), 'public', 'data', 'isp_oficial.csv'),
+                path.join(process.cwd(), 'data', 'isp_oficial.csv'),
+                path.join(process.cwd(), 'isp_oficial.csv')
+            ];
+
+            const foundPath = candidates.find(c => fs.existsSync(c));
+
+            (diagnosis as any).fileSystem = {
+                cwd: process.cwd(),
+                csvFound: foundPath || 'NOT FOUND',
+                // List first 10 files in logical directories to debug Vercel structure
+                rootDir: fs.readdirSync(process.cwd()).slice(0, 5),
+                publicDir: fs.existsSync(path.join(process.cwd(), 'public')) ? fs.readdirSync(path.join(process.cwd(), 'public')).slice(0, 5) : 'MISSING',
+            };
+        } catch (fsErr: any) {
+            (diagnosis as any).fsError = fsErr.message;
+        }
+
     } catch (err: any) {
         console.error('❌ [DIAGNOSTIC] FAILURE:', err);
         diagnosis.connectionStatus = 'FAILED';
