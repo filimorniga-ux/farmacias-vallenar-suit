@@ -28,8 +28,6 @@ export interface BioequivalentResult {
 
 const records: ISPJsonRecord[] = ispData as ISPJsonRecord[];
 
-const records: ISPJsonRecord[] = ispData as ISPJsonRecord[];
-
 /**
  * Searches for Bioequivalents in the BUNDLED JSON data.
  * No file reading required at runtime.
