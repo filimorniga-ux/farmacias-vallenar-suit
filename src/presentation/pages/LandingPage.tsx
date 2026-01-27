@@ -81,37 +81,50 @@ const LandingPage: React.FC = () => {
         }
     }, [user, navigate, syncData]);
 
+    // URL redirect mapping for consistency
+    const getRedirectPath = (role: Role | string) => {
+        if (role === 'CASHIER') return '/pos';
+        if (role === 'WAREHOUSE' || role === 'WAREHOUSE_CHIEF') return '/warehouse';
+        return '/dashboard';
+    };
+
     // Initial Check - Location Context
     useEffect(() => {
+        let isMounted = true;
         const locId = localStorage.getItem('preferred_location_id');
         if (!locId) {
-            navigate('/select-context');
+            if (isMounted) navigate('/select-context');
             return;
         }
 
-        setContext({
-            id: locId,
-            name: localStorage.getItem('preferred_location_name') || 'Sucursal Identificada',
-            type: localStorage.getItem('preferred_location_type') || 'STORE'
-        });
+        if (isMounted) {
+            setContext({
+                id: locId,
+                name: localStorage.getItem('preferred_location_name') || 'Sucursal Identificada',
+                type: localStorage.getItem('preferred_location_type') || 'STORE'
+            });
+        }
+        return () => { isMounted = false; };
     }, [navigate]);
 
     // Fetch employees if store is empty (Login Fix)
     useEffect(() => {
+        let isMounted = true;
         if (employees.length > 0) {
             console.log('📋 Using store employees:', employees.length);
-            setLocalEmployees(employees);
+            if (isMounted) setLocalEmployees(employees);
         } else {
             console.log('📋 Fetching employees via server action...');
             getUsersForLogin()
                 .then((users) => {
                     console.log('📋 Fetched employees:', users.length, users.map(u => u.name));
-                    setLocalEmployees(users);
+                    if (isMounted) setLocalEmployees(users);
                 })
                 .catch(err => {
                     console.error('❌ Error fetching employees:', err);
                 });
         }
+        return () => { isMounted = false; };
     }, [employees]);
 
     const handleLogin = async (e: React.FormEvent) => {
@@ -283,7 +296,7 @@ const LandingPage: React.FC = () => {
                         whileTap={{ scale: 0.98 }}
                         onClick={() => {
                             setRequiredRoles(['CASHIER', 'QF']); // Cashiers and Pharmacists primarily
-                            setTargetUrl('/caja');
+                            setTargetUrl('/pos');
                             setIsLoginOpen(true);
                         }}
                         className="cursor-pointer bg-white border border-slate-100 rounded-3xl p-8 relative overflow-hidden shadow-lg shadow-slate-900/5 group hover:border-purple-300 transition-all hover:shadow-xl"
@@ -294,8 +307,8 @@ const LandingPage: React.FC = () => {
                         </div>
                         <h3 className="text-2xl font-bold text-slate-800 mb-2">Punto de Venta</h3>
                         <p className="text-slate-500 text-sm mb-6 leading-relaxed">Caja rápida y atención a público.</p>
-                        <div className="flex items-center text-xs font-bold text-slate-500 uppercase tracking-wider bg-slate-50 px-4 py-2 rounded-lg w-fit border border-slate-100 group-hover:text-purple-600 group-hover:border-purple-200 transition-all">
-                            Vender <ArrowRight size={14} className="ml-2" />
+                        <div className="flex items-center text-xs font-bold text-slate-500 uppercase tracking-wider bg-slate-50 px-4 py-2 rounded-lg w-fit border border-slate-100 group-hover:bg-purple-500 group-hover:text-white transition-all">
+                            Acceder <ArrowRight size={14} className="ml-2" />
                         </div>
                     </motion.div>
 

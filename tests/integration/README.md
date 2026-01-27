@@ -1,104 +1,58 @@
 # Integration Tests Configuration
 
 ## Overview
-Integration tests use a real PostgreSQL database to test functionality accurately without complex mocks.
+Integration tests use a real PostgreSQL database to test functionality accurately. We use Docker Compose to manage the local database and a custom seeder script to initialize the schema and demo data.
 
 ## Setup
 
-### 1. Create Test Database
+### 1. Start Database Container
+We use the database service defined in `docker-compose.yml`.
 ```bash
-# Using psql
-createdb pharma_synapse_test
-
-# Or using Docker
-docker run --name pharma-test-db \
-  -e POSTGRES_PASSWORD=testpass \
-  -e POSTGRES_DB=pharma_synapse_test \
-  -p 5433:5432 \
-  -d postgres:16
+docker compose up -d db
 ```
 
-### 2. Run Migrations on Test DB
+### 2. Initialize and Seed Database
+The `seed:demo` script handles schema reset, table creation, and populating demo data (users, products, inventory, etc.).
 ```bash
-# Set test database URL
-export TEST_DATABASE_URL="postgresql://user:pass@localhost:5433/pharma_synapse_test"
-
-# Run migrations
-psql $TEST_DATABASE_URL < db/migrations/*.sql
-```
-
-### 3. Configure Environment
-```bash
-# .env.test
-TEST_DATABASE_URL=postgresql://user:pass@localhost:5433/pharma_synapse_test
+# Set variables to point to the local Docker DB
+export POSTGRES_URL=postgres://postgres:farmacia123@localhost:5432/farmacia_vallenar
+npm run seed:demo
 ```
 
 ## Running Integration Tests
 
+Integration tests require `POSTGRES_URL` to be defined to run. If not defined, they will be skipped.
+
 ```bash
-# Run all integration tests
-npm run test:integration
+# Run all integration tests (pointing to local Docker DB)
+POSTGRES_URL=postgres://postgres:farmacia123@localhost:5432/farmacia_vallenar npm run test -- tests/integration
 
-# Run specific integration test
-npm test -- tests/integration/users-v2.integration.test.ts
-
-# Run with coverage
-npm run test:integration -- --coverage
+# Run a specific test
+POSTGRES_URL=postgres://postgres:farmacia123@localhost:5432/farmacia_vallenar npm run test -- tests/integration/inventory-fix.test.ts
 ```
 
-## Test Database Management
+## Database Schema
 
-### Clean Test Data
-```sql
--- Automatically handled by beforeEach/afterAll hooks
-DELETE FROM users WHERE id LIKE 'test-%';
-DELETE FROM audit_log WHERE user_id LIKE 'test-%';
-```
-
-### Reset Test Database
-```bash
-# Drop and recreate
-dropdb pharma_synapse_test
-createdb pharma_synapse_test
-psql $TEST_DATABASE_URL < db/migrations/*.sql
-```
+The seeder script `src/scripts/seed-demo-vallenar.ts` contains the source of truth for the database schema used in integration tests. Every time you run `seed:demo`, the schema is reset and recreated.
 
 ## Best Practices
 
-1. **Isolation:** Each test cleans up after itself
-2. **Idempotency:** Tests can run multiple times
-3. **Test Data:** Use `test-` prefix for all test IDs
-4. **Transactions:** Tests use real transactions to verify behavior
-5. **Cleanup:** beforeEach/afterAll ensures clean state
-
-## Advantages over Unit Tests with Mocks
-
-✅ Tests actual database behavior  
-✅ No complex mock setup  
-✅ Catches real SQL errors  
-✅ Verifies transactions work correctly  
-✅ Tests constraints and triggers  
-✅ More confidence in production behavior  
-
-## Disadvantages
-
-⚠️ Slower than unit tests (but still fast ~200ms total)  
-⚠️ Requires database setup  
-⚠️ Needs isolated test database  
+1. **Isolation:** Use transactions in tests to roll back changes (already implemented in `inventory-fix.test.ts`).
+2. **Context:** Ensure the local database is running and `POSTGRES_URL` is correctly set.
+3. **Data Consistency:** Run `npm run seed:demo` if you notice schema mismatches or if you need a fresh dataset.
 
 ## CI/CD Integration
 
+The CI environment uses a PostgreSQL service to run these tests automatically.
+
+- **POSTGRES_URL**: This is the primary environment variable used to connect to the database. In CI, it is automatically set in the workflow file to point to the temporary container.
+- No additional GitHub Secrets are required for basic integration tests as the DB is ephemeral.
+
 ```yaml
-# .github/workflows/test.yml
-- name: Setup PostgreSQL
-  uses: Harmon758/postgresql-action@v1
-  with:
-    postgresql version: '16'
-    postgresql db: 'pharma_synapse_test'
-    
-- name: Run Migrations
-  run: psql $TEST_DATABASE_URL < db/migrations/*.sql
-  
-- name: Run Integration Tests
-  run: npm run test:integration
+# Partial snippet from .github/workflows/ci.yml
 ```
+
+## Troubleshooting
+- **"Terminal ya está abierto..."**: The seeder now uses `session_replication_role = 'replica'` to bypass triggers during cleanup.
+- **SSL Errors**: The seeder is configured to disable SSL when connecting to `localhost`.
+- **Relationship doesn't exist**: Ensure you've run `npm run seed:demo` at least once on your local DB.

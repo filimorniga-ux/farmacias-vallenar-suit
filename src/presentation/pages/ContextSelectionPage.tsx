@@ -13,21 +13,28 @@ const ContextSelectionPage: React.FC = () => {
 
     // Initial Load
     useEffect(() => {
+        let isMounted = true;
         const load = async () => {
-            setIsLoading(true);
-            setError(null);
-            console.log('DEBUG: ContextSelectionPage calling getPublicLocationsSecure...');
-            const res = await getPublicLocationsSecure();
-            console.log('DEBUG: ContextSelectionPage Result:', res.success, res.data?.length);
-            if (res.success && res.data) {
-                setPublicLocations(res.data);
-            } else {
-                console.error('DEBUG: ContextSelectionPage Error:', res.error);
-                setError(res.error || 'Error desconocido al cargar sucursales');
+            if (isMounted) setIsLoading(true);
+            if (isMounted) setError(null);
+
+            try {
+                const res = await getPublicLocationsSecure();
+                if (isMounted) {
+                    if (res.success && res.data) {
+                        setPublicLocations(res.data);
+                    } else {
+                        setError(res.error || 'Error desconocido al cargar sucursales');
+                    }
+                }
+            } catch (e) {
+                if (isMounted) setError('Excepción crítica al cargar sucursales');
+            } finally {
+                if (isMounted) setIsLoading(false);
             }
-            setIsLoading(false);
         };
         load();
+        return () => { isMounted = false; };
     }, []);
 
     const handleLocationSelect = (loc: PublicLocation) => {

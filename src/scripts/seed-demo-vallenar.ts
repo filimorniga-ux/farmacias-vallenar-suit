@@ -12,13 +12,13 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
 // DB Connection
-const connectionString = process.env.POSTGRES_URL_NON_POOLING || process.env.DATABASE_URL;
+const connectionString = process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING || process.env.DATABASE_URL;
 
-console.log('🔌 Connecting to DB:', connectionString ? 'URL Defined' : 'URL MISSING');
+console.log('🔌 Connecting to DB:', connectionString ? connectionString.replace(/:[^:@]+@/, ':****@') : 'URL MISSING');
 
 const pool = new Pool({
     connectionString: connectionString,
-    ssl: { rejectUnauthorized: false }
+    ssl: connectionString?.includes('localhost') ? false : { rejectUnauthorized: false }
 });
 
 // --- CONSTANTS ---
@@ -61,19 +61,28 @@ async function main() {
     const client = await pool.connect();
 
     try {
+        // 0. RESET SCHEMA (Clean start for tests)
+        console.log('🗑 Resetting Schema...');
+        const tablesToDrop = ['stock_movements', 'invoice_parsings', 'sale_items', 'sales', 'inventory_batches', 'cash_movements', 'terminals', 'warehouses', 'users', 'locations', 'customers', 'products'];
+        for (const t of tablesToDrop) {
+            try { await client.query(`DROP TABLE IF EXISTS ${t} CASCADE`); } catch (e) { }
+        }
+
         // 1. ENSURE SCHEMA (Outside Transaction to avoid aborts on optional errors)
         console.log('🏗 Ensuring Schema & Adding Columns...');
         const ddlStatements = [
-            `CREATE TABLE IF NOT EXISTS locations(id UUID PRIMARY KEY, type VARCHAR(50), name VARCHAR(255), address TEXT, phone VARCHAR(50), parent_id UUID, default_warehouse_id UUID, rut VARCHAR(20), created_at TIMESTAMP DEFAULT NOW())`,
+            `CREATE TABLE IF NOT EXISTS locations(id UUID PRIMARY KEY, type VARCHAR(50), name VARCHAR(255), address TEXT, phone VARCHAR(50), parent_id UUID, default_warehouse_id UUID, rut VARCHAR(20), is_active BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW())`,
             `CREATE TABLE IF NOT EXISTS warehouses(id UUID PRIMARY KEY, location_id UUID REFERENCES locations(id), name VARCHAR(255), is_active BOOLEAN DEFAULT true)`,
             `CREATE TABLE IF NOT EXISTS terminals(id UUID PRIMARY KEY, location_id UUID REFERENCES locations(id), name VARCHAR(255), status VARCHAR(50))`,
             `CREATE TABLE IF NOT EXISTS users(id UUID PRIMARY KEY, rut VARCHAR(20), name VARCHAR(255), role VARCHAR(50), access_pin VARCHAR(10), pin_hash VARCHAR(255), status VARCHAR(50), assigned_location_id UUID, job_title VARCHAR(100), base_salary INTEGER, afp VARCHAR(50), health_system VARCHAR(100), created_at TIMESTAMP DEFAULT NOW())`,
-            `CREATE TABLE IF NOT EXISTS products(id UUID PRIMARY KEY, sku VARCHAR(50) UNIQUE, name VARCHAR(255), description TEXT, sale_price NUMERIC(15, 2), cost_price NUMERIC(15, 2), stock_min INTEGER, stock_max INTEGER)`,
-            `CREATE TABLE IF NOT EXISTS inventory_batches(id UUID PRIMARY KEY, product_id UUID, sku VARCHAR(50), name VARCHAR(255), location_id UUID, warehouse_id UUID, quantity_real INTEGER DEFAULT 0, expiry_date BIGINT, lot_number VARCHAR(100), cost_net NUMERIC(15, 2), price_sell_box NUMERIC(15, 2), stock_min INTEGER, stock_max INTEGER, unit_cost NUMERIC(15, 2), sale_price NUMERIC(15, 2))`,
+            `CREATE TABLE IF NOT EXISTS products(id UUID PRIMARY KEY, sku VARCHAR(50) UNIQUE, name VARCHAR(255), description TEXT, sale_price NUMERIC(15, 2), price NUMERIC(15, 2), cost_price NUMERIC(15, 2), stock_min INTEGER, stock_max INTEGER, stock_actual INTEGER DEFAULT 0)`,
+            `CREATE TABLE IF NOT EXISTS inventory_batches(id UUID PRIMARY KEY, product_id UUID, sku VARCHAR(50), name VARCHAR(255), location_id UUID, warehouse_id UUID, quantity_real INTEGER DEFAULT 0, expiry_date TIMESTAMP, lot_number VARCHAR(100), cost_net NUMERIC(15, 2), price_sell_box NUMERIC(15, 2), stock_min INTEGER, stock_max INTEGER, unit_cost NUMERIC(15, 2), sale_price NUMERIC(15, 2), updated_at TIMESTAMP DEFAULT NOW(), source_system VARCHAR(50))`,
             `CREATE TABLE IF NOT EXISTS sales(id UUID PRIMARY KEY, location_id UUID, terminal_id UUID, user_id UUID, customer_rut VARCHAR(20), total_amount NUMERIC(15, 2), total NUMERIC(15, 2), payment_method VARCHAR(50), dte_folio INTEGER, dte_status VARCHAR(50), timestamp TIMESTAMP DEFAULT NOW())`,
             `CREATE TABLE IF NOT EXISTS sale_items(id UUID PRIMARY KEY, sale_id UUID, batch_id UUID, quantity INTEGER, unit_price NUMERIC(15, 2), total_price NUMERIC(15, 2))`,
             `CREATE TABLE IF NOT EXISTS cash_movements(id UUID PRIMARY KEY, location_id UUID, terminal_id UUID, user_id UUID, type VARCHAR(50), amount NUMERIC(15, 2), reason TEXT, timestamp TIMESTAMP DEFAULT NOW(), created_at TIMESTAMP DEFAULT NOW())`,
-            `CREATE TABLE IF NOT EXISTS customers(id UUID PRIMARY KEY DEFAULT gen_random_uuid(), rut VARCHAR(20), name VARCHAR(255), email VARCHAR(255), phone VARCHAR(50), address TEXT, source VARCHAR(50), created_at TIMESTAMP DEFAULT NOW())`
+            `CREATE TABLE IF NOT EXISTS customers(id UUID PRIMARY KEY DEFAULT gen_random_uuid(), rut VARCHAR(20), name VARCHAR(255), email VARCHAR(255), phone VARCHAR(50), address TEXT, source VARCHAR(50), created_at TIMESTAMP DEFAULT NOW())`,
+            `CREATE TABLE IF NOT EXISTS invoice_parsings(id UUID PRIMARY KEY, status VARCHAR(50), original_file_name VARCHAR(255), parsed_items JSONB, mapped_items INTEGER, unmapped_items INTEGER, created_by UUID, invoice_number VARCHAR(50), document_type VARCHAR(50), original_file_type VARCHAR(50), created_at TIMESTAMP DEFAULT NOW())`,
+            `CREATE TABLE IF NOT EXISTS stock_movements(id UUID PRIMARY KEY, sku VARCHAR(50), product_name VARCHAR(255), location_id UUID, movement_type VARCHAR(50), quantity INTEGER, stock_before INTEGER, stock_after INTEGER, timestamp TIMESTAMP DEFAULT NOW(), user_id UUID, notes TEXT, batch_id UUID, reference_type VARCHAR(50), reference_id UUID)`
         ];
 
         for (const stmt of ddlStatements) {
@@ -113,10 +122,12 @@ async function main() {
 
         // Re-create structural data
         console.log('🏗 Rebuilding Structure (Users, Locations, Warehouses)...');
+        await client.query("SET session_replication_role = 'replica'");
         await client.query("DELETE FROM users");
         await client.query("DELETE FROM terminals");
         await client.query("DELETE FROM warehouses");
         await client.query("DELETE FROM locations");
+        await client.query("SET session_replication_role = 'origin'");
 
         // 3. INFRASTRUCTURE & STAFF
         const warehouseMap = new Map<string, string>(); // Name -> ID
@@ -191,11 +202,21 @@ async function main() {
         console.log('📦 Stocking Warehouses (Legacy & 2025)...');
 
         // Fetch Products
-        let products = (await client.query("SELECT id, sku, name, cost_price, sale_price FROM products WHERE id ~ '^[0-9a-fA-F-]{36}$'")).rows;
+        let products = (await client.query("SELECT id, sku, name, cost_price, sale_price FROM products")).rows;
         if (products.length === 0) {
-            // Fallback if empty db
             console.warn("⚠️ No products found. Creating dummy products...");
-            // logic skipped for brevity, assuming products exist in typical demo
+            const dummyProducts = [
+                { sku: 'P1', name: 'Paracetamol 500mg', cost: 500, sale: 1500 },
+                { sku: 'P2', name: 'Ibuprofeno 400mg', cost: 800, sale: 2500 },
+                { sku: 'P3', name: 'Amoxicilina 500mg', cost: 2000, sale: 4500 },
+                { sku: 'P4', name: 'Losartan 50mg', cost: 1500, sale: 3500 },
+                { sku: 'P5', name: 'Atorvastatina 20mg', cost: 3000, sale: 7000 }
+            ];
+            for (const p of dummyProducts) {
+                const id = uuidv4();
+                await client.query(`INSERT INTO products(id, sku, name, cost_price, sale_price, stock_min, stock_max) VALUES($1, $2, $3, $4, $5, 10, 1000)`, [id, p.sku, p.name, p.cost, p.sale]);
+            }
+            products = (await client.query("SELECT id, sku, name, cost_price, sale_price FROM products")).rows;
         }
 
         // Prepare Inventory Batches
@@ -249,8 +270,10 @@ async function main() {
             const places = [];
             let idx = 1;
             for (const item of chunk) {
+                const expiryDate = new Date();
+                expiryDate.setFullYear(2026);
                 places.push(`($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, 10, 1000, $${idx++}, $${idx++})`);
-                vals.push(uuidv4(), item.p.id, item.p.sku, item.p.name, item.locId, item.whId, item.qty, new Date().setFullYear(2026), item.lot, item.p.cost_price || 1000, item.p.sale_price || 2000, item.p.cost_price || 1000, item.p.sale_price || 2000);
+                vals.push(uuidv4(), item.p.id, item.p.sku, item.p.name, item.locId, item.whId, item.qty, expiryDate, item.lot, item.p.cost_price || 1000, item.p.sale_price || 2000, item.p.cost_price || 1000, item.p.sale_price || 2000);
             }
             await client.query(`INSERT INTO inventory_batches(id, product_id, sku, name, location_id, warehouse_id, quantity_real, expiry_date, lot_number, cost_net, price_sell_box, stock_min, stock_max, unit_cost, sale_price) VALUES ${places.join(', ')}`, vals);
             process.stdout.write('.');

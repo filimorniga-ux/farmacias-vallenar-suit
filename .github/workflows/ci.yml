@@ -34,9 +34,49 @@ jobs:
       env:
         DATABASE_URL: "postgres://user:pass@localhost:5432/db" # Mock for any accidental connection attempt (tests use mocks)
         
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: farmacia123
+          POSTGRES_DB: farmacia_vallenar
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        
+    - name: Install Dependencies
+      run: npm ci
+      
+    - name: Run Seeder
+      run: npm run seed:demo
+      env:
+        POSTGRES_URL: postgres://postgres:farmacia123@localhost:5432/farmacia_vallenar
+        
+    - name: Run Integration Tests
+      run: npm run test -- tests/integration
+      env:
+        POSTGRES_URL: postgres://postgres:farmacia123@localhost:5432/farmacia_vallenar
+
   build:
     name: Build Verification
-    needs: quality
+    needs: [quality, integration]
     runs-on: ubuntu-latest
     
     steps:

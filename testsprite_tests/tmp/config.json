@@ -1,0 +1,13 @@
+{
+  "status": "commited",
+  "type": "frontend",
+  "scope": "codebase",
+  "localEndpoint": "http://localhost:3000",
+  "executionArgs": {
+    "projectName": "farmacias-vallenar-suit",
+    "projectPath": "/Users/miguelperdomoserrato/farmacias-vallenar-suit",
+    "testIds": [],
+    "additionalInstruction": "AUTENTICACIÓN (LOGIN):\n1. En la Home, clic en \"Farmacia Vallenar santiago\".\n2. Clic en \"ACCEDER\" en \"Punto de Venta\".\n3. Elegir \"Gerente General 1\" e ingresar PIN \"1213\".\n\nFLUJO DE VENTA:\n1. Abrir Caja con $20.000 si está cerrada.\n2. Buscar \"Paracetamol\" y añadir 2 unidades.\n3. Pagar con \"Efectivo\", monto $100.000.\n4. Verificar mensaje de \"Venta Exitosa\".\n5. Validar que anular producto PIDA PIN de supervisor.",
+    "envs": {}
+  }
+}
