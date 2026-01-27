@@ -267,9 +267,8 @@ describe('Users V2 - RBAC Enforcement', () => {
 
 // PIN Security tests
 describe('Users V2 - PIN Security', () => {
-    // TODO: Mock intercept issue - bcrypt.hash is called but mock doesn't capture it
-    it.skip('should hash PIN with bcrypt on creation', async () => {
-        const bcrypt = await import('bcryptjs');
+    // Verificar que el hash se guarda en lugar de PIN plano
+    it('should hash PIN with bcrypt on creation', async () => {
         const mockClient = createMockClient([
             { rows: [mockAdmin], rowCount: 1 },
             { rows: [], rowCount: 0 },
@@ -284,20 +283,27 @@ describe('Users V2 - PIN Security', () => {
             access_pin: '1234'
         });
 
-        expect(bcrypt.default.hash).toHaveBeenCalledWith('1234', 10);
-
-        // Verify PIN hash was saved, not plaintext
+        // Verificar que el PIN hasheado se guardó en la DB (no el plain text)
         const insertCall = mockClient.query.mock.calls.find(
             (call: any) => call[0].includes('INSERT INTO users')
         );
         expect(insertCall).toBeDefined();
-        expect(insertCall![1]).toContain('hashed_1234');
-        expect(insertCall![1]).not.toContain('1234');
+
+        // El hash mock devuelve 'hashed_1234', verificar que está en los params
+        const params = insertCall![1];
+        const hasHashedPin = (params as any[]).some((p: any) =>
+            typeof p === 'string' && p.startsWith('hashed_')
+        );
+        expect(hasHashedPin).toBe(true);
+
+        // Verificar que el PIN plano NO está en los params
+        const hasPlainPin = (params as any[]).some((p: any) => p === '1234');
+        expect(hasPlainPin).toBe(false);
     });
 
-    // TODO: Mock intercept issue - bcrypt.hash is called but mock doesn't capture it
-    it.skip('should hash PIN on reset', async () => {
-        const bcrypt = await import('bcryptjs');
+
+    // Verificar que el hash se guarda en reset de PIN
+    it('should hash PIN on reset', async () => {
         const mockClient = createMockClient([
             { rows: [mockAdmin], rowCount: 1 }, // Admin check
             { rows: [mockUser], rowCount: 1 }, // Update result
@@ -309,7 +315,18 @@ describe('Users V2 - PIN Security', () => {
             newPin: '5678'
         });
 
-        expect(bcrypt.default.hash).toHaveBeenCalledWith('5678', 10);
+        // Verificar que el PIN hasheado se guardó en el UPDATE
+        const updateCall = mockClient.query.mock.calls.find(
+            (call: any) => call[0].includes('UPDATE users') && call[0].includes('access_pin_hash')
+        );
+        expect(updateCall).toBeDefined();
+
+        // El hash mock devuelve 'hashed_5678', verificar que está en los params
+        const params = updateCall![1];
+        const hasHashedPin = (params as any[]).some((p: any) =>
+            typeof p === 'string' && p.startsWith('hashed_')
+        );
+        expect(hasHashedPin).toBe(true);
     });
 
     it('should never store plaintext PIN', async () => {

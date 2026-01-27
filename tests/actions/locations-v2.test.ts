@@ -6,6 +6,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as locationsV2 from '@/actions/locations-v2';
 import * as dbModule from '@/lib/db';
+import {
+    TEST_LOCATION_ID,
+    TEST_WAREHOUSE_ID,
+    TEST_BATCH_ID,
+    TEST_USERS,
+} from '../fixtures';
+
+// Valid UUIDs for tests
+const VALID_UUID_ADMIN = '550e8400-e29b-41d4-a716-446655440100';
+const VALID_UUID_MANAGER = '550e8400-e29b-41d4-a716-446655440101';
+const VALID_UUID_LOC_1 = '550e8400-e29b-41d4-a716-446655440200';
+const VALID_UUID_LOC_2 = '550e8400-e29b-41d4-a716-446655440201';
+const VALID_UUID_USER_1 = '550e8400-e29b-41d4-a716-446655440300';
+const VALID_UUID_BATCH_1 = '550e8400-e29b-41d4-a716-446655440400';
 
 // Mock dependencies
 vi.mock('@/lib/db', () => ({
@@ -21,7 +35,7 @@ vi.mock('next/cache', () => ({
 
 vi.mock('next/headers', () => ({
     headers: vi.fn(async () => new Map([
-        ['x-user-id', 'admin-uuid-1234'],
+        ['x-user-id', VALID_UUID_ADMIN],
         ['x-user-role', 'ADMIN']
     ]))
 }));
@@ -45,19 +59,19 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 vi.mock('crypto', () => ({
-    randomUUID: vi.fn(() => 'new-uuid-5678')
+    randomUUID: vi.fn(() => '550e8400-e29b-41d4-a716-446655440999')
 }));
 
-// Test data
+// Test data with VALID UUIDs
 const mockAdmin = {
-    id: 'admin-uuid-1234',
+    id: VALID_UUID_ADMIN,
     name: 'Admin User',
     role: 'ADMIN',
     is_active: true
 };
 
 const mockManager = {
-    id: 'manager-uuid-5678',
+    id: VALID_UUID_MANAGER,
     name: 'Manager User',
     role: 'MANAGER',
     access_pin_hash: 'hashed_1234',
@@ -65,11 +79,12 @@ const mockManager = {
 };
 
 const mockLocation = {
-    id: 'loc-uuid-1111',
+    id: VALID_UUID_LOC_1,
     name: 'Sucursal Centro',
     type: 'STORE',
     is_active: true
 };
+
 
 // RBAC tests - re-enabled
 describe('Locations V2 - RBAC Enforcement', () => {
@@ -123,8 +138,8 @@ describe('Locations V2 - RBAC Enforcement', () => {
     });
 });
 
-// Test IDs are not valid UUIDs - need fixture update
-describe.skip('Locations V2 - Deactivation', () => {
+// Deactivation tests - UUIDs corregidos
+describe('Locations V2 - Deactivation', () => {
     it('should soft delete location', async () => {
         const mockClient = createMockClient([
             { rows: [mockAdmin], rowCount: 1 }, // Auth
@@ -136,7 +151,7 @@ describe.skip('Locations V2 - Deactivation', () => {
         ]);
 
         const result = await locationsV2.deactivateLocationSecure(
-            'loc-uuid-1111',
+            VALID_UUID_LOC_1,
             'Sucursal cerrada por remodelación'
         );
 
@@ -164,7 +179,7 @@ describe.skip('Locations V2 - Deactivation', () => {
         ]);
 
         const result = await locationsV2.deactivateLocationSecure(
-            'loc-uuid-1111',
+            VALID_UUID_LOC_1,
             'Closing location'
         );
 
@@ -174,7 +189,7 @@ describe.skip('Locations V2 - Deactivation', () => {
 
     it('should require minimum reason length', async () => {
         const result = await locationsV2.deactivateLocationSecure(
-            'loc-uuid-1111',
+            VALID_UUID_LOC_1,
             'Short' // Too short
         );
 
@@ -183,18 +198,18 @@ describe.skip('Locations V2 - Deactivation', () => {
     });
 });
 
-// Test IDs are not valid UUIDs - need fixture update
-describe.skip('Locations V2 - Stock Transfer', () => {
+// Stock Transfer tests - UUIDs corregidos
+describe('Locations V2 - Stock Transfer', () => {
     it('should transfer stock with valid MANAGER PIN', async () => {
         const mockClient = createMockClient([
             { rows: [mockManager], rowCount: 1 }, // Auth
             {
                 rows: [ // Both locations
-                    { id: 'loc-1', name: 'Origen', is_active: true },
-                    { id: 'loc-2', name: 'Destino', is_active: true }
+                    { id: VALID_UUID_LOC_1, name: 'Origen', is_active: true },
+                    { id: VALID_UUID_LOC_2, name: 'Destino', is_active: true }
                 ], rowCount: 2
             },
-            { rows: [{ id: 'batch-1', sku: 'SKU001', name: 'Product', quantity_real: 100, lot_number: 'LOT001' }], rowCount: 1 }, // Source batch
+            { rows: [{ id: VALID_UUID_BATCH_1, sku: 'SKU001', name: 'Product', quantity_real: 100, lot_number: 'LOT001' }], rowCount: 1 }, // Source batch
             { rows: [], rowCount: 1 }, // Update source
             { rows: [], rowCount: 0 }, // No existing target batch
             { rows: [], rowCount: 1 }, // Create target batch
@@ -203,8 +218,8 @@ describe.skip('Locations V2 - Stock Transfer', () => {
         ]);
 
         const result = await locationsV2.transferStockBetweenLocationsSecure({
-            sourceLocationId: 'loc-1',
-            targetLocationId: 'loc-2',
+            sourceLocationId: VALID_UUID_LOC_1,
+            targetLocationId: VALID_UUID_LOC_2,
             items: [{ sku: 'SKU001', quantity: 10 }],
             reason: 'Reabastecimiento',
             managerPin: '1234'
@@ -219,16 +234,16 @@ describe.skip('Locations V2 - Stock Transfer', () => {
             { rows: [mockManager], rowCount: 1 },
             {
                 rows: [
-                    { id: 'loc-1', name: 'Origen', is_active: true },
-                    { id: 'loc-2', name: 'Destino', is_active: true }
+                    { id: VALID_UUID_LOC_1, name: 'Origen', is_active: true },
+                    { id: VALID_UUID_LOC_2, name: 'Destino', is_active: true }
                 ], rowCount: 2
             },
             { rows: [], rowCount: 0 } // No batch with enough stock
         ]);
 
         const result = await locationsV2.transferStockBetweenLocationsSecure({
-            sourceLocationId: 'loc-1',
-            targetLocationId: 'loc-2',
+            sourceLocationId: VALID_UUID_LOC_1,
+            targetLocationId: VALID_UUID_LOC_2,
             items: [{ sku: 'SKU001', quantity: 100 }],
             reason: 'Transfer',
             managerPin: '1234'
@@ -240,8 +255,8 @@ describe.skip('Locations V2 - Stock Transfer', () => {
 
     it('should reject same source and target', async () => {
         const result = await locationsV2.transferStockBetweenLocationsSecure({
-            sourceLocationId: 'loc-1',
-            targetLocationId: 'loc-1', // Same
+            sourceLocationId: VALID_UUID_LOC_1,
+            targetLocationId: VALID_UUID_LOC_1, // Same
             items: [{ sku: 'SKU001', quantity: 10 }],
             reason: 'Transfer',
             managerPin: '1234'
@@ -253,8 +268,8 @@ describe.skip('Locations V2 - Stock Transfer', () => {
 
     it('should require MANAGER PIN', async () => {
         const result = await locationsV2.transferStockBetweenLocationsSecure({
-            sourceLocationId: 'loc-1',
-            targetLocationId: 'loc-2',
+            sourceLocationId: VALID_UUID_LOC_1,
+            targetLocationId: VALID_UUID_LOC_2,
             items: [{ sku: 'SKU001', quantity: 10 }],
             reason: 'Transfer',
             managerPin: '' // Missing
@@ -265,20 +280,20 @@ describe.skip('Locations V2 - Stock Transfer', () => {
     });
 });
 
-// Test IDs are not valid UUIDs - need fixture update
-describe.skip('Locations V2 - User Assignment', () => {
+// User Assignment tests - UUIDs corregidos
+describe('Locations V2 - User Assignment', () => {
     it('should assign user to location (ADMIN only)', async () => {
         const mockClient = createMockClient([
             { rows: [mockAdmin], rowCount: 1 }, // Auth
             { rows: [mockLocation], rowCount: 1 }, // Location check
-            { rows: [{ id: 'user-1', name: 'User', assigned_location_id: null }], rowCount: 1 }, // User
+            { rows: [{ id: VALID_UUID_USER_1, name: 'User', assigned_location_id: null }], rowCount: 1 }, // User
             { rows: [], rowCount: 1 }, // Update
             { rows: [], rowCount: 0 } // Audit
         ]);
 
         const result = await locationsV2.assignUserToLocationSecure(
-            'user-1',
-            'loc-uuid-1111',
+            VALID_UUID_USER_1,
+            VALID_UUID_LOC_1,
             'Transferido a nueva sucursal'
         );
 
@@ -292,8 +307,8 @@ describe.skip('Locations V2 - User Assignment', () => {
         ]);
 
         const result = await locationsV2.assignUserToLocationSecure(
-            'user-1',
-            'loc-uuid-1111',
+            VALID_UUID_USER_1,
+            VALID_UUID_LOC_1,
             'Assignment'
         );
 
@@ -302,8 +317,8 @@ describe.skip('Locations V2 - User Assignment', () => {
     });
 });
 
-// Mock for query vs pool.query difference - need refactor
-describe.skip('Locations V2 - Inventory Summary', () => {
+// Inventory Summary tests - UUIDs corregidos
+describe('Locations V2 - Inventory Summary', () => {
     it('should return inventory summary', async () => {
         const mockDb = await import('@/lib/db');
         vi.mocked(mockDb.query).mockResolvedValueOnce({
@@ -317,7 +332,7 @@ describe.skip('Locations V2 - Inventory Summary', () => {
             rowCount: 1
         } as any);
 
-        const result = await locationsV2.getLocationInventorySummary('loc-uuid-1111');
+        const result = await locationsV2.getLocationInventorySummary(VALID_UUID_LOC_1);
 
         expect(result.success).toBe(true);
         expect(result.data?.totalSKUs).toBe(45);

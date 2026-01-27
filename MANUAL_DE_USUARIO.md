@@ -1,8 +1,8 @@
-# 📘 Manual de Usuario Definitivo: Farmacias Vallenar Suite
+# 📘 Manual de Usuario: Farmacias Vallenar Suite
 
-**Versión:** 3.0 (Guía Paso a Paso)  
-**Última Actualización:** Diciembre 2025  
-**Objetivo:** Guía integral para operaciones diarias, desde la primera venta hasta el cierre financiero.
+**Versión:** 3.1 (Guía Actualizada)  
+**Última Actualización:** 27 de Enero, 2026  
+**Objetivo:** Guía integral para operaciones diarias, desde el primer acceso hasta el cierre financiero.
 
 ---
 
@@ -19,27 +19,46 @@
 
 ## 1. 🚀 Introducción y Acceso al Sistema
 
-El sistema utiliza un **Selector de Contexto** inteligente para adaptar la experiencia a tu ubicación física.
+El sistema utiliza un **flujo de autenticación por sucursal y PIN**, diseñado para ser rápido y seguro en entornos de alto tráfico.
 
-### 📍 Paso 1: Selección de Contexto
-Al encender el computador e ingresar al sistema, verás la pantalla: **"¿Dónde iniciarás turno hoy?"**.
-*   **🏪 Sucursal:** Selecciona tu tienda (ej. "Vallenar Centro" o "Altiplano"). Aquí harás ventas.
-*   **🏭 Bodega:** Selecciona si trabajarás gestionando stock y camiones.
-*   **🏢 Casa Matriz:** Solo para gerencia central.
+### 📍 Paso 1: Selección de Sucursal
 
-> 💡 **Nota:** Esta elección queda guardada. Si mañana vuelves al mismo PC, entrarás directo. Para cambiar, haz clic en el botón "Cambiar Contexto" en la pantalla de inicio.
+Al abrir la aplicación (`http://localhost:3000`), verás la pantalla: **"¿Dónde inicias turno hoy?"**.
 
-### 🏠 Paso 2: El Hub Central
-Una vez dentro, verás el **Hub de Aplicaciones**.
-*   **🔵 Iniciar Sesión:** Tu herramienta de trabajo principal (ERP/POS).
-*   **🌸 Reloj Control (Kiosco):** Para marcar entrada/salida de turno.
-*   **🟣 Totem Filas:** Solo para pantallas de atención al cliente.
+*   Selecciona tu sucursal haciendo clic en el botón **"Seleccionar"** de la tarjeta correspondiente.
+*   Ejemplo: **"Farmacia Vallenar santiago"**
 
-### 🔐 Paso 3: Login Seguro
-1.  Haz clic en **"Iniciar Sesión"**.
-2.  Busca tu nombre en la lista o escribe tu RUT.
-3.  Ingresa tu **PIN de 4 dígitos**.
-    *   *¿Olvidaste tu PIN?* Pídele al administrador que lo restablezca en el módulo de Usuarios.
+> 💡 **Nota:** Esta elección se recuerda. Si mañana vuelves al mismo equipo, puedes cambiar de sucursal desde el botón "Cambiar" en la esquina.
+
+### 🏠 Paso 2: Selección de Módulo
+
+Una vez seleccionada la sucursal, verás el **Hub de Módulos** con diferentes opciones:
+
+| Módulo | Descripción | Roles |
+|--------|-------------|-------|
+| **Administración** | Dashboard gerencial, configuración | Gerentes, Admin |
+| **Punto de Venta** | Ventas y caja | Cajeros, Vendedores |
+| **Logística** | Inventario y bodega | Bodegueros |
+| **Reloj Control** | Marcación de entrada/salida | Todos |
+
+Haz clic en el botón **"ACCEDER"** del módulo que necesites.
+
+### 🔐 Paso 3: Login con PIN
+
+1.  Se abrirá el modal **"Iniciar Sesión"** con la lista de usuarios disponibles.
+2.  **Busca tu nombre** en la lista o escribe para filtrar.
+3.  **Haz clic** en tu nombre para seleccionarte.
+4.  **Ingresa tu PIN de 4 dígitos** en el campo que aparece.
+5.  Presiona el botón **"Entrar"**.
+
+### 👤 Usuarios de Demostración
+
+| Nombre | PIN | Rol | Acceso |
+|--------|-----|-----|--------|
+| Gerente General 1 | 1213 | Gerente | Acceso total |
+| Cajero 1 | 1234 | Cajero | POS, Ventas |
+
+> ⚠️ **¿Olvidaste tu PIN?** Pídele a un administrador que lo restablezca desde el módulo de Usuarios.
 
 ---
 
@@ -48,139 +67,172 @@ Una vez dentro, verás el **Hub de Aplicaciones**.
 Guía completa para el flujo de venta.
 
 ### 🟢 Tutorial A: Apertura de Turno
-Antes de vender, debes decirle al sistema con cuánto dinero empiezas.
-1.  Ingresa al POS. El sistema te bloqueará y dirá **"Caja Cerrada"**.
+
+Antes de vender, debes declarar tu fondo de caja.
+
+1.  Ingresa al **POS**. Si la caja está cerrada, verás el mensaje **"Caja Cerrada"**.
 2.  Haz clic en **"Abrir Caja"**.
 3.  **Selecciona tu Terminal:** Ej. "Caja 1".
-4.  **Monto Base:** Cuenta las monedas y billetes en tu cajón (sencillo) y escribe el total (ej. $20.000).
+4.  **Monto Base:** Cuenta el dinero en tu cajón (sencillo) y escribe el total (ej. $20.000).
 5.  Confirma. ¡Ya puedes vender!
 
 ### 🖥️ Anatomía de la Pantalla de Venta
+
 *   **1. Barra Superior:** Buscador inteligente. Escribe "Paracetamol" o "Dolor de cabeza".
 *   **2. Canasta (Izquierda):** Lista de productos a llevar.
     *   Usa los botones `+` y `-` para cambiar cantidades.
-    *   Usa la papelera 🗑️ para quitar un error.
+    *   Usa la papelera 🗑️ para quitar un producto.
 *   **3. Panel Financiero (Derecha):** Muestra el Total a Pagar.
     *   **Botón Cliente:** Asocia la venta a un RUT para dar factura o puntos.
-    *   **Desc. Global:** Aplica un descuento a toda la compra (requiere clave de supervisor si es alto).
+    *   **Desc. Global:** Aplica un descuento (requiere PIN de supervisor si es alto).
 
 ### 💳 Tutorial B: Procesar una Venta
-1.  **Escanear:** Pasa el producto por el lector de código de barras.
-2.  **Verificar:** Confirma que el producto apareció en la canasta con el precio correcto.
-3.  **Cobrar:** Presiona la tecla `F9` o el botón **"Pagar"**.
-4.  **Medio de Pago:**
-    *   💵 **Efectivo:** Escribe cuánto te entrega el cliente. El sistema te dirá el **Vuelto**.
-    *   💳 **Tarjeta:** Selecciona Débito o Crédito. Ingresa el código de autorización del voucher (opcional).
-5.  **Finalizar:** Presiona "Confirmar Pago". La boleta saldrá automáticamente.
 
-> **💡 Tip Pro:** Activa el interruptor **"Auto-Print"** arriba a la derecha para que la boleta salga sola sin preguntar.
+1.  **Escanear:** Pasa el producto por el lector de código de barras.
+2.  **Verificar:** Confirma que el producto apareció con el precio correcto.
+3.  **Cobrar:** Presiona `F9` o el botón **"Pagar"**.
+4.  **Medio de Pago:**
+    *   💵 **Efectivo:** Escribe cuánto entrega el cliente. El sistema calcula el **Vuelto**.
+    *   💳 **Tarjeta:** Selecciona Débito o Crédito.
+5.  **Finalizar:** Presiona "Confirmar Pago". La boleta sale automáticamente.
+
+> **💡 Tip Pro:** Activa **"Auto-Print"** arriba a la derecha para imprimir automáticamente.
 
 ### 🔄 Tutorial C: Cambio de Turno (Relevo)
+
 Si te vas y entra otro compañero a la *misma caja*:
+
 1.  Haz clic en tu nombre (arriba derecha) > **"Cerrar Caja / Turno"**.
 2.  Selecciona **"Relevo de Cajero"**.
-3.  **Arqueo Ciego:** El sistema te pedirá contar TODO el dinero. **No te dirá cuánto debería haber**. Cuenta y escribe la realidad.
-4.  El sistema imprimirá un **Ticket de Traspaso**. Fírmalo y entrégaselo a tu compañero junto con el dinero base.
+3.  **Arqueo Ciego:** Cuenta TODO el dinero. El sistema no te dirá cuánto debería haber.
+4.  El sistema imprimirá un **Ticket de Traspaso**. Fírmalo y entrégalo junto con el dinero.
 
 ### 🏁 Tutorial D: Cierre Final del Día
+
 1.  Sigue los mismos pasos del Relevo pero elige **"Cierre Final"**.
 2.  El sistema generará una **Remesa**.
 3.  Guarda todo el dinero (menos la base de mañana) en una bolsa de valores.
-4.  Pega el ticket de cierre en la bolsa y entrégasela al Gerente.
+4.  Pega el ticket de cierre en la bolsa y entrégala al Gerente.
 
 ---
 
 ## 3. 🏭 Inventario y Logística (Para Bodegueros)
 
 ### 📥 Operación WMS: Recepción de Mercadería
+
 Cuando llega un camión de un proveedor:
+
 1.  Ve a **Logística** > **Recepciones**.
-2.  **Nueva Recepción**. Escanea la factura física o guía de despacho.
+2.  **Nueva Recepción**. Escanea la factura o guía de despacho.
 3.  **Ingreso de Productos:**
     *   Escanea cada caja.
     *   Ingresa: Cantidad, **Lote** (código de fábrica) y **Vencimiento**.
-    *   *¡Crucial!* Si ingresas mal el vencimiento, el sistema podría vender productos vencidos o bloquear productos buenos.
-4.  Haz clic en **"Finalizar Recepción"**. El stock se suma a la bodega inmediatamente.
+    *   ⚠️ *¡Crucial!* Si ingresas mal el vencimiento, el sistema podría vender productos vencidos.
+4.  Haz clic en **"Finalizar Recepción"**. El stock se suma inmediatamente.
+
+### 📦 Ajuste de Stock
+
+Para ajustar inventario (conteo físico, daños, etc.):
+
+1.  Ve a **Logística** > **Inventario**.
+2.  Busca el producto.
+3.  Haz clic en **"Ajustar"**.
+4.  Ingresa la cantidad a ajustar y el motivo.
+
+> ⚠️ **Regla de Seguridad:** Ajustes de más de 100 unidades requieren **PIN de supervisor**.
+
+### 🔄 Transferencias entre Ubicaciones
+
+Para mover stock de una ubicación a otra:
+
+1.  Busca el producto en **Inventario**.
+2.  Haz clic en **"Transferir"**.
+3.  Selecciona la **ubicación destino**.
+4.  Ingresa la cantidad y confirma.
 
 ### 📦 Catálogo y Stock
-Ve a **Inventario** > **Catálogo**.
-*   **Niveles de Stock:**
-    *   **Físico:** Lo que realmente hay en estantería.
-    *   **Disponible:** Físico menos lo que está "reservado" en carritos de compra activos.
-*   **Lotes:** Haz clic en un producto para ver el detalle de sus lotes. El sistema siempre venderá primero el lote que vence antes (**FEFO**).
 
-### 📤 Importación Masiva (CSV)
-Para actualizar precios o crear muchos productos nuevos:
-1.  Ve a **Inventario** > **Herramientas** > **Importador**.
-2.  Descarga la **Plantilla CSV**.
-3.  Llénala en Excel *sin cambiar los nombres de las columnas*.
-4.  Guárdala como `.csv` y súbela.
-5.  Revisa la vista previa y confirma.
+*   **Stock Físico:** Lo que realmente hay en estantería.
+*   **Stock Disponible:** Físico menos lo "reservado" en carritos activos.
+*   **Lotes:** El sistema vende primero el lote que vence antes (**FEFO**).
 
 ---
 
 ## 4. 💰 Tesorería y Finanzas (Para Gerentes)
 
-El ciclo del dinero en Farmacias Vallenar es estricto para evitar pérdidas.
-
 ### ⛓️ La Cadena de Custodia
+
 El dinero pasa por 3 estados:
-1.  **Pendiente:** El cajero cerró su caja, pero nadie ha verificado la plata.
-2.  **En Bóveda:** El Gerente contó la bolsa del cajero y confirmó que coincide con el sistema.
-3.  **Depositado:** El dinero salió de la tienda hacia el Banco.
+
+1.  **Pendiente:** El cajero cerró su caja, nadie ha verificado.
+2.  **En Bóveda:** El Gerente confirmó que coincide con el sistema.
+3.  **Depositado:** El dinero salió hacia el Banco.
 
 ### 🏦 Tutorial: Recepción de Remesas
+
 1.  Ve a **Tesorería** > **Recepciones**.
-2.  Verás las alertas de "Cajas Cerradas por Confirmar".
-3.  Llama al cajero. Abre su bolsa.
-4.  Cuenta el dinero.
-5.  En el sistema, ingresa el monto real contado.
-6.  Si hay diferencia, el sistema te pedirá justificación.
-7.  Haz clic en **Correcto / Aceptar**. Ahora el dinero es tu responsabilidad.
+2.  Verás alertas de "Cajas Cerradas por Confirmar".
+3.  Abre la bolsa del cajero y cuenta el dinero.
+4.  Ingresa el monto real en el sistema.
+5.  Si hay diferencia, el sistema pide justificación.
+6.  Haz clic en **"Aceptar"**.
 
 ### ⚖️ Dashboard Financiero
-En la pantalla principal de Tesorería verás:
-*   **Saldo en Caja Fuerte:** Dinero acumulado listo para depositar.
-*   **Ventas del Día:** Total vendido (Efectivo + Tarjetas).
-*   **Diferencias:** Gráfico de sobrantes/faltantes por cajero. Úsalo para feedback.
+
+*   **Saldo en Caja Fuerte:** Dinero listo para depositar.
+*   **Ventas del Día:** Total (Efectivo + Tarjetas).
+*   **Diferencias:** Gráfico de sobrantes/faltantes por cajero.
 
 ---
 
 ## 5. 👥 Administración y RRHH
 
 ### ⏱️ Control de Asistencia
+
 1.  Ve a **RRHH** > **Asistencia**.
-2.  Verás la lista de empleados.
-3.  **Alertas:**
-    *   🔴 **Rojo:** Llegada tarde (después de hora de contrato + tolerancia).
+2.  **Alertas:**
+    *   🔴 **Rojo:** Llegada tarde.
     *   🟡 **Amarillo:** Salida anticipada.
-4.  Puedes exportar este reporte a Excel para la liquidación de sueldos.
+3.  Exporta a Excel para liquidación de sueldos.
 
 ### ⚙️ Configuración del Sistema
-*   **Usuarios:** Crea nuevos empleados. Recuerda asignarles el **Rol** correcto (Cajero, Químico, Admin) y las **Sucursales** permitidas.
-*   **Impresoras:**
-    *   Instala el driver de tu impresora térmica (Epson, Star, XPrinter).
-    *   En Configuración > Impresoras, selecciona si usas papel de 80mm o 58mm.
-    *   Haz una "Prueba de Impresión" para ajustar márgenes.
+
+*   **Usuarios:** Crea empleados, asigna **Rol** (Cajero, Químico, Admin) y **Sucursales**.
+*   **Impresoras:** Configura papel de 80mm o 58mm. Haz "Prueba de Impresión".
 
 ---
 
 ## 6. ❓ Solución de Problemas (Troubleshooting)
 
 ### ☁️ Modo Offline (Sin Internet)
-*   **Síntoma:** El icono de nube arriba se pone rojo.
-*   **Acción:** **NO PARES DE VENDER.** El sistema está diseñado para funcionar sin internet. Guardará todo en el navegador.
-*   **Recuperación:** Cuando vuelva internet, verás que el icono gira. Espera a que se ponga verde antes de cerrar tu turno o apagar el computador.
+
+*   **Síntoma:** El icono de nube se pone rojo.
+*   **Acción:** **NO PARES DE VENDER.** El sistema está diseñado para funcionar offline.
+*   **Recuperación:** Cuando vuelva internet, espera a que el icono esté verde antes de cerrar turno.
 
 ### 🖨️ La Impresora no funciona
-1.  Revisa que tenga papel y esté encendida (luz verde fija, no parpadeando).
-2.  Revisa el cable USB.
-3.  En el sistema, apaga y vuelve a encender el interruptor "Auto-Print".
-4.  Si nada funciona, reinicia el computador.
 
-### 🚫 "Acceso Denegado" al entrar
-*   Verifica que estás en la **Sucursal Correcta**. Un cajero de "Centro" no puede entrar en "Altiplano" a menos que tenga permiso.
-*   Pide a tu jefe que revise tu perfil en "Usuarios" y marque las casillas de sucursal correspondientes.
+1.  Revisa papel y cables.
+2.  Apaga/enciende el interruptor "Auto-Print".
+3.  Reinicia el computador si es necesario.
+
+### 🚫 "Acceso Denegado"
+
+*   Verifica que estás en la **Sucursal Correcta**.
+*   Pide que revisen tu perfil en "Usuarios" y marquen las casillas de sucursal.
+
+### 🔐 PIN Incorrecto
+
+*   Verifica que estás ingresando el PIN correcto (4 dígitos).
+*   Si olvidaste tu PIN, contacta al administrador.
+*   Después de varios intentos fallidos, tu cuenta puede bloquearse temporalmente.
+
+### 🔄 Error: "input[name='username'] not found"
+
+*   Este error aparece en tests E2E antiguos.
+*   El sistema NO usa formulario de email/password.
+*   El login es por **sucursal + usuario + PIN**.
 
 ---
-> **Farmacias Vallenar Suite** - Tecnología que cuida.
+
+> **Farmacias Vallenar Suite** - Tecnología que cuida. 💊

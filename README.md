@@ -2,7 +2,8 @@
 
 **Versión:** 2.1 (Agentic Era)  
 **Rol:** ERP Farmacéutico de Misión Crítica  
-**Target:** Farmacias de alto volumen en zonas remotas/mineras (Chile)
+**Target:** Farmacias de alto volumen en zonas remotas/mineras (Chile)  
+**Última Actualización:** 27 de Enero, 2026
 
 ---
 
@@ -12,28 +13,32 @@
 
 #### **Arquitectura Base**
 - ✅ Estructura Clean Architecture (Domain, Infrastructure, Presentation)
+- ✅ Next.js 15 con App Router
 - ✅ TypeScript con tipos estrictos
 - ✅ Zustand Store con persistencia local (Offline-First)
-- ✅ React 18 + Vite
 - ✅ Tailwind CSS v4
-- ✅ React Router v7
+- ✅ PostgreSQL (TimescaleDB) para datos transaccionales
 
 #### **Módulos Operativos**
-- ✅ **Landing Page** - Selector de roles con diseño premium
-- ✅ **POS (Punto de Venta)** - Sistema de carrito y ventas básico
+- ✅ **Landing Page** - Selector de sucursal con diseño premium
+- ✅ **POS (Punto de Venta)** - Sistema completo de ventas con carrito
 - ✅ **Inventario** - Visualización de lotes con trazabilidad FEFO
-- ✅ **Navegación** - Sidebar con RBAC (Role-Based Access Control)
+- ✅ **Logística/WMS** - Gestión de stock y transferencias
+- ✅ **Tesorería** - Control de caja y arqueos
+- ✅ **RR.HH.** - Control de asistencia y nóminas
+- ✅ **Analytics/BI** - Dashboard gerencial con KPIs
 
 #### **Lógica de Negocio**
 - ✅ **Anti-Canela** - Compliance legal para comisiones
 - ✅ **Clinical Logic** - Motor de interacciones farmacológicas (DDI)
 - ✅ **FEFO** - First Expired, First Out (vencimientos)
+- ✅ **RBAC** - Control de acceso basado en roles
 
-#### **Datos de Demostración**
-- ✅ 3 usuarios (Manager, Cajero, Bodeguero)
-- ✅ 7 productos farmacéuticos (medicamentos + retail)
-- ✅ Lotes de inventario con vencimientos
-- ✅ Ubicación predeterminada (Farmacia Central Vallenar)
+#### **Testing**
+- ✅ **339+ tests unitarios** pasando (Vitest)
+- ✅ **65 tests de hooks** pasando
+- ✅ **Tests E2E** con Playwright
+- ✅ Cobertura de módulos críticos (inventario, usuarios, cotizaciones)
 
 ---
 
@@ -41,12 +46,13 @@
 
 ### **Requisitos Previos**
 - Node.js 18+ (recomendado: 20+)
-- npm
+- npm o pnpm
+- PostgreSQL (opcional para desarrollo local con mocks)
 
 ### **Iniciar Desarrollo**
 
 ```bash
-# Instalar dependencias (ya ejecutado)
+# Instalar dependencias
 npm install
 
 # Modo desarrollo
@@ -56,7 +62,7 @@ npm run dev
 npm run build
 
 # Preview producción
-npm preview
+npm run start
 ```
 
 ### **Ejecutar Tests**
@@ -68,26 +74,39 @@ npm test
 # Tests con cobertura
 npm run test:coverage
 
-# Tests de integración (requiere DB real)
-# 1. Configura POSTGRES_URL en .env.test
-# 2. Ejecuta:
-POSTGRES_URL=postgres://user:pass@host:5432/db npm test
+# Tests E2E (requiere servidor corriendo)
+npm run dev  # en una terminal
+npx playwright test  # en otra terminal
+
+# Tests E2E con navegador visible
+npx playwright test --headed
 ```
 
-> **Nota:** Los tests unitarios usan `DATABASE_URL` mock definido en `vitest.config.ts`.  
+> **Nota:** Los tests unitarios usan mocks definidos en los archivos de test.  
 > Los tests de integración se saltan automáticamente si no hay `POSTGRES_URL` configurado.
 
-### **Acceso a la Aplicación**
+---
 
-**URL:** `http://localhost:5173`
+## 🔐 Acceso a la Aplicación
 
-**Usuarios de Demostración:**
+**URL Desarrollo:** `http://localhost:3000`
 
-| Rol | Usuario | PIN | Funcionalidad |
-|-----|---------|-----|---------------|
-| **Manager** | admin | 1234 | Acceso total (Dashboard, Analytics, Seguridad) |
-| **Cajero** | cajero1 | 5678 | Punto de Venta, Ventas |
-| **Bodeguero** | bodega1 | 9012 | Inventario, Logística |
+### **Flujo de Login (IMPORTANTE)**
+
+El sistema utiliza un flujo de autenticación por **sucursal y PIN**, no un formulario email/password tradicional:
+
+1. **Seleccionar Sucursal**: Ej. "Farmacia Vallenar Santiago"
+2. **Click en ACCEDER**: En el módulo deseado (Administración, Punto de Venta, etc.)
+3. **Seleccionar Usuario**: De la lista disponible
+4. **Ingresar PIN**: Código de 4 dígitos
+
+### **Usuarios de Demostración**
+
+| Rol | Usuario | PIN | Acceso |
+|-----|---------|-----|--------|
+| **Gerente General** | Gerente General 1 | 1213 | Acceso total (Dashboard, Analytics, Seguridad) |
+| **Cajero** | Cajero 1 | 1234 | Punto de Venta, Ventas |
+| **Bodeguero** | Bodeguero 1 | (ver config) | Inventario, Logística |
 
 ---
 
@@ -95,66 +114,71 @@ POSTGRES_URL=postgres://user:pass@host:5432/db npm test
 
 ```
 src/
-├── domain/                      # Lógica de Negocio Pura
-│   ├── logic/
-│   │   ├── clinical.ts          # Interacciones farmacológicas
-│   │   └── compliance.ts        # Anti-Canela, reglas legales
-│   └── types.ts                 # Interfaces TypeScript maestras
+├── actions/                     # Server Actions (Next.js)
+│   ├── inventory-v2.ts          # Operaciones de inventario
+│   ├── users-v2.ts              # Gestión de usuarios
+│   ├── quotes-v2.ts             # Cotizaciones
+│   └── ...
 │
-├── infrastructure/              # I/O y Servicios Externos
-│   └── printer/                 # (Futuro: Generación PDFs)
+├── app/                         # App Router (Next.js 15)
+│   ├── page.tsx                 # Selector de sucursal
+│   ├── dashboard/               # Dashboard principal
+│   ├── logistica/               # Módulo de inventario
+│   ├── caja/                    # Módulo POS
+│   └── ...
 │
-├── presentation/                # Capa de UI (React)
-│   ├── components/
-│   │   └── pos/
-│   │       └── POSMainScreen.tsx
-│   ├── layouts/
-│   │   └── SidebarLayout.tsx    # Navegación principal
-│   ├── pages/
-│   │   ├── LandingPage.tsx      # Selector de roles
-│   │   ├── POSPage.tsx          # Punto de venta
-│   │   └── InventoryPage.tsx    # Gestión de inventario
-│   └── store/
-│       └── useStore.ts          # Estado global Zustand
+├── components/                  # Componentes React
+│   ├── pos/                     # Componentes del POS
+│   ├── inventory/               # Componentes de inventario
+│   └── ui/                      # Componentes base (shadcn)
 │
-└── utils/                       # Helpers generales
+├── hooks/                       # Custom Hooks
+│   ├── useProductSearch.ts      # Búsqueda de productos
+│   ├── useCheckout.ts           # Flujo de checkout
+│   └── ...
+│
+├── lib/                         # Utilidades y configuración
+│   ├── db.ts                    # Conexión PostgreSQL
+│   └── ...
+│
+└── domain/                      # Lógica de Negocio
+    └── logic/
+        ├── clinical.ts          # Interacciones farmacológicas
+        └── compliance.ts        # Anti-Canela, reglas legales
+
+tests/
+├── actions/                     # Tests unitarios de actions
+├── hooks/                       # Tests de hooks
+├── integration/                 # Tests de integración (requieren DB)
+└── e2e/                         # Tests E2E (Playwright)
+    └── helpers/
+        └── login.ts             # Helper de login reutilizable
 ```
 
 ---
 
-## 🎯 Próximos Pasos (Roadmap)
+## 🧪 Testing
 
-### **Prioridad Alta**
-- [ ] Dashboard gerencial con KPIs
-- [ ] Módulo de RR.HH. (Reloj Control, Nóminas)
-- [ ] Analytics/Reportes (BI)
-- [ ] Gestión de usuarios (Seguridad)
+### **Estructura de Tests**
 
-### **Prioridad Media**
-- [ ] Clinical Sidebar (Chatbot IA)
-- [ ] Supply Chain (Kanban de compras)
-- [ ] Auditoría (Libro de Controlados)
-- [ ] CRM/Fidelización
+| Tipo | Ubicación | Framework | Estado |
+|------|-----------|-----------|--------|
+| Unitarios | `tests/actions/` | Vitest | ✅ 339+ pasando |
+| Hooks | `tests/hooks/` | Vitest | ✅ 65 pasando |
+| Integración | `tests/integration/` | Vitest | ⏭️ Requieren DB |
+| E2E | `tests/e2e/` | Playwright | ✅ Corregidos |
 
-### **Prioridad Baja**
-- [ ] Impresión de tickets térmicos
-- [ ] Generación de DTE (Boletas electrónicas SII)
-- [ ] Multi-tienda (sincronización)
+### **Helper de Login para E2E**
 
----
+Los tests E2E usan un helper compartido en `tests/e2e/helpers/login.ts`:
 
-## 🔧 Stack Tecnológico
+```typescript
+import { loginAsManager } from './helpers/login';
 
-| Categoría | Tecnología |
-|-----------|-----------|
-| **Framework** | React 18 + Vite 7 |
-| **Lenguaje** | TypeScript 5.9 |
-| **Estilos** | Tailwind CSS v4 |
-| **Router** | React Router v7 |
-| **Estado** | Zustand 5 (con persistencia) |
-| **UI/UX** | Lucide React (iconos), Sonner (toasts), Framer Motion |
-| **Utils** | date-fns, clsx, tailwind-merge |
-| **Reportes** | jsPDF, jsPDF-autotable |
+test.beforeEach(async ({ page }) => {
+    await loginAsManager(page);
+});
+```
 
 ---
 
@@ -174,8 +198,15 @@ src/
 
 ### **3. RBAC (Control de Acceso)**
 ```typescript
-// Jerarquía: MANAGER > ADMIN > CASHIER > WAREHOUSE
-// Validación de rutas por rol
+// Jerarquía: GERENTE > MANAGER > ADMIN > CASHIER > WAREHOUSE
+// Validación de rutas y operaciones por rol
+```
+
+### **4. Umbrales de PIN para Operaciones Sensibles**
+```typescript
+// Ajuste de stock < 100 unidades: Sin PIN
+// Ajuste de stock > 100 unidades: Requiere PIN de supervisor
+// Descuentos > 10%: Requieren autorización
 ```
 
 ---
@@ -195,25 +226,37 @@ location.reload()
 localStorage.getItem('farmacias-vallenar-storage')
 ```
 
+### **Logs del servidor**
+```bash
+# Ver logs de desarrollo
+npm run dev
+
+# Los errores se muestran en la terminal con contexto
+```
+
+---
+
+## 📄 Documentación Adicional
+
+| Documento | Descripción |
+|-----------|-------------|
+| `FINAL_DOCUMENTATION.md` | Documentación técnica completa de todos los módulos |
+| `INFORME_EJECUTIVO_ARQUITECTURA.md` | Arquitectura de datos y pipelines |
+| `MANUAL_DE_USUARIO.md` | Guía paso a paso para operadores |
+| `PROJECT_BIBLE.md` | Decisiones de arquitectura y convenciones |
+
 ---
 
 ## 📄 Licencia
 
-Proyecto privado - Farmacias Vallenar © 2025
+Proyecto privado - Farmacias Vallenar © 2025-2026
 
 ---
 
 ## 👨‍💻 Desarrollo
 
-**Framework:** React + Vite  
+**Framework:** Next.js 15 (App Router)  
 **Arquitectura:** Clean Architecture (DDD-lite)  
 **Patrón:** Offline-First con Zustand  
+**Testing:** Vitest + Playwright  
 **Compliance:** Chile (ISP/SII/DT)
-
----
-
-## 🌐 Servidor en Ejecución
-
-El servidor de desarrollo está corriendo en: **http://localhost:5173**
-
-Para detener: `Ctrl + C` en la terminal
