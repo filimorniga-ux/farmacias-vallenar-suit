@@ -10,7 +10,7 @@ export function MobileNavBar() {
 
     const navItems = [
         { href: '/dashboard', label: 'Inicio', icon: Home },
-        { href: '/pos', label: 'Vender', icon: ShoppingCart },
+        { href: '/pos', label: 'Acceder', icon: ShoppingCart },
         { href: '/inventory', label: 'Stock', icon: Box },
         { href: '/settings', label: 'Menú', icon: Menu },
     ];

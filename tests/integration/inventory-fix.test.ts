@@ -11,6 +11,8 @@ const pool = new Pool({
     connectionString: process.env.POSTGRES_URL || process.env.DATABASE_URL
 });
 
+console.log('🔌 Test connecting to DB:', pool.options.connectionString ? (pool.options.connectionString as string).replace(/:[^:@]+@/, ':****@') : 'URL MISSING');
+
 // Skip if no real database is available
 const hasRealDb = Boolean(process.env.POSTGRES_URL);
 describe.skipIf(!hasRealDb)('Inventory Integration (Invoice Approval)', () => {

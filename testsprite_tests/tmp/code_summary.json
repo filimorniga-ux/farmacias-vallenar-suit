@@ -1,0 +1,26 @@
+{
+    "project_name": "farmacias-vallenar-suit",
+    "tech_stack": {
+        "frontend": "Next.js 16.0.7, React 19.2.1, Tailwind CSS 4.1.17, Framer Motion",
+        "backend": "Next.js Server Actions, PostgreSQL (Tiger Cloud/Local via pg), Node.js v25.4.0",
+        "mobile": "Capacitor 8.0.1 (Android/iOS)",
+        "desktop": "Electron 39.2.4",
+        "deployment": "Vercel / Local Server"
+    },
+    "key_features": [
+        "Sales and POS management (src/app/sales, src/actions/sales-v2.ts)",
+        "Inventory and stock control (src/actions/public/search-products.ts)",
+        "Financial and treasury reporting (src/app/finance, src/app/treasury)",
+        "Smart product search with bioequivalents (src/actions/public/bioequivalents.ts)",
+        "Shift handover and cash management (src/actions/shift-handover-v2.ts)",
+        "Admin panel for system configuration (src/app/admin)"
+    ],
+    "architecture": {
+        "pattern": "Clean Architecture (domain, infrastructure, presentation, actions)",
+        "routing": "Next.js App Router"
+    },
+    "testing_setup": {
+        "unit_tests": "Vitest",
+        "e2e_tests": "Playwright"
+    }
+}

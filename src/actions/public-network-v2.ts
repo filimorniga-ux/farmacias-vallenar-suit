@@ -24,10 +24,12 @@ export interface PublicLocation {
     type: 'STORE' | 'WAREHOUSE' | 'HQ';
 }
 
-// Caché de 5 minutos
-// Caché de 5 minutos
-const getCachedLocations = unstable_cache(
-    async (): Promise<PublicLocation[]> => {
+export async function getPublicLocationsSecure(): Promise<{
+    success: boolean;
+    data?: PublicLocation[];
+    error?: string;
+}> {
+    try {
         const res = await query(`
             SELECT id, name, address, type 
             FROM locations 
@@ -35,41 +37,13 @@ const getCachedLocations = unstable_cache(
             ORDER BY name ASC
         `);
 
-        // Sanitizar output
-        return res.rows.map((row: any) => ({
+        const data = res.rows.map((row: any) => ({
             id: row.id,
             name: (row.name || '').replace(/<[^>]*>/g, ''), // Strip HTML
             address: (row.address || '').replace(/<[^>]*>/g, ''),
             type: row.type,
         }));
-    },
-    ['public-locations'],
-    { revalidate: 60 } // Aumentado a 60s para reducir carga en DB lenta
-);
 
-/**
- * 🌍 Obtener Ubicaciones Públicas (con rate limit y caché)
- */
-export async function getPublicLocationsSecure(): Promise<{
-    success: boolean;
-    data?: PublicLocation[];
-    error?: string;
-}> {
-    try {
-        // Obtener IP (Disabled for stability)
-        // const headersList = await headers();
-        // const ip = headersList.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-
-        // Rate limit 10/min por IP
-        // Rate limit 10/min por IP - DISABLED for desktop app compatibility
-        /*
-        const rl = checkRateLimit(`public-locations:${ip}`);
-        if (!rl.allowed) {
-            return { success: false, error: 'Demasiadas solicitudes. Intente en un momento.' };
-        }
-        */
-
-        const data = await getCachedLocations();
         return { success: true, data };
 
     } catch (error: any) {
