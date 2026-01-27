@@ -1,6 +1,6 @@
 'use server';
 
-import { Client } from 'pg';
+import { getClient } from '@/lib/db';
 import { AIForecastingService, ForecastInput } from '@/services/ai-forecasting';
 
 export interface ReplenishmentSuggestion {
@@ -17,13 +17,11 @@ export interface ReplenishmentSuggestion {
     sourceBranch?: string; // If 'TRASPASO', which branch?
 }
 
-const getClient = () => new Client({ connectionString: process.env.DATABASE_URL });
 
 export async function getReplenishmentSuggestions(branch: 'SANTIAGO' | 'COLCHAGUA'): Promise<ReplenishmentSuggestion[]> {
     if (!['SANTIAGO', 'COLCHAGUA'].includes(branch)) return [];
 
-    const client = getClient();
-    await client.connect();
+    const client = await getClient();
 
     try {
         console.time("GenerateSuggestions");
@@ -189,6 +187,6 @@ export async function getReplenishmentSuggestions(branch: 'SANTIAGO' | 'COLCHAGU
         console.error("Error generating AI suggestions:", error);
         return [];
     } finally {
-        await client.end();
+        client.release();
     }
 }

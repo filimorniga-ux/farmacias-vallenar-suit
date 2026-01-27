@@ -1,11 +1,10 @@
 'use server';
 
-import { Client } from 'pg';
+import { getClient } from '@/lib/db';
 import { XMLParser } from 'fast-xml-parser';
 import { matchProduct, type MatchResult } from '../../services/inventory-matcher';
 import { InvoiceMapperService, InvoiceItemCandidate } from '../../services/invoice-mapper';
 
-const getClient = () => new Client({ connectionString: process.env.DATABASE_URL });
 
 export interface ProcessedInvoiceItem {
     line: number;
@@ -30,8 +29,7 @@ export interface InvoiceProcessResult {
 }
 
 export async function processInvoiceXML(xmlContent: string): Promise<InvoiceProcessResult> {
-    const client = getClient();
-    await client.connect();
+    const client = await getClient();
 
     try {
         // 1. Check if tables exist (Safety check for migration)
@@ -226,6 +224,6 @@ export async function processInvoiceXML(xmlContent: string): Promise<InvoiceProc
         console.error("Invoice Processing Error:", error);
         return { success: false, message: error.message };
     } finally {
-        await client.end();
+        client.release();
     }
 }

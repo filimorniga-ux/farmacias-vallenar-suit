@@ -1,8 +1,7 @@
 'use server';
 
-import { Client } from 'pg';
+import { query } from '@/lib/db';
 
-const getClient = () => new Client({ connectionString: process.env.DATABASE_URL });
 
 export interface InventorySearchResult {
     id: string;
@@ -15,14 +14,11 @@ export interface InventorySearchResult {
     ispCode: string;
 }
 
-export async function searchUnifiedInventory(query: string): Promise<InventorySearchResult[]> {
-    if (!query || query.trim().length < 2) return [];
-
-    const client = getClient();
-    await client.connect();
+export async function searchUnifiedInventory(queryTerm: string): Promise<InventorySearchResult[]> {
+    if (!queryTerm || queryTerm.trim().length < 2) return [];
 
     try {
-        const cleanQuery = `%${query.trim()}%`;
+        const cleanQuery = `%${queryTerm.trim()}%`;
 
         const sql = `
       SELECT 
@@ -43,7 +39,7 @@ export async function searchUnifiedInventory(query: string): Promise<InventorySe
       LIMIT 50
     `;
 
-        const res = await client.query(sql, [cleanQuery]);
+        const res = await query(sql, [cleanQuery]);
 
         return res.rows.map(row => ({
             id: row.id,
@@ -59,7 +55,5 @@ export async function searchUnifiedInventory(query: string): Promise<InventorySe
     } catch (error) {
         console.error('Error searching inventory:', error);
         return [];
-    } finally {
-        await client.end();
     }
 }

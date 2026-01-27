@@ -1,8 +1,7 @@
 'use server';
 
-import { Client } from 'pg';
+import { query } from '@/lib/db';
 
-const getClient = () => new Client({ connectionString: process.env.DATABASE_URL });
 
 export type OfferingType = 'BRANCH' | 'PROVIDER';
 
@@ -59,19 +58,16 @@ export interface SearchFilters {
     actionId?: number;
 }
 
-export async function searchUnifiedProducts(query: string, filters?: SearchFilters): Promise<UnifiedProduct[]> {
-    if ((!query || query.trim().length < 2) && (!filters || Object.keys(filters).length === 0)) return [];
-
-    const client = getClient();
-    await client.connect();
+export async function searchUnifiedProducts(searchTerm: string, filters?: SearchFilters): Promise<UnifiedProduct[]> {
+    if ((!searchTerm || searchTerm.trim().length < 2) && (!filters || Object.keys(filters).length === 0)) return [];
 
     try {
         const params: any[] = [];
         let whereClauses: string[] = [];
 
         // 1. Text Search
-        if (query && query.trim().length > 0) {
-            const cleanQuery = `%${query.trim()}%`;
+        if (searchTerm && searchTerm.trim().length > 0) {
+            const cleanQuery = `%${searchTerm.trim()}%`;
             params.push(cleanQuery);
             // NOTE: We do NOT push to whereClauses here because we handle the text search explicitly 
             // in the CTEs (matches) to allow splitting logic between inventory_imports and products table.
@@ -149,7 +145,7 @@ export async function searchUnifiedProducts(query: string, filters?: SearchFilte
             LIMIT 100
         `;
 
-        const res = await client.query(sql, params);
+        const res = await query(sql, params);
         const rows = res.rows as (DBRow & { category_name?: string, lab_name?: string, action_name?: string, is_bioequivalent?: boolean, dci?: string, units_per_box?: number })[];
 
         // 4. Grouping Logic
@@ -298,7 +294,5 @@ export async function searchUnifiedProducts(query: string, filters?: SearchFilte
     } catch (error) {
         console.error("Error in Unified Search:", error);
         return [];
-    } finally {
-        await client.end();
     }
 }

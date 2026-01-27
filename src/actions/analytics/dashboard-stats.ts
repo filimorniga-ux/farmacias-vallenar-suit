@@ -1,6 +1,6 @@
 'use server';
 
-import { Client } from 'pg';
+import { query } from '@/lib/db';
 
 export interface DashboardStats {
     todaySales: number;
@@ -13,11 +13,7 @@ export interface DashboardStats {
     lastSaleTime: string | null;
 }
 
-const getClient = () => new Client({ connectionString: process.env.DATABASE_URL });
-
 export async function getDashboardStats(): Promise<DashboardStats> {
-    const client = getClient();
-    await client.connect();
 
     try {
         const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
@@ -50,9 +46,9 @@ export async function getDashboardStats(): Promise<DashboardStats> {
         `;
 
         const [salesRes, lowStockRes, invValueRes] = await Promise.all([
-            client.query(salesQuery),
-            client.query(lowStockQuery),
-            client.query(inventoryValueQuery)
+            query(salesQuery),
+            query(lowStockQuery),
+            query(inventoryValueQuery)
         ]);
 
         const salesRow = salesRes.rows[0];
@@ -80,7 +76,5 @@ export async function getDashboardStats(): Promise<DashboardStats> {
             colchaguaSales: 0,
             lastSaleTime: null
         };
-    } finally {
-        await client.end();
     }
 }

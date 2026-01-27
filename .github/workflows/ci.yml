@@ -32,7 +32,24 @@ jobs:
     - name: Unit Tests
       run: npm run test
       env:
-        DATABASE_URL: "postgres://user:pass@localhost:5432/db" # Mock for any accidental connection attempt (tests use mocks)
+        DATABASE_URL: "postgres://user:pass@localhost:5432/db"
+
+  actions:
+    name: Server Actions Validation
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+    - name: Install Dependencies
+      run: npm ci
+    - name: Run Action Tests
+      run: npm run test:actions
+      env:
+        DATABASE_URL: "postgres://user:pass@localhost:5432/db"
         
   integration:
     name: Integration Tests
@@ -76,7 +93,7 @@ jobs:
 
   build:
     name: Build Verification
-    needs: [quality, integration]
+    needs: [quality, actions, integration]
     runs-on: ubuntu-latest
     
     steps:
