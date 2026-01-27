@@ -24,10 +24,10 @@ vi.mock('next/headers', () => ({
 vi.mock('@/lib/db', () => ({
     query: vi.fn((sql: string) => {
         if (typeof sql === 'string' && (sql.includes('FROM users') || sql.includes('FROM sessions'))) {
-             return Promise.resolve({ 
-                 rows: [{ id: '550e8400-e29b-41d4-a716-446655440001', role: 'MANAGER', is_active: true, name: 'Test User', assigned_location_id: 'loc-1' }], 
-                 rowCount: 1 
-             });
+            return Promise.resolve({
+                rows: [{ id: '550e8400-e29b-41d4-a716-446655440001', role: 'MANAGER', is_active: true, name: 'Test User', assigned_location_id: 'loc-1' }],
+                rowCount: 1
+            });
         }
         return Promise.resolve({ rows: [], rowCount: 0 });
     }),
@@ -45,14 +45,22 @@ beforeEach(() => {
 });
 
 describe('Finance Export V2', () => {
-    it('should success', async () => {
+    it('should export cash flow successfully during success path', async () => {
+        vi.mocked(dbModule.query).mockResolvedValueOnce({
+            rows: [{ id: '1', timestamp: new Date(), description: 'Venta', amount_in: 100 }],
+            rowCount: 1, command: '', oid: 0, fields: []
+        });
+
         const result = await actionModule.exportCashFlowSecure({ startDate: '2024-01-01', endDate: '2024-01-31' });
         expect(result.success).toBe(true);
+        expect(typeof result.data).toBe('string');
+        expect(result.filename).toContain('Flujo');
     });
 
     it('should fail authentication if headers/cookies missing', async () => {
-        // Override for failure
-        vi.mocked(mockCookies.get).mockReturnValue(undefined); 
-        // Note: We need to reset this for other tests if we had them, but here it's fine or we use mockImplementationOnce
+        vi.mocked(mockCookies.get).mockReturnValueOnce(undefined);
+        const result = await actionModule.exportCashFlowSecure({ startDate: '2024-01-01', endDate: '2024-01-31' });
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('autenticado');
     });
 });

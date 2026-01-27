@@ -20,7 +20,7 @@ if (!process.env.DATABASE_URL) {
 const connectionConfig = {
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }, // Tiger Cloud requires SSL
-    max: 5, // Reduced from 30 to prevent pool exhaustion on Tiger Cloud Free/Dev tiers
+    max: 20, // Increased from 5 to 20 to handle concurrent server actions and polling
     connectionTimeoutMillis: 10000, // Reduced wait time
     idleTimeoutMillis: 30000,
     keepAlive: true,

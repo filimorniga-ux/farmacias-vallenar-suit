@@ -1,12 +1,10 @@
-
-import { Client } from 'pg';
+import { query } from '../lib/db';
 import OpenAI from 'openai';
 
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
 });
 
-const getClient = () => new Client({ connectionString: process.env.DATABASE_URL });
 
 export interface DailyFinancials {
     date: string; // YYYY-MM-DD
@@ -31,11 +29,9 @@ export class TreasuryService {
      * Get historical financials (Last 90 days)
      */
     static async getHistory(): Promise<DailyFinancials[]> {
-        const client = getClient();
-        await client.connect();
         try {
             // Aggregate Sales (Revenue)
-            const salesRes = await client.query(`
+            const salesRes = await query(`
                 SELECT DATE(created_at) as date, SUM(total) as total
                 FROM sales_headers
                 WHERE created_at >= NOW() - INTERVAL '90 days'
@@ -46,7 +42,7 @@ export class TreasuryService {
             // Aggregate Invoices (Expenses)
             // Assuming invoice_history has created_at or we trust 'processed_data' but we need a date column.
             // Check invoice_history schema: invoice_number, supplier_rut, total_amount, processed_data, created_at
-            const expensesRes = await client.query(`
+            const expensesRes = await query(`
                 SELECT DATE(created_at) as date, SUM(total_amount) as total
                 FROM invoice_history
                 WHERE created_at >= NOW() - INTERVAL '90 days'
@@ -72,8 +68,9 @@ export class TreasuryService {
             // Convert to array and sort
             return Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date));
 
-        } finally {
-            await client.end();
+        } catch (error) {
+            console.error("Treasury history error:", error);
+            return [];
         }
     }
 

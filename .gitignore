@@ -41,3 +41,4 @@ release/
 .env.production.local
 # Archivos de importación de datos
 data_imports/
+coverage/

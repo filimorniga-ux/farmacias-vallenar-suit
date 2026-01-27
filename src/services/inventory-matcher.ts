@@ -1,22 +1,14 @@
 
-import { Client } from 'pg';
+import { getClient } from '../lib/db';
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Ensure OpenAI client is initialized
 const apiKey = process.env.OPENAI_API_KEY || 'dummy-key-for-init';
-if (!process.env.OPENAI_API_KEY) {
-    console.warn("⚠️ OPENAI_API_KEY is missing. AI matching will fail.");
-}
 const openai = new OpenAI({
     apiKey: apiKey,
 });
-
-// Reuse DB connection logic or create new pool
-// For this service, we'll create a new Client for batch processing to avoid interfering with web app pool if any
-const getClient = () => new Client({ connectionString: process.env.DATABASE_URL });
 
 export interface MatchInput {
     title: string;
@@ -35,7 +27,7 @@ export interface MatchResult {
     suggestion: any;
 }
 
-export const matchProduct = async (client: Client, input: MatchInput): Promise<MatchResult> => {
+export const matchProduct = async (client: any, input: MatchInput): Promise<MatchResult> => {
     let matchType: MatchResult['matchType'] = '';
     let targetProductId: string | null = null;
     let confidence = 0;
@@ -168,8 +160,7 @@ interface InventoryImport {
 }
 
 export const processImportBatch = async (batchSize: number = 50) => {
-    const client = getClient();
-    await client.connect();
+    const client = await getClient();
 
     try {
         console.log(`🤖 AI Matcher: Processing batch of ${batchSize}...`);
@@ -228,6 +219,6 @@ export const processImportBatch = async (batchSize: number = 50) => {
         console.error("🔥 Error in batch process:", error);
         throw error;
     } finally {
-        await client.end();
+        client.release();
     }
 };
