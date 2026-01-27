@@ -455,3 +455,115 @@ Este documento detalla la arquitectura del módulo de Seguridad, responsable de 
     *   `authorizing_user_id`: (Opcional) El supervisor que autorizó la acción.
     *   `details`: Un campo `JSONB` para guardar el contexto (ej. qué producto se anuló, de qué venta).
     *   `timestamp`: La hora exacta de la operación.
+
+---
+
+# Módulo de Testing y Calidad - Documentación Técnica
+Versión: 2.1 (Agentic Era) | Rol: Garantía de Calidad
+
+Este documento detalla la arquitectura de testing del sistema, incluyendo tests unitarios, de integración y end-to-end (E2E).
+
+## 1. Pila Tecnológica de Testing
+*   **Framework de Tests Unitarios:** Vitest (compatible con Jest, más rápido).
+*   **Framework de Tests E2E:** Playwright (multi-browser, recording).
+*   **Mocking:** `vi.mock()` para módulos, `vi.fn()` para funciones.
+*   **Cobertura:** 339+ tests unitarios pasando, 65 tests de hooks.
+
+## 2. Estructura de Tests
+
+### A. Tests Unitarios (`tests/actions/`)
+*   **Ubicación:** `tests/actions/*.test.ts`
+*   **Cobertura:** Cada módulo de negocio tiene su archivo de test correspondiente.
+*   **Patrón de Mock:** Se usa el patrón "inline mock" para `pool.connect`:
+    ```typescript
+    const mockQuery = vi.fn();
+    vi.mock('@/lib/db', () => ({
+        pool: {
+            connect: () => Promise.resolve({
+                query: mockQuery,
+                release: vi.fn()
+            })
+        }
+    }));
+    ```
+
+### B. Tests de Hooks (`tests/hooks/`)
+*   **Archivos clave:** `useProductSearch.test.ts`, `useCheckout.test.ts`
+*   **Propósito:** Validar la lógica de estado y efectos de los hooks de React.
+
+### C. Tests de Integración (`tests/integration/`)
+*   **Archivos:** `users-v2.integration.test.ts`, `inventory-fix.test.ts`
+*   **Requisito:** Necesitan `POSTGRES_URL` configurada para ejecutarse.
+*   **Estado:** Marcados como `skip` si no hay DB disponible.
+
+### D. Tests End-to-End (`tests/e2e/`)
+*   **Framework:** Playwright
+*   **Configuración:** `playwright.config.ts` con `baseURL: 'http://localhost:3000'`
+*   **Helper de Login:** `tests/e2e/helpers/login.ts`
+
+## 3. Flujo de Login para Tests E2E
+
+> **IMPORTANTE:** El flujo de login de la aplicación NO es un formulario email/password tradicional.
+
+### Flujo Correcto (Actualizado 27/01/2026)
+```typescript
+// 1. Ir a la página inicial
+await page.goto('/');
+
+// 2. Seleccionar sucursal
+await page.click('button:has-text("Farmacia Vallenar santiago")');
+
+// 3. Click en ACCEDER del módulo deseado
+await page.click('button:has-text("ACCEDER")');
+
+// 4. Seleccionar usuario
+await page.click('text=Gerente General 1');
+
+// 5. Ingresar PIN
+await page.fill('input[type="password"]', '1213');
+
+// 6. Click en Entrar
+await page.click('button:has-text("Entrar")');
+
+// 7. Verificar redirección
+await expect(page).toHaveURL(/.*dashboard.*/);
+```
+
+### Credenciales de Prueba
+| Usuario | PIN | Rol |
+|---------|-----|-----|
+| Gerente General 1 | 1213 | MANAGER |
+| Cajero 1 | 1234 | CASHIER |
+
+## 4. Ejecución de Tests
+
+### Tests Unitarios
+```bash
+npm test                              # Todos los tests unitarios
+npm test -- tests/actions/inventory-v2.test.ts  # Test específico
+```
+
+### Tests E2E
+```bash
+# Requiere servidor corriendo en puerto 3000
+npm run dev
+
+# En otra terminal
+npx playwright test                           # Todos los E2E
+npx playwright test tests/e2e/inventory.spec.ts  # Test específico
+npx playwright test --headed                  # Con navegador visible
+```
+
+## 5. Resolución de Problemas Comunes
+
+### Error: "Cannot find element input[name='username']"
+*   **Causa:** El test usa el flujo de login anterior (incorrecto).
+*   **Solución:** Importar el helper `loginAsManager` de `tests/e2e/helpers/login.ts`.
+
+### Error: Timeout esperando selector
+*   **Causa:** El servidor no está corriendo o tarda en hidratar.
+*   **Solución:** Asegurar que `npm run dev` esté activo y usar `waitUntil: 'domcontentloaded'`.
+
+### Tests de integración skipped
+*   **Causa:** No hay `POSTGRES_URL` configurada.
+*   **Solución:** Configurar variable de entorno con conexión a la base de datos de pruebas.

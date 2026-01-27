@@ -1,10 +1,17 @@
 # Informe Ejecutivo de Arquitectura y Datos
-**Proyecto:** Farmacias Vallenar Suit
-**Fecha:** 10 de Enero, 2026
-**Estatus:** En Ejecución (Fase de Refinamiento 2.0)
+**Proyecto:** Farmacias Vallenar Suit  
+**Fecha:** 27 de Enero, 2026  
+**Estatus:** En Producción (Versión 2.1 - Agentic Era)
+
+---
 
 ## 1. Resumen de Alto Nivel
+
 Se ha implementado una arquitectura de **"Data Pipeline" progresiva** para transformar datos no estructurados (Excel/CSV de múltiples orígenes) en un catálogo maestro unificado, enriquecido con IA y listo para operaciones en tiempo real multisucursal.
+
+El sistema opera sobre **Next.js 15** con App Router, **PostgreSQL/TimescaleDB** para persistencia, y un enfoque **Offline-First** usando Zustand para garantizar operación continua incluso sin conexión a internet.
+
+---
 
 ## 2. Componentes de la Arquitectura Implementada
 
@@ -39,24 +46,95 @@ Se ha implementado una arquitectura de **"Data Pipeline" progresiva** para trans
     2. Match por **SKU**.
     3. Match por **Nombre Normalizado**.
     - Generación de UUIDs y SKUs para productos nuevos.
-- **Gestión de Stock**: Nueva tabla `inventory` (Relación M:N entre Products y Locations) para manejar stock diferenciado por sucursal (Santiago vs Colchagua).
+- **Gestión de Stock**: Tabla `inventory` (Relación M:N entre Products y Locations) para manejar stock diferenciado por sucursal.
 
-### E. Capa de Consumo (Frontend & Search)
-- **Componente**: `UnifiedPriceConsultant.tsx`
-- **Acción**: `searchUnifiedProducts` y `searchProductsAction`.
+### E. Capa de Server Actions (Backend)
+- **Ubicación**: `src/actions/*.ts`
+- **Módulos implementados**:
+    - `inventory-v2.ts` - Ajustes de stock, transferencias
+    - `users-v2.ts` - Gestión de usuarios y autenticación
+    - `quotes-v2.ts` - Cotizaciones y descuentos
+    - `cash-management-v2.ts` - Control de caja
+    - `wms-v2.ts` - Operaciones de bodega
+- **Patrón**: Transacciones PostgreSQL con `pool.connect()` y rollback automático en errores.
+
+### F. Capa de Consumo (Frontend & Search)
+- **Componente**: `UnifiedPriceConsultant.tsx`, `PriceCheckerModal.tsx`
+- **Acción**: `searchUnifiedProducts` y `searchProductsAction`
 - **Mejoras**:
-    - Búsqueda híbrida (Texto Libre + Filtros Estructurados).
-    - JOINs dinámicos para mostrar metadata enriquecida (Laboratorio, Categoría) en tiempo real.
-    - Indicadores visuales de precios (Mejor Precio, Bioequivalencia).
+    - Búsqueda híbrida (Texto Libre + Filtros Estructurados)
+    - JOINs dinámicos para mostrar metadata enriquecida (Laboratorio, Categoría) en tiempo real
+    - Indicadores visuales de precios (Mejor Precio, Bioequivalencia)
+    - Teclado virtual para pantallas táctiles
 
-## 3. Estado Actual de Procesos (Snapshot)
-| Proceso | Estado | Progreso (Est.) |
+---
+
+## 3. Estado Actual de Procesos (Snapshot - 27/01/2026)
+
+| Proceso | Estado | Progreso |
 | :--- | :--- | :--- |
 | **Ingesta Datos Crudos** | ✅ Completado | 20,524 registros importados |
 | **Normalización Metadata** | ✅ Completado | Tablas maestras creadas y vinculadas |
-| **Sincronización Stock** | 🔄 En Ejecución | ~25% (3,062 links creados / 5,223 productos) |
-| **Limpieza Nombres IA** | 🔄 En Ejecución | ~5% (1,080 productos limpiados) |
+| **Sincronización Stock** | ✅ Completado | Links de inventario multisucursal |
+| **Limpieza Nombres IA** | ✅ Completado | Productos normalizados |
+| **Tests Unitarios** | ✅ Completado | 339+ tests pasando |
+| **Tests E2E** | ✅ Corregidos | Flujo de login actualizado |
 
-## 4. Próximos Pasos Técnicos
-1. **Finalizar Sincronización**: Permitir que el cron job de stock termine de poblar la tabla `inventory`.
-2. **Dashboard de Compras**: Conectar las sugerencias de reposición ("Smart Replenishment") a la nueva data estructurada para mejorar la precisión de los pedidos sugeridos.
+---
+
+## 4. Arquitectura de Testing
+
+### A. Framework y Herramientas
+- **Tests Unitarios**: Vitest (339+ tests pasando)
+- **Tests de Hooks**: Vitest (65 tests pasando)
+- **Tests E2E**: Playwright
+- **Mocking**: `vi.mock()` con patrón inline para `pool.connect`
+
+### B. Flujo de Login para Tests E2E
+El sistema utiliza autenticación por PIN, no formulario email/password:
+
+```typescript
+// 1. Seleccionar sucursal
+await page.click('button:has-text("Farmacia Vallenar santiago")');
+
+// 2. Click en ACCEDER
+await page.click('button:has-text("ACCEDER")');
+
+// 3. Seleccionar usuario
+await page.click('text=Gerente General 1');
+
+// 4. Ingresar PIN y confirmar
+await page.fill('input[type="password"]', '1213');
+await page.click('button:has-text("Entrar")');
+```
+
+### C. Credenciales de Prueba
+| Usuario | PIN | Rol |
+|---------|-----|-----|
+| Gerente General 1 | 1213 | MANAGER |
+| Cajero 1 | 1234 | CASHIER |
+
+---
+
+## 5. Próximos Pasos Técnicos
+
+1. **Optimizar Tests E2E**: Implementar `storageState` para sesiones pre-logueadas y acelerar ejecución.
+2. **Dashboard de Compras**: Conectar sugerencias de reposición ("Smart Replenishment") a la data estructurada.
+3. **Integración SII**: Finalizar emisión de DTEs (Boletas/Facturas electrónicas).
+4. **Multi-sucursal en Tiempo Real**: Sincronización de stock entre sucursales.
+
+---
+
+## 6. Métricas de Calidad
+
+| Métrica | Valor | Objetivo |
+|---------|-------|----------|
+| Tests Unitarios Pasando | 339+ | ✅ 100% |
+| Tests de Hooks Pasando | 65 | ✅ 100% |
+| Tests Skipped (Integración) | 2 | ⏭️ Intencional |
+| Errores de TypeScript | 0 | ✅ Clean |
+| Build Status | ✅ Exitoso | - |
+
+---
+
+> **Farmacias Vallenar Suit** - Arquitectura diseñada para escalar.
