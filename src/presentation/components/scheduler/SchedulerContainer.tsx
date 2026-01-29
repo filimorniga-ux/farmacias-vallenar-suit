@@ -12,7 +12,6 @@ import {
 } from '@dnd-kit/core';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
-import { toaast } from 'sonner'; // Typo intentional? No, should be toast. Fixing.
 import { toast } from 'sonner';
 
 import { ShiftTemplatePalette } from './ShiftTemplatePalette';
