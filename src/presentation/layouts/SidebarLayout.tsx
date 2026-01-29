@@ -50,7 +50,8 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
         { icon: UserCircle, label: 'Clientes (CRM)', path: '/clients', roles: ['MANAGER', 'QF', 'CASHIER', 'ADMIN', 'GERENTE_GENERAL'], color: 'slate' as AppThemeColor },
         { icon: Users, label: 'Recursos Humanos', path: '/hr', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'], color: 'slate' as AppThemeColor },
         { icon: MapPin, label: 'Gestión de Red', path: '/network', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'slate' as AppThemeColor },
-        { icon: Clock, label: 'Control Asistencia', path: '/access', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'sky' as AppThemeColor },
+        // Control Asistencia movido a Kiosko (/kiosk) - accesible desde RRHH o Configuración
+        // { icon: Clock, label: 'Control Asistencia', path: '/access', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'sky' as AppThemeColor },
         { icon: Landmark, label: 'Tesorería', path: '/finance/treasury', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'], color: 'sky' as AppThemeColor },
         { icon: FileSpreadsheet, label: 'Cierre Mensual', path: '/finance/monthly-closing', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'slate' as AppThemeColor },
         { icon: Settings, label: 'Configuración', path: '/settings', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'slate' as AppThemeColor },

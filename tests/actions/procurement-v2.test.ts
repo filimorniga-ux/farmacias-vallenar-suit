@@ -1,0 +1,221 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+    generateRestockSuggestionSecure,
+    createPurchaseOrderSecure,
+    approvePurchaseOrderSecure,
+    cancelPurchaseOrderSecure,
+    receivePurchaseOrderSecure,
+    deletePurchaseOrderSecure
+} from '@/actions/procurement-v2';
+import * as dbModule from '@/lib/db';
+
+vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
+vi.mock('bcryptjs', () => ({
+    compare: vi.fn(async (p: string, h: string) => h === `hashed_${p}`)
+}));
+
+// Mock DB
+vi.mock('@/lib/db', () => ({
+    pool: {
+        query: vi.fn(),
+        connect: vi.fn()
+    }
+}));
+
+describe('Procurement V2 Logic', () => {
+    // Valid v4 UUIDs
+    const mockSupplierId = 'd290f1ee-6c54-4b01-90e6-d701748f0851';
+    const validUuid = '550e8400-e29b-41d4-a716-446655440111';
+    const orderId = '550e8400-e29b-41d4-a716-446655440222';
+    const approverId = '550e8400-e29b-41d4-a716-446655440333';
+
+    // Mock Client Structure
+    const mockClient = {
+        query: vi.fn(),
+        release: vi.fn()
+    };
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    // --- Suggestion Tests ---
+    describe('Restock Suggestions', () => {
+        it('should calculate suggested quantity correctly', async () => {
+            vi.mocked(dbModule.pool.query).mockResolvedValue({
+                rows: [{
+                    product_id: 'prod-1', productName: 'Paracetamol', sku: 'PARA500',
+                    current_stock: 10, daily_velocity: 2.0, safety_stock: 5, incoming_stock: 0,
+                    unit_cost: 100, suggested_quantity: 0
+                }]
+            } as any);
+
+            const res = await generateRestockSuggestionSecure(mockSupplierId, 10, 30);
+            expect(res.success).toBe(true);
+            // Formula: 2.0 * 10 + 5 - 10 - 0 = 15
+            expect(res.data![0].suggested_quantity).toBe(15);
+        });
+
+        it('should fail with invalid supplier UUID', async () => {
+            const res = await generateRestockSuggestionSecure('invalid-uuid');
+            expect(res.success).toBe(false);
+        });
+    });
+
+    // --- Create PO Tests ---
+    describe('Create Purchase Order', () => {
+        it('should return requiresApproval for large orders', async () => {
+            vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
+            mockClient.query.mockImplementation(async (sql: string) => {
+                if (sql.startsWith('BEGIN')) return { rows: [] };
+                if (sql.includes('FROM suppliers')) return { rows: [{ id: validUuid, name: 'Supplier' }] };
+                if (sql.includes('FROM warehouses')) return { rows: [{ id: 'wh-1' }] };
+                return { rows: [] };
+            });
+
+            const res = await createPurchaseOrderSecure({
+                supplierId: validUuid, userId: validUuid,
+                items: [{ productId: validUuid, productName: 'Expensive', quantity: 1000, unitCost: 600 }]
+            } as any);
+
+            expect(res.success).toBe(true);
+            expect(res.data?.requiresApproval).toBe(true);
+            expect(res.data?.total).toBe(600000);
+        });
+    });
+
+    // --- Approve & Cancel Tests ---
+    describe('Approve & Cancel Purchase Order', () => {
+        it('should fail approval with incorrect PIN', async () => {
+            vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
+            mockClient.query.mockImplementation(async (sql: string) => {
+                if (sql.startsWith('BEGIN')) return { rows: [] };
+                if (sql.includes('FROM purchase_orders')) return { rows: [{ id: orderId, status: 'DRAFT', total_estimated: 100000 }] };
+                // Return user but simulate failed check handled by mocked bcrypt or logic
+                if (sql.includes('FROM users')) return { rows: [{ id: approverId, access_pin_hash: 'hashed_1234' }] };
+                return { rows: [] };
+            });
+
+            const res = await approvePurchaseOrderSecure({
+                orderId, approverPin: '9999', notes: 'Esta nota es suficientemente larga para pasar la validación'
+            });
+
+            // Since we mocked bcrypt.compare to check 'hashed_' + pin, hashed_1234 vs 9999 (hashed_9999) fails
+            expect(res.success).toBe(false);
+            expect(res.error).toContain('PIN inválido');
+        });
+
+        it('should prevent cancelling an already RECEIVED order', async () => {
+            vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
+            mockClient.query.mockImplementation(async (sql: string) => {
+                if (sql.startsWith('BEGIN')) return { rows: [] };
+                if (sql.includes('FROM purchase_orders')) {
+                    return { rows: [{ id: orderId, status: 'RECEIVED' }] };
+                }
+                return { rows: [] };
+            });
+
+            const res = await cancelPurchaseOrderSecure({
+                orderId, reason: 'Razón de cancelación suficientemente larga', cancelerPin: '1234'
+            });
+
+            expect(res.success).toBe(false);
+            expect(res.error).toContain('no puede ser cancelada');
+        });
+    });
+
+    // --- NEW: Receive PO Tests ---
+    describe('Receive Purchase Order', () => {
+        const itemUuid = '550e8400-e29b-41d4-a716-446655440444';
+
+        it('should receive items successfully and update inventory', async () => {
+            vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
+            mockClient.query.mockImplementation(async (sql: string) => {
+                if (sql.startsWith('BEGIN')) return { rows: [] };
+                if (sql.startsWith('ROLLBACK')) return { rows: [] };
+                if (sql.startsWith('COMMIT')) return { rows: [] };
+
+                // 1. Get Order
+                if (sql.includes('FROM purchase_orders'))
+                    return { rows: [{ id: orderId, status: 'APPROVED', target_warehouse_id: 'wh-1' }] };
+                // 2. Get Item
+                if (sql.includes('FROM purchase_order_items'))
+                    return { rows: [{ id: itemUuid, product_id: 'prod-1', sku: 'SKU1', cost_price: 100 }] };
+                // 3. Check Batch (exists)
+                if (sql.includes('FROM inventory_batches')) return { rows: [{ id: 'batch-1', quantity_real: 10 }] };
+
+                // Updates/Inserts
+                if (sql.startsWith('UPDATE') || sql.startsWith('INSERT')) return { rows: [], rowCount: 1 };
+
+                return { rows: [] };
+            });
+
+            const res = await receivePurchaseOrderSecure({
+                orderId,
+                userId: validUuid,
+                receivedItems: [{ itemId: itemUuid, quantityReceived: 5 }]
+            });
+
+            if (!res.success) console.error('Test Create Error:', res.error);
+            expect(res.success).toBe(true);
+
+            // Verify DB interactions
+            expect(mockClient.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE purchase_orders'), expect.anything());
+            expect(mockClient.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE inventory_batches'), expect.anything());
+            expect(mockClient.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO stock_movements'), expect.anything());
+        });
+
+        it('should fail if order is not APPROVED', async () => {
+            vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
+            mockClient.query.mockImplementation(async (sql: string) => {
+                if (sql.startsWith('BEGIN')) return { rows: [] };
+                if (sql.includes('FROM purchase_orders'))
+                    return { rows: [{ id: orderId, status: 'DRAFT' }] };
+                return { rows: [] };
+            });
+
+            const res = await receivePurchaseOrderSecure({
+                orderId, userId: validUuid, receivedItems: []
+            });
+
+            expect(res.success).toBe(false);
+            expect(res.error).toContain('debe estar aprobada');
+        });
+    });
+
+    // --- NEW: Delete Draft Tests ---
+    describe('Delete Purchase Order', () => {
+        it('should delete a DRAFT order successfully', async () => {
+            vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
+            mockClient.query.mockImplementation(async (sql: string) => {
+                if (sql.startsWith('BEGIN')) return { rows: [] };
+                // Get Order
+                if (sql.includes('FROM purchase_orders'))
+                    return { rows: [{ id: orderId, status: 'DRAFT', location_id: 'loc-1' }] };
+                return { rows: [] };
+            });
+
+            const res = await deletePurchaseOrderSecure({ orderId, userId: validUuid });
+
+            expect(res.success).toBe(true);
+            // Check deletes
+            expect(mockClient.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM purchase_order_items'), expect.anything());
+            expect(mockClient.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM purchase_orders'), expect.anything());
+        });
+
+        it('should fail to delete an APPROVED order', async () => {
+            vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
+            mockClient.query.mockImplementation(async (sql: string) => {
+                if (sql.startsWith('BEGIN')) return { rows: [] };
+                if (sql.includes('FROM purchase_orders'))
+                    return { rows: [{ id: orderId, status: 'APPROVED' }] };
+                return { rows: [] };
+            });
+
+            const res = await deletePurchaseOrderSecure({ orderId, userId: validUuid });
+
+            expect(res.success).toBe(false);
+            expect(res.error).toContain('Solo se pueden eliminar borradores');
+        });
+    });
+});

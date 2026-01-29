@@ -255,15 +255,16 @@ export const usePharmaStore = create<PharmaState>()(
             employees: [], // ⚠️ DEBUG: Start empty to prove DB connection
             login: async (userId, pin, locationId) => {
                 let authenticatedUser: EmployeeProfile | null = null;
+                let serverError = '';
 
                 // 1. Online Attempt (Secure Server Action with bcrypt)
                 try {
                     // Dynamic import of Server Action (using secure v2 with bcrypt)
                     const { authenticateUserSecure } = await import('../../actions/auth-v2');
 
-                    // Add timeout to prevent indefinite hanging (20 seconds) -- Increased for cold starts
+                    // Add timeout to prevent indefinite hanging (60 seconds) -- Increased for cold starts
                     const timeoutPromise = new Promise<any>((_, reject) =>
-                        setTimeout(() => reject(new Error('Login timeout')), 20000)
+                        setTimeout(() => reject(new Error('Login timeout')), 60000)
                     );
 
                     const result = await Promise.race([
@@ -277,6 +278,7 @@ export const usePharmaStore = create<PharmaState>()(
                     } else if (result.error) {
                         // Capture server error for potential feedback
                         console.warn('⚠️ Server Login Error:', result.error);
+                        serverError = result.error;
 
                         // If explicit blocking error (not just invalid credentials), notify immediately
                         if (result.error.includes('No tienes contrato') || result.error.includes('Bloqueado')) {
@@ -284,8 +286,9 @@ export const usePharmaStore = create<PharmaState>()(
                             return { success: false, error: result.error };
                         }
                     }
-                } catch (error) {
+                } catch (error: any) {
                     console.warn('⚠️ Online login failed/timeout, trying offline fallback...', error);
+                    serverError = error?.message || 'Error de conexión / Timeout';
                 }
 
                 // 2. Offline Fallback
@@ -379,7 +382,7 @@ export const usePharmaStore = create<PharmaState>()(
                     return { success: true };
                 }
 
-                return { success: false, error: 'Credenciales inválidas o sin conexión a datos' };
+                return { success: false, error: serverError || 'Credenciales inválidas o sin conexión a datos' };
             },
             logout: () => {
                 // Limpiar sesión en store

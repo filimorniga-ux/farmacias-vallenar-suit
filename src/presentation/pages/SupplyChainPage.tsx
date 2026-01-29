@@ -207,7 +207,7 @@ const SupplyChainPage: React.FC = () => {
     };
 
     return (
-        <div className="h-full p-6 bg-slate-50 flex flex-col overflow-hidden">
+        <div data-testid="supply-chain-page" className="h-full p-6 bg-slate-50 flex flex-col overflow-hidden">
             <header className="mb-8 flex justify-between items-center flex-shrink-0">
                 <div>
                     <h1 className="text-3xl font-extrabold text-slate-900 flex items-center gap-3">
@@ -243,6 +243,7 @@ const SupplyChainPage: React.FC = () => {
                         </div>
 
                         <button
+                            data-testid="analyze-stock-btn"
                             onClick={runIntelligentAnalysis}
                             disabled={isAnalyzing}
                             className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl font-bold hover:from-purple-700 hover:to-indigo-700 transition disabled:opacity-50 shadow-lg shadow-purple-200"

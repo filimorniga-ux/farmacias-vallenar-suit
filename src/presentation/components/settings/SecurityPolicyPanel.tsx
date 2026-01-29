@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Shield, Key, Lock, AlertTriangle, Clock } from 'lucide-react';
+import { Shield, Key, Lock, AlertTriangle, Clock, UserCheck, ExternalLink } from 'lucide-react';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { toast } from 'sonner';
 import { ActiveSessionsTable } from './ActiveSessionsTable';
+import { Link } from 'react-router-dom';
 
 export const SecurityPolicyPanel: React.FC = () => {
     const { security, updateSecurityConfig } = useSettingsStore();
@@ -126,6 +127,51 @@ export const SecurityPolicyPanel: React.FC = () => {
             {/* Active Sessions Monitoring */}
             <div className="mt-8">
                 <ActiveSessionsTable />
+            </div>
+
+            {/* Kiosko de Asistencia */}
+            <div className="mt-8 bg-gradient-to-br from-cyan-50 to-sky-50 p-6 rounded-2xl border border-cyan-200">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                        <div className="p-3 bg-cyan-100 rounded-xl">
+                            <UserCheck className="text-cyan-600" size={24} />
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-bold text-slate-800">Control Horario Kiosko</h3>
+                            <p className="text-slate-500 text-sm">Terminal de marcaje de asistencia para empleados</p>
+                        </div>
+                    </div>
+                    <Link
+                        to="/kiosk"
+                        className="flex items-center gap-2 px-6 py-3 bg-cyan-600 text-white font-bold rounded-xl hover:bg-cyan-700 transition shadow-lg"
+                    >
+                        <ExternalLink size={18} />
+                        Abrir Kiosko
+                    </Link>
+                </div>
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-white/60 p-4 rounded-xl">
+                        <p className="text-xs text-slate-500 font-bold uppercase">Funcionalidades</p>
+                        <ul className="text-sm text-slate-700 mt-2 space-y-1">
+                            <li>• Entrada / Salida</li>
+                            <li>• Inicio / Fin Colación</li>
+                            <li>• Validación por PIN</li>
+                        </ul>
+                    </div>
+                    <div className="bg-white/60 p-4 rounded-xl">
+                        <p className="text-xs text-slate-500 font-bold uppercase">PIN Maestro</p>
+                        <p className="text-sm text-slate-700 mt-2">
+                            El PIN maestro permite activar el kiosko.
+                            Actualmente está configurado como un valor fijo.
+                        </p>
+                    </div>
+                    <div className="bg-white/60 p-4 rounded-xl">
+                        <p className="text-xs text-slate-500 font-bold uppercase">Ubicación</p>
+                        <p className="text-sm text-slate-700 mt-2">
+                            El kiosko filtra empleados por la sucursal seleccionada actualmente.
+                        </p>
+                    </div>
+                </div>
             </div>
         </div>
     );
