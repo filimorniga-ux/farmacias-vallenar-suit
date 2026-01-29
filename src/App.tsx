@@ -33,6 +33,7 @@ import TreasuryPage from './app/finance/treasury/page';
 import MonthlyClosingPage from './app/finance/monthly-closing/page';
 import { ProductSalesReportPage } from './presentation/pages/reports/ProductSalesReportPage';
 import SmartInvoicePage from './app/procurement/smart-invoice/page';
+import SchedulerPage from './presentation/pages/SchedulerPage';
 
 import BoardPage from './presentation/components/board/BoardPage';
 
@@ -88,6 +89,7 @@ function App({ forceContextSelection }: { forceContextSelection?: boolean }) {
                 <Route path="/finance/treasury" element={<ProtectedRoute><TreasuryPage /></ProtectedRoute>} />
                 <Route path="/finance/monthly-closing" element={<ProtectedRoute><MonthlyClosingPage /></ProtectedRoute>} />
                 <Route path="/hr" element={<ProtectedRoute><HRPage /></ProtectedRoute>} />
+                <Route path="/rrhh/horarios" element={<ProtectedRoute><SchedulerPage /></ProtectedRoute>} />
                 <Route path="/network" element={<ProtectedRoute><NetworkPage /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
                 <Route path="/admin" element={<Navigate to="/dashboard" replace />} />

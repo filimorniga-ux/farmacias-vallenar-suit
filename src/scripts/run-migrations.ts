@@ -9,7 +9,8 @@ async function runMigrations() {
         // '005_audit_system.sql',
         // '006_reconciliation_module.sql',
         // '009_wms_logistics_v2.sql',
-        '011_fix_audit_actions.sql'
+        '011_fix_audit_actions.sql',
+        '013_gestor_horario.sql'
     ];
 
     console.log('🚀 Starting migration execution...');
