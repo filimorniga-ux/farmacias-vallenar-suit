@@ -41,8 +41,10 @@ export class WebAuthnService {
                 { alg: -257, type: 'public-key' } // RS256
             ],
             authenticatorSelection: {
-                authenticatorAttachment: 'platform', // Force TouchID/FaceID
-                userVerification: 'required'
+                // Allow both platform (TouchID) and cross-platform (USB/Phone)
+                // authenticatorAttachment: 'platform', 
+                userVerification: 'required',
+                residentKey: 'preferred'
             },
             timeout: 60000,
             attestation: 'none'
@@ -89,7 +91,8 @@ export class WebAuthnService {
                 return {
                     id: Uint8Array.from(atob(padded), c => c.charCodeAt(0)),
                     type: 'public-key',
-                    transports: ['internal']
+                    // Allow all transports for maximum compatibility
+                    transports: ['usb', 'nfc', 'ble', 'internal', 'hybrid']
                 };
             });
         }
