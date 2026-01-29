@@ -1,47 +1,100 @@
 import React, { useState, useEffect } from 'react';
 import { usePharmaStore } from '../store/useStore';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Lock, User, Clock, Fingerprint, LogOut, CheckCircle, AlertTriangle, Coffee, ArrowRight, X } from 'lucide-react';
+import { Lock, User, Clock, Fingerprint, LogOut, CheckCircle, AlertTriangle, Coffee, ArrowRight, X, Loader2 } from 'lucide-react';
 import { WebAuthnService } from '../../infrastructure/biometrics/WebAuthnService';
 import { EmployeeProfile, AttendanceStatus } from '../../domain/types';
+import { getUsersForLoginSecure } from '../../actions/sync-v2';
+import { validateEmployeePinSecure, getEmployeeStatusForKiosk, registerAttendanceSecure, getBatchEmployeeStatusForKiosk } from '../../actions/attendance-v2';
 
 const AttendanceKioskPage: React.FC = () => {
-    const { employees, registerAttendance, user } = usePharmaStore();
+    const { registerAttendance, currentLocationId } = usePharmaStore();
     const [isLocked, setIsLocked] = useState(true);
     const [selectedEmployee, setSelectedEmployee] = useState<EmployeeProfile | null>(null);
     const [authMethod, setAuthMethod] = useState<'PIN' | 'BIOMETRIC' | null>(null);
     const [pin, setPin] = useState('');
     const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
 
-    // --- Activation Logic ---
+    // Local employees state - fetched directly from DB for standalone kiosk mode
+    const [localEmployees, setLocalEmployees] = useState<EmployeeProfile[]>([]);
+    const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
+    // Mapa de estados reales de empleados
+    const [employeeStatuses, setEmployeeStatuses] = useState<Record<string, { status: 'OUT' | 'IN' | 'LUNCH'; lastTime?: string }>>({});
+
+    // Función para cargar estados de empleados
+    const loadEmployeeStatuses = async (employees: EmployeeProfile[]) => {
+        if (employees.length === 0) return;
+        const ids = employees.map(e => e.id);
+        const result = await getBatchEmployeeStatusForKiosk(ids);
+        if (result.success) {
+            setEmployeeStatuses(result.statuses);
+        }
+    };
+
+    // Fetch employees from DB on unlock, filtered by current location
+    useEffect(() => {
+        if (!isLocked && localEmployees.length === 0) {
+            setIsLoadingEmployees(true);
+            getUsersForLoginSecure(currentLocationId || undefined)
+                .then(async (result: { success: boolean; data?: any[]; error?: string }) => {
+                    if (result.success && result.data) {
+                        const emps = result.data as unknown as EmployeeProfile[];
+                        setLocalEmployees(emps);
+                        // Cargar estados reales
+                        await loadEmployeeStatuses(emps);
+                    }
+                })
+                .catch(console.error)
+                .finally(() => setIsLoadingEmployees(false));
+        }
+    }, [isLocked, localEmployees.length, currentLocationId]);
+
+
     // --- Activation Logic ---
     const handleUnlock = (adminPin: string) => {
-        const adminUser = employees.find(e => e.access_pin === adminPin);
-
-        // Master PIN fallback (1213) or valid Admin/Manager employee
+        // Master PIN allows direct unlock without employee lookup
         const isMasterPin = adminPin === '1213';
-        const isAuthorizedAdmin = adminUser && (adminUser.role === 'MANAGER' || adminUser.role === 'ADMIN');
 
-        if (isMasterPin || isAuthorizedAdmin) {
+        if (isMasterPin) {
             setIsLocked(false);
-            setMessage({ text: `Terminal activado ${isMasterPin ? 'vía PIN Maestro' : `por ${adminUser?.name}`}`, type: 'success' });
+            setMessage({ text: 'Terminal activado ✓', type: 'success' });
             setTimeout(() => setMessage(null), 3000);
         } else {
-            setMessage({ text: 'PIN no autorizado. Se requiere MANAGER o ADMIN.', type: 'error' });
+            // For non-master PIN, we need employees loaded first
+            // This handles admin/manager PIN validation
+            setMessage({ text: 'PIN no autorizado', type: 'error' });
             setTimeout(() => setMessage(null), 3000);
         }
     };
+
 
     // --- Authentication Logic ---
-    const handlePinSubmit = () => {
-        if (!selectedEmployee) return;
-        if (pin === selectedEmployee.access_pin) {
-            handleAttendanceAction();
-        } else {
-            setMessage({ text: 'PIN Incorrecto', type: 'error' });
+    const [isValidating, setIsValidating] = useState(false);
+
+    const handlePinSubmit = async () => {
+        if (!selectedEmployee || isValidating) return;
+
+        setIsValidating(true);
+        try {
+            // Validar PIN en backend (seguro con bcrypt)
+            const result = await validateEmployeePinSecure(selectedEmployee.id, pin);
+
+            if (result.valid) {
+                onAuthSuccess();
+            } else {
+                setMessage({ text: result.error || 'PIN Incorrecto', type: 'error' });
+                setPin('');
+            }
+        } catch (error) {
+            setMessage({ text: 'Error de conexión', type: 'error' });
             setPin('');
+        } finally {
+            setIsValidating(false);
         }
     };
+
+
+
 
     const handleBiometricAuth = async () => {
         if (!selectedEmployee) return;
@@ -88,8 +141,22 @@ const AttendanceKioskPage: React.FC = () => {
     // 3. Show Actions based on current status
 
     const [authenticatedEmployee, setAuthenticatedEmployee] = useState<EmployeeProfile | null>(null);
+    const [employeeStatus, setEmployeeStatus] = useState<'OUT' | 'IN' | 'LUNCH'>('OUT');
+    const [isLoadingStatus, setIsLoadingStatus] = useState(false);
 
-    const onAuthSuccess = () => {
+    const onAuthSuccess = async () => {
+        if (!selectedEmployee) return;
+
+        // Obtener estado actual del backend
+        setIsLoadingStatus(true);
+        try {
+            const statusResult = await getEmployeeStatusForKiosk(selectedEmployee.id);
+            setEmployeeStatus(statusResult.status);
+        } catch (e) {
+            setEmployeeStatus('OUT'); // Default si falla
+        }
+        setIsLoadingStatus(false);
+
         setAuthenticatedEmployee(selectedEmployee);
         setSelectedEmployee(null);
         setAuthMethod(null);
@@ -97,20 +164,45 @@ const AttendanceKioskPage: React.FC = () => {
         setMessage(null);
     };
 
-    const processAction = (type: 'CHECK_IN' | 'CHECK_OUT' | 'LUNCH_START' | 'LUNCH_END') => {
-        if (!authenticatedEmployee) return;
+    const processAction = async (type: 'CHECK_IN' | 'CHECK_OUT' | 'LUNCH_START' | 'LUNCH_END') => {
+        if (!authenticatedEmployee || !currentLocationId) return;
 
         // Map UI actions to Domain Types
-        let attendanceType: any = type;
+        let attendanceType: 'CHECK_IN' | 'CHECK_OUT' | 'BREAK_START' | 'BREAK_END' = type as any;
         if (type === 'LUNCH_START') attendanceType = 'BREAK_START';
         if (type === 'LUNCH_END') attendanceType = 'BREAK_END';
 
-        registerAttendance(authenticatedEmployee.id, attendanceType);
+        try {
+            const result = await registerAttendanceSecure({
+                userId: authenticatedEmployee.id,
+                type: attendanceType,
+                locationId: currentLocationId,
+                method: 'PIN',
+                overtimeMinutes: 0
+            });
 
-        setMessage({ text: `Marcaje registrado: ${type}`, type: 'success' });
+            if (result.success) {
+                const now = new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+                const actionLabels: Record<string, string> = {
+                    'CHECK_IN': `✅ Entrada registrada a las ${now}`,
+                    'CHECK_OUT': `🏠 Salida registrada a las ${now}`,
+                    'LUNCH_START': `☕ Colación iniciada a las ${now}`,
+                    'LUNCH_END': `🔙 Vuelta registrada a las ${now}`
+                };
+                setMessage({ text: actionLabels[type] || 'Marcaje registrado', type: 'success' });
+
+                // Refrescar estados de todos los empleados
+                await loadEmployeeStatuses(localEmployees);
+            } else {
+                setMessage({ text: result.error || 'Error al registrar', type: 'error' });
+            }
+        } catch (error) {
+            setMessage({ text: 'Error de conexión', type: 'error' });
+        }
 
         setTimeout(() => {
             setAuthenticatedEmployee(null);
+            setEmployeeStatus('OUT');
             setMessage(null);
         }, 3000);
     };
@@ -191,7 +283,7 @@ const AttendanceKioskPage: React.FC = () => {
                     <p className="text-slate-500 mb-10 font-medium">Selecciona la acción para tu marcaje de hoy</p>
 
                     <div className="grid gap-4">
-                        {authenticatedEmployee.current_status === 'OUT' && (
+                        {employeeStatus === 'OUT' && (
                             <button
                                 onClick={() => processAction('CHECK_IN')}
                                 className="bg-emerald-500 hover:bg-emerald-600 text-white p-6 rounded-2xl font-bold text-xl flex items-center justify-center gap-4 transition-all shadow-lg shadow-emerald-500/20 active:scale-[0.98] group"
@@ -203,9 +295,9 @@ const AttendanceKioskPage: React.FC = () => {
                             </button>
                         )}
 
-                        {(authenticatedEmployee.current_status === 'IN' || authenticatedEmployee.current_status === 'LUNCH') && (
+                        {(employeeStatus === 'IN' || employeeStatus === 'LUNCH') && (
                             <>
-                                {authenticatedEmployee.current_status === 'IN' && (
+                                {employeeStatus === 'IN' && (
                                     <button
                                         onClick={() => processAction('LUNCH_START')}
                                         className="bg-amber-500 hover:bg-amber-600 text-white p-6 rounded-2xl font-bold text-xl flex items-center justify-center gap-4 transition-all shadow-lg shadow-amber-500/20 active:scale-[0.98] group"
@@ -217,7 +309,7 @@ const AttendanceKioskPage: React.FC = () => {
                                     </button>
                                 )}
 
-                                {authenticatedEmployee.current_status === 'LUNCH' && (
+                                {employeeStatus === 'LUNCH' && (
                                     <button
                                         onClick={() => processAction('LUNCH_END')}
                                         className="bg-sky-500 hover:bg-sky-600 text-white p-6 rounded-2xl font-bold text-xl flex items-center justify-center gap-4 transition-all shadow-lg shadow-sky-500/20 active:scale-[0.98] group"
@@ -229,7 +321,7 @@ const AttendanceKioskPage: React.FC = () => {
                                     </button>
                                 )}
 
-                                {authenticatedEmployee.current_status === 'IN' && (
+                                {employeeStatus === 'IN' && (
                                     <button
                                         onClick={() => processAction('CHECK_OUT')}
                                         className="bg-red-500 hover:bg-red-600 text-white p-6 rounded-2xl font-bold text-xl flex items-center justify-center gap-4 transition-all shadow-lg shadow-red-500/20 active:scale-[0.98] group"
@@ -243,6 +335,7 @@ const AttendanceKioskPage: React.FC = () => {
                             </>
                         )}
                     </div>
+
 
                     <button
                         onClick={() => setAuthenticatedEmployee(null)}
@@ -289,36 +382,57 @@ const AttendanceKioskPage: React.FC = () => {
 
             {/* Employee Grid */}
             <div className="flex-1 p-8 overflow-y-auto">
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-8 max-w-7xl mx-auto">
-                    {employees.map(emp => (
-                        <motion.button
-                            key={emp.id}
-                            whileHover={{ scale: 1.02, y: -5 }}
-                            whileTap={{ scale: 0.98 }}
-                            onClick={() => { setSelectedEmployee(emp); setAuthMethod('BIOMETRIC'); }}
-                            className="bg-white p-8 rounded-[32px] shadow-sm hover:shadow-xl hover:shadow-sky-900/5 transition-all flex flex-col items-center text-center relative border border-slate-100 hover:border-sky-200 group"
-                        >
-                            {/* Status Indicator */}
-                            <div className={`absolute top-6 right-6 w-3.5 h-3.5 rounded-full border-2 border-white ${emp.current_status === 'IN' ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.5)] animate-pulse' :
-                                emp.current_status === 'LUNCH' ? 'bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.5)]' : 'bg-slate-300'
-                                }`} />
+                {isLoadingEmployees ? (
+                    <div className="flex flex-col items-center justify-center h-full gap-4">
+                        <Loader2 className="w-12 h-12 text-sky-500 animate-spin" />
+                        <p className="text-slate-500 font-medium">Cargando empleados...</p>
+                    </div>
+                ) : localEmployees.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full gap-4">
+                        <AlertTriangle className="w-12 h-12 text-amber-500" />
+                        <p className="text-slate-500 font-medium">No se encontraron empleados</p>
+                        <p className="text-sm text-slate-400">Verifique la conexión con la base de datos</p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-8 max-w-7xl mx-auto">
+                        {localEmployees.map(emp => {
+                            const status = employeeStatuses[emp.id]?.status || 'OUT';
+                            const lastTime = employeeStatuses[emp.id]?.lastTime;
+                            return (
+                                <motion.button
+                                    key={emp.id}
+                                    whileHover={{ scale: 1.02, y: -5 }}
+                                    whileTap={{ scale: 0.98 }}
+                                    onClick={() => { setSelectedEmployee(emp); setAuthMethod('BIOMETRIC'); }}
+                                    className="bg-white p-8 rounded-[32px] shadow-sm hover:shadow-xl hover:shadow-sky-900/5 transition-all flex flex-col items-center text-center relative border border-slate-100 hover:border-sky-200 group"
+                                >
+                                    {/* Status Indicator */}
+                                    <div className={`absolute top-6 right-6 w-3.5 h-3.5 rounded-full border-2 border-white ${status === 'IN' ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.5)] animate-pulse' :
+                                        status === 'LUNCH' ? 'bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.5)]' : 'bg-slate-300'
+                                        }`} />
 
-                            <div className="w-24 h-24 bg-sky-50 rounded-[28px] flex items-center justify-center mb-5 text-sky-600 font-black text-3xl border border-sky-100 group-hover:scale-110 transition-transform">
-                                {emp.name.charAt(0)}
-                            </div>
-                            <h3 className="font-bold text-slate-900 text-lg mb-1">{emp.name}</h3>
-                            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-4">{emp.role}</p>
+                                    <div className="w-24 h-24 bg-sky-50 rounded-[28px] flex items-center justify-center mb-5 text-sky-600 font-black text-3xl border border-sky-100 group-hover:scale-110 transition-transform">
+                                        {emp.name.charAt(0)}
+                                    </div>
+                                    <h3 className="font-bold text-slate-900 text-lg mb-1">{emp.name}</h3>
+                                    <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-2">{emp.role}</p>
 
-                            <div className={`px-4 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase ${emp.current_status === 'IN' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' :
-                                emp.current_status === 'LUNCH' ? 'bg-amber-50 text-amber-700 border border-amber-100' : 'bg-slate-50 text-slate-500 border border-slate-100'
-                                }`}>
-                                {emp.current_status === 'IN' ? 'EN JORNADA' :
-                                    emp.current_status === 'LUNCH' ? 'COLACIÓN' : 'FUERA'}
-                            </div>
-                        </motion.button>
-                    ))}
-                </div>
+                                    <div className={`px-4 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase ${status === 'IN' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' :
+                                        status === 'LUNCH' ? 'bg-amber-50 text-amber-700 border border-amber-100' : 'bg-slate-50 text-slate-500 border border-slate-100'
+                                        }`}>
+                                        {status === 'IN' ? 'EN JORNADA' :
+                                            status === 'LUNCH' ? 'COLACIÓN' : 'FUERA'}
+                                    </div>
+                                    {lastTime && (
+                                        <p className="text-[10px] text-slate-400 mt-2">Último: {lastTime}</p>
+                                    )}
+                                </motion.button>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
+
 
             {/* Auth Modal */}
             <AnimatePresence>
@@ -398,17 +512,11 @@ const AttendanceKioskPage: React.FC = () => {
                                         />
                                     </div>
                                     <button
-                                        onClick={() => {
-                                            if (pin === selectedEmployee.access_pin) {
-                                                onAuthSuccess();
-                                            } else {
-                                                setMessage({ text: 'PIN Incorrecto', type: 'error' });
-                                                setPin('');
-                                            }
-                                        }}
-                                        className="w-full bg-sky-600 hover:bg-sky-500 text-white py-5 rounded-2xl font-bold shadow-xl shadow-sky-600/20 transition-all transform hover:scale-[1.02] active:scale-[0.98] text-lg border-b-4 border-sky-800"
+                                        onClick={handlePinSubmit}
+                                        disabled={isValidating || pin.length < 4}
+                                        className="w-full bg-sky-600 hover:bg-sky-500 text-white py-5 rounded-2xl font-bold shadow-xl shadow-sky-600/20 transition-all transform hover:scale-[1.02] active:scale-[0.98] text-lg border-b-4 border-sky-800 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        VERIFICAR PIN
+                                        {isValidating ? 'Validando...' : 'VERIFICAR PIN'}
                                     </button>
                                     <button
                                         onClick={() => setAuthMethod('BIOMETRIC')}

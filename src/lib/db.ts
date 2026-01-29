@@ -21,7 +21,7 @@ const connectionConfig = {
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }, // Tiger Cloud requires SSL
     max: 20, // Increased from 5 to 20 to handle concurrent server actions and polling
-    connectionTimeoutMillis: 10000, // Reduced wait time
+    connectionTimeoutMillis: 60000, // Increased to 60s for slow dev starts
     idleTimeoutMillis: 30000,
     keepAlive: true,
 };

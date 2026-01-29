@@ -275,7 +275,7 @@ export async function getManagerRealTimeDataSecure(
                 SELECT DISTINCT ON (user_id) 
                     user_id, type, timestamp, location_id
                 FROM attendance_logs
-                WHERE timestamp >= CURRENT_DATE::timestamp
+                WHERE timestamp >= CURRENT_DATE AT TIME ZONE 'America/Santiago'
                 ORDER BY user_id, timestamp DESC
             )
             SELECT 

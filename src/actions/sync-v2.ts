@@ -258,17 +258,31 @@ export async function fetchEmployeesSecure(
  * 🔓 Get Users For Login (Public)
  * - Permite cargar usuarios para la pantalla de login sin sesión activa
  * - Retorna solo datos básicos necesarios para la UI de selección
+ * - Opcionalmente filtra por ubicación asignada (para kiosko de asistencia)
  */
-export async function getUsersForLoginSecure(): Promise<{ success: boolean; data?: SafeEmployeeProfile[]; error?: string }> {
+export async function getUsersForLoginSecure(
+    locationId?: string
+): Promise<{ success: boolean; data?: SafeEmployeeProfile[]; error?: string }> {
     try {
         // No checks de sesión aquí - es público para el login
 
-        const sql = `
+        let sql = `
             SELECT 
                 id, rut, name, role, 
                 assigned_location_id, status, job_title, is_active
             FROM users 
             WHERE is_active = true
+        `;
+
+        const params: any[] = [];
+
+        // Filtrar por ubicación si se proporciona
+        if (locationId) {
+            sql += ` AND assigned_location_id = $1`;
+            params.push(locationId);
+        }
+
+        sql += `
             ORDER BY 
                 CASE WHEN role = 'ADMIN' THEN 1 
                      WHEN role = 'GERENTE_GENERAL' THEN 2
@@ -277,7 +291,7 @@ export async function getUsersForLoginSecure(): Promise<{ success: boolean; data
                 name ASC
         `;
 
-        const res = await query(sql);
+        const res = await query(sql, params);
 
         // Sin auditoría de usuario porque no hay sesión aún
 
@@ -299,6 +313,7 @@ export async function getUsersForLoginSecure(): Promise<{ success: boolean; data
         return { success: false, error: 'Error obteniendo usuarios' };
     }
 }
+
 
 // ============================================================================
 // PROVEEDORES
