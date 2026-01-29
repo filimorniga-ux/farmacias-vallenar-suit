@@ -25,7 +25,7 @@ import { logger } from '@/lib/logger';
 
 const UUIDSchema = z.string().uuid('ID inválido');
 
-const AttendanceType = z.enum(['CHECK_IN', 'BREAK_START', 'BREAK_END', 'CHECK_OUT']);
+const AttendanceType = z.enum(['CHECK_IN', 'BREAK_START', 'BREAK_END', 'CHECK_OUT', 'PERMISSION_START', 'PERMISSION_END', 'MEDICAL_LEAVE', 'EMERGENCY']);
 
 const RegisterAttendanceSchema = z.object({
     userId: UUIDSchema,
@@ -52,11 +52,16 @@ const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'];
 const OVERTIME_THRESHOLD_MINUTES = 240; // 4 horas sin aprobación
 
 // Secuencia válida de marcajes
+// Secuencia válida de marcajes
 const VALID_SEQUENCE: Record<string, string[]> = {
-    'CHECK_IN': [],                    // Puede iniciar sin previo
-    'BREAK_START': ['CHECK_IN', 'BREAK_END'],
+    'CHECK_IN': [], // Puede iniciar sin previo
+    'BREAK_START': ['CHECK_IN', 'BREAK_END', 'PERMISSION_END'],
     'BREAK_END': ['BREAK_START'],
-    'CHECK_OUT': ['CHECK_IN', 'BREAK_END'],
+    'CHECK_OUT': ['CHECK_IN', 'BREAK_END', 'PERMISSION_END', 'PERMISSION_START', 'MEDICAL_LEAVE', 'EMERGENCY'],
+    'PERMISSION_START': ['CHECK_IN', 'BREAK_END', 'PERMISSION_END'],
+    'MEDICAL_LEAVE': ['CHECK_IN', 'BREAK_END', 'PERMISSION_END'],
+    'EMERGENCY': ['CHECK_IN', 'BREAK_END', 'PERMISSION_END'],
+    'PERMISSION_END': ['PERMISSION_START', 'MEDICAL_LEAVE', 'EMERGENCY'],
 };
 
 // ============================================================================
@@ -198,7 +203,7 @@ export async function validateEmployeePinSecure(
  */
 export async function getEmployeeStatusForKiosk(
     employeeId: string
-): Promise<{ success: boolean; status: 'OUT' | 'IN' | 'LUNCH'; lastAction?: string; lastTime?: string; error?: string }> {
+): Promise<{ success: boolean; status: 'OUT' | 'IN' | 'LUNCH' | 'ON_PERMISSION'; lastAction?: string; lastTime?: string; error?: string }> {
     try {
         const employeeIdParsed = UUIDSchema.safeParse(employeeId);
         if (!employeeIdParsed.success) {
@@ -209,7 +214,7 @@ export async function getEmployeeStatusForKiosk(
             SELECT type, timestamp 
             FROM attendance_logs
             WHERE user_id = $1 
-            AND timestamp >= CURRENT_DATE AT TIME ZONE 'America/Santiago'
+            AND timestamp >= NOW() - INTERVAL '24 hours'
             ORDER BY timestamp DESC
             LIMIT 1
         `, [employeeId]);
@@ -218,10 +223,11 @@ export async function getEmployeeStatusForKiosk(
         const lastTime = res.rows[0]?.timestamp;
 
         // Mapear tipo de DB a estado de UI
-        let status: 'OUT' | 'IN' | 'LUNCH' = 'OUT';
+        let status: 'OUT' | 'IN' | 'LUNCH' | 'ON_PERMISSION' = 'OUT';
         if (lastType === 'CHECK_IN') status = 'IN';
         else if (lastType === 'BREAK_START') status = 'LUNCH';
-        else if (lastType === 'BREAK_END' || lastType === 'LUNCH_RETURN') status = 'IN';
+        else if (lastType === 'BREAK_END' || lastType === 'LUNCH_RETURN' || lastType === 'PERMISSION_END') status = 'IN';
+        else if (['PERMISSION_START', 'MEDICAL_LEAVE', 'EMERGENCY'].includes(lastType)) status = 'ON_PERMISSION';
         else if (lastType === 'CHECK_OUT') status = 'OUT';
 
         return {
@@ -244,7 +250,7 @@ export async function getEmployeeStatusForKiosk(
  */
 export async function getBatchEmployeeStatusForKiosk(
     employeeIds: string[]
-): Promise<{ success: boolean; statuses: Record<string, { status: 'OUT' | 'IN' | 'LUNCH'; lastTime?: string }>; error?: string }> {
+): Promise<{ success: boolean; statuses: Record<string, { status: 'OUT' | 'IN' | 'LUNCH' | 'ON_PERMISSION'; lastTime?: string }>; error?: string }> {
     try {
         if (employeeIds.length === 0) {
             return { success: true, statuses: {} };
@@ -258,25 +264,26 @@ export async function getBatchEmployeeStatusForKiosk(
                     timestamp,
                     ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY timestamp DESC) as rn
                 FROM attendance_logs
-                WHERE user_id = ANY($1::uuid[])
-                AND timestamp >= CURRENT_DATE AT TIME ZONE 'America/Santiago'
+                WHERE user_id = ANY($1::text[])
+                AND timestamp >= NOW() - INTERVAL '24 hours'
             )
             SELECT user_id, type, timestamp
             FROM RankedLogs
             WHERE rn = 1
         `, [employeeIds]);
 
-        const statuses: Record<string, { status: 'OUT' | 'IN' | 'LUNCH'; lastTime?: string }> = {};
+        const statuses: Record<string, { status: 'OUT' | 'IN' | 'LUNCH' | 'ON_PERMISSION'; lastTime?: string }> = {};
 
         for (const id of employeeIds) {
             statuses[id] = { status: 'OUT' };
         }
 
         for (const row of res.rows) {
-            let status: 'OUT' | 'IN' | 'LUNCH' = 'OUT';
+            let status: 'OUT' | 'IN' | 'LUNCH' | 'ON_PERMISSION' = 'OUT';
             if (row.type === 'CHECK_IN') status = 'IN';
             else if (row.type === 'BREAK_START') status = 'LUNCH';
-            else if (row.type === 'BREAK_END' || row.type === 'LUNCH_RETURN') status = 'IN';
+            else if (row.type === 'BREAK_END' || row.type === 'LUNCH_RETURN' || row.type === 'PERMISSION_END') status = 'IN';
+            else if (['PERMISSION_START', 'MEDICAL_LEAVE', 'EMERGENCY'].includes(row.type)) status = 'ON_PERMISSION';
             else if (row.type === 'CHECK_OUT') status = 'OUT';
 
             statuses[row.user_id] = {
@@ -297,7 +304,7 @@ async function getLastAttendanceType(client: any, userId: string): Promise<strin
     const res = await client.query(`
         SELECT type FROM attendance_logs
         WHERE user_id = $1 
-        AND timestamp >= CURRENT_DATE AT TIME ZONE 'America/Santiago'
+        AND timestamp >= NOW() - INTERVAL '24 hours'
         ORDER BY timestamp DESC
         LIMIT 1
     `, [userId]);
@@ -348,7 +355,7 @@ export async function registerAttendanceSecure(
             const activeRes = await client.query(`
                 SELECT id FROM attendance_logs
                 WHERE user_id = $1 
-                AND timestamp >= CURRENT_DATE AT TIME ZONE 'America/Santiago'
+                AND timestamp >= NOW() - INTERVAL '24 hours'
                 AND type = 'CHECK_IN'
                 AND NOT EXISTS (
                     SELECT 1 FROM attendance_logs al2
@@ -724,7 +731,7 @@ export async function getTodayAttendanceSecure(
                 SELECT type, timestamp, location_id
                 FROM attendance_logs
                 WHERE user_id = u.id 
-                AND timestamp >= CURRENT_DATE AT TIME ZONE 'America/Santiago'
+                AND timestamp >= NOW() - INTERVAL '24 hours'
                 ORDER BY timestamp DESC
                 LIMIT 1
             ) al ON true
@@ -760,7 +767,11 @@ function mapStatus(dbType?: string): string {
         case 'CHECK_IN': return 'IN';
         case 'BREAK_START': return 'LUNCH';
         case 'BREAK_END': return 'IN';
-        case 'LUNCH_RETURN': return 'IN';
+        case 'LUNCH_RETURN': return 'IN'; // Legacy
+        case 'PERMISSION_END': return 'IN';
+        case 'PERMISSION_START': return 'ON_PERMISSION';
+        case 'MEDICAL_LEAVE': return 'ON_PERMISSION';
+        case 'EMERGENCY': return 'ON_PERMISSION';
         case 'CHECK_OUT': return 'OUT';
         default: return 'OUT';
     }
@@ -857,7 +868,7 @@ export async function ensureCheckInSecure(
         const checkRes = await client.query(`
                 SELECT id FROM attendance_logs 
                 WHERE user_id = $1 
-                AND timestamp >= CURRENT_DATE AT TIME ZONE 'America/Santiago'
+                AND timestamp >= NOW() - INTERVAL '24 hours'
                 AND type = 'CHECK_IN'
             `, [userId]);
 
@@ -871,7 +882,7 @@ export async function ensureCheckInSecure(
         const lastLogRes = await client.query(`
             SELECT type FROM attendance_logs
             WHERE user_id = $1 
-            AND timestamp >= CURRENT_DATE AT TIME ZONE 'America/Santiago'
+            AND timestamp >= NOW() - INTERVAL '24 hours'
             ORDER BY timestamp DESC
             LIMIT 1
                 `, [userId]);
@@ -909,5 +920,64 @@ export async function ensureCheckInSecure(
         return false; // No interrumpir flujo principal si falla esto
     } finally {
         client.release();
+    }
+}
+
+/**
+ * 🔐 Validar PIN para cerrar Kiosko
+ * Permite a Managers/Admins salir del modo Kiosko
+ */
+export async function validateKioskExitPin(pin: string): Promise<{ valid: boolean; error?: string }> {
+    try {
+        // 1. Validar PIN Maestro (hardcoded por ahora, idealmente en ENV)
+        if (pin === '1213') return { valid: true };
+
+        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
+        const bcrypt = await import('bcryptjs');
+        const { query } = await import('@/lib/db');
+
+        // 2. Rate Limiting por IP (o global si se prefiere)
+        const ip = (await headers()).get('x-forwarded-for') || 'unknown';
+        const isAllowedResult = checkRateLimit(`kiosk_exit_${ip}`); // Usar defaults del modulo
+
+        if (!isAllowedResult.allowed) {
+            return { valid: false, error: isAllowedResult.reason || 'Demasiados intentos.' };
+        }
+
+        // 3. Buscar usuarios con rol MANAGER o superior
+        // NOTA: MANAGER_ROLES DEBE estar accesible en este scope, si no, lo redefinimos aquí o lo importamos
+        const ADMIN_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH']; // Redefinido por seguridad scope
+
+        const result = await query(`
+            SELECT id, name, access_pin_hash, access_pin, role
+            FROM users 
+            WHERE role = ANY($1::text[]) 
+            AND is_active = true
+        `, [ADMIN_ROLES]);
+
+        for (const user of result.rows) {
+            let isValid = false;
+            // Verificar hash primero
+            if (user.access_pin_hash) {
+                isValid = await bcrypt.compare(pin, user.access_pin_hash);
+            }
+            // Fallback a PIN plano (legacy)
+            else if (user.access_pin === pin) {
+                isValid = true;
+            }
+
+            if (isValid) {
+                await resetAttempts(`kiosk_exit_${ip}`);
+                logger.info({ userId: user.id, role: user.role }, '[Kiosk] Exit authorized by admin');
+                return { valid: true };
+            }
+        }
+
+        await recordFailedAttempt(`kiosk_exit_${ip}`);
+        return { valid: false, error: 'PIN no autorizado' };
+
+    } catch (error) {
+        logger.error({ error }, '[Kiosk] Error validating exit PIN');
+        return { valid: false, error: 'Error de validación' };
     }
 }
