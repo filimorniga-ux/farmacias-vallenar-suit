@@ -29,7 +29,16 @@ export default async function SchedulerPage({
     queryEnd.setDate(queryEnd.getDate() + 42); // 6 weeks buffer
     const queryEndStr = queryEnd.toISOString().split('T')[0];
 
-    const locationId = params.location || '00000000-0000-0000-0000-000000000000';
+    // 2. Determine Location ID (Default to first active location if missing)
+    let locationId = params.location;
+    if (!locationId) {
+        const locationRes = await pool.query("SELECT id FROM locations WHERE status = 'ACTIVE' LIMIT 1");
+        locationId = locationRes.rows[0]?.id; // Fallback to undefined if no locations
+    }
+
+    if (!locationId) {
+        return <div className="p-10 text-center">No hay sucursales activas configuradas.</div>;
+    }
 
     // Parallel Fetching
     const [scheduleData, staff] = await Promise.all([
