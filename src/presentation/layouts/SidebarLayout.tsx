@@ -49,6 +49,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
         { icon: Sparkles, label: 'Pedido Sugerido (IA)', path: '/supply-chain', roles: ['MANAGER', 'QF', 'ADMIN', 'WAREHOUSE', 'WAREHOUSE_CHIEF', 'GERENTE_GENERAL'], color: 'teal' as AppThemeColor },
         { icon: UserCircle, label: 'Clientes (CRM)', path: '/clients', roles: ['MANAGER', 'QF', 'CASHIER', 'ADMIN', 'GERENTE_GENERAL'], color: 'slate' as AppThemeColor },
         { icon: Users, label: 'Recursos Humanos', path: '/hr', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'], color: 'slate' as AppThemeColor },
+        { icon: Clock, label: 'Gestor Horario', path: '/rrhh/horarios', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'], color: 'rose' as AppThemeColor },
         { icon: MapPin, label: 'Gestión de Red', path: '/network', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'slate' as AppThemeColor },
         // Control Asistencia movido a Kiosko (/kiosk) - accesible desde RRHH o Configuración
         // { icon: Clock, label: 'Control Asistencia', path: '/access', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'sky' as AppThemeColor },

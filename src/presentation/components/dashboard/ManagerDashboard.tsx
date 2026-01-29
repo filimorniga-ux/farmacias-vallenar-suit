@@ -237,20 +237,39 @@ export default function ManagerDashboard() {
                                 </h3>
                                 <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
                                     {branchDetail.activeStaff.length > 0 ? (
-                                        branchDetail.activeStaff.map(staff => (
-                                            <div key={staff.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-xl transition-colors">
-                                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white font-bold text-xs">
-                                                    {staff.name.charAt(0)}
+                                        branchDetail.activeStaff.map(staff => {
+                                            // Buscar si este empleado tiene un turno de caja activo
+                                            const activeShift = branchDetail.shifts.find(
+                                                s => s.userName === staff.name && s.status === 'OPEN'
+                                            );
+                                            return (
+                                                <div key={staff.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-xl transition-colors">
+                                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs ${staff.status === 'IN' ? 'bg-gradient-to-br from-emerald-400 to-teal-500' :
+                                                            staff.status === 'LUNCH' ? 'bg-gradient-to-br from-amber-400 to-orange-500' :
+                                                                'bg-gradient-to-br from-indigo-400 to-purple-500'
+                                                        }`}>
+                                                        {staff.name.charAt(0)}
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <p className="text-xs font-bold text-slate-700">{staff.name}</p>
+                                                        <p className="text-[10px] text-slate-400">
+                                                            {staff.jobTitle}
+                                                            {activeShift && (
+                                                                <span className="ml-1 text-cyan-600 font-bold">• {activeShift.terminalName}</span>
+                                                            )}
+                                                            {!activeShift && ` • ${staff.locationArea}`}
+                                                        </p>
+                                                    </div>
+                                                    <div className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${staff.status === 'IN' ? 'text-emerald-600 bg-emerald-50' :
+                                                            staff.status === 'LUNCH' ? 'text-amber-600 bg-amber-50' :
+                                                                'text-slate-600 bg-slate-50'
+                                                        }`}>
+                                                        {staff.status === 'IN' ? 'TRABAJANDO' :
+                                                            staff.status === 'LUNCH' ? 'COLACIÓN' : staff.status}
+                                                    </div>
                                                 </div>
-                                                <div className="flex-1">
-                                                    <p className="text-xs font-bold text-slate-700">{staff.name}</p>
-                                                    <p className="text-[10px] text-slate-400">{staff.jobTitle} • {staff.locationArea}</p>
-                                                </div>
-                                                <div className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full">
-                                                    {staff.status}
-                                                </div>
-                                            </div>
-                                        ))
+                                            );
+                                        })
                                     ) : (
                                         <p className="text-sm text-slate-400 text-center py-4">Sin personal activo registrado</p>
                                     )}
