@@ -32,7 +32,7 @@ export default async function SchedulerPage({
     // 2. Determine Location ID (Default to first active location if missing)
     let locationId = params.location;
     if (!locationId) {
-        const locationRes = await pool.query("SELECT id FROM locations WHERE status = 'ACTIVE' LIMIT 1");
+        const locationRes = await pool.query("SELECT id FROM locations WHERE is_active = true LIMIT 1");
         locationId = locationRes.rows[0]?.id; // Fallback to undefined if no locations
     }
 
