@@ -36,7 +36,8 @@ export function TimeOffModal({ isOpen, onClose, users }: TimeOffModalProps) {
                 type: type as any,
                 startDate,
                 endDate,
-                notes
+                notes,
+                status: 'APPROVED'
             });
 
             if (res.success) {
