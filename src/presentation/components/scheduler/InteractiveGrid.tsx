@@ -3,6 +3,8 @@
 import { useDroppable } from '@dnd-kit/core';
 import { cn } from '@/lib/utils';
 import { ShiftCard } from './ShiftCard';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 
 interface GridCellProps {
     day: string; // ISO Date String (YYYY-MM-DD)
@@ -62,10 +64,11 @@ export function InteractiveGrid({ weekStart, staff, shifts, timeOffs, onShiftCli
     });
 
     const getShiftsForCell = (userId: string, date: Date) => {
-        const dateStr = date.toISOString().split('T')[0];
+        const dateStr = format(date, 'yyyy-MM-dd');
         return shifts.filter(s => {
-            const shiftDate = new Date(s.start_at).toISOString().split('T')[0];
-            return s.user_id === userId && shiftDate === dateStr;
+            const shiftDate = new Date(s.start_at);
+            const shiftDateStr = format(shiftDate, 'yyyy-MM-dd');
+            return s.user_id === userId && shiftDateStr === dateStr;
         });
     };
 
@@ -90,10 +93,10 @@ export function InteractiveGrid({ weekStart, staff, shifts, timeOffs, onShiftCli
                     {days.map((day, i) => (
                         <div key={i} className="p-3 text-center border-r last:border-r-0">
                             <div className="font-semibold text-sm capitalize">
-                                {day.toLocaleDateString('es-CL', { weekday: 'short' })}
+                                {format(day, 'EEE', { locale: es })}
                             </div>
                             <div className="text-xs text-muted-foreground">
-                                {day.getDate()}
+                                {format(day, 'd')}
                             </div>
                         </div>
                     ))}
@@ -115,12 +118,11 @@ export function InteractiveGrid({ weekStart, staff, shifts, timeOffs, onShiftCli
                             {days.map((day, i) => {
                                 const isOnTimeOff = isEmployeeOnTimeOff(employee.id, day);
                                 const cellShifts = getShiftsForCell(employee.id, day);
-                                const dateStr = day.toISOString().split('T')[0];
 
                                 return (
                                     <GridCell
-                                        key={`${employee.id}-${dateStr}`}
-                                        day={dateStr}
+                                        key={`${employee.id}-${format(day, 'yyyy-MM-dd')}`}
+                                        day={format(day, 'yyyy-MM-dd')}
                                         userId={employee.id}
                                         shifts={cellShifts}
                                         disabled={isOnTimeOff} // Visual disable (can still drop if we want flexible rules, but let's visually gray it out)
