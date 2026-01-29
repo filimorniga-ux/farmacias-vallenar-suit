@@ -12,10 +12,11 @@ async function getStaff(locationId: string) {
 export default async function SchedulerPage({
     searchParams,
 }: {
-    searchParams: { date?: string; location?: string }
+    searchParams: Promise<{ date?: string; location?: string }>
 }) {
+    const params = await searchParams;
     // 1. Determine Week/Month Start based on URL or Today
-    const currentDate = searchParams.date ? parseISO(searchParams.date) : new Date();
+    const currentDate = params.date ? parseISO(params.date) : new Date();
 
     // Always load enough data for Month View (to be safe)
     // Load 35 days starting from the relevant Monday
@@ -28,7 +29,7 @@ export default async function SchedulerPage({
     queryEnd.setDate(queryEnd.getDate() + 42); // 6 weeks buffer
     const queryEndStr = queryEnd.toISOString().split('T')[0];
 
-    const locationId = searchParams.location || '00000000-0000-0000-0000-000000000000';
+    const locationId = params.location || '00000000-0000-0000-0000-000000000000';
 
     // Parallel Fetching
     const [scheduleData, staff] = await Promise.all([
