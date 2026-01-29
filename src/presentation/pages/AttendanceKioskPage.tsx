@@ -93,6 +93,49 @@ const AttendanceKioskPage: React.FC = () => {
     }, []);
 
 
+    // Keyboard Listener
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Determine active mode
+            const isUnlockMode = isLocked;
+            const isAuthMode = selectedEmployee && authMethod === 'PIN';
+
+            // Only listen if we are in a PIN entry mode
+            if (!isUnlockMode && !isAuthMode) return;
+            // Ignore if validating or exit modal open
+            if (isValidating || showExitModal) return;
+
+            if (/^\d$/.test(e.key)) {
+                if (pin.length < 4) {
+                    setPin(prev => prev + e.key);
+                }
+            } else if (e.key === 'Backspace') {
+                setPin(prev => prev.slice(0, -1));
+            } else if (e.key === 'Escape' || e.key === 'Delete') {
+                setPin('');
+            } else if (e.key === 'Enter') {
+                if (pin.length === 4) {
+                    if (isUnlockMode) {
+                        handleUnlock(pin);
+                        // Optional: clear pin handled by handleUnlock logic? 
+                        // Actually handleUnlock doesn't clear pin on failure in the viewed code (line 108 just sets message).
+                        // It's better to NOT clear it on Enter so user can see what they typed? 
+                        // Or we mimic the Validate button.
+                        // For Auth Mode: handlePinSubmit() clears it on error (line 129).
+                        // For Unlock Mode: let's clear it on failure here if we want, or leave it. 
+                        // The UI usually clears it.
+                    } else {
+                        handlePinSubmit();
+                    }
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isLocked, selectedEmployee, authMethod, pin, isValidating, showExitModal]);
+
+
     // --- Activation Logic ---
     const handleUnlock = (adminPin: string) => {
         // Master PIN allows direct unlock without employee lookup
