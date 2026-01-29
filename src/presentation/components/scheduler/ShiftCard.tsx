@@ -3,6 +3,7 @@
 import { useDraggable } from '@dnd-kit/core';
 import { cn } from '@/lib/utils';
 import { Clock, AlertTriangle, Moon, CheckCircle2 } from 'lucide-react';
+import { format } from 'date-fns';
 
 interface ShiftCardProps {
     shift: any; // Type 'any' for now, replace with proper interface later
@@ -24,7 +25,7 @@ export function ShiftCard({ shift, isOverlay, onClick }: ShiftCardProps) {
     // Helper to format time
     const formatTime = (isoString: string) => {
         const date = new Date(isoString);
-        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return format(date, 'HH:mm');
     };
 
     // Night shift detection (simple visual check)
