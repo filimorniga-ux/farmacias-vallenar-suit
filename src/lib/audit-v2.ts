@@ -60,7 +60,16 @@ export type AuditActionCode =
     // Reportería
     | 'REPORT_GENERATE'
     | 'REPORT_EXPORT'
-    | 'DATA_EXPORT_BULK';
+    | 'DATA_EXPORT_BULK'
+    // Asistencia
+    | 'ATTENDANCE_CHECK_IN'
+    | 'ATTENDANCE_CHECK_OUT'
+    | 'ATTENDANCE_BREAK_START'
+    | 'ATTENDANCE_BREAK_END'
+    | 'ATTENDANCE_PERMISSION_START'
+    | 'ATTENDANCE_PERMISSION_END'
+    | 'ATTENDANCE_MEDICAL_LEAVE'
+    | 'ATTENDANCE_EMERGENCY';
 
 export type EntityType =
     | 'SALE'
@@ -170,12 +179,12 @@ export async function auditLog(
         if (JUSTIFICATION_REQUIRED.includes(payload.action)) {
             if (!payload.justification || payload.justification.trim().length < 10) {
                 const errorMsg = `La acción ${payload.action} requiere justificación de al menos 10 caracteres`;
-                
+
                 // Para acciones críticas, fallar completamente
                 if (CRITICAL_ACTIONS.includes(payload.action)) {
                     return { success: false, error: errorMsg };
                 }
-                
+
                 // Para otras, registrar sin justificación pero con warning
                 console.warn(`[AUDIT] Warning: ${errorMsg}`);
             }
@@ -190,8 +199,8 @@ export async function auditLog(
             // Next.js 15+: headers() returns a Promise
             const headersList = await headers();
             ipAddress = headersList.get('x-forwarded-for') ||
-                        headersList.get('x-real-ip') ||
-                        'UNKNOWN';
+                headersList.get('x-real-ip') ||
+                'UNKNOWN';
             userAgent = headersList.get('user-agent') || 'UNKNOWN';
             requestId = headersList.get('x-request-id') || requestId;
         } catch (e) {
@@ -475,14 +484,14 @@ export async function getSuspiciousActivity(
             WHERE ac.severity IN ('HIGH', 'CRITICAL')
             AND al.created_at > NOW() - INTERVAL '${hours} hours'
         `;
-        
+
         const params: any[] = [];
-        
+
         if (locationId) {
             params.push(locationId);
             queryStr += ` AND al.location_id = $1::uuid`;
         }
-        
+
         queryStr += ` ORDER BY al.created_at DESC LIMIT 100`;
 
         const result = await query(queryStr, params);
