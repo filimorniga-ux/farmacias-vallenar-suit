@@ -883,12 +883,13 @@ export async function getUsersSecure(filters?: z.infer<typeof GetUsersSchema>): 
     const session = await getSession();
     const ALLOWED_VIEW_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH', 'CONTADOR'];
 
-    // Si no hay sesión, permitir tal vez si es uso interno? No, seguro.
     if (!session || !session.user) {
         return { success: false, error: 'No autenticado' };
     }
 
-    if (!ALLOWED_VIEW_ROLES.includes(session.user.role)) {
+    // Normalize role check
+    const userRole = session.user.role?.toUpperCase();
+    if (!ALLOWED_VIEW_ROLES.includes(userRole)) {
         return { success: false, error: 'No autorizado para ver empleados' };
     }
 
@@ -913,6 +914,7 @@ export async function getUsersSecure(filters?: z.infer<typeof GetUsersSchema>): 
             params.push(validated.data.isActive);
         }
 
+        // Always show Managers/Admins first in results
         const whereClause = conditions.length > 0
             ? `WHERE ${conditions.join(' AND ')}`
             : '';
