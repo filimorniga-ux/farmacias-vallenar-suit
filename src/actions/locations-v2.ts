@@ -476,8 +476,8 @@ export async function deactivateLocationSecure(
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-        // Verify ADMIN permission
-        const authCheck = await verifyAdminPermission(client);
+        // Verify MANAGER permission
+        const authCheck = await verifyManagerPermission(client);
         if (!authCheck.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: authCheck.error };
@@ -518,13 +518,13 @@ export async function deactivateLocationSecure(
         // Soft delete
         await client.query(`
             UPDATE locations 
-            SET is_active = false, updated_at = NOW()
+            SET is_active = false
             WHERE id = $1
         `, [locationId]);
 
         // Audit
         await insertLocationAudit(client, {
-            userId: authCheck.admin!.id,
+            userId: authCheck.manager!.id,
             actionCode: 'LOCATION_DEACTIVATED',
             locationId,
             oldValues: { is_active: true },
@@ -537,6 +537,7 @@ export async function deactivateLocationSecure(
         logger.info({ locationId }, '🚫 [Locations] Location deactivated');
         revalidatePath('/settings');
         revalidatePath('/locations');
+        revalidatePath('/network');
 
         return { success: true };
 
