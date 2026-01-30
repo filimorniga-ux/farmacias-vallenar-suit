@@ -417,7 +417,7 @@ export async function updateLocationSecure(
             return { success: true }; // Nothing to update
         }
 
-        updates.push(`updated_at = NOW()`);
+        // updates.push(`updated_at = NOW()`);  <-- Removed: Column does not exist in schema
         values.push(validated.data.locationId);
 
         await client.query(`
