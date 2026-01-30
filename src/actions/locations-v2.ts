@@ -144,6 +144,40 @@ async function verifyAdminPermission(client: any): Promise<{
 }
 
 /**
+ * Verify MANAGER permissions (Includes ADMIN & GERENTE_GENERAL)
+ */
+async function verifyManagerPermission(client: any): Promise<{
+    valid: boolean;
+    manager?: { id: string; name: string; role: string };
+    error?: string;
+}> {
+    const session = await getSession();
+
+    if (!session?.user?.id) {
+        return { valid: false, error: 'No autenticado' };
+    }
+
+    const userRes = await client.query(`
+        SELECT id, name, role 
+        FROM users 
+        WHERE id = $1 AND is_active = true
+    `, [session.user.id]);
+
+    if (userRes.rows.length === 0) {
+        return { valid: false, error: 'Usuario no encontrado' };
+    }
+
+    const user = userRes.rows[0];
+    const role = user.role?.toUpperCase();
+
+    if (!MANAGER_ROLES.includes(role)) {
+        return { valid: false, error: 'Requiere permisos de ADMIN, GERENTE o MANAGER' };
+    }
+
+    return { valid: true, manager: user };
+}
+
+/**
  * Validate manager PIN for stock transfers
  */
 async function validateManagerPin(
@@ -333,8 +367,8 @@ export async function updateLocationSecure(
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-        // Verify ADMIN permission
-        const authCheck = await verifyAdminPermission(client);
+        // Verify MANAGER permission
+        const authCheck = await verifyManagerPermission(client);
         if (!authCheck.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: authCheck.error };
@@ -393,7 +427,7 @@ export async function updateLocationSecure(
 
         // Audit
         await insertLocationAudit(client, {
-            userId: authCheck.admin!.id,
+            userId: authCheck.manager!.id,
             actionCode: 'LOCATION_UPDATED',
             locationId: validated.data.locationId,
             oldValues: { name: oldValues.name, address: oldValues.address },
