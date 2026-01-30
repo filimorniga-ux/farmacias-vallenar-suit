@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { getChileISOString } from '../utils';
 
 export type OutboxItemType = 'CASH_MOVEMENT' | 'CLIENT_CREATE' | 'STOCK_ADJUST' | 'PRODUCT_CREATE';
 
@@ -7,7 +8,7 @@ export interface OutboxItem {
     id: string;
     type: OutboxItemType;
     payload: any;
-    createdAt: number;
+    createdAt: string;
     status: 'PENDING' | 'ERROR' | 'CONFLICT';
     retryCount: number;
     lastError?: string;
@@ -35,7 +36,7 @@ export const useOutboxStore = create<OutboxState>()(
                             id: crypto.randomUUID(),
                             type,
                             payload,
-                            createdAt: Date.now(),
+                            createdAt: getChileISOString(),
                             status: 'PENDING',
                             retryCount: 0,
                         },

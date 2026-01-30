@@ -73,6 +73,7 @@ export const useLocationStore = create<LocationState>()(
                         set({ isLoading: false, lastFetch: Date.now() });
 
                         if (res.success && res.data?.locations) {
+                            console.log('📍 [LocationStore] RAW SERVER DATA:', res.data.locations.map((l: any) => ({ id: l.id, name: l.name })));
                             set({ locations: res.data.locations });
                             console.log('📍 [LocationStore] Secure locations updated:', res.data.locations.length);
                         } else {

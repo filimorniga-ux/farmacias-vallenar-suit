@@ -6,6 +6,7 @@ import { X, Printer, Search, FileText, Calendar, Filter, ShoppingCart, ArrowDown
 import { getQuotesSecure, getQuoteDetailsSecure } from '@/actions/quotes-v2';
 import { toast } from 'sonner';
 import { usePharmaStore } from '../../store/useStore';
+import { formatChileDate, getChileDate } from '@/lib/utils';
 
 interface QuoteHistoryModalProps {
     isOpen: boolean;
@@ -64,7 +65,7 @@ function generatePrintHTML(quote: any): string {
         <div class="divider"></div>
         <div class="quote-code">COTIZACIÓN</div>
         <div class="quote-code">${quote.code}</div>
-        <div style="font-size: 10px; margin-top: 4px;">${new Date(quote.created_at).toLocaleString('es-CL', { timeZone: 'America/Santiago' })}</div>
+        <div style="font-size: 10px; margin-top: 4px;">${formatChileDate(quote.created_at)}</div>
     </div>
 
     <div class="customer">
@@ -97,7 +98,7 @@ function generatePrintHTML(quote: any): string {
     </div>
 
     <div class="footer">
-        <div style="font-weight: bold; margin-bottom: 4px;">Válido hasta: ${new Date(quote.valid_until).toLocaleDateString('es-CL')}</div>
+        <div style="font-weight: bold; margin-bottom: 4px;">Válido hasta: ${formatChileDate(quote.valid_until, { hour: undefined, minute: undefined })}</div>
         <div>Precios sujetos a cambio sin previo aviso.</div>
         <div>Stock sujeto a disponibilidad al momento de la compra.</div>
         <div class="footer-bold">*** GRACIAS POR SU PREFERENCIA ***</div>
@@ -123,7 +124,7 @@ export default function QuoteHistoryModal({ isOpen, onClose }: QuoteHistoryModal
         page: 1,
         pageSize: 50,
         status: undefined as 'PENDING' | 'CONVERTED' | 'EXPIRED' | 'CANCELLED' | undefined,
-        startDate: new Date(new Date().setHours(0, 0, 0, 0)), // Default to Today
+        startDate: getChileDate(), // Default to Today
         endDate: undefined as Date | undefined,
         searchCode: '', // New Search Field
     });
@@ -272,8 +273,8 @@ export default function QuoteHistoryModal({ isOpen, onClose }: QuoteHistoryModal
                                             >
                                                 <td className="px-6 py-4 font-mono font-bold text-slate-700">{q.code}</td>
                                                 <td className="px-6 py-4 text-slate-600">
-                                                    {new Date(q.created_at).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}
-                                                    <span className="text-xs text-slate-400 block">{new Date(q.created_at).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago' }).slice(0, 5)}</span>
+                                                    {formatChileDate(q.created_at, { hour: undefined, minute: undefined })}
+                                                    <span className="text-xs text-slate-400 block">{formatChileDate(q.created_at, { day: undefined, month: undefined, year: undefined })}</span>
                                                 </td>
                                                 <td className="px-6 py-4 font-medium text-slate-800">
                                                     {q.customer_name || 'Particular'}
@@ -340,7 +341,7 @@ export default function QuoteHistoryModal({ isOpen, onClose }: QuoteHistoryModal
                             </div>
                             <div>
                                 <label className="text-slate-500 block text-xs uppercase font-bold">Fecha</label>
-                                <div className="font-medium">{new Date(viewQuote.created_at).toLocaleString('es-CL', { timeZone: 'America/Santiago' })}</div>
+                                <div className="font-medium">{formatChileDate(viewQuote.created_at)}</div>
                             </div>
                             <div>
                                 <label className="text-slate-500 block text-xs uppercase font-bold">Total</label>

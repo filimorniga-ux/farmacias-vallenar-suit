@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { CartItem } from './cart';
+import { getChileISOString } from '../utils';
 
 export interface OfflineSale {
     id: string;
@@ -36,7 +37,7 @@ export const useOfflineSales = create<OfflineSalesState>()(
                         ...state.pendingSales,
                         {
                             id: crypto.randomUUID(),
-                            timestamp: new Date().toISOString(),
+                            timestamp: getChileISOString(),
                             syncStatus: 'PENDING',
                             retryCount: 0,
                             ...sale,

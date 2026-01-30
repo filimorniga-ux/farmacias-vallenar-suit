@@ -10,7 +10,10 @@ export interface Location {
     type: 'STORE' | 'WAREHOUSE' | 'HQ';
     name: string;
     address: string;
-    associated_kiosks: string[]; // Kiosk IDs
+    phone?: string;
+    email?: string;
+    manager_id?: string;
+    associated_kiosks: string[];
     parent_id?: string;
     default_warehouse_id?: string; // NEW: Explicit WMS link
     config?: LocationConfig;

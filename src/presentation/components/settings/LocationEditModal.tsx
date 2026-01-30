@@ -32,10 +32,14 @@ export default function LocationEditModal({ location, onClose, onUpdate }: Locat
     useEffect(() => {
         // Load Potential Managers using V2
         getUsersSecure({ page: 1, pageSize: 100, role: undefined }).then(res => {
+            console.log('👥 GET USERS RESPONSE:', res);
             if (res.success && res.data) {
                 // Filter only Managers or Admins
                 const admins = res.data.users.filter((u: any) => u.role === 'MANAGER' || u.role === 'ADMIN' || u.role === 'GERENTE_GENERAL');
+                console.log('👥 FILTERED MANAGERS:', admins);
                 setManagers(admins as any);
+            } else {
+                console.error('👥 GET USERS FAILED:', res.error);
             }
         });
     }, []);
@@ -54,8 +58,23 @@ export default function LocationEditModal({ location, onClose, onUpdate }: Locat
                 manager_id: form.manager_id,
                 // Config can be used for other generic settings
             });
-            if (res.success) {
+            if (res.success && res.data) {
+                console.log('✅ SERVER RESPONSE:', res.data);
                 toast.success('Sucursal actualizada correctamente');
+                // toast.info('DEBUG: ' + JSON.stringify(res.data)); 
+
+                // 1. Immediate Store Update (Authoritative)
+                const { updateLocation, fetchLocations } = await import('@/presentation/store/useLocationStore').then(m => m.useLocationStore.getState());
+
+                console.log('🔄 UPDATING STORE WITH:', res.data);
+                updateLocation(location.id, res.data as Location);
+
+                // 2. Refresh others with a small delay to ensure DB consistency
+                setTimeout(() => {
+                    console.log('🔄 FETCHING FRESH DATA...');
+                    fetchLocations(true);
+                }, 2000);
+
                 onUpdate();
                 onClose();
             } else {
@@ -82,6 +101,13 @@ export default function LocationEditModal({ location, onClose, onUpdate }: Locat
             const res = await deactivateLocationSecure(location.id, reason);
             if (res.success) {
                 toast.success('Sucursal desactivada correctamente');
+
+                // Force refresh the store to remove the deactivated location
+                const { fetchLocations } = await import('@/presentation/store/useLocationStore').then(m => m.useLocationStore.getState());
+                setTimeout(() => {
+                    fetchLocations(true);
+                }, 500);
+
                 onUpdate();
                 onClose();
             } else {
