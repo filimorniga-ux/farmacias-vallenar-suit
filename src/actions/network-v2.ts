@@ -75,9 +75,18 @@ const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
 async function getSession(): Promise<{ userId: string; role: string; locationId?: string } | null> {
     try {
         const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
+        const { cookies } = await import('next/headers');
+
+        let userId = headersList.get('x-user-id');
+        let role = headersList.get('x-user-role');
         const locationId = headersList.get('x-user-location');
+
+        if (!userId || !role) {
+            const cookieStore = await cookies();
+            userId = cookieStore.get('user_id')?.value || null;
+            role = cookieStore.get('user_role')?.value || null;
+        }
+
         if (!userId || !role) return null;
         return { userId, role, locationId: locationId || undefined };
     } catch {
@@ -153,11 +162,12 @@ export async function getOrganizationStructureSecure(explicitUserId?: string): P
     try {
         let locationFilter = '';
         const params: any[] = [];
+        const userRole = session.role.toUpperCase();
 
-        if (!MANAGER_ROLES.includes(session.role) && session.locationId) {
+        if (!MANAGER_ROLES.includes(userRole) && session.locationId) {
             locationFilter = 'WHERE l.id = $1';
             params.push(session.locationId);
-        } else if (!MANAGER_ROLES.includes(session.role)) {
+        } else if (!MANAGER_ROLES.includes(userRole)) {
             locationFilter = 'WHERE l.is_active = true';
         }
 
