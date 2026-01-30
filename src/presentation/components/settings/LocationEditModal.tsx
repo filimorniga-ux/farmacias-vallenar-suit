@@ -49,7 +49,10 @@ export default function LocationEditModal({ location, onClose, onUpdate }: Locat
                 locationId: location.id,
                 name: form.name,
                 address: form.address,
-                config: { phone: form.phone, email: form.email, manager_id: form.manager_id }
+                phone: form.phone,
+                email: form.email,
+                manager_id: form.manager_id,
+                // Config can be used for other generic settings
             });
             if (res.success) {
                 toast.success('Sucursal actualizada correctamente');
