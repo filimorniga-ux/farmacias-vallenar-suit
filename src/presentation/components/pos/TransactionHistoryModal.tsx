@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { printSaleTicket } from '../../utils/print-utils';
 import { SaleTransaction } from '../../../domain/types';
 import ReturnsModal from './ReturnsModal';
+import { getChileDate, formatChileDate } from '@/lib/utils';
 
 interface TransactionHistoryModalProps {
     isOpen: boolean;
@@ -41,11 +42,11 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
     const [searchTerm, setSearchTerm] = useState('');
     const [filterType, setFilterType] = useState('ALL'); // Consolidated filter (Payment Method OR Transaction Type)
     const [startDate, setStartDate] = useState(() => {
-        const d = new Date();
+        const d = getChileDate();
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     });
     const [endDate, setEndDate] = useState(() => {
-        const d = new Date();
+        const d = getChileDate();
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     });
 
@@ -264,8 +265,8 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
                 const amount = Number(item.amount) || 0;
 
                 return {
-                    Fecha: new Date(item.timestamp).toLocaleDateString(),
-                    Hora: new Date(item.timestamp).toLocaleTimeString(),
+                    Fecha: formatChileDate(item.timestamp, { hour: undefined, minute: undefined }),
+                    Hora: formatChileDate(item.timestamp, { day: undefined, month: undefined, year: undefined }),
                     Tipo: isSale ? 'VENTA' : (item.type === 'EXTRA_INCOME' ? 'INGRESO' : 'GASTO/RETIRO'),
                     Descripción: item.reason,
                     Usuario: item.user_name || 'Sistema',
@@ -525,7 +526,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
                                             <div className="flex justify-between items-start mb-2">
                                                 <div>
                                                     <span className="text-xs font-bold text-slate-400 block mb-1">
-                                                        {new Date(item.timestamp).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago' })} • {new Date(item.timestamp).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}
+                                                        {formatChileDate(item.timestamp, { hour: '2-digit', minute: '2-digit' })}
                                                     </span>
                                                     <h3 className="font-bold text-slate-800 text-sm truncate max-w-[200px]">
                                                         {item.type === 'SALE' ? `Venta #${item.reason?.split('#')[1] || item.id.slice(0, 6)}` : item.type === 'EXTRA_INCOME' ? 'Ingreso Extra' : 'Gasto / Retiro'}
@@ -582,7 +583,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
                                     <div className="grid grid-cols-2 gap-4 text-sm">
                                         <div>
                                             <p className="text-slate-400 mb-1">Fecha y Hora</p>
-                                            <p className="font-bold text-slate-800">{new Date(selectedItem.timestamp).toLocaleString('es-CL', { timeZone: 'America/Santiago' })}</p>
+                                            <p className="font-bold text-slate-800">{formatChileDate(selectedItem.timestamp)}</p>
                                         </div>
                                         <div>
                                             <p className="text-slate-400 mb-1">Usuario</p>

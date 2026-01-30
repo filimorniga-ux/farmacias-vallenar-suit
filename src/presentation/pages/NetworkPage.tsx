@@ -121,27 +121,44 @@ const NetworkPage = () => {
                             </div>
 
                             {/* KPIs */}
-                            <div className="grid grid-cols-3 gap-2 p-4 border-b border-slate-100 bg-slate-50/50">
+                            <div className="flex items-center justify-center gap-6 p-4 border-b border-slate-100 bg-slate-50/50">
                                 <div className="text-center">
-                                    <p className="text-xs text-slate-400 font-bold">VENTAS</p>
-                                    <p className="text-sm font-bold text-slate-700">$1.2M</p>
-                                </div>
-                                <div className="text-center border-l border-slate-200">
                                     <p className="text-xs text-slate-400 font-bold">PERSONAL</p>
-                                    <p className="text-sm font-bold text-slate-700">
+                                    <p className="text-lg font-bold text-slate-700">
                                         {employees.filter(e => e.assigned_location_id === location.id || (!e.assigned_location_id && e.base_location_id === location.id)).length}
                                     </p>
                                 </div>
-                                {/* Removed ALERTAS placeholder */}
+                                <div className="text-center border-l border-slate-200 pl-6">
+                                    <p className="text-xs text-slate-400 font-bold">TERMINALES</p>
+                                    <p className="text-lg font-bold text-slate-700">
+                                        {location.associated_kiosks?.length || 0}
+                                    </p>
+                                </div>
                             </div>
 
-                            <div className="p-6 space-y-4">
+                            <div className="p-4 space-y-3">
                                 <div>
                                     <p className="text-xs font-bold text-slate-400 uppercase mb-1">Dirección</p>
                                     <p className="text-sm text-slate-600 flex items-center gap-1">
-                                        <MapPin size={14} /> {location.address}
+                                        <MapPin size={14} /> {location.address || 'Sin dirección'}
                                     </p>
                                 </div>
+                                {location.phone && (
+                                    <div>
+                                        <p className="text-xs font-bold text-slate-400 uppercase mb-1">Teléfono</p>
+                                        <p className="text-sm text-slate-600 flex items-center gap-1">
+                                            📞 {location.phone}
+                                        </p>
+                                    </div>
+                                )}
+                                {location.email && (
+                                    <div>
+                                        <p className="text-xs font-bold text-slate-400 uppercase mb-1">Correo</p>
+                                        <p className="text-sm text-slate-600 flex items-center gap-1">
+                                            ✉️ {location.email}
+                                        </p>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="bg-slate-50 p-4 border-t border-slate-100 flex justify-between items-center">
@@ -365,7 +382,7 @@ const NetworkPage = () => {
                 <div className="flex items-center gap-2">
                     <span className="text-xs text-slate-400">Cambiar vista:</span>
                     <select
-                        className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-1 text-sm font-bold focus:outline-none focus:border-cyan-500"
+                        className="bg-white text-slate-800 border border-slate-300 rounded-lg px-3 py-1 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 shadow-sm"
                         value={currentLocation?.id}
                         onChange={(e) => switchLocation(e.target.value)}
                     >
@@ -505,9 +522,9 @@ const NetworkPage = () => {
                     location={editingLocation}
                     onClose={() => setEditingLocation(null)}
                     onUpdate={() => {
-                        // Refresh Data
-                        const { fetchLocations } = useLocationStore.getState();
-                        fetchLocations(true);
+                        // Optimistic update handled in modal
+                        // const { fetchLocations } = useLocationStore.getState();
+                        // fetchLocations(true);
                     }}
                 />
             )}

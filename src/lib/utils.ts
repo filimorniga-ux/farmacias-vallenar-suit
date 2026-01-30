@@ -21,13 +21,46 @@ export function formatRut(rut: string): string {
   return `${parseInt(body).toLocaleString('es-CL')}-${dv}`;
 }
 
+// --- DATE & TIME UTILS (CHILE TIMEZONE) ---
+
+/**
+ * Get current date in Chile Timezone
+ */
+export function getChileDate(): Date {
+  const now = new Date();
+  const chileTime = new Date(now.toLocaleString("en-US", { timeZone: "America/Santiago" }));
+  return chileTime;
+}
+
+/**
+ * Format date to Chile local string
+ */
+export function formatChileDate(date: Date | string, options: Intl.DateTimeFormatOptions = {}): string {
+  if (!date) return '-';
+  const d = typeof date === 'string' ? new Date(date) : date;
+
+  return d.toLocaleString('es-CL', {
+    timeZone: 'America/Santiago',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    ...options
+  });
+}
+
+/**
+ * Get current ISO string with Chile offset (approximate)
+ * Use this for DB timestamps if you want to force local time representation
+ */
+export function getChileISOString(): string {
+  const d = getChileDate();
+  return d.toISOString();
+}
+
 /**
  * Retry a function with exponential backoff
- * Useful for handling transient errors like PostgreSQL lock contention (55P03)
- * 
- * @param fn - Async function to retry
- * @param options - Retry options (maxRetries, baseDelayMs, retryableCodes)
- * @returns Result of fn or throws after max retries
  */
 export async function retryWithBackoff<T>(
   fn: () => Promise<T>,
@@ -41,7 +74,7 @@ export async function retryWithBackoff<T>(
   const {
     maxRetries = 3,
     baseDelayMs = 100,
-    retryableCodes = ['55P03', '40001'], // Lock contention & Serialization failure
+    retryableCodes = ['55P03', '40001'],
     onRetry = () => { }
   } = options;
 
@@ -57,7 +90,7 @@ export async function retryWithBackoff<T>(
       const hasRetriesLeft = attempt < maxRetries;
 
       if (isRetryable && hasRetriesLeft) {
-        const delay = baseDelayMs * Math.pow(2, attempt - 1); // 100, 200, 400...
+        const delay = baseDelayMs * Math.pow(2, attempt - 1);
         onRetry(attempt, error);
         console.warn(`[Retry] Attempt ${attempt}/${maxRetries} failed with ${error.code}. Retrying in ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
@@ -69,4 +102,3 @@ export async function retryWithBackoff<T>(
 
   throw lastError;
 }
-

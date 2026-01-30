@@ -368,7 +368,7 @@ export async function createLocationSecure(
  */
 export async function updateLocationSecure(
     data: z.infer<typeof UpdateLocationSchema>
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; data?: Location; error?: string }> {
     // Validate input
     const validated = UpdateLocationSchema.safeParse(data);
     if (!validated.success) {
@@ -445,10 +445,17 @@ export async function updateLocationSecure(
         // updates.push(`updated_at = NOW()`);  <-- Removed: Column does not exist in schema
         values.push(validated.data.locationId);
 
-        await client.query(`
+        // Monitor updates
+        console.log('📝 [UPDATE LOCATION] BEFORE UPDATE:', { updates, values, locationId: validated.data.locationId });
+
+        const res = await client.query(`
             UPDATE locations SET ${updates.join(', ')}
             WHERE id = $${paramIndex}
+            RETURNING *
         `, values);
+
+        const updatedLocation = res.rows[0];
+        console.log('📝 [UPDATE LOCATION] AFTER UPDATE (RETURNING):', { name: updatedLocation?.name, id: updatedLocation?.id });
 
         // Audit
         await insertLocationAudit(client, {
@@ -456,17 +463,24 @@ export async function updateLocationSecure(
             actionCode: 'LOCATION_UPDATED',
             locationId: validated.data.locationId,
             oldValues: { name: oldValues.name, address: oldValues.address },
-            newValues: validated.data
+            newValues: updatedLocation // Audit the actual result
         });
 
         await client.query('COMMIT');
+        console.log('📝 [UPDATE LOCATION] COMMIT DONE');
+
+        // VERIFICATION: Read back from DB to confirm persistence
+        const verifyRes = await pool.query('SELECT id, name FROM locations WHERE id = $1', [validated.data.locationId]);
+        console.log('📝 [UPDATE LOCATION] VERIFICATION READ:', verifyRes.rows[0]);
 
         logger.info({ locationId: validated.data.locationId }, '✏️ [Locations] Location updated');
         revalidatePath('/settings');
         revalidatePath('/locations');
         revalidatePath('/network');
 
-        return { success: true };
+        return { success: true, data: updatedLocation }; // Return the fresh data
+
+
 
     } catch (error: any) {
         await client.query('ROLLBACK');
