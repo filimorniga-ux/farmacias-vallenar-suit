@@ -96,8 +96,18 @@ const ERROR_CODES = {
 async function getSession(): Promise<{ user?: { id: string; role: string } } | null> {
     try {
         const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const userRole = headersList.get('x-user-role');
+        const { cookies } = await import('next/headers');
+
+        // 1. Try Headers
+        let userId = headersList.get('x-user-id');
+        let userRole = headersList.get('x-user-role');
+
+        // 2. Try Cookies (Fallback)
+        if (!userId || !userRole) {
+            const cookieStore = await cookies();
+            userId = cookieStore.get('user_id')?.value || null;
+            userRole = cookieStore.get('user_role')?.value || null;
+        }
 
         if (!userId || !userRole) {
             return null;
