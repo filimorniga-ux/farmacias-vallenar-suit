@@ -507,7 +507,7 @@ const NetworkPage = () => {
                     onUpdate={() => {
                         // Refresh Data
                         const { fetchLocations } = useLocationStore.getState();
-                        fetchLocations();
+                        fetchLocations(true);
                     }}
                 />
             )}
