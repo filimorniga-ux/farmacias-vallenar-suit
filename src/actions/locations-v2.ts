@@ -47,6 +47,9 @@ const UpdateLocationSchema = z.object({
     name: z.string().min(3).max(100).optional(),
     address: z.string().max(255).optional(),
     type: z.enum(['STORE', 'WAREHOUSE', 'KIOSK', 'HQ']).optional(),
+    phone: z.string().optional(),
+    email: z.string().optional(),
+    manager_id: UUIDSchema.optional().or(z.literal('')),
     defaultWarehouseId: UUIDSchema.optional(),
     config: z.record(z.string(), z.any()).optional(),
 });
@@ -408,6 +411,18 @@ export async function updateLocationSecure(
         if (validated.data.address !== undefined) {
             updates.push(`address = $${paramIndex++}`);
             values.push(validated.data.address);
+        }
+        if (validated.data.phone !== undefined) {
+            updates.push(`phone = $${paramIndex++}`);
+            values.push(validated.data.phone);
+        }
+        if (validated.data.email !== undefined) {
+            updates.push(`email = $${paramIndex++}`);
+            values.push(validated.data.email);
+        }
+        if (validated.data.manager_id !== undefined && validated.data.manager_id !== '') {
+            updates.push(`manager_id = $${paramIndex++}`);
+            values.push(validated.data.manager_id);
         }
         if (validated.data.type) {
             updates.push(`type = $${paramIndex++}`);
