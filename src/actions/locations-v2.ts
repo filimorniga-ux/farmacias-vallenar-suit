@@ -439,6 +439,7 @@ export async function updateLocationSecure(
         logger.info({ locationId: validated.data.locationId }, '✏️ [Locations] Location updated');
         revalidatePath('/settings');
         revalidatePath('/locations');
+        revalidatePath('/network');
 
         return { success: true };
 
