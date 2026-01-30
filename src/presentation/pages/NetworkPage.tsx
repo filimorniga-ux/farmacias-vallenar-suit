@@ -95,8 +95,8 @@ const NetworkPage = () => {
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {locations.map(location => (
-                        <div key={location.id} className={`bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden group hover:shadow-md transition-all ${location.is_active === false ? 'opacity-60 grayscale' : ''}`}>
+                    {locations.filter(l => l.is_active !== false).map(location => (
+                        <div key={location.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden group hover:shadow-md transition-all">
                             <div className="p-6 border-b border-slate-100 flex justify-between items-start">
                                 <div className="flex items-start gap-3">
                                     <div className={`p-3 rounded-xl ${location.type === 'WAREHOUSE' ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'}`}>
