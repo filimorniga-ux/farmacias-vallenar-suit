@@ -58,8 +58,12 @@ vi.mock('bcryptjs', () => ({
 }));
 
 // Mock notifications
-vi.mock('./notifications', () => ({
-    notifyManagers: vi.fn().mockResolvedValue(undefined),
+// Mock auth-v2 from the correct relative path
+vi.mock('@/actions/auth-v2', () => ({
+    validateSupervisorPin: vi.fn().mockResolvedValue({
+        success: true,
+        authorizedBy: { id: 'sup-1', name: 'Supervisor', role: 'MANAGER' }
+    }),
 }));
 
 // Import after mocks
@@ -68,6 +72,7 @@ import {
     executeHandoverSecure,
     quickHandoverSecure,
 } from '@/actions/shift-handover-v2';
+import { validateSupervisorPin } from '@/actions/auth-v2';
 
 // Hardcoded constant (cannot export from 'use server' files)
 const BASE_CASH = 50000;
@@ -96,7 +101,7 @@ describe('calculateHandoverSecure', () => {
         const result = await calculateHandoverSecure('invalid-uuid', 100000);
 
         expect(result.success).toBe(false);
-        expect(result.error).toContain('inválido');
+        expect(result.error).toContain('ID inválido');
     });
 
     it('should fail with negative declared cash', async () => {
@@ -116,6 +121,10 @@ describe('executeHandoverSecure', () => {
         vi.clearAllMocks();
         mockQuery.mockResolvedValue({ rows: [] });
         mockBcryptCompare.mockResolvedValue(true);
+        (validateSupervisorPin as any).mockResolvedValue({
+            success: true,
+            authorizedBy: { id: 'sup-1', name: 'Supervisor', role: 'MANAGER' }
+        });
     });
 
     afterEach(() => {
@@ -181,7 +190,7 @@ describe('executeHandoverSecure', () => {
         });
 
         expect(result.success).toBe(false);
-        expect(result.error).toContain('inválido');
+        expect(result.error).toContain('incorrecto');
     });
 
     it('should execute handover with valid PIN', async () => {

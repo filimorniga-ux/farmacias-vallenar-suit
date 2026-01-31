@@ -21,6 +21,10 @@ import { randomUUID } from 'crypto';
 export async function createNotificationSecure(data: CreateNotificationDTO) {
     const client = await getClient();
     try {
+        // Sanitize title and message to prevent XSS
+        const sanitizedTitle = data.title.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gim, "").replace(/<img\b[^>]*>/gim, "");
+        const sanitizedMessage = data.message.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gim, "").replace(/<img\b[^>]*>/gim, "");
+
         await client.query(`
             INSERT INTO notifications (
                 id, type, severity, title, message, metadata, location_id, user_id
@@ -29,8 +33,8 @@ export async function createNotificationSecure(data: CreateNotificationDTO) {
             randomUUID(),
             data.type,
             data.severity || 'INFO',
-            data.title,
-            data.message,
+            sanitizedTitle,
+            sanitizedMessage,
             JSON.stringify(data.metadata || {}),
             data.locationId || null,
             data.userId || null

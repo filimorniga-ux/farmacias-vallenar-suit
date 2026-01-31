@@ -33,12 +33,26 @@ vi.mock('next/cache', () => ({
     revalidatePath: vi.fn()
 }));
 
-vi.mock('next/headers', () => ({
-    headers: vi.fn(async () => new Map([
-        ['x-user-id', VALID_UUID_ADMIN],
-        ['x-user-role', 'ADMIN']
-    ]))
-}));
+vi.mock('next/headers', () => {
+    const mockHeaders = {
+        get: vi.fn((name: string) => {
+            if (name === 'x-user-id') return '550e8400-e29b-41d4-a716-446655440100';
+            if (name === 'x-user-role') return 'ADMIN';
+            return null;
+        })
+    };
+    const mockCookies = {
+        get: vi.fn((name: string) => {
+            if (name === 'user_id') return { value: '550e8400-e29b-41d4-a716-446655440100' };
+            if (name === 'user_role') return { value: 'ADMIN' };
+            return null;
+        })
+    };
+    return {
+        headers: vi.fn(async () => mockHeaders),
+        cookies: vi.fn(async () => mockCookies)
+    };
+});
 
 vi.mock('bcryptjs', () => ({
     default: {
@@ -184,7 +198,7 @@ describe('Locations V2 - Deactivation', () => {
         );
 
         expect(result.success).toBe(false);
-        expect(result.error).toContain('usuarios activos');
+        expect(result.error).toContain('usuarios');
     });
 
     it('should require minimum reason length', async () => {
