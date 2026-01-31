@@ -3,15 +3,11 @@
  * Tests for secure location management, stock transfers, and user assignment
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import * as locationsV2 from '@/actions/locations-v2';
 import * as dbModule from '@/lib/db';
-import {
-    TEST_LOCATION_ID,
-    TEST_WAREHOUSE_ID,
-    TEST_BATCH_ID,
-    TEST_USERS,
-} from '../fixtures';
+// Fixtures are imported but not all used; cleaning up unused ones to pass lint
+import { } from '../fixtures';
 
 // Valid UUIDs for tests
 const VALID_UUID_ADMIN = '550e8400-e29b-41d4-a716-446655440100';
@@ -103,7 +99,7 @@ const mockLocation = {
 // RBAC tests - re-enabled
 describe('Locations V2 - RBAC Enforcement', () => {
     it('should allow ADMIN to create location', async () => {
-        const mockClient = createMockClient([
+        createMockClient([
             { rows: [mockAdmin], rowCount: 1 }, // Auth
             { rows: [], rowCount: 0 }, // Duplicate check
             { rows: [], rowCount: 1 }, // Insert
@@ -173,14 +169,14 @@ describe('Locations V2 - Deactivation', () => {
 
         // Verify soft delete
         const updateCall = mockClient.query.mock.calls.find(
-            (call: any) => call[0].includes('UPDATE locations') &&
-                call[0].includes('is_active = false')
+            (call) => (call[0] as string).includes('UPDATE locations') &&
+                (call[0] as string).includes('is_active = false')
         );
         expect(updateCall).toBeDefined();
 
         // Verify NO hard delete
         const deleteCall = mockClient.query.mock.calls.find(
-            (call: any) => call[0].includes('DELETE')
+            (call) => (call[0] as string).includes('DELETE')
         );
         expect(deleteCall).toBeUndefined();
     });
@@ -215,7 +211,7 @@ describe('Locations V2 - Deactivation', () => {
 // Stock Transfer tests - UUIDs corregidos
 describe('Locations V2 - Stock Transfer', () => {
     it('should transfer stock with valid MANAGER PIN', async () => {
-        const mockClient = createMockClient([
+        createMockClient([
             { rows: [mockManager], rowCount: 1 }, // Auth
             {
                 rows: [ // Both locations
@@ -297,7 +293,7 @@ describe('Locations V2 - Stock Transfer', () => {
 // User Assignment tests - UUIDs corregidos
 describe('Locations V2 - User Assignment', () => {
     it('should assign user to location (ADMIN only)', async () => {
-        const mockClient = createMockClient([
+        createMockClient([
             { rows: [mockAdmin], rowCount: 1 }, // Auth
             { rows: [mockLocation], rowCount: 1 }, // Location check
             { rows: [{ id: VALID_UUID_USER_1, name: 'User', assigned_location_id: null }], rowCount: 1 }, // User
@@ -343,8 +339,11 @@ describe('Locations V2 - Inventory Summary', () => {
                 low_stock: '5',
                 expiring_soon: '3'
             }],
-            rowCount: 1
-        } as any);
+            rowCount: 1,
+            command: '',
+            oid: 0,
+            fields: []
+        });
 
         const result = await locationsV2.getLocationInventorySummary(VALID_UUID_LOC_1);
 
@@ -366,27 +365,26 @@ describe('Locations V2 - Inventory Summary', () => {
 // HELPER FUNCTIONS
 // ============================================================================
 
-function createMockClient(queryResults: any[] = []) {
+function createMockClient(queryResults: Record<string, unknown>[] = []) {
     let callIndex = 0;
 
     const mockClient = {
-        query: vi.fn((sql: string, params?: any[]) => {
-            if (sql === 'BEGIN ISOLATION LEVEL SERIALIZABLE') {
-                return Promise.resolve({});
-            }
-            if (sql === 'COMMIT' || sql === 'ROLLBACK') {
-                return Promise.resolve({});
+        query: vi.fn((sql: string) => {
+            const emptyResult = { rows: [], rowCount: 0, command: '', oid: 0, fields: [] };
+            if (sql === 'BEGIN ISOLATION LEVEL SERIALIZABLE' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+                return Promise.resolve(emptyResult);
             }
 
             if (callIndex < queryResults.length) {
-                return Promise.resolve(queryResults[callIndex++]);
+                return Promise.resolve({ ...emptyResult, ...queryResults[callIndex++] });
             }
 
-            return Promise.resolve({ rows: [], rowCount: 0 });
+            return Promise.resolve(emptyResult);
         }),
         release: vi.fn()
     };
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
 
     return mockClient;
