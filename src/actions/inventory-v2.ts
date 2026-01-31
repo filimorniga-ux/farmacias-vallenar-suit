@@ -42,6 +42,11 @@ const CreateBatchSchema = z.object({
     stockMin: z.number().int().min(0).default(0),
     stockMax: z.number().int().min(1).default(100),
     userId: z.string().min(1, { message: "ID de usuario requerido" }),
+    // Enhanced Batch Creation Fields
+    supplierId: UUIDSchema.optional(),
+    invoiceNumber: z.string().optional(),
+    invoiceDate: z.date().optional(),
+    updateMasterPrice: z.boolean().optional(),
 });
 
 const AdjustStockSchema = z.object({
@@ -223,6 +228,10 @@ export async function createBatchSecure(params: {
     stockMin?: number;
     stockMax?: number;
     userId: string;
+    supplierId?: string;
+    invoiceNumber?: string;
+    invoiceDate?: Date;
+    updateMasterPrice?: boolean;
 }): Promise<{ success: boolean; batchId?: string; error?: string }> {
 
     // 1. Validación de entrada
@@ -235,7 +244,7 @@ export async function createBatchSecure(params: {
     const {
         productId, sku, name, locationId, warehouseId,
         quantity, expiryDate, lotNumber, unitCost, salePrice,
-        stockMin, stockMax, userId
+        stockMin, stockMax, userId, supplierId, invoiceNumber, invoiceDate, updateMasterPrice
     } = validation.data;
 
     const { pool } = await import('@/lib/db');
@@ -270,13 +279,15 @@ export async function createBatchSecure(params: {
                 location_id, warehouse_id, 
                 quantity_real, expiry_date, lot_number,
                 unit_cost, sale_price,
-                stock_min, stock_max
+                stock_min, stock_max,
+                supplier_id
             ) VALUES (
                 $1::uuid, $2::uuid, $3, $4, 
                 $5::uuid, $6::uuid, 
                 $7, $8, $9,
                 $10, $11,
-                $12, $13
+                $12, $13,
+                $14::uuid
             )
         `, [
             batchId,
@@ -291,20 +302,43 @@ export async function createBatchSecure(params: {
             unitCost || 0,
             salePrice || 0,
             stockMin || 0,
-            stockMax || 1000
+            stockMax || 1000,
+            supplierId || null
         ]);
+
+        // 3.1 Actualizar precio maestro si se solicitó
+        if (updateMasterPrice && productId && salePrice && salePrice > 0) {
+            await client.query(`
+                UPDATE products 
+                SET price = $1, 
+                    price_sell_box = $1,
+                    price_sell_unit = $1,
+                    cost_net = $2,
+                    cost_price = $2,
+                    updated_at = NOW()
+                WHERE id = $3
+            `, [salePrice, unitCost || 0, productId]);
+
+            logger.info({ productId, salePrice }, '💰 [Inventory v2] Master price updated from batch creation');
+        }
 
         // 4. Registrar movimiento inicial
         const movementId = uuidv4();
+        const referenceType = invoiceNumber ? 'INVOICE' : 'INITIAL';
+        const referenceId = invoiceNumber || 'INITIAL'; // Use invoice number if available, otherwise generic
+        const movementNotes = invoiceNumber
+            ? `Recepción Factura #${invoiceNumber} ` + (invoiceDate ? `(${invoiceDate.toLocaleDateString()})` : '')
+            : 'Creación inicial de lote';
+
         await client.query(`
             INSERT INTO stock_movements (
                 id, sku, product_name, location_id, movement_type, 
                 quantity, stock_before, stock_after, 
-                timestamp, user_id, notes, batch_id, reference_type
+                timestamp, user_id, notes, batch_id, reference_type, reference_id
             ) VALUES (
-                $1::uuid, $2, $3, $4::uuid, 'ADJUSTMENT', 
+                $1::uuid, $2, $3, $4::uuid, 'RECEIPT', 
                 $5, 0, $5, 
-                NOW(), $6::uuid, 'Creación inicial de lote', $7::uuid, 'INITIAL'
+                NOW(), $6::uuid, $7, $8::uuid, $9, $10
             )
         `, [
             movementId,
@@ -313,7 +347,10 @@ export async function createBatchSecure(params: {
             targetWarehouseId,
             quantity,
             userId,
-            batchId
+            movementNotes,
+            batchId,
+            referenceType,
+            referenceId
         ]);
 
         // 5. Auditoría

@@ -26,10 +26,22 @@ const HRPage = () => {
 
     const loadUsers = async () => {
         setIsLoading(true);
+        console.log('🔄 [HRPage] Loading users...');
         const result = await getUsersSecure({ page: 1, pageSize: 100 });
+
+        console.log('📥 [HRPage] Load result:', result);
+
         if (result.success && result.data) {
+            console.log(`✅ [HRPage] Loaded ${result.data.users.length} users. Total in DB: ${result.data.total}`);
+            const users = result.data.users;
+
+            // Check for recently created users
+            const recent = users.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 3);
+            console.log('🆕 [HRPage] 3 Most recent users in fetch:', recent.map(u => `${u.name} (${u.role}) - ${u.created_at}`));
+
             setDbEmployees(result.data.users as any);
         } else {
+            console.error('❌ [HRPage] Error loading:', result.error);
             toast.error(result.error || 'Error al cargar empleados');
         }
         setIsLoading(false);
@@ -104,13 +116,21 @@ const HRPage = () => {
             }
         }
 
-        if (result.success) {
+        if (result?.success) {
             toast.success(`Empleado ${isNew ? 'creado' : 'actualizado'} exitosamente`);
+            console.log('✨ [HRPage] Employee saved success. Triggering reload...');
             setIsModalOpen(false);
             setSelectedEmployee(null);
-            loadUsers(); // Recargar lista
+
+            // Force server revalidation AND client refresh
+            const { useRouter } = await import('next/navigation');
+            // Note: We can't use hooks here unconditionally, but this is an event handler.
+            // Better to pull router from component scope.
+
+            await loadUsers(); // Client fetch
         } else {
-            toast.error(result.error || 'Error al guardar empleado');
+            console.error('❌ [HRPage] Verify Error:', result?.error);
+            toast.error(result?.error || 'Error al guardar empleado');
         }
     };
 

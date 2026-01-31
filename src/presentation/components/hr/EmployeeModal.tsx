@@ -19,20 +19,28 @@ interface EmployeeModalProps {
 export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, employee, onSave }) => {
     const [formData, setFormData] = useState<EmployeeProfile | null>(null);
     const { locations } = useLocationStore();
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
         if (employee) {
             console.log('Employee Data Loaded:', employee);
             setFormData({ ...employee });
         }
-    }, [employee]);
+        setIsSubmitting(false);
+    }, [employee, isOpen]);
 
     if (!isOpen || !formData) return null;
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        onSave(formData);
-        onClose();
+        setIsSubmitting(true);
+        try {
+            await onSave(formData);
+        } catch (error) {
+            console.error('Error submitting form:', error);
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     return (
@@ -44,7 +52,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                         {formData.id.startsWith('EMP-') && !formData.rut ? <UserPlus className="text-blue-600" /> : <Briefcase className="text-blue-600" />}
                         {formData.id.startsWith('EMP-') && !formData.rut ? 'Nuevo Empleado' : 'Editar Empleado'}
                     </h2>
-                    <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+                    <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors" disabled={isSubmitting}>
                         <X size={24} className="text-slate-500" />
                     </button>
                 </div>
@@ -75,6 +83,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                         onChange={e => setFormData({ ...formData, access_pin: e.target.value })}
                                         className="w-full p-4 bg-white border-2 border-red-200 rounded-xl focus:ring-4 focus:ring-red-200 focus:border-red-500 outline-none font-mono text-center text-2xl tracking-[0.5em] text-red-900 placeholder-red-200"
                                         placeholder="••••••"
+                                        disabled={isSubmitting}
                                     />
                                     <p className="text-xs text-red-600 mt-2 font-medium">
                                         * Este PIN es el que el empleado usará en el Totem de entrada.
@@ -93,6 +102,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                     </div>
                                     <button
                                         type="button"
+                                        disabled={isSubmitting}
                                         onClick={async () => {
                                             try {
                                                 toast.info('Iniciando registro biométrico...');
@@ -109,7 +119,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                                 toast.error('Error al registrar biometría');
                                             }
                                         }}
-                                        className="w-full py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2 shadow-lg shadow-red-200"
+                                        className="w-full py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2 shadow-lg shadow-red-200 disabled:opacity-50"
                                     >
                                         <span className="text-xl">🖐️</span>
                                         Enrolar Huella Digital
@@ -133,6 +143,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                             value={formData.name}
                                             onChange={e => setFormData({ ...formData, name: e.target.value })}
                                             className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                                            disabled={isSubmitting}
                                         />
                                     </div>
                                     <div className="grid grid-cols-2 gap-4">
@@ -144,6 +155,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                                 onChange={e => setFormData({ ...formData, rut: formatRut(e.target.value) })}
                                                 maxLength={12}
                                                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                                                disabled={isSubmitting}
                                             />
                                         </div>
                                         <div>
@@ -153,6 +165,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                                 value={formData.contact_phone || ''}
                                                 onChange={e => setFormData({ ...formData, contact_phone: e.target.value })}
                                                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                                                disabled={isSubmitting}
                                             />
                                         </div>
                                     </div>
@@ -162,6 +175,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                             value={formData.status || ''}
                                             onChange={e => setFormData({ ...formData, status: e.target.value as any })}
                                             className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                                            disabled={isSubmitting}
                                         >
                                             <option value="ACTIVE">Activo</option>
                                             <option value="ON_LEAVE">Licencia/Vacaciones</option>
@@ -185,6 +199,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                                 value={formData.job_title || ''}
                                                 onChange={e => setFormData({ ...formData, job_title: e.target.value as any })}
                                                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                                                disabled={isSubmitting}
                                             >
                                                 <option value="QUIMICO_FARMACEUTICO">Químico Farmacéutico</option>
                                                 <option value="AUXILIAR_FARMACIA">Auxiliar de Farmacia</option>
@@ -211,6 +226,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                                     });
                                                 }}
                                                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                                                disabled={isSubmitting}
                                             >
                                                 {Object.entries(ROLES).map(([key, label]) => (
                                                     <option key={key} value={key}>{label}</option>
@@ -231,11 +247,16 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                             value={formData.assigned_location_id || ''}
                                             onChange={e => setFormData({ ...formData, assigned_location_id: e.target.value || undefined })}
                                             className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                                            disabled={isSubmitting}
                                         >
                                             <option value="">-- Sin Asignación (Global) --</option>
-                                            {locations.map(loc => (
-                                                <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
-                                            ))}
+                                            {locations
+                                                .filter(loc => loc.is_active !== false || loc.id === formData.assigned_location_id)
+                                                .map(loc => (
+                                                    <option key={loc.id} value={loc.id}>
+                                                        {loc.name} ({loc.type}) {loc.is_active === false ? '(Inactivo)' : ''}
+                                                    </option>
+                                                ))}
                                         </select>
                                         <p className="text-xs text-slate-400 mt-1">
                                             * Define dónde marca asistencia este empleado.
@@ -254,13 +275,19 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                                     base_salary: parseInt(e.target.value) || 0
                                                 })}
                                                 className="w-full pl-8 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                                                disabled={isSubmitting}
                                             />
                                         </div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
                                             <label className="block text-sm font-bold text-slate-700 mb-1">AFP</label>
-                                            <select className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" value={formData.pension_fund || ''} onChange={e => setFormData({ ...formData, pension_fund: e.target.value })}>
+                                            <select
+                                                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                                                value={formData.pension_fund || ''}
+                                                onChange={e => setFormData({ ...formData, pension_fund: e.target.value })}
+                                                disabled={isSubmitting}
+                                            >
                                                 <option value="">Seleccionar...</option>
                                                 <option value="HABITAT">Habitat</option>
                                                 <option value="MODELO">Modelo</option>
@@ -273,7 +300,12 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                         </div>
                                         <div>
                                             <label className="block text-sm font-bold text-slate-700 mb-1">Salud</label>
-                                            <select className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" value={formData.health_system || ''} onChange={e => setFormData({ ...formData, health_system: e.target.value })}>
+                                            <select
+                                                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                                                value={formData.health_system || ''}
+                                                onChange={e => setFormData({ ...formData, health_system: e.target.value })}
+                                                disabled={isSubmitting}
+                                            >
                                                 <option value="">Seleccionar...</option>
                                                 <option value="FONASA">Fonasa</option>
                                                 <option value="ISAPRE_CONSALUD">Consalud</option>
@@ -305,7 +337,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                                     <input
                                                         type="checkbox"
                                                         className="hidden"
-                                                        checked={formData.allowed_modules?.includes(module.id)}
+                                                        checked={formData.allowed_modules?.includes(module.id) || false}
                                                         onChange={(e) => {
                                                             const currentModules = formData.allowed_modules || [];
                                                             if (e.target.checked) {
@@ -320,6 +352,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                                                                 });
                                                             }
                                                         }}
+                                                        disabled={isSubmitting}
                                                     />
                                                     <span className={`text-sm ${formData.allowed_modules?.includes(module.id) ? 'text-slate-700 font-medium' : 'text-slate-500'}`}>
                                                         {module.label}
@@ -339,16 +372,27 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, e
                     <button
                         onClick={onClose}
                         className="px-6 py-3 font-bold text-slate-500 hover:bg-slate-200 rounded-xl transition-colors"
+                        disabled={isSubmitting}
                     >
                         Cancelar
                     </button>
                     <button
                         type="submit"
                         form="employee-form"
-                        className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-200 transition-colors flex items-center gap-2"
+                        className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-200 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={isSubmitting}
                     >
-                        <Save size={20} />
-                        Guardar Cambios
+                        {isSubmitting ? (
+                            <>
+                                <span className="animate-spin text-white mr-2">⏳</span>
+                                Guardando...
+                            </>
+                        ) : (
+                            <>
+                                <Save size={20} />
+                                Guardar Cambios
+                            </>
+                        )}
                     </button>
                 </div>
             </div >

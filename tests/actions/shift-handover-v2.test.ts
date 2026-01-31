@@ -131,6 +131,7 @@ describe('executeHandoverSecure', () => {
             amountToKeep: BASE_CASH,
             userId: OUTGOING_USER_ID,
             userPin: VALID_PIN,
+            supervisorPin: VALID_PIN,
         });
 
         expect(result.success).toBe(false);
@@ -147,6 +148,7 @@ describe('executeHandoverSecure', () => {
             amountToKeep: BASE_CASH,
             userId: OUTGOING_USER_ID,
             userPin: '12', // Too short
+            supervisorPin: VALID_PIN,
         });
 
         expect(result.success).toBe(false);
@@ -175,6 +177,7 @@ describe('executeHandoverSecure', () => {
             amountToKeep: BASE_CASH,
             userId: OUTGOING_USER_ID,
             userPin: VALID_PIN,
+            supervisorPin: VALID_PIN,
         });
 
         expect(result.success).toBe(false);
@@ -212,6 +215,7 @@ describe('executeHandoverSecure', () => {
             amountToKeep: BASE_CASH,
             userId: OUTGOING_USER_ID,
             userPin: VALID_PIN,
+            supervisorPin: VALID_PIN,
         });
 
         expect(result.success).toBe(true);
@@ -243,6 +247,7 @@ describe('executeHandoverSecure', () => {
             amountToKeep: BASE_CASH,
             userId: OUTGOING_USER_ID,
             userPin: VALID_PIN,
+            supervisorPin: VALID_PIN,
         });
 
         expect(result.success).toBe(false);

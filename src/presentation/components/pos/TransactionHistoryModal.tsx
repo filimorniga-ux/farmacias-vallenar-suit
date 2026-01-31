@@ -17,10 +17,12 @@ interface TransactionHistoryModalProps {
     isOpen: boolean;
     onClose: () => void;
     locationId?: string;
-    initialPaymentMethod?: string; // Can be 'ALL', 'CASH', 'EXTRA_INCOME', 'EXPENSE', etc.
+    initialPaymentMethod?: string;
+    sessionId?: string; // NEW: For Data Isolation (Arqueo Parcial)
 }
 
-const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpen, onClose, locationId, initialPaymentMethod }) => {
+const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) => {
+    const { isOpen, onClose, locationId, initialPaymentMethod, sessionId } = props;
     // Stores
     const { employees, user, currentLocationId: pharmaLocationId, currentShift } = usePharmaStore();
     const { currentLocation: storeLocation } = useLocationStore();
@@ -123,15 +125,15 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
             const end = new Date(eY, eM - 1, eD, 23, 59, 59, 999);
 
             const result = await getCashMovementHistory({
-                terminalId: undefined, // specific terminal or all in location? usually all
-                sessionId: undefined, // Removed restriction to allow viewing history across sessions/days
-                locationId: activeLocationId, // ADDED: Filter by Location
+                terminalId: undefined,
+                sessionId: isOpen && activeLocationId ? props.sessionId : undefined, // USE PROP if present
+                locationId: activeLocationId,
                 startDate: start,
                 endDate: end,
                 paymentMethod: filterType === 'ALL' ? undefined : filterType,
                 term: searchTerm.trim() || undefined,
                 page: 1,
-                pageSize: 100 // Reasonable limit
+                pageSize: 100
             });
 
             if (result.success && result.data) {
@@ -175,7 +177,10 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({ isOpe
 
     const handleReprint = (item: any) => {
         if (item.type === 'SALE') {
-            printSaleTicket(item as SaleTransaction, storeLocation?.config, hardware);
+            printSaleTicket(item as SaleTransaction, storeLocation?.config, hardware, {
+                cashierName: item.seller_name || item.user_name || 'Vendedor',
+                branchName: storeLocation?.name || 'Sucursal'
+            });
             toast.success('Reimprimiendo ticket...');
         } else {
             toast.info('Reimpresión de movimientos de caja no disponible');

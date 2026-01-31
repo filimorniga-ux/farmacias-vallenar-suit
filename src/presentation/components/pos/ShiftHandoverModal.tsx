@@ -21,6 +21,7 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
     const [summary, setSummary] = useState<HandoverSummary | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [userPin, setUserPin] = useState<string>('');
+    const [supervisorPin, setSupervisorPin] = useState<string>(''); // NEW: Supervisor PIN
 
     // Step 1: Calculate
     const handleCalculate = async () => {
@@ -50,9 +51,13 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
     const handleConfirm = async () => {
         if (!currentTerminalId || !summary || !user) return;
 
-        // Validar PIN antes de ejecutar
+        // Validar PINs antes de ejecutar
         if (!userPin || userPin.length < 4) {
-            toast.error('Debe ingresar su PIN de 4 dígitos para confirmar');
+            toast.error('El cajero debe ingresar su PIN');
+            return;
+        }
+        if (!supervisorPin || supervisorPin.length < 4) {
+            toast.error('Se requiere autorización de Supervisor');
             return;
         }
 
@@ -65,6 +70,7 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
             amountToKeep: summary.amountToKeep,
             userId: user.id,
             userPin: userPin,
+            supervisorPin: supervisorPin, // PASS NEW PIN
             notes: `Cierre de turno por ${user.name}`,
         });
 
@@ -96,7 +102,8 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
             onClose();
             // Force redirect or logout?
             // Ideally logout or refresh to show "Shift Closed" state
-            window.location.href = '/access';
+            // Force logout/redirect to Landing to allow next cashier to login
+            window.location.href = '/';
         } else {
             setError(res.error || 'Error cerrando turno');
             setStep('SUMMARY');
@@ -258,31 +265,45 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
                                 </div>
                             </div>
 
-                            {/* PIN de Confirmación */}
-                            <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl">
-                                <label className="block text-sm font-bold text-amber-800 mb-2">
-                                    🔐 Confirme su PIN para autorizar
-                                </label>
-                                <input
-                                    type="password"
-                                    inputMode="numeric"
-                                    maxLength={4}
-                                    placeholder="••••"
-                                    value={userPin}
-                                    onChange={(e) => setUserPin(e.target.value.replace(/\D/g, ''))}
-                                    className="w-full text-2xl font-mono font-bold p-3 border-2 border-amber-300 rounded-lg focus:ring-4 focus:ring-amber-200 outline-none text-center tracking-widest"
-                                />
-                                <p className="text-xs text-amber-600 mt-2">
-                                    ⚠️ Esta operación requiere su PIN personal para registrar la autorización.
-                                </p>
+                            {/* PIN de Confirmación & Autorización */}
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+                                    <label className="block text-xs font-bold text-slate-800 mb-2 uppercase">
+                                        PIN Cajero ({user?.name?.split(' ')[0]})
+                                    </label>
+                                    <input
+                                        type="password"
+                                        inputMode="numeric"
+                                        maxLength={4}
+                                        placeholder="••••"
+                                        value={userPin}
+                                        onChange={(e) => setUserPin(e.target.value.replace(/\D/g, ''))}
+                                        className="w-full text-xl font-mono font-bold p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-200 outline-none text-center"
+                                    />
+                                </div>
+
+                                <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl">
+                                    <label className="block text-xs font-bold text-amber-900 mb-2 uppercase flex items-center gap-1">
+                                        <ShieldCheck size={12} /> PIN Supervisor
+                                    </label>
+                                    <input
+                                        type="password"
+                                        inputMode="numeric"
+                                        maxLength={4}
+                                        placeholder="••••"
+                                        value={supervisorPin}
+                                        onChange={(e) => setSupervisorPin(e.target.value.replace(/\D/g, ''))}
+                                        className="w-full text-xl font-mono font-bold p-3 border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-200 outline-none text-center"
+                                    />
+                                </div>
                             </div>
 
                             <button
                                 onClick={handleConfirm}
-                                disabled={!userPin || userPin.length !== 4}
+                                disabled={!userPin || userPin.length !== 4 || !supervisorPin || supervisorPin.length !== 4}
                                 className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-900/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                <CheckCircle size={20} /> Confirmar Cierre y Entrega
+                                <CheckCircle size={20} /> Validar y Cerrar Turno
                             </button>
 
                             <button

@@ -16,14 +16,17 @@ export interface CreateNotificationDTO {
     userId?: string;
 }
 
+import { randomUUID } from 'crypto';
+
 export async function createNotificationSecure(data: CreateNotificationDTO) {
     const client = await getClient();
     try {
         await client.query(`
             INSERT INTO notifications (
-                type, severity, title, message, metadata, location_id, user_id
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                id, type, severity, title, message, metadata, location_id, user_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         `, [
+            randomUUID(),
             data.type,
             data.severity || 'INFO',
             data.title,
@@ -161,9 +164,10 @@ export async function notifyManagersSecure(data: { locationId?: string; title: s
         for (const userId of managerIds) {
             await client.query(`
                 INSERT INTO notifications (
-                    type, severity, title, message, metadata, location_id, user_id
-                ) VALUES ('CASH', 'WARNING', $1, $2, $3, $4, $5)
+                    id, type, severity, title, message, metadata, location_id, user_id
+                ) VALUES ($1, 'CASH', 'WARNING', $2, $3, $4, $5, $6)
             `, [
+                randomUUID(),
                 data.title,
                 data.message,
                 JSON.stringify(metadata),

@@ -112,8 +112,8 @@ export function useCheckout(options: UseCheckoutOptions = {}) {
             if (enable_sii_integration) {
                 const check = shouldGenerateDTE(paymentMethod);
                 dteResult = { shouldGenerate: check.shouldGenerate, status: check.status };
-                dteFolio = dteResult.shouldGenerate 
-                    ? Math.floor(Math.random() * 100000).toString() 
+                dteFolio = dteResult.shouldGenerate
+                    ? Math.floor(Math.random() * 100000).toString()
                     : undefined;
             }
 
@@ -159,7 +159,10 @@ export function useCheckout(options: UseCheckoutOptions = {}) {
             if (autoPrint) {
                 try {
                     // Cast to any for print compatibility - print-utils handles missing fields gracefully
-                    await printSaleTicket(saleToPrint as any, currentLocation?.config, hardware);
+                    await printSaleTicket(saleToPrint as any, currentLocation?.config, hardware, {
+                        cashierName: user?.name,
+                        branchName: currentLocation?.name
+                    });
                 } catch (printError) {
                     console.error('Print error:', printError);
                     // Don't fail the sale if print fails

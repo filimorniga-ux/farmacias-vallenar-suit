@@ -10,7 +10,8 @@ import { toast } from 'sonner';
 export const printSaleTicket = async (
     sale: SaleTransaction,
     locationConfig: LocationConfig | undefined,
-    printerConfig: HardwareConfig
+    printerConfig: HardwareConfig,
+    context?: { cashierName?: string; branchName?: string }
 ) => {
     return new Promise<void>((resolve) => {
         try {
@@ -19,10 +20,20 @@ export const printSaleTicket = async (
             // Yield to main thread to ensure UI is responsive before generating
             setTimeout(() => {
                 // 1. Generate HTML from React Component
+                // Determine template based on Sale or Quote logic
+                let template = locationConfig?.templates?.SALE;
+                if (sale.dte_status !== 'CONFIRMED_DTE') {
+                    // Use RECEIPT template for non-fiscal documents
+                    template = locationConfig?.templates?.RECEIPT || locationConfig?.templates?.SALE;
+                }
+
                 const ticketHtml = renderToStaticMarkup(
                     <TicketBoleta
                         sale={sale}
-                        config={locationConfig?.receipt_template}
+                        config={locationConfig?.receipt_template} // Legacy fallback
+                        template={template}
+                        cashierName={context?.cashierName}
+                        branchName={context?.branchName}
                     />
                 );
 
@@ -49,7 +60,8 @@ export const printHandoverTicket = async (
     userName: string,
     terminalName: string,
     locationName: string,
-    printerConfig: HardwareConfig
+    printerConfig: HardwareConfig,
+    locationConfig?: LocationConfig // Added optional config
 ) => {
     return new Promise<void>((resolve) => {
         try {
@@ -62,6 +74,7 @@ export const printHandoverTicket = async (
                         terminalName={terminalName}
                         locationName={locationName}
                         timestamp={new Date()}
+                        template={locationConfig?.templates?.SHIFT_HANDOVER}
                     />
                 );
                 PrinterService.printTicket(ticketHtml, printerConfig);

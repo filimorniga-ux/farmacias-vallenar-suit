@@ -38,27 +38,42 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
 
 
     const menuItems = [
-        { icon: LayoutDashboard, label: 'Resumen General', path: '/dashboard', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'sky' as AppThemeColor },
-        { icon: ShoppingCart, label: 'Punto de Venta', path: '/pos', roles: ['CASHIER', 'QF', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'sky' as AppThemeColor },
-        { icon: MessageSquare, label: 'Pizarra', path: '/board', roles: ['ALL'], color: 'blue' as AppThemeColor },
-        { icon: Package, label: 'Inventario', path: '/inventory', roles: ['WAREHOUSE', 'WAREHOUSE_CHIEF', 'MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'], color: 'slate' as AppThemeColor },
-        { icon: Truck, label: 'Operaciones WMS', path: '/warehouse', roles: ['WAREHOUSE', 'WAREHOUSE_CHIEF', 'MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL', 'CASHIER'], color: 'slate' as AppThemeColor },
-        { icon: Building2, label: 'Proveedores', path: '/suppliers', roles: ['MANAGER', 'QF', 'WAREHOUSE', 'WAREHOUSE_CHIEF', 'ADMIN', 'GERENTE_GENERAL'], color: 'sky' as AppThemeColor },
-        { icon: BarChart3, label: 'Reportes & BI', path: '/reports', roles: ['MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'], color: 'sky' as AppThemeColor },
-        { icon: Truck, label: 'Abastecimiento (IA)', path: '/procurement/smart-invoice', roles: ['WAREHOUSE', 'WAREHOUSE_CHIEF', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'teal' as AppThemeColor },
-        { icon: Sparkles, label: 'Pedido Sugerido (IA)', path: '/supply-chain', roles: ['MANAGER', 'QF', 'ADMIN', 'WAREHOUSE', 'WAREHOUSE_CHIEF', 'GERENTE_GENERAL'], color: 'teal' as AppThemeColor },
-        { icon: UserCircle, label: 'Clientes (CRM)', path: '/clients', roles: ['MANAGER', 'QF', 'CASHIER', 'ADMIN', 'GERENTE_GENERAL'], color: 'slate' as AppThemeColor },
-        { icon: Users, label: 'Recursos Humanos', path: '/hr', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'], color: 'slate' as AppThemeColor },
-        { icon: Clock, label: 'Gestor Horario', path: '/rrhh/horarios', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'], color: 'rose' as AppThemeColor },
-        { icon: MapPin, label: 'Gestión de Red', path: '/network', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'slate' as AppThemeColor },
+        { icon: LayoutDashboard, label: 'Resumen General', path: '/dashboard', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'DASHBOARD', color: 'sky' as AppThemeColor },
+        { icon: ShoppingCart, label: 'Punto de Venta', path: '/pos', roles: ['CASHIER', 'QF', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'POS', color: 'sky' as AppThemeColor },
+        { icon: MessageSquare, label: 'Pizarra', path: '/board', roles: ['ALL'], moduleId: 'BOARD', color: 'blue' as AppThemeColor },
+        { icon: Package, label: 'Inventario', path: '/inventory', roles: ['WAREHOUSE', 'WAREHOUSE_CHIEF', 'MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'INVENTORY', color: 'slate' as AppThemeColor },
+        { icon: Truck, label: 'Operaciones WMS', path: '/warehouse', roles: ['WAREHOUSE', 'WAREHOUSE_CHIEF', 'MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL', 'CASHIER'], moduleId: 'WMS', color: 'slate' as AppThemeColor },
+        { icon: Building2, label: 'Proveedores', path: '/suppliers', roles: ['MANAGER', 'QF', 'WAREHOUSE', 'WAREHOUSE_CHIEF', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'SUPPLIERS', color: 'sky' as AppThemeColor },
+        { icon: BarChart3, label: 'Reportes & BI', path: '/reports', roles: ['MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'REPORTS', color: 'sky' as AppThemeColor },
+        { icon: Truck, label: 'Abastecimiento (IA)', path: '/procurement/smart-invoice', roles: ['WAREHOUSE', 'WAREHOUSE_CHIEF', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'PROCUREMENT', color: 'teal' as AppThemeColor },
+        { icon: Sparkles, label: 'Pedido Sugerido (IA)', path: '/supply-chain', roles: ['MANAGER', 'QF', 'ADMIN', 'WAREHOUSE', 'WAREHOUSE_CHIEF', 'GERENTE_GENERAL'], moduleId: 'SUGGESTED_ORDER', color: 'teal' as AppThemeColor },
+        { icon: UserCircle, label: 'Clientes (CRM)', path: '/clients', roles: ['MANAGER', 'QF', 'CASHIER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'CRM', color: 'slate' as AppThemeColor },
+        { icon: Users, label: 'Recursos Humanos', path: '/hr', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'], moduleId: 'HR', color: 'slate' as AppThemeColor },
+        { icon: Clock, label: 'Gestor Horario', path: '/rrhh/horarios', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'], moduleId: 'SCHEDULING', color: 'rose' as AppThemeColor },
+        { icon: MapPin, label: 'Gestión de Red', path: '/network', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'NETWORK', color: 'slate' as AppThemeColor },
         // Control Asistencia movido a Kiosko (/kiosk) - accesible desde RRHH o Configuración
         // { icon: Clock, label: 'Control Asistencia', path: '/access', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'sky' as AppThemeColor },
-        { icon: Landmark, label: 'Tesorería', path: '/finance/treasury', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'], color: 'sky' as AppThemeColor },
-        { icon: FileSpreadsheet, label: 'Cierre Mensual', path: '/finance/monthly-closing', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'slate' as AppThemeColor },
-        { icon: Settings, label: 'Configuración', path: '/settings', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'slate' as AppThemeColor },
+        { icon: Landmark, label: 'Tesorería', path: '/finance/treasury', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'], moduleId: 'TREASURY', color: 'sky' as AppThemeColor },
+        { icon: FileSpreadsheet, label: 'Cierre Mensual', path: '/finance/monthly-closing', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'MONTHLY_CLOSING', color: 'slate' as AppThemeColor },
+        { icon: Settings, label: 'Configuración', path: '/settings', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'SETTINGS', color: 'slate' as AppThemeColor },
     ];
 
-    const filteredMenu = menuItems.filter(item => user && (item.roles.includes('ALL') || item.roles.includes(user.role)));
+    const handleRefresh = () => {
+        if (window.confirm('¿Deseas recargar la aplicación para actualizar los datos?')) {
+            window.location.reload();
+        }
+    };
+
+    const filteredMenu = menuItems.filter(item => {
+        if (!user) return false;
+        // 1. Check Role Match (Legacy/Default)
+        const roleMatch = item.roles.includes('ALL') || item.roles.includes(user.role);
+
+        // 2. Check Specific Module Permission (Override)
+        const moduleMatch = item.moduleId && user.allowed_modules?.includes(item.moduleId);
+
+        return roleMatch || moduleMatch;
+    });
 
     return (
         <div className="flex h-screen bg-slate-50 overflow-hidden select-none">
@@ -185,6 +200,13 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                         <img src="/logo-horizontal.png" alt="Farmacia Vallenar" className="h-8 object-contain" />
                         {/* <span className="font-bold text-slate-800">Farmacias Vallenar</span> */}
                         <NotificationBell userRole={user?.role || 'ALL'} />
+                        <button
+                            onClick={handleRefresh}
+                            className="p-2 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition-colors"
+                            title="Recargar Aplicación"
+                        >
+                            <RotateCcw size={20} />
+                        </button>
                     </div>
                     <div className="flex items-center gap-2 flex-1 justify-end min-w-0">
                         <div className="overflow-x-auto scrollbar-hide flex items-center gap-2 max-w-full">
@@ -208,6 +230,13 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
 
                     {/* Global Header Items */}
                     <div className="flex items-center gap-4">
+                        <button
+                            onClick={handleRefresh}
+                            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded-full transition-all duration-200"
+                            title="Recargar Aplicación"
+                        >
+                            <RotateCcw size={20} />
+                        </button>
                         <SyncStatusIndicator />
                         <ContextBadge />
                         <NotificationBell userRole={user?.role || 'ALL'} />

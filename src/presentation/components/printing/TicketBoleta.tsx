@@ -1,114 +1,195 @@
 import React from 'react';
-import { SaleTransaction } from '../../../domain/types';
+import { SaleTransaction, TicketTemplate } from '../../../domain/types';
 import { QrCode } from 'lucide-react';
 
+// Define specific props for the component, extending or replacing domain types where necessary
 interface TicketBoletaProps {
-    sale: SaleTransaction;
+    sale: {
+        timestamp: number;
+        total: number;
+        items: Array<{
+            name: string;
+            quantity: number;
+            price: number;
+        }>;
+        payment_method: string;
+        dte_folio?: string;
+        dte_status?: string;
+        seller_id?: string;
+        customer?: {
+            name: string;
+            rut: string;
+            totalPoints?: number;
+            email?: string;
+            phone?: string;
+        };
+        terminal_id?: string;
+    };
     companyName?: string;
     companyRut?: string;
+    isQuote?: boolean;
+    template?: TicketTemplate;
+    // Legacy support
     config?: {
         header_text?: string;
         show_logo?: boolean;
         footer_text?: string;
-        social_media?: string;
         show_barcode?: boolean;
-    }
+    };
+    cashierName?: string;
+    branchName?: string;
 }
 
-const TicketBoleta: React.FC<TicketBoletaProps> = ({ sale, companyName = 'FARMACIAS VALLENAR', companyRut = '76.123.456-7', config }) => {
+const TicketBoleta: React.FC<TicketBoletaProps> = ({ sale, companyName = 'FARMACIAS VALLENAR', companyRut = '76.123.456-7', config, template, isQuote, cashierName, branchName }) => {
     const isDTE = sale.dte_status === 'CONFIRMED_DTE';
     const folio = sale.dte_folio || '000000';
 
-    return (
-        <div className="bg-white p-4 w-[300px] font-mono text-xs shadow-lg border border-slate-200 mx-auto my-4">
-            {/* Header */}
-            <div className="text-center mb-4 border-b border-dashed border-slate-300 pb-4">
-                {config?.show_logo && (
-                    <div className="flex justify-center mb-2">
-                        <div className="w-12 h-12 bg-slate-900 rounded-full flex items-center justify-center text-white font-bold text-xs">FV</div>
-                    </div>
-                )}
-                <h2 className="font-bold text-lg">{config?.header_text || companyName}</h2>
-                <p>{companyRut}</p>
-                <p>Av. Matta 550, Vallenar</p>
-                <p>Tel: +56 51 261 1234</p>
-            </div>
+    const effectiveHeader = template?.header_content;
+    const effectiveFooter = template?.footer_content;
+    const showLogo = template?.show_logo ?? config?.show_logo ?? true;
 
-            {/* Document Type */}
-            <div className="text-center mb-4">
-                {isDTE ? (
-                    <>
-                        <h3 className="font-bold text-base">BOLETA ELECTRÓNICA</h3>
-                        <p className="text-sm">Nº {folio}</p>
-                    </>
+    // Helper to replace variables in HTML content
+    const processContent = (html: string) => {
+        if (!html) return '';
+        let processed = html;
+
+        // Support both {variable} and {{variable}}
+        const replaceVar = (key: string, value: string) => {
+            const regex = new RegExp(`{{?${key}}}?`, 'gi');
+            processed = processed.replace(regex, value);
+        };
+
+        replaceVar('sucursal', branchName || 'CENTRAL');
+        replaceVar('cajero', cashierName || 'SISTEMA');
+        replaceVar('cliente', sale.customer?.name || 'Cliente Genérico');
+        replaceVar('rut_cliente', sale.customer?.rut || 'Sin RUT');
+        replaceVar('puntos', (sale.customer as any)?.totalPoints?.toString() || '0');
+
+        replaceVar('fecha', new Date(sale.timestamp).toLocaleDateString('es-CL'));
+        replaceVar('hora', new Date(sale.timestamp).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }));
+        replaceVar('folio', folio);
+
+        // Fallback or explicit seller
+        const seller = cashierName || (sale.seller_id ? 'Vendedor' : 'Cajero');
+        replaceVar('vendedor', seller);
+
+        return processed;
+    };
+
+    return (
+        <div className="bg-white p-4 w-[300px] font-mono text-xs shadow-lg border border-slate-200 mx-auto my-4 print:shadow-none print:border-none print:w-full print:p-0">
+            {/* Header - Left Aligned per Reference */}
+            <div className="text-left mb-4 border-b-2 border-slate-800 pb-2">
+                {effectiveHeader ? (
+                    <div dangerouslySetInnerHTML={{ __html: processContent(effectiveHeader) }} />
                 ) : (
                     <>
-                        <h3 className="font-bold text-base">COMPROBANTE INTERNO</h3>
-                        <p className="text-[10px] font-bold mt-1">NO VÁLIDO COMO BOLETA</p>
-                        <p className="text-[9px] mt-1 text-slate-500">Boleta válida entregada vía Voucher Transbank/Getnet</p>
+                        <h2 className="font-bold text-sm uppercase">{config?.header_text || companyName}</h2>
+                        <p className="uppercase">{companyRut}</p>
+                        <p className="uppercase">CASA MATRIZ PRAT 1085</p>
+                        <p className="uppercase">SUCURSAL {branchName ? branchName.toUpperCase() : 'CENTRO'}</p>
+                        <div className="mt-2 flex justify-between uppercase">
+                            <span>CAJA N°: {sale.terminal_id || '1'}</span>
+                            <span>VENDEDOR: {cashierName ? cashierName.toUpperCase() : 'SISTEMA'}</span>
+                        </div>
                     </>
                 )}
             </div>
 
-            {/* Sale Details */}
-            <div className="mb-4">
-                <div className="flex justify-between mb-2">
-                    <span>Fecha:</span>
-                    <span>{new Date(sale.timestamp).toLocaleString()}</span>
-                </div>
-                {sale.customer && (
-                    <div className="flex justify-between mb-2">
-                        <span>Cliente:</span>
+            {/* Customer Info Section - Added Automatically */}
+            {sale.customer && (
+                <div className="mb-4 text-xs font-mono border-b border-dashed border-slate-400 pb-2">
+                    <div className="flex justify-between uppercase">
+                        <span className="font-bold">CLIENTE:</span>
                         <span>{sale.customer.name}</span>
                     </div>
-                )}
-                {sale.payment_method === 'TRANSFER' && (
-                    <div className="flex justify-between mb-2 font-bold">
-                        <span>Pago:</span>
-                        <span>Transferencia Electrónica</span>
-                    </div>
+                    {sale.customer.rut && (
+                        <div className="flex justify-between uppercase">
+                            <span>RUT:</span>
+                            <span>{sale.customer.rut}</span>
+                        </div>
+                    )}
+                    {sale.customer.totalPoints !== undefined && (
+                        <div className="mt-1 pt-1 border-t border-dotted border-slate-300">
+                            <div className="flex justify-between uppercase font-bold">
+                                <span>PUNTOS TOTALES:</span>
+                                <span>{sale.customer.totalPoints}</span>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Date and Time - Reference Style */}
+            <div className="mb-4 text-left uppercase">
+                <div className="flex gap-4">
+                    <p>{new Date(sale.timestamp).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: true })}</p>
+                    <p className="font-bold">FECHA DE EMISION: {new Date(sale.timestamp).toLocaleDateString('es-CL')}</p>
+                </div>
+            </div>
+
+            {/* Document Title */}
+            <div className="text-center mb-4 uppercase">
+                {isQuote ? (
+                    <h3 className="font-bold text-sm">DETALLE COTIZACIÓN</h3>
+                ) : isDTE ? (
+                    <h3 className="font-bold text-sm">DETALLE VENTA BOLETA N° {folio}</h3>
+                ) : (
+                    <h3 className="font-bold text-sm">DETALLE VENTA INT.</h3>
                 )}
             </div>
 
-            {/* Items */}
-            <div className="border-t border-dashed border-slate-300 py-2 mb-2">
+            {/* Items Header */}
+            <div className="flex justify-between border-b border-black mb-1 pb-1 font-bold uppercase">
+                <span>DETALLE VENTA</span>
+            </div>
+
+            {/* Items List - Reference Style */}
+            <div className="mb-4">
                 {sale.items.map((item, index) => (
-                    <div key={index} className="flex justify-between mb-1">
-                        <span className="truncate w-32">{item.quantity} x {item.name}</span>
-                        <span>${(item.price * item.quantity).toLocaleString()}</span>
+                    <div key={index} className="mb-2">
+                        <div className="uppercase font-bold">{item.name}</div>
+                        <div className="flex justify-between">
+                            <span>{item.quantity} x</span>
+                            <span>${(item.price).toLocaleString('es-CL')}</span>
+                            <span className="font-bold">${(item.price * item.quantity).toLocaleString('es-CL')}</span>
+                        </div>
                     </div>
                 ))}
             </div>
 
-            {/* Totals */}
-            <div className="border-t border-dashed border-slate-300 pt-2 mb-4">
-                <div className="flex justify-between font-bold text-sm">
-                    <span>TOTAL</span>
-                    <span>${sale.total.toLocaleString()}</span>
+            {/* Totals Section */}
+            <div className="border-t-2 border-black pt-2 mb-4">
+                <div className="flex justify-between uppercase text-xs mb-1">
+                    <span>SUBTOTAL $</span>
+                    <span>{sale.total.toLocaleString('es-CL')}</span>
+                </div>
+                <div className="flex justify-between font-bold text-sm uppercase">
+                    <span>TOTAL $</span>
+                    <span>{sale.total.toLocaleString('es-CL')}</span>
+                </div>
+                {/* Payment Methods */}
+                <div className="mt-2 text-xs uppercase">
+                    <div className="flex justify-between">
+                        <span>{sale.payment_method === 'CASH' ? 'EFECTIVO' : sale.payment_method === 'DEBIT' ? 'TARJETA DEBITO' : 'CREDITO'} $</span>
+                        <span>{sale.total.toLocaleString('es-CL')}</span>
+                    </div>
+                    <div className="flex justify-between">
+                        <span>VUELTO $</span>
+                        <span>0</span>
+                    </div>
                 </div>
             </div>
 
-            {/* Footer / Timbre */}
-            <div className="text-center pt-4 border-t border-slate-200">
-                {isDTE ? (
-                    <div className="flex flex-col items-center gap-2">
-                        <div className="border-2 border-slate-800 p-1">
-                            <QrCode size={64} className="text-slate-800" />
-                        </div>
-                        <p className="text-[9px] uppercase font-bold">Timbre Electrónico SII</p>
-                        <p className="text-[8px]">Res. 80 del 2014 - Verifique documento: www.sii.cl</p>
-                    </div>
-                ) : (
-                    <div className="text-center">
-                        <p className="text-[10px] font-bold text-slate-400">*** COPIA INTERNA ***</p>
-                        <p className="text-[9px] text-slate-400 mt-1">Este documento es solo para control de inventario y caja.</p>
-                    </div>
-                )}
-                <p className="font-bold mb-1">{config?.footer_text || '¡Gracias por su preferencia!'}</p>
-                {config?.social_media && (
-                    <p className="text-[10px] mb-2">{config.social_media}</p>
-                )}
-                <p className="text-[8px] mt-4 text-slate-400">Farmacias Vallenar - Sistema POS v2.1</p>
+            {/* Footer */}
+            <div className="text-center pt-4 border-t border-slate-200 mt-8">
+                <div className="mt-4 text-xs">
+                    {effectiveFooter ? (
+                        <div dangerouslySetInnerHTML={{ __html: processContent(effectiveFooter) }} />
+                    ) : (
+                        <p className="uppercase">{config?.footer_text || 'GRACIAS POR SU PREFERENCIA'}</p>
+                    )}
+                </div>
             </div>
         </div>
     );

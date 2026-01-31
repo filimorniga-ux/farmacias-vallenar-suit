@@ -696,7 +696,7 @@ export const usePharmaStore = create<PharmaState>()(
                     }));
                     import('sonner').then(({ toast }) => toast.success('Proveedor guardado correctamente'));
                 } else {
-                    import('sonner').then(({ toast }) => toast.error('Error al guardar proveedor'));
+                    import('sonner').then(({ toast }) => toast.error('Error al guardar proveedor: ' + (result.error || 'Desconocido')));
                 }
             },
             updateSupplier: async (id, supplierData) => {

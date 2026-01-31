@@ -88,21 +88,21 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
     // Effect to populate data
     React.useEffect(() => {
         if (isOpen && supplierToEdit) {
-            setRut(supplierToEdit.rut);
-            setBusinessName(supplierToEdit.business_name);
-            setFantasyName(supplierToEdit.fantasy_name);
-            setSector(supplierToEdit.sector);
+            setRut(supplierToEdit.rut || '');
+            setBusinessName(supplierToEdit.business_name || '');
+            setFantasyName(supplierToEdit.fantasy_name || '');
+            setSector(supplierToEdit.sector || '');
             setWebsite(supplierToEdit.website || '');
 
-            setAddress(supplierToEdit.address);
-            setRegion(supplierToEdit.region);
-            setCity(supplierToEdit.city);
-            setCommune(supplierToEdit.commune);
-            setPhone1(supplierToEdit.phone_1);
+            setAddress(supplierToEdit.address || '');
+            setRegion(supplierToEdit.region || '');
+            setCity(supplierToEdit.city || '');
+            setCommune(supplierToEdit.commune || '');
+            setPhone1(supplierToEdit.phone_1 || '');
             setPhone2(supplierToEdit.phone_2 || '');
-            setEmailOrders(supplierToEdit.email_orders);
-            setEmailBilling(supplierToEdit.email_billing);
-            setContactEmail(supplierToEdit.contact_email);
+            setEmailOrders(supplierToEdit.email_orders || '');
+            setEmailBilling(supplierToEdit.email_billing || '');
+            setContactEmail(supplierToEdit.contact_email || '');
             setContactName(supplierToEdit.contacts?.[0]?.name || '');
 
             if (supplierToEdit.bank_account) {

@@ -2,26 +2,37 @@ import React, { useState, useEffect } from 'react';
 import { useLocationStore } from '../../../store/useLocationStore';
 import { usePharmaStore } from '../../../store/useStore';
 import TicketBoleta from '../../../components/printing/TicketBoleta';
-import { LocationConfig } from '../../../../domain/types';
-import { Save, Printer, RefreshCw } from 'lucide-react';
+import SimpleWysiwyg from '../../../components/common/SimpleWysiwyg';
+import { LocationConfig, TicketType, TicketTemplate } from '../../../../domain/types';
+import { Save, Printer, RefreshCw, FileText, Receipt, ArrowRightLeft } from 'lucide-react';
 import { toast } from 'sonner';
-// V2: Función segura con RBAC
 import { updateLocationSecure } from '../../../../actions/locations-v2';
+import ShiftHandoverTicket from '@/presentation/components/printing/ShiftHandoverTicket';
 
 const TicketDesigner: React.FC = () => {
-    const { currentLocation, updateLocation, locations } = useLocationStore();
+    const { currentLocation, updateLocation, fetchLocations, isLoading } = useLocationStore();
     const { user } = usePharmaStore();
 
-    // Local state for editing
-    const [config, setConfig] = useState<NonNullable<LocationConfig['receipt_template']>>({
-        header_text: 'FARMACIAS VALLENAR',
+    // Active Tab State
+    const [activeTab, setActiveTab] = useState<TicketType>('SALE');
+
+    // Local state for editing templates
+    // Default structure if undefined
+    const defaultTemplate: TicketTemplate = {
+        header_content: '<h2 style="text-align: center;">FARMACIAS VALLENAR</h2><div style="text-align: center;">Av. Matta 550, Vallenar</div>',
+        footer_content: '<div style="text-align: center; font-weight: bold;">¡Gracias por su preferencia!</div>',
         show_logo: true,
-        footer_text: '¡Gracias por su preferencia!',
-        social_media: '@farmaciasvallenar',
-        show_barcode: true
+        show_customer_data: true
+    };
+
+    const [templates, setTemplates] = useState<Record<TicketType, TicketTemplate>>({
+        SALE: { ...defaultTemplate },
+        QUOTE: { ...defaultTemplate, header_content: '<h2 style="text-align: center;">COTIZACIÓN</h2>' },
+        SHIFT_HANDOVER: { ...defaultTemplate, header_content: '<h2 style="text-align: center;">CIERRE DE TURNO</h2>' },
+        RECEIPT: { ...defaultTemplate, header_content: '<h2 style="text-align: center;">RECIBO DE CAJA</h2><div style="text-align: center;">Comprobante Interno</div><br />' }
     });
 
-    // Mock Sale for Preview
+    // Mock Data for Previews
     const mockSale: any = {
         id: 'preview-123',
         timestamp: Date.now(),
@@ -37,137 +48,234 @@ const TicketDesigner: React.FC = () => {
         customer: { name: 'Juan Pérez' }
     };
 
-    // Load initial config from location
-    useEffect(() => {
-        if (currentLocation?.config?.receipt_template) {
-            setConfig(currentLocation.config.receipt_template as NonNullable<LocationConfig['receipt_template']>);
-        }
-    }, [currentLocation]);
-
-    const handleSave = async () => {
-        if (!currentLocation) return;
-
-        const newConfig: LocationConfig = {
-            ...currentLocation.config,
-            receipt_template: config
-        };
-
-        // Optimistic Update
-        updateLocation(currentLocation.id, { config: newConfig });
-
-        // V2: Backend Persistence con firma de objeto
-        const result = await updateLocationSecure({
-            locationId: currentLocation.id,
-            config: newConfig
-        });
-
-        if (result.success) {
-            toast.success('Diseño de ticket guardado y sincronizado');
-        } else {
-            toast.error('Guardado localmente, pero falló la sincronización: ' + result.error);
+    const mockHandoverConfig: any = {
+        userName: 'Juan Cajero',
+        terminalName: 'Caja 1',
+        locationName: currentLocation?.name || 'Sucursal Centro',
+        timestamp: new Date(),
+        summary: {
+            shiftId: 'mock-shift',
+            startTime: Date.now() - 28800000,
+            endTime: Date.now(),
+            totalSales: 150000,
+            cashExpected: 50000,
+            cashCounted: 50000,
+            difference: 0,
+            movements: [],
+            paymentMethodTotals: { CASH: 50000, DEBIT: 100000 }
         }
     };
 
+    // Load initial config from location
+    useEffect(() => {
+        if (user?.id) {
+            console.log('🔄 [TicketDesigner] Mounting, requesting fresh locations...');
+            fetchLocations(true);
+        }
+    }, [user?.id]);
+    const templatesConfigStr = JSON.stringify(currentLocation?.config?.templates);
+
+    useEffect(() => {
+        if (currentLocation?.config?.templates) {
+            console.log('🔄 Syncing templates from store/server...');
+            // Merge existing templates with defaults to ensure all keys exist
+            setTemplates(prev => ({
+                ...prev,
+                ...currentLocation.config?.templates
+            }));
+        }
+    }, [templatesConfigStr]); // Reload when the CONTENT of the config changes, not just the ID.
+
+    const handleSave = async () => {
+        if (!currentLocation) {
+            console.error('❌ HandleSave: No currentLocation found');
+            return;
+        }
+
+        console.log('💾 HandleSave: Starting save process...');
+        console.log('📄 Current Templates State:', templates);
+
+        const newConfig: LocationConfig = {
+            ...currentLocation.config,
+            templates: templates
+        };
+
+        console.log('📦 New Config Payload:', newConfig);
+
+        // Optimistic Update
+        updateLocation(currentLocation.id, { config: newConfig });
+        console.log('✅ Optimistic Update applied to local store');
+
+        try {
+            const result = await updateLocationSecure({
+                locationId: currentLocation.id,
+                config: newConfig
+            });
+
+            console.log('📡 Server Response:', result);
+
+            if (result.success) {
+                toast.success('Diseños guardados y sincronizados');
+                console.log('📡 [TicketDesigner] Save success, re-fetching to verify UI...');
+                await fetchLocations(true);
+            } else {
+                console.error('❌ Server Error:', result.error);
+                toast.error('Guardado localmente, pero falló la sincronización: ' + result.error);
+            }
+        } catch (error) {
+            console.error('💥 Unexpected Error in handleSave:', error);
+            toast.error('Error inesperado al guardar');
+        }
+    };
+
+    const updateCurrentTemplate = (key: keyof TicketTemplate, value: any) => {
+        setTemplates(prev => ({
+            ...prev,
+            [activeTab]: {
+                ...prev[activeTab],
+                [key]: value
+            }
+        }));
+    };
+
     if (!currentLocation) return <div className="p-8 text-center text-slate-500">Selecciona una sucursal para editar.</div>;
+
+    const currentTemplate = templates[activeTab];
+
+    const getVariablesForTab = (tab: TicketType) => {
+        const commonars = [
+            { key: 'fecha', label: 'Fecha Actual' },
+            { key: 'hora', label: 'Hora Actual' },
+            { key: 'sucursal', label: 'Nombre Sucursal' },
+            { key: 'cajero', label: 'Cajero' },
+            { key: 'vendedor', label: 'Vendedor' },
+        ];
+        if (tab === 'SALE' || tab === 'QUOTE' || tab === 'RECEIPT') {
+            return [
+                ...commonars,
+                { key: 'cliente', label: 'Nombre Cliente' },
+                { key: 'rut_cliente', label: 'RUT Cliente' },
+                { key: 'folio', label: 'Folio Boleta' }
+            ];
+        }
+        if (tab === 'SHIFT_HANDOVER') return [...commonars, { key: 'supervisor', label: 'Nombre Supervisor' }];
+        return commonars;
+    }
 
     return (
         <div className="flex flex-col lg:flex-row h-[calc(100vh-100px)] gap-6 p-4">
 
             {/* Left Panel: Controls */}
-            <div className="w-full lg:w-1/3 bg-white rounded-2xl shadow-sm border border-slate-200 p-6 overflow-y-auto">
-                <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-xl font-bold text-slate-800">Editor de Ticket</h2>
-                    <span className="text-xs bg-cyan-100 text-cyan-700 px-2 py-1 rounded-full font-bold">POS 80mm</span>
+            <div className="w-full lg:w-5/12 bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col">
+                <div className="p-6 border-b border-slate-100">
+                    <div className="flex items-center justify-between mb-2">
+                        <h2 className="text-xl font-bold text-slate-800">Editor de Recibos</h2>
+                        <span className="text-xs bg-cyan-100 text-cyan-700 px-2 py-1 rounded-full font-bold">POS 80mm</span>
+                    </div>
                 </div>
 
-                <div className="space-y-6">
-                    {/* Header Section */}
+                {/* Tabs */}
+                <div className="flex border-b border-slate-200">
+                    <button
+                        onClick={() => setActiveTab('SALE')}
+                        className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'SALE' ? 'border-slate-800 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                    >
+                        <Receipt size={16} /> Ventas (Boleta)
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('RECEIPT')}
+                        className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'RECEIPT' ? 'border-slate-800 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                    >
+                        <FileText size={16} /> Recibo Manual
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('QUOTE')}
+                        className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'QUOTE' ? 'border-slate-800 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                    >
+                        <FileText size={16} /> Cotización
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('SHIFT_HANDOVER')}
+                        className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'SHIFT_HANDOVER' ? 'border-slate-800 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                    >
+                        <ArrowRightLeft size={16} /> Cierre Turno
+                    </button>
+                </div>
+
+                <div className="p-6 overflow-y-auto flex-1 space-y-6">
+                    {/* Header Editor */}
                     <div>
-                        <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Encabezado</h3>
-
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Texto Principal</label>
+                        <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-2">Encabezado</h3>
+                        <SimpleWysiwyg
+                            label="Contenido Superior"
+                            value={currentTemplate.header_content || ''}
+                            onChange={(val: string) => updateCurrentTemplate('header_content', val)}
+                            availableVariables={getVariablesForTab(activeTab)}
+                        />
+                        <div className="mt-2 flex items-center gap-2">
+                            <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
                                 <input
-                                    type="text"
-                                    value={config.header_text || ''}
-                                    onChange={e => setConfig({ ...config, header_text: e.target.value })}
-                                    className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none"
-                                    placeholder="Nombre de Fantasía"
+                                    type="checkbox"
+                                    checked={currentTemplate.show_logo}
+                                    onChange={(e) => updateCurrentTemplate('show_logo', e.target.checked)}
+                                    className="rounded text-cyan-600 focus:ring-cyan-500"
                                 />
-                            </div>
-
-                            <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
-                                <span className="text-sm text-slate-700 font-medium">Mostrar Logo</span>
-                                <label className="relative inline-flex items-center cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={config.show_logo || false}
-                                        onChange={e => setConfig({ ...config, show_logo: e.target.checked })}
-                                        className="sr-only peer"
-                                    />
-                                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-cyan-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
-                                </label>
-                            </div>
+                                Mostrar Logo (si existe)
+                            </label>
                         </div>
                     </div>
 
-                    <hr className="border-slate-100" />
-
-                    {/* Footer Section */}
-                    <div>
-                        <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Pie de Página</h3>
-
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Mensaje de Despedida</label>
-                                <textarea
-                                    value={config.footer_text || ''}
-                                    onChange={e => setConfig({ ...config, footer_text: e.target.value })}
-                                    className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none"
-                                    rows={2}
-                                    placeholder="Gracias por su compra..."
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Redes Sociales / Contacto</label>
-                                <input
-                                    type="text"
-                                    value={config.social_media || ''}
-                                    onChange={e => setConfig({ ...config, social_media: e.target.value })}
-                                    className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none"
-                                    placeholder="@instagram / www.web.cl"
-                                />
-                            </div>
-                        </div>
+                    <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-center text-sm text-slate-400 font-mono">
+                        [ ÁREA DEL DETALLE DEL DOCUMENTO - NO EDITABLE ]
+                        <br />
+                        <span className="text-xs">(Items, totales, impuestos se generan automáticamente)</span>
                     </div>
 
-                    <div className="pt-6">
+                    {/* Footer Editor */}
+                    <div>
+                        <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-2">Pie de Página</h3>
+                        <SimpleWysiwyg
+                            label="Contenido Inferior"
+                            value={currentTemplate.footer_content || ''}
+                            onChange={(val: string) => updateCurrentTemplate('footer_content', val)}
+                            availableVariables={getVariablesForTab(activeTab)}
+                        />
+                    </div>
+
+                    <div className="pt-4 space-y-3">
                         <button
                             onClick={handleSave}
-                            className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition-colors flex items-center justify-center gap-2"
+                            disabled={isLoading}
+                            className={`w-full py-3 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-slate-200 ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
                             <Save size={18} />
-                            Guardar Diseño
+                            {isLoading ? 'Guardando...' : 'Guardar Todos los Diseños'}
+                        </button>
+
+                        <button
+                            onClick={() => fetchLocations(true)}
+                            disabled={isLoading}
+                            className="w-full py-2 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors flex items-center justify-center gap-2"
+                        >
+                            <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} />
+                            Recargar desde el Servidor
                         </button>
                     </div>
                 </div>
             </div>
 
             {/* Right Panel: Preview */}
-            <div className="w-full lg:w-2/3 bg-slate-100 rounded-2xl border border-slate-200 flex flex-col items-center justify-center p-8 relative overflow-hidden">
-                <div className="absolute top-4 right-4 bg-white/80 backdrop-blur px-3 py-1 rounded-full text-xs font-mono text-slate-500 border border-slate-200 flex items-center gap-2">
+            <div className="w-full lg:w-7/12 bg-slate-100 rounded-2xl border border-slate-200 flex flex-col items-center justify-center p-8 relative overflow-hidden">
+                <div className="absolute top-4 right-4 bg-white/80 backdrop-blur px-3 py-1 rounded-full text-xs font-mono text-slate-500 border border-slate-200 flex items-center gap-2 shadow-sm z-20">
                     <Printer size={12} />
-                    Vista Previa (80mm)
+                    Vista Previa ({activeTab})
                 </div>
 
                 {/* Thermal Paper Simulation */}
-                <div className="relative group">
+                <div className="relative group max-h-full overflow-y-auto no-scrollbar py-8">
                     <div className="absolute -inset-1 bg-gradient-to-b from-slate-200 to-slate-300 rounded-sm blur opacity-25 group-hover:opacity-50 transition duration-1000"></div>
 
-                    {/* The Ticket Component Logic Reused */}
-                    <div className="relative transform transition-all duration-300 origin-top hover:scale-[1.02]">
+                    <div className="relative transform transition-all duration-300 origin-top hover:scale-[1.01] shadow-xl">
                         {/* Paper Tear Effect Top */}
                         <div
                             className="h-4 w-full bg-white relative z-10"
@@ -180,11 +288,44 @@ const TicketDesigner: React.FC = () => {
                         />
 
                         {/* Content */}
-                        <TicketBoleta
-                            sale={mockSale}
-                            companyName={config.header_text || currentLocation.name}
-                            config={config}
-                        />
+                        {activeTab === 'SALE' && (
+                            <TicketBoleta
+                                sale={mockSale}
+                                companyName="VISTA PREVIA"
+                                template={currentTemplate} // New Prop
+                                cashierName="Cajero Demo"
+                                branchName="Sucursal Norte"
+                            />
+                        )}
+                        {activeTab === 'QUOTE' && (
+                            <TicketBoleta
+                                sale={{ ...mockSale, dte_status: undefined }} // Simulate quote
+                                companyName="VISTA PREVIA"
+                                template={currentTemplate}
+                                isQuote
+                                cashierName="Cajero Demo"
+                                branchName="Sucursal Norte"
+                            />
+                        )}
+                        {activeTab === 'SHIFT_HANDOVER' && (
+                            <ShiftHandoverTicket
+                                {...mockHandoverConfig}
+                                template={currentTemplate}
+                            />
+                        )}
+                        {activeTab === 'RECEIPT' && (
+                            <TicketBoleta
+                                sale={{
+                                    ...mockSale,
+                                    dte_status: undefined, // No DTE
+                                    is_internal_ticket: true
+                                }}
+                                companyName="VISTA PREVIA"
+                                template={currentTemplate}
+                                cashierName="Cajero Demo"
+                                branchName="Sucursal Norte"
+                            />
+                        )}
 
                         {/* Paper Tear Effect Bottom */}
                         <div
@@ -199,8 +340,8 @@ const TicketDesigner: React.FC = () => {
                     </div>
                 </div>
 
-                <p className="mt-8 text-slate-400 text-sm flex items-center gap-2">
-                    <RefreshCw size={14} /> Los cambios se verán reflejados automáticamente en todas las cajas de {currentLocation.name}.
+                <p className="absolute bottom-4 left-0 right-0 text-center text-slate-400 text-sm flex items-center justify-center gap-2">
+                    <RefreshCw size={14} /> Vista previa en tiempo real
                 </p>
             </div>
         </div>

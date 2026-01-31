@@ -34,7 +34,8 @@ import { randomUUID } from 'crypto';
 const UUIDSchema = z.string().uuid('ID inválido');
 
 const RUTSchema = z.string()
-    .regex(/^\d{7,8}-[\dkK]$/, 'Formato RUT inválido (ej: 12345678-9)');
+    .transform(val => val.replace(/\./g, ''))
+    .pipe(z.string().regex(/^\d{7,8}-[\dkK]$/, 'Formato RUT inválido (ej: 12345678-9)'));
 
 const EmailSchema = z.string()
     .email('Email inválido')
@@ -50,31 +51,31 @@ const PINSchema = z.string()
 const CreateUserSchema = z.object({
     rut: RUTSchema,
     name: z.string().min(3, 'Nombre muy corto').max(100),
-    email: EmailSchema.optional(),
+    email: EmailSchema.nullable().optional(),
     role: RoleSchema,
     access_pin: PINSchema,
-    job_title: z.string().max(50).optional(),
-    assigned_location_id: UUIDSchema.optional(),
-    base_salary: z.number().min(0, 'Salario debe ser positivo').optional(),
-    pension_fund: z.string().max(50).optional(),
-    health_system: z.string().max(50).optional(),
-    weekly_hours: z.number().min(1).max(168).optional(),
-    contact_phone: z.string().max(20).optional(),
-    allowed_modules: z.array(z.string()).optional(),
+    job_title: z.string().max(50).nullable().optional(),
+    assigned_location_id: UUIDSchema.nullable().optional(),
+    base_salary: z.number().min(0, 'Salario debe ser positivo').nullable().optional(),
+    pension_fund: z.string().max(50).nullable().optional(),
+    health_system: z.string().max(50).nullable().optional(),
+    weekly_hours: z.number().min(1).max(168).nullable().optional(),
+    contact_phone: z.string().max(20).nullable().optional(),
+    allowed_modules: z.array(z.string()).nullable().optional(),
 });
 
 const UpdateUserSchema = z.object({
     userId: UUIDSchema,
-    name: z.string().min(3).max(100).optional(),
-    email: EmailSchema.optional(),
-    job_title: z.string().max(50).optional(),
-    contact_phone: z.string().max(20).optional(),
-    base_salary: z.number().min(0).optional(),
-    pension_fund: z.string().max(50).optional(),
-    health_system: z.string().max(50).optional(),
-    weekly_hours: z.number().min(1).max(168).optional(),
-    assigned_location_id: UUIDSchema.optional(),
-    allowed_modules: z.array(z.string()).optional(),
+    name: z.string().min(3).max(100).nullable().optional(),
+    email: EmailSchema.nullable().optional(),
+    job_title: z.string().max(50).nullable().optional(),
+    contact_phone: z.string().max(20).nullable().optional(),
+    base_salary: z.number().min(0).nullable().optional(),
+    pension_fund: z.string().max(50).nullable().optional(),
+    health_system: z.string().max(50).nullable().optional(),
+    weekly_hours: z.number().min(1).max(168).nullable().optional(),
+    assigned_location_id: UUIDSchema.nullable().optional(),
+    allowed_modules: z.array(z.string()).nullable().optional(),
 });
 
 const ChangeRoleSchema = z.object({
@@ -105,7 +106,7 @@ const GetUsersSchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
+const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL', 'MANAGER', 'RRHH'];
 const BCRYPT_ROUNDS = 10;
 
 // ============================================================================
@@ -297,6 +298,7 @@ export async function createUserSecure(data: z.infer<typeof CreateUserSchema>): 
     const client = await pool.connect();
 
     try {
+        console.log('[USERS-V2] 🟢 Starting transaction for CreateUser...');
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // 2. Verify ADMIN permission
@@ -369,6 +371,7 @@ export async function createUserSecure(data: z.infer<typeof CreateUserSchema>): 
         });
 
         await client.query('COMMIT');
+        console.log('[USERS-V2] ✅ Transaction COMMITTED for user:', newUserId);
 
         // NOTIFICATION TRIGGER: New Employee/User
         (async () => {
@@ -860,6 +863,8 @@ export async function deactivateUserSecure(data: z.infer<typeof DeactivateUserSc
 /**
  * 📋 Get Users (with filters and pagination)
  */
+import { unstable_noStore as noStore } from 'next/cache';
+
 export async function getUsersSecure(filters?: z.infer<typeof GetUsersSchema>): Promise<{
     success: boolean;
     data?: {
@@ -871,6 +876,9 @@ export async function getUsersSecure(filters?: z.infer<typeof GetUsersSchema>): 
     };
     error?: string;
 }> {
+    // 0. Disable Cache
+    noStore();
+
     // 1. Validate filters
     const validated = GetUsersSchema.safeParse(filters || {});
     if (!validated.success) {
@@ -934,6 +942,11 @@ export async function getUsersSecure(filters?: z.infer<typeof GetUsersSchema>): 
         params.push(validated.data.pageSize);
         params.push(offset);
 
+        console.log('[USERS-V2] 🔍 getUsersSecure Query:', {
+            text: `SELECT ... ${whereClause} ... LIMIT ...`,
+            params
+        });
+
         const usersResult = await pool.query(`
             SELECT 
                 id, rut, name, email, role, job_title, status, is_active,
@@ -949,9 +962,13 @@ export async function getUsersSecure(filters?: z.infer<typeof GetUsersSchema>): 
                     WHEN role = 'MANAGER' THEN 3 
                     ELSE 4 
                 END,
-                name ASC
-            LIMIT $${paramIndex++} OFFSET $${paramIndex++}
+                created_at DESC
+            LIMIT $${params.length - 1} OFFSET $${params.length}
         `, params);
+
+        const summary = usersResult.rows.map(u => ({ name: u.name, role: u.role, created: u.created_at }));
+        console.log(`[USERS-V2] 📊 Fetched ${usersResult.rows.length} users. First 5:`, summary.slice(0, 5));
+        console.log(`[USERS-V2] 🔍 Searching for "Oscar" in result:`, summary.find(u => u.name.toLowerCase().includes('oscar')));
 
         const totalPages = Math.ceil(total / validated.data.pageSize);
 
