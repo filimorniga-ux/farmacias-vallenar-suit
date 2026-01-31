@@ -392,7 +392,7 @@ export default function QuoteHistoryModal({ isOpen, onClose }: QuoteHistoryModal
                         <button
                             onClick={async () => {
                                 if (viewQuote) {
-                                    const success = await retrieveQuote(viewQuote.code);
+                                    const success = await retrieveQuote(viewQuote.id);
                                     if (success) {
                                         setViewQuote(null);
                                         onClose();

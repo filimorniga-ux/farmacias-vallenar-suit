@@ -1179,3 +1179,64 @@ export async function getActiveSession(terminalId: string): Promise<{
         return { success: false, error: 'Error verificando sesión de caja' };
     }
 }
+
+// =====================================================
+// FUNCIÓN: OBTENER MONTO SUGERIDO (CARRYOVER)
+// =====================================================
+
+/**
+ * Obtiene el monto sugerido para apertura basado en el cierre anterior.
+ * Calculado como: Monto Cierre Anterior - Remesa Generada = Efectivo en Caja
+ */
+export async function getSuggestedOpeningAmount(terminalId: string): Promise<{ success: boolean; amount?: number; lastUser?: string; error?: string }> {
+    const { pool } = await import('@/lib/db');
+    const client = await pool.connect();
+
+    try {
+        // 1. Obtener última sesión cerrada
+        const sessionRes = await client.query(`
+            SELECT id, closing_amount, closed_at, user_id
+            FROM cash_register_sessions
+            WHERE terminal_id = $1 AND status IN ('CLOSED', 'CLOSED_FORCE')
+            ORDER BY closed_at DESC
+            LIMIT 1
+        `, [terminalId]);
+
+        if (sessionRes.rows.length === 0) {
+            return { success: true, amount: 0 }; // Sin historial, sugerir 0
+        }
+
+        const session = sessionRes.rows[0];
+        const closingAmount = Number(session.closing_amount || 0);
+
+        // Obtener nombre del cajero anterior
+        const userRes = await client.query('SELECT name FROM users WHERE id = $1', [session.user_id]);
+        const lastUser = userRes.rows[0]?.name || 'Usuario desconocido';
+
+        // 2. Buscar si hubo remesa asociada a ese cierre (mismo terminal, tiempo cercano)
+        // Buscamos remesas creadas +/- 2 segundos del cierre (son parte de la misma tx generalmente)
+        const remittanceRes = await client.query(`
+            SELECT amount
+            FROM treasury_remittances
+            WHERE source_terminal_id = $1
+            AND created_at BETWEEN ($2::timestamp - interval '30 seconds') AND ($2::timestamp + interval '30 seconds')
+        `, [terminalId, session.closed_at]);
+
+        const remittanceAmount = remittanceRes.rows.length > 0 ? Number(remittanceRes.rows[0].amount) : 0;
+
+        // 3. Calcular remanente
+        const suggestedAmount = Math.max(0, closingAmount - remittanceAmount);
+
+        return {
+            success: true,
+            amount: suggestedAmount,
+            lastUser
+        };
+
+    } catch (error: any) {
+        console.error('Error fetching suggested amount:', error);
+        return { success: false, error: 'Error calculando sugerencia' };
+    } finally {
+        client.release();
+    }
+}

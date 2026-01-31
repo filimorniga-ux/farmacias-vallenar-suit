@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Printer, Scan, Settings, CheckCircle, Barcode, Zap, Building, MessageSquare, Image, RefreshCw, Monitor } from 'lucide-react';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { PrinterService } from '../../../infrastructure/services/PrinterService';
@@ -11,6 +12,7 @@ interface PrinterInfo {
 }
 
 const HardwarePage: React.FC = () => {
+    const navigate = useNavigate();
     const { hardware, updateHardwareConfig } = useSettingsStore();
     const [testBarcode, setTestBarcode] = useState('');
     const [scanSpeed, setScanSpeed] = useState<number | null>(null);
@@ -171,6 +173,14 @@ const HardwarePage: React.FC = () => {
                         >
                             <Printer size={16} />
                             Probar Ticket
+                        </button>
+
+                        <button
+                            onClick={() => navigate('/settings/printing')}
+                            className="w-full py-2.5 bg-cyan-600 text-white font-bold rounded-lg hover:bg-cyan-700 transition-colors flex items-center justify-center gap-2 text-sm"
+                        >
+                            <Image size={16} />
+                            Diseñador Visual de Tickets
                         </button>
                     </div>
                 </div>

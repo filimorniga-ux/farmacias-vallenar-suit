@@ -7,7 +7,14 @@ import { toast } from 'sonner';
 import { WebAuthnService } from '../../infrastructure/biometrics/WebAuthnService';
 
 const AccessControlPage: React.FC = () => {
-    const { employees, registerAttendance } = usePharmaStore();
+    const { employees, registerAttendance, syncData, isLoading } = usePharmaStore();
+
+    // Ensure data is loaded
+    useEffect(() => {
+        if (employees.length === 0) {
+            syncData();
+        }
+    }, [employees.length, syncData]);
 
     // Security State
     const [isKioskActive, setIsKioskActive] = useState(false);
@@ -24,16 +31,29 @@ const AccessControlPage: React.FC = () => {
     // Filter active employees for the wall
     const activeEmployees = useMemo(() => employees.filter(e => e.status === 'ACTIVE'), [employees]);
 
-    const handleUnlock = (e: React.FormEvent) => {
+    const [isVerifying, setIsVerifying] = useState(false);
+
+    const handleUnlock = async (e: React.FormEvent) => {
         e.preventDefault();
-        const admin = employees.find(emp => emp.access_pin === adminPin && (emp.role === 'MANAGER' || emp.role === 'ADMIN'));
-        if (admin) {
-            setIsKioskActive(true);
-            toast.success(`Terminal Activado por ${admin.name}`);
-            setAdminPin('');
-        } else {
-            toast.error('PIN no autorizado');
-            setAdminPin('');
+        setIsVerifying(true);
+        try {
+            // Dynamic import to avoid build issues if mixed env
+            const { validateSupervisorPin } = await import('../../actions/auth-v2');
+            const res = await validateSupervisorPin(adminPin);
+
+            if (res.success && res.authorizedBy) {
+                setIsKioskActive(true);
+                toast.success(`Terminal Activado por ${res.authorizedBy.name}`);
+                setAdminPin('');
+            } else {
+                toast.error(res.error || 'PIN no autorizado');
+                setAdminPin('');
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error('Error de conexión al verificar PIN');
+        } finally {
+            setIsVerifying(false);
         }
     };
 
@@ -141,6 +161,18 @@ const AccessControlPage: React.FC = () => {
         return 'Buenas noches';
     };
 
+    // --- LOADING STATE ---
+    if (isLoading || (employees.length === 0 && !isKioskActive)) {
+        return (
+            <div className="min-h-screen bg-slate-950 flex items-center justify-center p-8">
+                <div className="text-center">
+                    <div className="w-16 h-16 border-4 border-cyan-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-slate-400 animate-pulse">Iniciando Sistema de Seguridad...</p>
+                </div>
+            </div>
+        );
+    }
+
     // --- LOCK SCREEN ---
     if (!isKioskActive) {
         return (
@@ -168,10 +200,21 @@ const AccessControlPage: React.FC = () => {
                         />
                         <button
                             type="submit"
-                            className="w-full py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2"
+                            disabled={isVerifying}
+                            className={`w-full py-4 font-bold rounded-xl transition-colors flex items-center justify-center gap-2 ${isVerifying ? 'bg-slate-700 text-slate-400 cursor-wait' : 'bg-cyan-600 hover:bg-cyan-500 text-white'
+                                }`}
                         >
-                            <Unlock size={20} />
-                            ACTIVAR TERMINAL
+                            {isVerifying ? (
+                                <>
+                                    <div className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
+                                    VERIFICANDO...
+                                </>
+                            ) : (
+                                <>
+                                    <Unlock size={20} />
+                                    ACTIVAR TERMINAL
+                                </>
+                            )}
                         </button>
                     </form>
                 </div>

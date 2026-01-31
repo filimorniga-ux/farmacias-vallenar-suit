@@ -485,6 +485,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                 isOpen={historyModalConfig.isOpen}
                 onClose={() => setHistoryModalConfig({ isOpen: false })}
                 initialPaymentMethod={historyModalConfig.paymentMethod}
+                sessionId={currentShift?.id} // Pass current session for data isolation
             />
 
             <AnimatePresence>

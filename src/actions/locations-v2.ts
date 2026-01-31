@@ -369,11 +369,16 @@ export async function createLocationSecure(
 export async function updateLocationSecure(
     data: z.infer<typeof UpdateLocationSchema>
 ): Promise<{ success: boolean; data?: Location; error?: string }> {
+    console.log('🔥 [SERVER ACTION] updateLocationSecure CALLED');
+    console.log('📦 [SERVER ACTION] Payload size:', JSON.stringify(data).length, 'bytes');
+
     // Validate input
     const validated = UpdateLocationSchema.safeParse(data);
     if (!validated.success) {
+        console.error('❌ [SERVER ACTION] Validation Failed:', validated.error);
         return { success: false, error: validated.error.issues[0]?.message };
     }
+    console.log('✅ [SERVER ACTION] Validation passed for:', validated.data.locationId);
 
     const client = await pool.connect();
 
@@ -469,14 +474,12 @@ export async function updateLocationSecure(
         await client.query('COMMIT');
         console.log('📝 [UPDATE LOCATION] COMMIT DONE');
 
-        // VERIFICATION: Read back from DB to confirm persistence
-        const verifyRes = await pool.query('SELECT id, name FROM locations WHERE id = $1', [validated.data.locationId]);
-        console.log('📝 [UPDATE LOCATION] VERIFICATION READ:', verifyRes.rows[0]);
-
         logger.info({ locationId: validated.data.locationId }, '✏️ [Locations] Location updated');
+
+        // ALWAYS revalidate settings and main paths when location changes to ensure config sync
         revalidatePath('/settings');
         revalidatePath('/locations');
-        revalidatePath('/network');
+        revalidatePath('/network', 'layout');
 
         return { success: true, data: updatedLocation }; // Return the fresh data
 

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { Location, KioskConfig } from '../../domain/types';
+import { toast } from 'sonner';
 
 interface LocationState {
     locations: Location[];
@@ -41,7 +42,7 @@ export const useLocationStore = create<LocationState>()(
             setLocations: (locations) => set({ locations }),
 
             isLoading: false,
-            lastFetch: 0,
+            lastFetch: Date.now(),
 
             fetchLocations: async (force = false) => {
                 const state = get() as any;
@@ -51,15 +52,25 @@ export const useLocationStore = create<LocationState>()(
 
                 if (state.isLoading) {
                     console.log('📍 [LocationStore] Fetch already in progress, skipping.');
-                    return;
-                }
-
-                if (!force && state.locations.length > 0 && (now - (state.lastFetch || 0) < CACHE_DURATION)) {
-                    console.log('📍 [LocationStore] Using cached locations.');
-                    return;
+                    // Safety: If stuck for more than 20s, allow retry
+                    if (now - (state.lastFetch || 0) > 20000) {
+                        console.warn('📍 [LocationStore] Fetch seems stuck, resetting isLoading...');
+                        set({ isLoading: false });
+                    } else {
+                        return;
+                    }
                 }
 
                 set({ isLoading: true });
+
+                // Safety Timeout
+                const timeout = setTimeout(() => {
+                    const currentState = get() as any;
+                    if (currentState.isLoading) {
+                        console.error('📍 [LocationStore] Sync TIMEOUT after 15s');
+                        set({ isLoading: false });
+                    }
+                }, 15000);
 
                 try {
                     const { usePharmaStore } = await import('./useStore'); // Import store to get user
@@ -73,9 +84,19 @@ export const useLocationStore = create<LocationState>()(
                         set({ isLoading: false, lastFetch: Date.now() });
 
                         if (res.success && res.data?.locations) {
-                            console.log('📍 [LocationStore] RAW SERVER DATA:', res.data.locations.map((l: any) => ({ id: l.id, name: l.name })));
-                            set({ locations: res.data.locations });
-                            console.log('📍 [LocationStore] Secure locations updated:', res.data.locations.length);
+                            const newLocations = res.data.locations || [];
+                            console.log('📍 [LocationStore] Sync SUCCESS. Received config for:', newLocations.filter((l: any) => l.config).map((l: any) => l.name));
+
+                            set(state => {
+                                const updatedCurrentLocation = state.currentLocation
+                                    ? newLocations.find(l => l.id === state.currentLocation?.id) || state.currentLocation
+                                    : null;
+
+                                return {
+                                    locations: newLocations,
+                                    currentLocation: updatedCurrentLocation
+                                };
+                            });
                         } else {
                             console.error('📍 [LocationStore] Secure fetch failed:', res.error);
                         }
@@ -98,16 +119,28 @@ export const useLocationStore = create<LocationState>()(
                         }
                     }
                 } catch (error) {
-                    set({ isLoading: false });
                     console.error('Failed to sync locations', error);
+                } finally {
+                    clearTimeout(timeout);
+                    set({ isLoading: false });
                 }
             },
 
-            updateLocation: (id, data) => set((state) => ({
-                locations: state.locations.map(loc =>
+            updateLocation: (id, data) => set((state) => {
+                const newLocations = state.locations.map(loc =>
                     loc.id === id ? { ...loc, ...data } : loc
-                )
-            })),
+                );
+
+                // CRITICAL: Also update currentLocation if it matches the ID
+                const newCurrentLocation = state.currentLocation?.id === id
+                    ? { ...state.currentLocation, ...data }
+                    : state.currentLocation;
+
+                return {
+                    locations: newLocations,
+                    currentLocation: newCurrentLocation
+                };
+            }),
 
             switchLocation: (id, onSuccess) => {
                 const target = get().locations.find(l => l.id === id);
@@ -145,6 +178,12 @@ export const useLocationStore = create<LocationState>()(
             name: 'location-storage-v2',
             version: 2,
             storage: createJSONStorage(() => localStorage),
+            // EXCLUDE status fields from persistence to avoid "stuck" states on refresh
+            partialize: (state) => ({
+                locations: state.locations,
+                currentLocation: state.currentLocation,
+                kiosks: state.kiosks
+            }),
         }
     )
 );

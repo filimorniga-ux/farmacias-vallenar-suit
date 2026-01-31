@@ -128,8 +128,10 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     // Filter terminals from STORE for display (Show ALL, even occupied ones)
     const displayTerminals = terminals.filter(t => t.location_id === selectedLocation);
 
+
     // Check if selected terminal is "Zombie" (Exists but not in openable list)
     const isZombie = selectedTerminal && openableTerminals.length > 0 && !openableTerminals.some(t => t.id === selectedTerminal);
+
 
 
     // --- AUTO-HEAL: GHOST SESSION DETECTION & FIX ---
@@ -211,6 +213,30 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     };
 
     const selectedTerminalData = terminals.find(t => t.id === selectedTerminal);
+
+    // --- SHIFT CHANGE / CARRYOVER LOGIC ---
+    const [suggestedInfo, setSuggestedInfo] = useState<{ amount: number; user: string } | null>(null);
+
+    useEffect(() => {
+        if (selectedTerminal && (!selectedTerminalData || selectedTerminalData.status !== 'OPEN')) {
+            // Fetch potential carryover cash
+            import('../../../actions/terminals-v2').then(({ getSuggestedOpeningAmount }) => {
+                getSuggestedOpeningAmount(selectedTerminal).then(res => {
+                    if (res.success && res.amount !== undefined && res.amount > 0) {
+                        console.log('💰 Suggested Opening Amount:', res.amount);
+                        setSuggestedInfo({ amount: res.amount, user: res.lastUser || 'Cajero Anterior' });
+                        // Auto-fill logic
+                        setOpeningAmount(res.amount.toLocaleString('es-CL'));
+                        toast.info(`Monto precargado del turno anterior de ${res.lastUser}`);
+                    } else {
+                        setSuggestedInfo(null);
+                    }
+                });
+            });
+        } else {
+            setSuggestedInfo(null);
+        }
+    }, [selectedTerminal, selectedTerminalData?.status]);
     // Logic for Resilience & Concurrency
     const isActiveSession = selectedTerminalData?.status === 'OPEN';
     const isUserMatch = isActiveSession && selectedTerminalData?.current_cashier_id === user?.id;
@@ -672,8 +698,16 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                                         </div>
                                         {openingAmount && (
                                             <p className="text-xs text-slate-500 mt-1 text-right">
-                                                Valor: ${formatWithThousands(openingAmount)} CLP
+                                                Valor: $ {formatWithThousands(openingAmount)} CLP
                                             </p>
+                                        )}
+                                        {suggestedInfo && (
+                                            <div className="mt-2 text-xs bg-cyan-50 text-cyan-700 p-2 rounded-lg flex items-center gap-2 border border-cyan-100 animate-in fade-in">
+                                                <RotateCcw size={14} />
+                                                <span>
+                                                    <strong>Continuidad:</strong> Monto heredado de {suggestedInfo.user}.
+                                                </span>
+                                            </div>
                                         )}
                                     </div>
 

@@ -15,6 +15,13 @@ const nextConfig = {
         } : false,
     },
 
+    // Server Actions Configuration
+    experimental: {
+        serverActions: {
+            bodySizeLimit: '5mb', // Increase limit for WYSIWYG content (Base64 images)
+        },
+    },
+
     // Fix for Pino/ThreadStream bundling issues in Turbopack
     serverExternalPackages: ['pino', 'thread-stream', 'pino-pretty'],
 

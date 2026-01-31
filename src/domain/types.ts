@@ -20,6 +20,16 @@ export interface Location {
     is_active?: boolean; // NEW: Status toggle
 }
 
+export type TicketType = 'SALE' | 'QUOTE' | 'SHIFT_HANDOVER' | 'RECEIPT';
+
+export interface TicketTemplate {
+    header_content?: string; // HTML for header
+    footer_content?: string; // HTML for footer
+    show_logo: boolean;
+    show_customer_data: boolean;
+    custom_css?: string; // Optional custom styling
+}
+
 export interface LocationConfig {
     receipt_template?: {
         header_text?: string;
@@ -34,6 +44,7 @@ export interface LocationConfig {
         wifi_info?: string;
         show_barcode?: boolean;
     };
+    templates?: Partial<Record<TicketType, TicketTemplate>>;
 }
 
 export interface KioskConfig {

@@ -43,6 +43,7 @@ const ExecuteHandoverSchema = z.object({
     amountToKeep: z.number().min(0),
     userId: z.string().min(1, { message: "ID de usuario requerido" }),
     userPin: z.string().min(4, { message: "PIN de usuario requerido" }),
+    supervisorPin: z.string().min(4, { message: "PIN de supervisor requerido" }), // NEW
     nextUserId: UUIDSchema.optional(),
     notes: z.string().max(500).optional(),
 });
@@ -354,6 +355,7 @@ export async function executeHandoverSecure(params: {
     amountToKeep: number;
     userId: string;
     userPin: string;
+    supervisorPin: string; // NEW
     nextUserId?: string;
     notes?: string;
 }): Promise<{ success: boolean; remittanceId?: string; error?: string }> {
@@ -368,11 +370,13 @@ export async function executeHandoverSecure(params: {
     const {
         terminalId, declaredCash, expectedCash,
         amountToWithdraw, amountToKeep,
-        userId, userPin, nextUserId, notes
+        userId, userPin, supervisorPin, nextUserId, notes
     } = validation.data;
 
     const { pool } = await import('@/lib/db');
     const { v4: uuidv4 } = await import('uuid');
+    const { validateSupervisorPin } = await import('./auth-v2'); // Import Auth Action
+
     const client = await pool.connect();
 
     try {
@@ -381,12 +385,28 @@ export async function executeHandoverSecure(params: {
         // --- INICIO DE TRANSACCIÓN ---
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-        // 2. Validar PIN del usuario
+        // 2a. Validar PIN del usuario (Cajero)
         const pinResult = await validateUserPin(client, userId, userPin);
         if (!pinResult.valid) {
             await client.query('ROLLBACK');
-            logger.warn({ userId }, '🚫 Handover: PIN validation failed');
-            return { success: false, error: ERROR_MESSAGES.INVALID_PIN };
+            logger.warn({ userId }, '🚫 Handover: Cashier PIN validation failed');
+            return { success: false, error: 'PIN de cajero incorrecto' };
+        }
+
+        // 2b. Validar PIN del Supervisor (Gerente/Admin)
+        // Note: validateSupervisorPin uses its own DB connection usually, but we are inside a transaction.
+        // Option A: Use the same client? validateSupervisorPin is an action, it creates its own.
+        // Ideally we should pass client, but validateSupervisorPin might not support it.
+        // Given it's a read-only check on `users` table which rarely changes rapidly, calling it standalone is acceptable
+        // provided it doesn't lock rows we need.
+        // HOWEVER, to be safe and consistent with transaction isolation, we should query manually here OR trust the helper.
+        // Let's use the helper for consistency with other modules, accepting slight overhead.
+        const supervisorAuth = await validateSupervisorPin(supervisorPin);
+
+        if (!supervisorAuth.success || !supervisorAuth.authorizedBy) {
+            await client.query('ROLLBACK');
+            logger.warn({ userId }, '🚫 Handover: Supervisor PIN validation failed');
+            return { success: false, error: supervisorAuth.error || 'Autorización de Supervisor denegada' };
         }
 
         // 3. Bloquear terminal
@@ -403,13 +423,12 @@ export async function executeHandoverSecure(params: {
 
         const terminal = termRes.rows[0];
 
-        // Verificar que el usuario es el cajero actual O es un administrador/gerente
-        const userRes = await client.query('SELECT role FROM users WHERE id = $1', [userId]);
-        const userRole = userRes.rows[0]?.role;
-
-        const isAuthorizedOverride = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL'].includes(userRole);
-
-        if (terminal.current_cashier_id && terminal.current_cashier_id !== userId && !isAuthorizedOverride) {
+        // Verificar que el usuario es el cajero actual
+        // Since Supervisor Authorized, do we strictly require userId match?
+        // Yes, the session belongs to userId.
+        if (terminal.current_cashier_id && terminal.current_cashier_id !== userId) {
+            // Exception: If FORCE override is needed? 
+            // For now, strict check + Supervisor Auth.
             throw new Error(ERROR_MESSAGES.USER_MISMATCH);
         }
 
@@ -492,9 +511,10 @@ export async function executeHandoverSecure(params: {
                 diff: declaredCash - expectedCash,
                 remittance_amount: amountToWithdraw,
                 remittance_id: remittanceId,
-                closed_by: pinResult.user?.name
+                closed_by: pinResult.user?.name,
+                authorized_by_supervisor: supervisorAuth.authorizedBy.name // LOG SUPERVISOR
             },
-            description: notes || `Cierre de turno por ${pinResult.user?.name}`
+            description: notes || `Cierre autorizado por ${supervisorAuth.authorizedBy.name} (Cajero: ${pinResult.user?.name})`
         });
 
         // --- COMMIT ---

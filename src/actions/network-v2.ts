@@ -171,10 +171,11 @@ export async function getOrganizationStructureSecure(explicitUserId?: string): P
             locationFilter = 'WHERE l.is_active = true';
         }
 
+        console.log('📡 [Network] Fetching structure for user role:', userRole);
         const res = await query(`
             SELECT 
                 l.id, l.name, l.address, l.type, l.phone, l.email, l.manager_id,
-                l.is_active, l.default_warehouse_id, l.created_at,
+                l.is_active, l.default_warehouse_id, l.created_at, l.config,
                 COALESCE(
                     json_agg(
                         json_build_object(
@@ -202,6 +203,7 @@ export async function getOrganizationStructureSecure(explicitUserId?: string): P
             email: row.email,
             manager_id: row.manager_id,
             is_active: row.is_active,
+            config: row.config,
             terminals: row.terminals,
         }));
 
