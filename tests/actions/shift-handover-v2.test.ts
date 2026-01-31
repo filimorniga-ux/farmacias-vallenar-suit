@@ -54,7 +54,7 @@ vi.mock('@/lib/logger', () => ({
 
 // Mock bcryptjs
 vi.mock('bcryptjs', () => ({
-    compare: (...args: any[]) => mockBcryptCompare(...args),
+    compare: (...args: unknown[]) => mockBcryptCompare(...args),
 }));
 
 // Mock notifications
@@ -121,7 +121,7 @@ describe('executeHandoverSecure', () => {
         vi.clearAllMocks();
         mockQuery.mockResolvedValue({ rows: [] });
         mockBcryptCompare.mockResolvedValue(true);
-        (validateSupervisorPin as any).mockResolvedValue({
+        vi.mocked(validateSupervisorPin).mockResolvedValue({
             success: true,
             authorizedBy: { id: 'sup-1', name: 'Supervisor', role: 'MANAGER' }
         });
@@ -394,7 +394,7 @@ describe('quickHandoverSecure', () => {
             if (sql === 'ROLLBACK') return Promise.resolve({ rows: [] });
             if (callIndex === 3) {
                 // Simulate lock error on terminal
-                const error: any = new Error('Lock not available');
+                const error = new Error('Lock not available') as Error & { code?: string };
                 error.code = '55P03';
                 throw error;
             }

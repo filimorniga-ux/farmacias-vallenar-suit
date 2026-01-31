@@ -11,7 +11,7 @@ export interface CreateNotificationDTO {
     severity?: NotificationSeverity;
     title: string;
     message: string;
-    metadata?: Record<string, any>;
+    metadata?: Record<string, unknown>;
     locationId?: string;
     userId?: string;
 }
@@ -60,7 +60,7 @@ export async function getNotificationsSecure(locationId?: string, limit = 50) {
             SELECT * FROM notifications 
             WHERE (location_id = $1 OR location_id IS NULL)
         `;
-        const params: any[] = [locationId];
+        const params: unknown[] = [locationId];
 
         query += ` ORDER BY created_at DESC LIMIT $${params.length + 1}`;
         params.push(limit);
@@ -131,7 +131,7 @@ export async function markAllAsReadSecure(locationId?: string) {
     }
 }
 
-export async function notifyManagersSecure(data: { locationId?: string; title: string; message: string; metadata?: any; link?: string }) {
+export async function notifyManagersSecure(data: { locationId?: string; title: string; message: string; metadata?: Record<string, unknown>; link?: string }) {
     const client = await getClient();
     try {
         // Find managers to notify
@@ -147,7 +147,7 @@ export async function notifyManagersSecure(data: { locationId?: string; title: s
             WHERE role IN ('MANAGER', 'ADMIN', 'GERENTE_GENERAL')
             AND is_active = true
         `;
-        const params: any[] = [];
+        const params: unknown[] = [];
 
         if (data.locationId) {
             userQuery += ` AND (assigned_location_id = $1 OR assigned_location_id IS NULL OR role IN ('ADMIN', 'GERENTE_GENERAL'))`;
@@ -155,7 +155,7 @@ export async function notifyManagersSecure(data: { locationId?: string; title: s
         }
 
         const res = await client.query(userQuery, params);
-        const managerIds = res.rows.map(r => r.id);
+        const managerIds = res.rows.map((r: { id: string }) => r.id);
 
         if (managerIds.length === 0) return { success: true };
 
@@ -217,7 +217,7 @@ export async function getMyNotifications(limit = 20) {
         // 2. My location (location_id = my_location)
         // 3. Global notifications (location_id IS NULL AND user_id IS NULL)
 
-        const params: any[] = [session.userId];
+        const params: unknown[] = [session.userId];
         let query = `
             SELECT * FROM notifications 
             WHERE user_id = $1
@@ -274,7 +274,7 @@ export async function getMyNotifications(limit = 20) {
         }
         countQuery += ` OR (location_id IS NULL AND user_id IS NULL) )`;
 
-        const countRes = await client.query(countQuery, filterParamsForCount(params));
+        // const countRes = await client.query(countQuery, filterParamsForCount(params));
         // Helper inside: params for count are just user and location. 
         // Actually simpler to just reuse params.slice(0, used_params_idx) but let's be safe.
         // We can just use the same params array since LIMIT is at the end and not used here.
@@ -297,10 +297,7 @@ export async function getMyNotifications(limit = 20) {
     }
 }
 
-function filterParamsForCount(p: any[]) {
-    // Just to keep logic clean in code block above
-    return p;
-}
+// function filterParamsForCount removed as it was unused
 
 export async function deleteOldNotifications(days: number) {
     const session = await getSession();
