@@ -35,7 +35,7 @@ async function querySales(args: { product_name?: string, location_name?: string,
         `;
 
         const params: any[] = [];
-        const paramValues: any[] = [];
+
 
         if (args.product_name) {
             sql += ` AND si.name ILIKE $${params.length + 1}`;
@@ -71,21 +71,21 @@ async function querySales(args: { product_name?: string, location_name?: string,
     }
 }
 
-async function queryInventory(args: { product_name?: string, location_id?: string, critical_only?: boolean }): Promise<QueryResult> {
+async function queryInventory(_args: { product_name?: string, location_id?: string, critical_only?: boolean }): Promise<QueryResult> {
     try {
         // NOTE: Inventory table schema might also vary. Using basic columns.
-        const sql = `
+        /* const sql = `
             SELECT 
                 i.product_id, -- Fallback if join fails
                 i.quantity
             FROM inventory i
             WHERE 1=1
-        `;
+        `; */
         // Skipping detailed join for safety until schema verified for inventory.
         // If p.name exists in inventory (denormalized), use it.
         // Assuming inventory table exists.
 
-        const params: any[] = [];
+        // const params: any[] = [];
         // Implementation paused/simplified to avoid crash if inventory tables missing/different.
         // Returning mock success to prevent crash but indicate limitation.
         return { success: true, summary: "Inventory query not fully adapted to new schema yet." };

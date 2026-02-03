@@ -53,7 +53,7 @@ function App({ forceContextSelection }: { forceContextSelection?: boolean }) {
         // Solo cargar ubicaciones al inicio (ligero)
         // Los datos pesados (inventario, ventas) se cargan después del login o cuando se necesitan
         fetchLocations();
-    }, []);
+    }, [fetchLocations]);
 
     return (
         <BrowserRouter>
