@@ -11,7 +11,7 @@ export const PurchasingAgent = {
     calculateVelocity(sku: string, period: 'LAST_7_DAYS' | 'LAST_30_DAYS' | 'LAST_TRIMESTER' | 'LAST_SEMESTER' | 'LAST_YEAR'): number {
         // Simulación: Genera un número base
         const hash = sku.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-        let baseVelocity = (hash % 10) / 2 + 0.5;
+        const baseVelocity = (hash % 10) / 2 + 0.5;
 
         // Ajuste por periodo (Simulación de estacionalidad)
         switch (period) {

@@ -229,7 +229,7 @@ export async function getScanHistorySecure(
     }
 
     try {
-        let sql = `
+        const sql = `
             SELECT al.entity_id, al.new_values, al.created_at
             FROM audit_log al
             WHERE al.user_id = $1 

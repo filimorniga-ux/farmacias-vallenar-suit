@@ -85,8 +85,8 @@ const importIspOficial = async (client: Client) => {
         return;
     }
 
-    let batch: any[] = [];
-    let processed = 0;
+    const batch: any[] = [];
+    const processed = 0;
 
     // Promesa para stream
     await new Promise<void>((resolve, reject) => {

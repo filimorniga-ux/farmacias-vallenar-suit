@@ -89,7 +89,7 @@ export function SchedulerContainer({
 
                 // Construct timestamps
                 const startDate = new Date(`${day}T${template.start_time}`);
-                let endDate = new Date(`${day}T${template.end_time}`);
+                const endDate = new Date(`${day}T${template.end_time}`);
 
                 // Handle overnight crossing roughly for MVP
                 if (endDate <= startDate) {

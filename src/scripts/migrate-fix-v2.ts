@@ -37,7 +37,7 @@ async function main() {
         for (const user of users.rows) {
             let afp = 'MODELO';
             let isapre = 'FONASA';
-            let hours = 45;
+            const hours = 45;
             let salary = 500000;
 
             // Randomize slightly based on role

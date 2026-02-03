@@ -67,7 +67,7 @@ test.describe('Procurement V2 - Supply Chain (Pedido Sugerido)', () => {
         const analyzeBtn = page.locator('[data-testid="analyze-stock-btn"]');
 
         // Check if auto-analysis is running
-        let isAnalyzing = await loadingText.isVisible({ timeout: 5000 });
+        const isAnalyzing = await loadingText.isVisible({ timeout: 5000 });
 
         if (!isAnalyzing) {
             console.log('Auto-analysis not confirmed, ensuring button is present...');

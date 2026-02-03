@@ -44,7 +44,7 @@ async function transform() {
 
         // Map Prescription Type
         // If "RECETA", condition is 'R', otherwise 'VD' (Venta Directa)
-        let prescriptionType = record['PrescriptionType'] || '';
+        const prescriptionType = record['PrescriptionType'] || '';
         let condition = 'VD';
         if (prescriptionType.toUpperCase().includes('RECETA') || prescriptionType.toUpperCase().includes('RETENIDA')) {
             condition = 'R';

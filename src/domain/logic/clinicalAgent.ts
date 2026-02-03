@@ -58,7 +58,7 @@ export class ClinicalAgent {
      * Analiza el carrito en busca de interacciones peligrosas con el perfil del paciente.
      */
     static analyzeCart(cart: CartItem[], customer?: Customer): ClinicalAnalysisResult {
-        let result: ClinicalAnalysisResult = { status: 'SAFE', message: 'Análisis Clínico: OK' };
+        const result: ClinicalAnalysisResult = { status: 'SAFE', message: 'Análisis Clínico: OK' };
         const blockingItems: string[] = [];
         const suggestedItems: string[] = [];
         // let result: ClinicalAnalysisResult = { status: 'SAFE', message: 'Análisis Clínico: OK' }; // This line was removed in the provided diff

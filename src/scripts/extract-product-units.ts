@@ -73,7 +73,7 @@ async function run() {
             console.log('🔄 Iniciando transacción con Batching...');
             await client.query('BEGIN');
 
-            let updateValues: [string, number][] = [];
+            const updateValues: [string, number][] = [];
 
             for (const record of records) {
                 const sku = record.SKU;

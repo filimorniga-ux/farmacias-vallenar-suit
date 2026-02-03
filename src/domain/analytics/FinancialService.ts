@@ -39,7 +39,7 @@ export class FinancialService {
     static getSalesSummary(sales: SaleTransaction[]) {
         let grossSales = 0;
         let netSales = 0; // Ventas menos IVA (aprox 19%)
-        let paymentMethods = {
+        const paymentMethods = {
             CASH: 0,
             DEBIT: 0,
             CREDIT: 0,
@@ -64,7 +64,7 @@ export class FinancialService {
         let totalExpenses = 0;
         let deductibleExpenses = 0;
         let nonDeductibleExpenses = 0;
-        let byCategory: Record<string, number> = {};
+        const byCategory: Record<string, number> = {};
 
         expenses.forEach(expense => {
             totalExpenses += expense.amount;

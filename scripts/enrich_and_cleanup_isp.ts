@@ -40,7 +40,7 @@ async function main() {
         let deletedCount = 0;
 
         let skippedLab = 0;
-        let skippedStock = 0;
+        const skippedStock = 0;
 
         console.log("Debug: First 3 items stock type:", typeof namelessItems[0]?.stock_actual, namelessItems[0]?.stock_actual);
 
