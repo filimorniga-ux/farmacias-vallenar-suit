@@ -1,0 +1,89 @@
+Skip to content
+Navigation Menu
+[0] (40,46)<a aria-label='Homepage' class='mr-lg-3 color-fg-inherit flex-order-2 js-prevent-focus-on-mobile-nav' href='/' />
+[1] (107,46)<button class='NavDropdown-module__button__vgiCKGy js-details-target'>Platform />
+[2] (191,46)<button class='NavDropdown-module__button__vgiCKGy js-details-target'>Solutions />
+[3] (280,46)<button class='NavDropdown-module__button__vgiCKGy js-details-target'>Resources />
+[4] (382,46)<button class='NavDropdown-module__button__vgiCKGy js-details-target'>Open Source />
+[5] (482,46)<button class='NavDropdown-module__button__vgiCKGy js-details-target'>Enterprise />
+[6] (555,46)<a class='NavLink-module__link__oSrJNoD MarketingNavigation-module__navLink__YMEM0th' href='https://github.com/pricing' />
+	[7] (555,46)<span >Pricing />
+[8] (785,46)<button aria-label='Search or jump to…' class='header-search-button placeholder input-button form-control d-flex flex-1 flex-self-stretch flex-items-center no-wrap width-full py-0 pl-2 pr-0 text-left border-0 box-shadow-none' placeholder='Search or jump to...' />
+	[9] (785,46)<div  />
+[10] (836,46)<a class='HeaderMenu-link HeaderMenu-link--sign-in HeaderMenu-button flex-shrink-0 no-underline d-none d-lg-inline-flex border border-lg-0 rounded px-2 py-1' href='/login?return_to=https%3A%2F%2Fgithub.com%2Ffilimorniga-ux%2Ffarmacias-vallenar-suit%2Factions%2Fruns%2F21074168218%2Fjob%2F60611597967'>Sign in />
+[11] (906,46)<a class='HeaderMenu-link HeaderMenu-link--sign-up HeaderMenu-button flex-shrink-0 d-flex d-lg-inline-flex no-underline border color-border-default rounded px-2 py-1' href='/signup?ref_cta=Sign+up&ref_loc=header+logged+out&ref_page=%2F%3Cuser-name%3E%2F%3Crepo-name%3E%2Factions%2Fjob%2Findex&source=header-repo&source_repo=filimorniga-ux%2Ffarmacias-vallenar-suit'>Sign up />
+[12] (960,46)<button class='Button Button--iconOnly Button--invisible Button--medium AppHeader-button HeaderMenu-link border' id='icon-button-97393902-2895-4715-b33f-efb005468f2d' />
+[13] (97,131)<a class='url fn' href='/filimorniga-ux'>filimorniga-ux />
+/
+[14] (248,131)<a href='/filimorniga-ux/farmacias-vallenar-suit'>farmacias-vallenar-suit />
+Public
+[15] (736,130)<a aria-label='You must be signed in to change notification settings' class='btn-sm btn' href='/login?return_to=%2Ffilimorniga-ux%2Ffarmacias-vallenar-suit' id='repository-details-watch-button'>Notifications />
+[16] (837,130)<a class='btn-sm btn' href='/login?return_to=%2Ffilimorniga-ux%2Ffarmacias-vallenar-suit' id='fork-button'>Fork />
+	[17] (860,130)<span >0 />
+[18] (930,130)<a aria-label='You must be signed in to star a repository' class='tooltipped tooltipped-sw btn-sm btn' href='/login?return_to=%2Ffilimorniga-ux%2Ffarmacias-vallenar-suit' />
+	[19] (930,130)<span >Star />
+	[20] (953,130)<span >0 />
+[21] (58,202)<a class='UnderlineNav-item no-wrap js-responsive-underlinenav-item js-selected-navigation-item' href='/filimorniga-ux/farmacias-vallenar-suit' id='code-tab' />
+	[22] (68,202)<span >Code />
+[23] (143,202)<a class='UnderlineNav-item no-wrap js-responsive-underlinenav-item js-selected-navigation-item' href='/filimorniga-ux/farmacias-vallenar-suit/issues' id='issues-tab' />
+	[24] (141,202)<span >Issues />
+	[25] (174,202)<span >1 />
+[26] (249,202)<a class='UnderlineNav-item no-wrap js-responsive-underlinenav-item js-selected-navigation-item' href='/filimorniga-ux/farmacias-vallenar-suit/pulls' id='pull-requests-tab' />
+	[27] (259,202)<span >Pull requests />
+[28] (347,202)<a class='UnderlineNav-item no-wrap js-responsive-underlinenav-item js-selected-navigation-item selected' href='/filimorniga-ux/farmacias-vallenar-suit/actions' id='actions-tab' />
+	[29] (357,202)<span >Actions />
+[30] (431,202)<a class='UnderlineNav-item no-wrap js-responsive-underlinenav-item js-selected-navigation-item' href='/filimorniga-ux/farmacias-vallenar-suit/projects' id='projects-tab' />
+	[31] (441,202)<span >Projects />
+[32] (518,202)<a class='UnderlineNav-item no-wrap js-responsive-underlinenav-item js-selected-navigation-item' href='/filimorniga-ux/farmacias-vallenar-suit/security' id='security-tab' />
+	[33] (528,202)<span >Security />
+[34] (604,202)<a class='UnderlineNav-item no-wrap js-responsive-underlinenav-item js-selected-navigation-item' href='/filimorniga-ux/farmacias-vallenar-suit/pulse' id='insights-tab' />
+	[35] (614,202)<span >Insights />
+[36] (100,270)<a class='Link' href='/filimorniga-ux/farmacias-vallenar-suit/actions/workflows/release.yml' />
+	[37] (109,270)<span >Build & Release Electron />
+fix(build): correct electron-builder config schema
+#16
+[38] (913,307)<a class='btn' href='/login?return_to=https%3A%2F%2Fgithub.com%2Ffilimorniga-ux%2Ffarmacias-vallenar-suit%2Factions%2Fruns%2F21074168218%2Fjob%2F60611597967'>Sign in to view logs />
+[39] (133,546)<div  />
+	[40] (133,399)<a class='prc-ActionList-ActionListContent-KBb8- prc-Link-Link-9ZwDx' href='/filimorniga-ux/farmacias-vallenar-suit/actions/runs/21074168218' id='_r_2_' />
+		[41] (143,399)<span  />
+			[42] (143,399)<span >Summary />
+	All jobs
+	[43] (228,445)<button class='prc-Button-ButtonBase-9n-Xk prc-Button-IconButton-fyge7' id='_r_3_' />
+	[44] (133,512)<a class='prc-ActionList-ActionListContent-KBb8- prc-Link-Link-9ZwDx' href='/filimorniga-ux/farmacias-vallenar-suit/actions/runs/21074168218/job/60611597967' id='_r_h_' />
+		[45] (143,512)<span  />
+			[46] (143,512)<span >release (macos-latest) />
+	[47] (133,553)<a class='prc-ActionList-ActionListContent-KBb8- prc-Link-Link-9ZwDx' href='/filimorniga-ux/farmacias-vallenar-suit/actions/runs/21074168218/job/60611597970' id='_r_i_' />
+		[48] (143,553)<span  />
+			[49] (143,553)<span >release (windows-latest) />
+	Run details
+	[50] (133,652)<a class='prc-ActionList-ActionListContent-KBb8- prc-Link-Link-9ZwDx' href='/filimorniga-ux/farmacias-vallenar-suit/actions/runs/21074168218/usage' id='_r_9_' />
+		[51] (143,652)<span  />
+			[52] (143,652)<span >Usage />
+	[53] (133,693)<a class='prc-ActionList-ActionListContent-KBb8- prc-Link-Link-9ZwDx' href='/filimorniga-ux/farmacias-vallenar-suit/actions/runs/21074168218/workflow' id='_r_a_' />
+		[54] (143,693)<span  />
+			[55] (143,693)<span >Workflow file />
+[56] (308,419)<button aria-label='Open job annotations' class='Button--link Button--medium Button color-fg-muted' />
+	[57] (308,419)<span  />
+		[58] (308,419)<span  />
+Annotations
+1 error
+[59] (637,537)<a class='text-bold no-underline Link--inTextBlock' href='#logs' id='check-step-header-title' />
+	[60] (637,537)<span >release (macos-latest) />
+failed
+in 25m 56s
+Set up job
+1s
+Check out Git repository
+3s
+Install Node.js
+7s
+Install Dependencies
+37s
+Build Next.js App
+2m 6s
+Build & Publish Electron App
+22m 52s
+Post Install Node.js
+0s
+Post Check out Git repository
+3s

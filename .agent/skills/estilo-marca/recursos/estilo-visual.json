@@ -1,0 +1,46 @@
+{
+    "marca": "Farmacias Vallenar Suit",
+    "objetivo": "Mantener consistencia visual en UI y landings con estilo clínico y moderno.",
+    "paleta": {
+        "principal": "#0ea5e9",
+        "secundario": "#14b8a6",
+        "acento": "#0284c7",
+        "fondo": "#f8fafc",
+        "superficie": "#ffffff",
+        "texto": {
+            "principal": "#0f172a",
+            "secundario": "#64748b"
+        },
+        "bordes": "#e2e8f0",
+        "alertas": {
+            "error": "#ef4444"
+        }
+    },
+    "tipografia": {
+        "titulares": "Inter, sans-serif",
+        "cuerpo": "Inter, sans-serif",
+        "pesos": {
+            "normal": 400,
+            "medio": 500,
+            "negrita": 700
+        }
+    },
+    "formas": {
+        "radio_tarjeta": "16px",
+        "radio_boton": "12px",
+        "radio_input": "8px"
+    },
+    "espaciado": {
+        "xs": "4px",
+        "sm": "8px",
+        "md": "12px",
+        "lg": "16px",
+        "xl": "24px",
+        "xxl": "32px"
+    },
+    "componentes": {
+        "boton_principal": "Fondo #0ea5e9, texto blanco, hover #0284c7, shadow-modern-sm",
+        "tarjetas": "Fondo blanco, borde sutil o shadow-modern-sm, mucho aire",
+        "layout": "Limpio, clínico, uso de espacios en blanco"
+    }
+}

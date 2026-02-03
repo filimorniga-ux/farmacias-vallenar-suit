@@ -1,0 +1,4 @@
+{"mcpServers": {"tiger": {
+	"command": "/Users/miguelperdomoserrato/bin/tiger",
+	"args":    ["mcp", "start"]
+}}}
