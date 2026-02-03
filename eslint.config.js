@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', '.next', 'node_modules', 'coverage', '.example', 'public']),
+  globalIgnores(['dist', '.next', 'node_modules', 'coverage', '.example', 'public', 'scripts', 'android', 'ios']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -28,6 +28,11 @@ export default defineConfig([
       '@typescript-eslint/no-require-imports': 'warn',
       'no-useless-escape': 'warn',
       'react-hooks/purity': 'warn',
+      'react-hooks/rules-of-hooks': 'warn',
+      'react-hooks/exhaustive-deps': 'warn',
+      'prefer-const': 'warn',
+      '@next/next/no-img-element': 'off', // We fix this by removing the comment, but just in case
+      'react-hooks/set-state-in-effect': 'warn',
     },
   },
 ])

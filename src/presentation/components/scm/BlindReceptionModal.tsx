@@ -11,8 +11,8 @@ interface BlindReceptionModalProps {
 }
 
 const BlindReceptionModal: React.FC<BlindReceptionModalProps> = ({ isOpen, order, onReceive, onClose }) => {
-    if (!isOpen) return null;
     const [receivedQuantities, setReceivedQuantities] = useState<{ [sku: string]: number }>({});
+    if (!isOpen) return null;
 
     const handleInputChange = (sku: string, value: string) => {
         setReceivedQuantities(prev => ({

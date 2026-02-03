@@ -696,7 +696,6 @@ export default function InvoiceListPage() {
                                     {/* Image Display */}
                                     {selectedParsing.original_file_base64 ? (
                                         <div className="relative w-full h-[600px] border rounded-lg overflow-hidden bg-gray-50 flex items-center justify-center">
-                                            {/* eslint-disable-next-line @next/next/no-img-element */}
                                             <img
                                                 src={`data:${selectedParsing.original_file_type || 'image/jpeg'};base64,${selectedParsing.original_file_base64}`}
                                                 alt="Documento Original"

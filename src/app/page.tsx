@@ -4,17 +4,18 @@ import ClientApp from '../components/ClientApp';
 import { cookies } from 'next/headers';
 
 export default async function Page() {
+    let hasLocation = false;
+    let error = null;
+
     try {
         const cookieStore = await cookies();
-        const hasLocation = cookieStore.has('preferred_location_id');
+        hasLocation = cookieStore.has('preferred_location_id');
+    } catch (e) {
+        console.error('CRITICAL ERROR in Root Page:', e);
+        error = e;
+    }
 
-        return (
-            <div className="min-h-screen bg-slate-50 text-slate-900">
-                <ClientApp forceContextSelection={!hasLocation} />
-            </div>
-        );
-    } catch (error) {
-        console.error('CRITICAL ERROR in Root Page:', error);
+    if (error) {
         // Fallback to client app (it handles its own routing)
         return (
             <div className="min-h-screen bg-red-50 flex items-center justify-center">
@@ -26,4 +27,10 @@ export default async function Page() {
             </div>
         );
     }
+
+    return (
+        <div className="min-h-screen bg-slate-50 text-slate-900">
+            <ClientApp forceContextSelection={!hasLocation} />
+        </div>
+    );
 }

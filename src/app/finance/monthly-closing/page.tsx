@@ -163,7 +163,6 @@ export default function MonthlyClosingPage() {
     }, [selectedMonth, selectedYear]);
 
     useEffect(() => {
-        setForms(buildFormState(selectedYear, selectedMonth));
         loadData();
     }, [selectedMonth, selectedYear, loadData]);
 
@@ -176,6 +175,18 @@ export default function MonthlyClosingPage() {
         if (!date) return false;
         const [year, month] = date.split('-').map(Number);
         return year === selectedYear && month === selectedMonth;
+    };
+
+    const handleMonthChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const m = Number(e.target.value);
+        setSelectedMonth(m);
+        setForms(buildFormState(selectedYear, m));
+    };
+
+    const handleYearChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const y = Number(e.target.value);
+        setSelectedYear(y);
+        setForms(buildFormState(y, selectedMonth));
     };
 
     const handleAddEntry = async (category: EntryCategory) => {
@@ -403,7 +414,7 @@ export default function MonthlyClosingPage() {
                 <div className="flex bg-white rounded-xl shadow-sm border border-slate-200 p-1">
                     <select
                         value={selectedMonth}
-                        onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                        onChange={handleMonthChange}
                         className="bg-transparent font-bold text-slate-700 p-2 rounded-lg outline-none cursor-pointer hover:bg-slate-50"
                     >
                         {MONTHS.map((m, i) => (
@@ -415,7 +426,7 @@ export default function MonthlyClosingPage() {
                     <div className="w-px bg-slate-200 mx-2 my-1"></div>
                     <select
                         value={selectedYear}
-                        onChange={(e) => setSelectedYear(Number(e.target.value))}
+                        onChange={handleYearChange}
                         className="bg-transparent font-bold text-slate-700 p-2 rounded-lg outline-none cursor-pointer hover:bg-slate-50"
                     >
                         {[2024, 2025, 2026].map((y) => (
