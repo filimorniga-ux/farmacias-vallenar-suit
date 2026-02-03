@@ -239,7 +239,11 @@ const QueueWidget: React.FC = () => {
                         {/* Primary Action Button */}
                         <button
                             onClick={async (e) => {
-                                hasTicket ? await handleCompleteAndNext(e) : await handleCallNext(e);
+                                if (hasTicket) {
+                                    await handleCompleteAndNext(e);
+                                } else {
+                                    await handleCallNext(e);
+                                }
                                 setShowDropdown(false);
                             }}
                             disabled={loading || (!hasTicket && count === 0)}

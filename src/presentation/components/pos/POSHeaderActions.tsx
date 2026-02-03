@@ -75,35 +75,37 @@ export const POSHeaderActions: React.FC<POSHeaderActionsProps> = ({
 
     const isShiftActive = shiftStatus === 'ACTIVE';
 
-    // Dropdown Menu Item Component
+    // Helper Component moved outside
     const MenuItem = ({
         icon: Icon,
         label,
         onClick,
         danger = false,
-        disabled = false
+        disabled = false,
+        onClose
     }: {
         icon: any,
         label: string,
         onClick: () => void,
         danger?: boolean,
-        disabled?: boolean
+        disabled?: boolean,
+        onClose: () => void
     }) => (
         <button
             onClick={(e) => {
                 if (disabled) return;
                 onClick();
-                setIsMenuOpen(false);
+                onClose();
                 e.stopPropagation();
             }}
             disabled={disabled}
             className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors
-                ${danger
+            ${danger
                     ? 'text-red-600 hover:bg-red-50'
                     : 'text-slate-700 hover:bg-slate-50'
                 }
-                ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
-            `}
+            ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
+        `}
         >
             <Icon size={18} className={danger ? 'text-red-500' : 'text-slate-400'} />
             {label}
@@ -204,31 +206,37 @@ export const POSHeaderActions: React.FC<POSHeaderActionsProps> = ({
                                             icon={Box}
                                             label="Historial de Ventas"
                                             onClick={onHistory}
+                                            onClose={() => setIsMenuOpen(false)}
                                         />
                                         <MenuItem
                                             icon={FileText}
                                             label="Historial Cotizaciones"
                                             onClick={onQuoteHistory}
+                                            onClose={() => setIsMenuOpen(false)}
                                         />
                                         <MenuItem
                                             icon={RefreshCw}
                                             label="Historial de Turnos"
                                             onClick={onShiftHistory}
+                                            onClose={() => setIsMenuOpen(false)}
                                         />
                                         <MenuItem
                                             icon={DollarSign}
                                             label="Ingreso / Gasto"
                                             onClick={onMovement}
+                                            onClose={() => setIsMenuOpen(false)}
                                         />
                                         <MenuItem
                                             icon={RefreshCw}
                                             label="Cambio de Turno"
                                             onClick={onHandover}
+                                            onClose={() => setIsMenuOpen(false)}
                                         />
                                         <MenuItem
                                             icon={Lock}
                                             label="Arqueo Parcial"
                                             onClick={onAudit}
+                                            onClose={() => setIsMenuOpen(false)}
                                         />
                                     </div>
 
@@ -236,10 +244,10 @@ export const POSHeaderActions: React.FC<POSHeaderActionsProps> = ({
 
                                     {/* Mobile Only Actions in Menu */}
                                     <div className="md:hidden py-1">
-                                        <MenuItem icon={Plus} label="Producto Manual" onClick={onManualItem} />
-                                        <MenuItem icon={FileText} label={isQuoteMode ? "Salir Cotización" : "Modo Cotización"} onClick={onQuote} />
-                                        <MenuItem icon={Box} label="Historial" onClick={onHistory} />
-                                        <MenuItem icon={Trash2} label="Limpiar Carrito" onClick={onClearCart} danger />
+                                        <MenuItem icon={Plus} label="Producto Manual" onClick={onManualItem} onClose={() => setIsMenuOpen(false)} />
+                                        <MenuItem icon={FileText} label={isQuoteMode ? "Salir Cotización" : "Modo Cotización"} onClick={onQuote} onClose={() => setIsMenuOpen(false)} />
+                                        <MenuItem icon={Box} label="Historial" onClick={onHistory} onClose={() => setIsMenuOpen(false)} />
+                                        <MenuItem icon={Trash2} label="Limpiar Carrito" onClick={onClearCart} danger onClose={() => setIsMenuOpen(false)} />
                                         <div className="h-px bg-slate-100 my-1"></div>
                                     </div>
 
@@ -249,6 +257,7 @@ export const POSHeaderActions: React.FC<POSHeaderActionsProps> = ({
                                             label="Cerrar Turno"
                                             onClick={onCloseTurn}
                                             danger
+                                            onClose={() => setIsMenuOpen(false)}
                                         />
                                     </div>
                                 </>
@@ -258,6 +267,7 @@ export const POSHeaderActions: React.FC<POSHeaderActionsProps> = ({
                                         icon={Lock}
                                         label="Abrir Turno"
                                         onClick={onOpenTurn}
+                                        onClose={() => setIsMenuOpen(false)}
                                     />
                                 </div>
                             )}

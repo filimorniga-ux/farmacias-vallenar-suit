@@ -24,7 +24,7 @@ vi.mock('@/lib/db', () => ({
             query: mockQuery,
             release: mockRelease
         }),
-        query: vi.fn()
+        query: vi.fn(() => Promise.resolve({ rows: [], rowCount: 0 }))
     },
     query: vi.fn()
 }));

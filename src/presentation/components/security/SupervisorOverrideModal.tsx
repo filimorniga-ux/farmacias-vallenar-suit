@@ -88,7 +88,9 @@ export const SupervisorOverrideModal: React.FC<SupervisorOverrideModalProps> = (
             } else {
                 console.log('✅ [SupervisorOverride] Authorized by:', result.authorizedBy?.name, '(bcrypt validated)');
             }
-            onAuthorize(result.authorizedBy?.id!);
+            if (result.authorizedBy?.id) {
+                onAuthorize(result.authorizedBy.id);
+            }
             setPin('');
             // onClose(); // Removed to prevent race condition with parent state update
         } catch (error) {

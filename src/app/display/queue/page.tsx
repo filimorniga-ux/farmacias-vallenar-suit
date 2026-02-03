@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings, MapPin, Volume2, VolumeX, Maximize, Monitor, LogOut, Users, Check } from 'lucide-react';
 import { getPublicLocationsSecure } from '@/actions/public-network-v2';
@@ -214,7 +214,7 @@ export default function QueueDisplayPage() {
     // AUDIO SYSTEM
     // ========================================================================
 
-    const playDingDong = () => {
+    const playDingDong = useCallback(() => {
         if (isMuted) return;
 
         try {
@@ -224,10 +224,6 @@ export default function QueueDisplayPage() {
 
             const ctx = audioContextRef.current;
             const t = ctx.currentTime;
-
-            // Pleasant Chime: G4 -> E5 (Major 6thish nice interval) or G4 -> C5
-            // Let's do a soft "Ding-Dong" (G4 ... E4) or (C5 ... A4)
-            // Using Triangle/Sine mix for softness
 
             const playNote = (freq: number, startTime: number, duration: number) => {
                 const osc = ctx.createOscillator();
@@ -256,9 +252,9 @@ export default function QueueDisplayPage() {
         } catch (e) {
             console.error('Audio error', e);
         }
-    };
+    }, [isMuted]);
 
-    const playAnnouncement = (ticket: Ticket) => {
+    const playAnnouncement = useCallback((ticket: Ticket) => {
         if (isMuted) {
             console.log('[QueueAudio] Skipped because MUTED');
             return;
@@ -314,10 +310,10 @@ export default function QueueDisplayPage() {
             window.speechSynthesis.cancel(); // Stop previous
             window.speechSynthesis.speak(utterance);
         }, 1200);
-    };
+    }, [isMuted, playDingDong]);
 
     // DEBUG ACTION
-    const testAudio = () => {
+    const testAudio = useCallback(() => {
         if (!audioContextRef.current) {
             audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
         }
@@ -331,7 +327,7 @@ export default function QueueDisplayPage() {
             created_at: new Date().toISOString(),
             called_at: new Date().toISOString()
         });
-    };
+    }, [playAnnouncement]);
 
     const getModuleDisplay = (t: Ticket) => {
         if (t.module_number) return `${t.module_number}`;

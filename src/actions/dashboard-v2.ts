@@ -125,7 +125,8 @@ export async function getFinancialMetricsSecure(
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    let { dateRange, locationId, terminalId } = validated.data;
+    const { dateRange } = validated.data;
+    let { locationId, terminalId } = validated.data;
 
     // RBAC: Restricciones por rol
     if (!ADMIN_ROLES.includes(session.role)) {

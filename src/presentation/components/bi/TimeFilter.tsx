@@ -47,10 +47,11 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ onFilterChange, initialRange })
                     from = new Date(today.getFullYear(), today.getMonth() - 1, 1);
                     to = new Date(today.getFullYear(), today.getMonth(), 0);
                     break;
-                case 'current_quarter':
+                case 'current_quarter': {
                     const quarter = Math.floor(today.getMonth() / 3);
                     from = new Date(today.getFullYear(), quarter * 3, 1);
                     break;
+                }
                 case 'current_year':
                     from = new Date(today.getFullYear(), 0, 1);
                     break;
