@@ -141,7 +141,6 @@ const LocationSwitcher: React.FC = () => {
     const Icon = getLocationIcon(currentLocation.type);
     // ESLint seems to hate this.
     // Let's just suppress it.
-    /* eslint-disable-next-line react/no-unstable-nested-components */
     const IconComponent = Icon;
 
 
