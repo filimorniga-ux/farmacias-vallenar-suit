@@ -75,7 +75,7 @@ async function enrichProducts() {
     const client = await pool.connect();
     let updatedCount = 0;
     let notFoundCount = 0;
-    let errorCount = 0;
+    const errorCount = 0;
 
     try {
         await client.query('BEGIN');

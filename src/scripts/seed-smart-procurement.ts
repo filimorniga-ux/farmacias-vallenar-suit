@@ -67,7 +67,7 @@ async function seed() {
         if (!locationId) throw new Error('No active location found');
 
         // Get or Create Terminal
-        let termRes = await client.query('SELECT id FROM terminals WHERE location_id = $1 LIMIT 1', [locationId]);
+        const termRes = await client.query('SELECT id FROM terminals WHERE location_id = $1 LIMIT 1', [locationId]);
         let terminalId = termRes.rows[0]?.id;
         if (!terminalId) {
             terminalId = uuidv4();
@@ -173,7 +173,7 @@ async function seed() {
             `);
 
             // Resolve Warehouse
-            let whIdRes = await client.query('SELECT default_warehouse_id FROM locations WHERE id=$1', [locationId]);
+            const whIdRes = await client.query('SELECT default_warehouse_id FROM locations WHERE id=$1', [locationId]);
             let whId = whIdRes.rows[0]?.default_warehouse_id;
 
             if (!whId) {
@@ -213,7 +213,7 @@ async function seed() {
             // Let's do random transactions over the last 30 days.
 
             let soldSoFar = 0;
-            let dayOffset = 0;
+            const dayOffset = 0;
 
             while (soldSoFar < totalSalesNeeded) {
                 const qty = Math.ceil(Math.random() * 3); // 1-3 units per sale

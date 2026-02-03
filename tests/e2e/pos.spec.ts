@@ -185,12 +185,12 @@ test.describe('POS Accessibility', () => {
         await page.setViewportSize({ width: 375, height: 667 }); // Mobile
         await page.waitForTimeout(500);
         
-        let mobileVisible = await page.locator('body').isVisible();
+        const mobileVisible = await page.locator('body').isVisible();
         
         await page.setViewportSize({ width: 1280, height: 800 }); // Desktop
         await page.waitForTimeout(500);
         
-        let desktopVisible = await page.locator('body').isVisible();
+        const desktopVisible = await page.locator('body').isVisible();
         
         expect(mobileVisible && desktopVisible).toBeTruthy();
     });

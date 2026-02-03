@@ -114,7 +114,7 @@ async function main() {
             // Map Web
             let websiteVal = null;
             let notesVal = null;
-            let fantasyNameVal = sup.name;
+            const fantasyNameVal = sup.name;
 
             if (hasWebsite && sup.web) {
                 websiteVal = `https://www.${sup.web}`;
@@ -140,7 +140,7 @@ async function main() {
             // Prepare Query dynamically based on what we have
             const insertFields = ['id', 'rut', 'business_name', 'fantasy_name', 'address'];
             const insertValues: any[] = [id, rut, sup.name, fantasyNameVal, sup.address];
-            let idx = 6;
+            const idx = 6;
 
             if (hasWebsite) { insertFields.push('website'); insertValues.push(String(websiteVal)); }
             if (hasNotes) { insertFields.push('notes'); insertValues.push(String(notesVal)); }

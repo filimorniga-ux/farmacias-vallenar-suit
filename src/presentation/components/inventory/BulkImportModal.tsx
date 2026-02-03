@@ -101,7 +101,7 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
         };
 
         // 1. SKU (Prioridad o Generado)
-        let rawSku = findVal(row, ['código barras', 'codigo barras', 'sku', 'barcode', 'code', 'codigo']);
+        const rawSku = findVal(row, ['código barras', 'codigo barras', 'sku', 'barcode', 'code', 'codigo']);
         let sku = cleanStr(rawSku);
 
         // Fix Scientific Notation
@@ -237,7 +237,7 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
     const handleImport = async () => {
         setIsProcessing(true);
         let successCount = 0;
-        let errorCount = 0;
+        const errorCount = 0;
 
         try {
             const validRows = importedData.filter(r => r.isValid);

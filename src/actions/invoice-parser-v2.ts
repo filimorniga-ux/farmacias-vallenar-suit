@@ -641,7 +641,7 @@ async function matchInvoiceItems(items: ParsedInvoiceItem[], supplierId?: string
     const results: ParsedInvoiceItem[] = [];
 
     for (const item of items) {
-        let match: any = null;
+        const match: any = null;
         let suggestions: ProductMatch[] = [];
 
         // 1. Exact Match by Supplier SKU (Re-enabled via query if table exists, skipping for now as per comment)
@@ -902,8 +902,8 @@ export async function parseInvoiceDocumentSecure(
         const results = await matchInvoiceItems(itemsWithStatus, supplierId);
 
         // Calculate counts
-        let mappedCount = results.filter((i: any) => i.mapping_status === 'MAPPED').length;
-        let unmappedCount = results.filter((i: any) => i.mapping_status !== 'MAPPED').length;
+        const mappedCount = results.filter((i: any) => i.mapping_status === 'MAPPED').length;
+        const unmappedCount = results.filter((i: any) => i.mapping_status !== 'MAPPED').length;
 
         // Update parsed data with matched items
         parsedData.items = results as ParsedInvoiceItem[];

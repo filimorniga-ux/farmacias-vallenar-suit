@@ -53,7 +53,7 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ viewMode = 'LIVE'
         setIsLoading(true);
         const now = new Date();
         let startDate: Date;
-        let endDate = new Date();
+        const endDate = new Date();
 
         if (dateRange === 'TODAY') {
             startDate = new Date(now.setHours(0, 0, 0, 0));

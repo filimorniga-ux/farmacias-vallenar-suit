@@ -284,8 +284,8 @@ describe('Rate Limiter', () => {
             }
 
             // user2 debería estar permitido
-            let result1 = checkRateLimit(user1);
-            let result2 = checkRateLimit(user2);
+            const result1 = checkRateLimit(user1);
+            const result2 = checkRateLimit(user2);
 
             expect(result1.allowed).toBe(false);
             expect(result2.allowed).toBe(true);

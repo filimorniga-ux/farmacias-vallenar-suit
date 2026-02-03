@@ -254,7 +254,7 @@ export async function generateDraftScheduleV2(data: z.infer<typeof GenerateSchem
             // Construir Timestamps (Manejo de cruce de día)
             // tmpl.start_time es "HH:MM:SS"
             const startDateTime = new Date(`${dateStr}T${tmpl.start_time}`);
-            let endDateTime = new Date(`${dateStr}T${tmpl.end_time}`);
+            const endDateTime = new Date(`${dateStr}T${tmpl.end_time}`);
 
             if (endDateTime <= startDateTime) {
                 // Cruza medianoche (ej: 22:00 -> 06:00)

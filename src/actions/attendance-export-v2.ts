@@ -22,8 +22,8 @@ async function getSession(): Promise<{ userId: string; role: string; locationId?
 
         let userId = headersList.get('x-user-id');
         let role = headersList.get('x-user-role');
-        let locationId = headersList.get('x-user-location');
-        let userName = headersList.get('x-user-name');
+        const locationId = headersList.get('x-user-location');
+        const userName = headersList.get('x-user-name');
 
         if (!userId || !role) {
             const cookieStore = await cookies();

@@ -1158,7 +1158,7 @@ export async function retrieveQuoteSecure(
         `, [quoteId]);
 
         // Validate Location and Stock (Optional but recommended)
-        let stockWarnings: string[] = [];
+        const stockWarnings: string[] = [];
 
         // If we want to check stock in the quote's location:
         if (quote.location_id) {

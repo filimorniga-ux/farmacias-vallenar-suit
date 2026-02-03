@@ -139,8 +139,8 @@ export async function getAuditLogsSecure(params: z.infer<typeof GetAuditLogsSche
     const { page, limit, startDate, endDate, userId, actionCode, severity, searchTerm, entityType } = validation.data;
 
     try {
-        let whereConditions: string[] = [];
-        let queryParams: any[] = [];
+        const whereConditions: string[] = [];
+        const queryParams: any[] = [];
         let paramIndex = 1;
 
         if (startDate) { whereConditions.push(`al.created_at >= $${paramIndex}::timestamp`); queryParams.push(startDate); paramIndex++; }
@@ -305,8 +305,8 @@ export async function exportAuditLogsSecure(
     }
 
     try {
-        let whereConditions: string[] = [];
-        let queryParams: any[] = [];
+        const whereConditions: string[] = [];
+        const queryParams: any[] = [];
         let paramIndex = 1;
 
         if (params.startDate) { whereConditions.push(`al.created_at >= $${paramIndex}::timestamp`); queryParams.push(params.startDate); paramIndex++; }

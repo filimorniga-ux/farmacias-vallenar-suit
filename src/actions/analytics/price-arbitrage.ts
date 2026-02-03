@@ -63,7 +63,7 @@ export async function searchUnifiedProducts(searchTerm: string, filters?: Search
 
     try {
         const params: any[] = [];
-        let whereClauses: string[] = [];
+        const whereClauses: string[] = [];
 
         // 1. Text Search
         if (searchTerm && searchTerm.trim().length > 0) {

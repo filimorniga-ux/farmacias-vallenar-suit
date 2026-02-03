@@ -28,8 +28,8 @@ export async function searchProductsAction(
 
     try {
         const searchTerm = term ? `%${term.trim()}%` : null;
-        let params: any[] = [];
-        let paramCounter = 1;
+        const params: any[] = [];
+        const paramCounter = 1;
 
         // Helper to build WHERE clause for each subquery
         const buildWhere = (prefix: string) => {

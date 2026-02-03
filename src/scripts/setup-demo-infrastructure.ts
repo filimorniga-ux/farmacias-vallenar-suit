@@ -95,7 +95,7 @@ async function setupDemo() {
 
         for (const loc of targetLocations) {
             // Upsert Location
-            let res = await query("SELECT id FROM locations WHERE name = $1", [loc.name]);
+            const res = await query("SELECT id FROM locations WHERE name = $1", [loc.name]);
             let locId;
             if (res.rows.length === 0) {
                 locId = uuidv4();
@@ -183,7 +183,7 @@ async function setupDemo() {
 
             // Upsert User by email
             const existing = await query("SELECT id FROM users WHERE email = $1", [u.email]);
-            let userId = existing.rows[0]?.id || uuidv4();
+            const userId = existing.rows[0]?.id || uuidv4();
 
             if (existing.rows.length === 0) {
                 await query(`

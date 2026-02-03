@@ -48,8 +48,8 @@ export function ShiftEditDialog({ shift, isOpen, onClose }: ShiftEditDialogProps
                 return newDate;
             };
 
-            let newStartAt = setTime(new Date(shift.start_at), start);
-            let newEndAt = setTime(new Date(shift.end_at), end);
+            const newStartAt = setTime(new Date(shift.start_at), start);
+            const newEndAt = setTime(new Date(shift.end_at), end);
 
             // Heuristic: If end time is conceptually "next day" but the user edited it...
             // Best logic for this simple UI: 

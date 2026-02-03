@@ -35,7 +35,7 @@ async function querySales(args: { product_name?: string, location_name?: string,
         `;
 
         const params: any[] = [];
-        let paramValues: any[] = [];
+        const paramValues: any[] = [];
 
         if (args.product_name) {
             sql += ` AND si.name ILIKE $${params.length + 1}`;
@@ -74,7 +74,7 @@ async function querySales(args: { product_name?: string, location_name?: string,
 async function queryInventory(args: { product_name?: string, location_id?: string, critical_only?: boolean }): Promise<QueryResult> {
     try {
         // NOTE: Inventory table schema might also vary. Using basic columns.
-        let sql = `
+        const sql = `
             SELECT 
                 i.product_id, -- Fallback if join fails
                 i.quantity
