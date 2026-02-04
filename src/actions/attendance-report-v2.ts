@@ -14,7 +14,7 @@
 
 import { query } from '@/lib/db';
 import { z } from 'zod';
-import { headers } from 'next/headers';
+
 import { logger } from '@/lib/logger';
 import { getSessionSecure } from './auth-v2';
 
@@ -22,7 +22,7 @@ import { getSessionSecure } from './auth-v2';
 // SCHEMAS
 // ============================================================================
 
-const UUIDSchema = z.string().uuid('ID inválido');
+
 
 // ============================================================================
 // TYPES
@@ -92,6 +92,7 @@ export async function getMyAttendanceSummary(
 
         const res = await query(sql, [session.userId, params.startDate, params.endDate]);
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const data: AttendanceDailySummary[] = res.rows.map((row: any) => {
             const checkInDate = row.first_in ? new Date(row.first_in) : null;
             let status: 'PRESENT' | 'ABSENT' | 'LATE' = 'PRESENT';
@@ -119,7 +120,7 @@ export async function getMyAttendanceSummary(
 
         return { success: true, data };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Attendance] My summary error');
         return { success: false, error: 'Error obteniendo asistencia' };
     }
@@ -151,6 +152,7 @@ export async function getTeamAttendanceSecure(
     }
 
     try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const sqlParams: any[] = [params.startDate, params.endDate];
         let locationFilter = '';
         if (locationId) {
@@ -179,6 +181,7 @@ export async function getTeamAttendanceSecure(
 
         const res = await query(sql, sqlParams);
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const data: AttendanceDailySummary[] = res.rows.map((row: any) => {
             const checkInDate = row.first_in ? new Date(row.first_in) : null;
             let status: 'PRESENT' | 'ABSENT' | 'LATE' = 'PRESENT';
@@ -208,7 +211,7 @@ export async function getTeamAttendanceSecure(
         logger.info({ userId: session.userId, rows: data.length }, '👥 [Attendance] Team report');
         return { success: true, data };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Attendance] Team report error');
         return { success: false, error: 'Error obteniendo asistencia' };
     }
@@ -235,6 +238,7 @@ export async function getAttendanceReportSecure(
     }
 
     try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const sqlParams: any[] = [params.startDate, params.endDate];
         let filters = '';
 
@@ -269,6 +273,7 @@ export async function getAttendanceReportSecure(
 
         const res = await query(sql, sqlParams);
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const data: AttendanceDailySummary[] = res.rows.map((row: any) => {
             const checkInDate = row.first_in ? new Date(row.first_in) : null;
             let status: 'PRESENT' | 'ABSENT' | 'LATE' = 'PRESENT';
@@ -303,7 +308,7 @@ export async function getAttendanceReportSecure(
 
         return { success: true, data };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Attendance] Full report error');
         return { success: false, error: 'Error obteniendo reporte' };
     }
@@ -371,7 +376,7 @@ export async function getAttendanceKPIsSecure(
             },
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Attendance] KPIs error');
         return { success: false, error: 'Error obteniendo KPIs' };
     }
