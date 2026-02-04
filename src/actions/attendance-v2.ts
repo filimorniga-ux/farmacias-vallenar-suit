@@ -92,6 +92,7 @@ async function getSession(): Promise<{ userId: string; role: string } | null> {
 }
 
 async function validateManagerPin(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     client: any,
     pin: string
 ): Promise<{ valid: boolean; manager?: { id: string; name: string }; error?: string }> {
@@ -121,7 +122,7 @@ async function validateManagerPin(
             }
         }
         return { valid: false, error: 'PIN de manager inválido' };
-    } catch (error) {
+    } catch {
         return { valid: false, error: 'Error validando PIN' };
     }
 }
@@ -189,7 +190,7 @@ export async function validateEmployeePinSecure(
 
         return { success: true, valid: false, error: 'PIN incorrecto' };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error, employeeId }, '[Attendance] Error validating employee PIN');
         return { success: false, valid: false, error: 'Error de validación' };
     }
@@ -237,7 +238,7 @@ export async function getEmployeeStatusForKiosk(
             lastTime: lastTime ? new Date(lastTime).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : undefined
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error, employeeId }, '[Attendance] Error getting employee status for kiosk');
         return { success: false, status: 'OUT', error: 'Error obteniendo estado' };
     }
@@ -294,12 +295,13 @@ export async function getBatchEmployeeStatusForKiosk(
 
         return { success: true, statuses };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Attendance] Error getting batch employee status');
         return { success: false, statuses: {}, error: 'Error obteniendo estados' };
     }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getLastAttendanceType(client: any, userId: string): Promise<string | null> {
     const res = await client.query(`
         SELECT type FROM attendance_logs
@@ -330,7 +332,7 @@ export async function registerAttendanceSecure(
 
     // Modificado: Permitir overtime > 4h (se marcará como pendiente de aprobación implícitamente)
     // El estado 'overtime_approved' es FALSE por defecto en DB, así que queda pendiente.
-    const requiresApproval = overtimeMinutes > OVERTIME_THRESHOLD_MINUTES;
+    // const requiresApproval = overtimeMinutes > OVERTIME_THRESHOLD_MINUTES;
 
     const client = await pool.connect();
 
@@ -395,7 +397,7 @@ export async function registerAttendanceSecure(
         logger.info({ userId, type, locationId }, `📝 [Attendance] ${type} registered`);
         return { success: true, attendanceId };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         logger.error({ error }, '[Attendance] Register error');
         return { success: false, error: 'Error registrando asistencia' };
