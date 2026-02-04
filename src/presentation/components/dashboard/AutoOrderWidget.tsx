@@ -21,10 +21,6 @@ export const AutoOrderWidget: React.FC = () => {
         isLoading: true
     });
 
-    useEffect(() => {
-        loadSuggestions();
-    }, []);
-
     const loadSuggestions = async () => {
         try {
             // Analizar para Santiago por defecto (o tomar del user context si fuera necesario)
@@ -50,6 +46,10 @@ export const AutoOrderWidget: React.FC = () => {
             setStats(prev => ({ ...prev, isLoading: false }));
         }
     };
+
+    useEffect(() => {
+        loadSuggestions();
+    }, []);
 
     if (stats.isLoading) {
         return (

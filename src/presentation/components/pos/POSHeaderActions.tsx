@@ -41,6 +41,44 @@ interface POSHeaderActionsProps {
     onClearCart: () => void;
 }
 
+// Helper Component moved outside
+const MenuItem = ({
+    icon: Icon,
+    label,
+    onClick,
+    danger = false,
+    disabled = false,
+    onClose
+}: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    icon: any,
+    label: string,
+    onClick: () => void,
+    danger?: boolean,
+    disabled?: boolean,
+    onClose: () => void
+}) => (
+    <button
+        onClick={(e) => {
+            if (disabled) return;
+            onClick();
+            onClose();
+            e.stopPropagation();
+        }}
+        disabled={disabled}
+        className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors
+        ${danger
+                ? 'text-red-600 hover:bg-red-50'
+                : 'text-slate-700 hover:bg-slate-50'
+            }
+        ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
+    `}
+    >
+        <Icon size={18} className={danger ? 'text-red-500' : 'text-slate-400'} />
+        {label}
+    </button>
+);
+
 export const POSHeaderActions: React.FC<POSHeaderActionsProps> = ({
     shiftStatus,
     shiftId,
@@ -75,42 +113,7 @@ export const POSHeaderActions: React.FC<POSHeaderActionsProps> = ({
 
     const isShiftActive = shiftStatus === 'ACTIVE';
 
-    // Helper Component moved outside
-    const MenuItem = ({
-        icon: Icon,
-        label,
-        onClick,
-        danger = false,
-        disabled = false,
-        onClose
-    }: {
-        icon: any,
-        label: string,
-        onClick: () => void,
-        danger?: boolean,
-        disabled?: boolean,
-        onClose: () => void
-    }) => (
-        <button
-            onClick={(e) => {
-                if (disabled) return;
-                onClick();
-                onClose();
-                e.stopPropagation();
-            }}
-            disabled={disabled}
-            className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors
-            ${danger
-                    ? 'text-red-600 hover:bg-red-50'
-                    : 'text-slate-700 hover:bg-slate-50'
-                }
-            ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
-        `}
-        >
-            <Icon size={18} className={danger ? 'text-red-500' : 'text-slate-400'} />
-            {label}
-        </button>
-    );
+
 
     return (
         <div className="flex items-center gap-2">

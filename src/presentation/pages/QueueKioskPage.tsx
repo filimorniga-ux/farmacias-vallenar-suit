@@ -25,6 +25,72 @@ interface Location {
 // MAIN COMPONENT
 // =============================================================================
 
+const Keypad = ({ onNumberClick, onBackspace }: { onNumberClick: (n: string) => void, onBackspace: () => void }) => (
+    <div className="grid grid-cols-3 gap-3 max-w-xs mx-auto">
+        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'K', 0].map((k) => (
+            <button
+                key={k}
+                onClick={() => onNumberClick(k.toString())}
+                className="h-16 text-2xl font-bold bg-slate-100 text-slate-700 rounded-2xl active:bg-blue-100 active:text-blue-600 transition-all border border-slate-200 shadow-sm"
+            >
+                {k}
+            </button>
+        ))}
+        <button
+            onClick={onBackspace}
+            className="h-16 flex items-center justify-center bg-red-50 text-red-500 rounded-2xl active:bg-red-100 transition-all border border-red-100"
+        >
+            <X size={28} />
+        </button>
+    </div>
+);
+
+const PhoneKeypad = ({ onNumberClick, onBackspace }: { onNumberClick: (n: string) => void, onBackspace: () => void }) => (
+    <div className="grid grid-cols-3 gap-3 max-w-xs mx-auto">
+        {[1, 2, 3, 4, 5, 6, 7, 8, 9, '+', 0].map((k) => (
+            <button
+                key={k}
+                onClick={() => onNumberClick(k.toString())}
+                className="h-16 text-2xl font-bold bg-slate-100 text-slate-700 rounded-2xl active:bg-blue-100 active:text-blue-600 transition-all border border-slate-200 shadow-sm"
+            >
+                {k}
+            </button>
+        ))}
+        <button
+            onClick={onBackspace}
+            className="h-16 flex items-center justify-center bg-red-50 text-red-500 rounded-2xl active:bg-red-100 transition-all border border-red-100"
+        >
+            <X size={28} />
+        </button>
+    </div>
+);
+
+const Keyboard = ({ onCharClick, onSpace, onBackspace }: { onCharClick: (c: string) => void, onSpace: () => void, onBackspace: () => void }) => (
+    <div className="grid grid-cols-10 gap-1.5 max-w-2xl mx-auto">
+        {'QWERTYUIOPASDFGHJKLÑZXCVBNM'.split('').map(char => (
+            <button
+                key={char}
+                onClick={() => onCharClick(char)}
+                className="h-12 text-lg font-bold bg-slate-100 text-slate-700 rounded-xl active:bg-blue-100 active:text-blue-600 transition-all"
+            >
+                {char}
+            </button>
+        ))}
+        <button
+            onClick={onSpace}
+            className="col-span-8 h-12 text-lg font-bold bg-slate-100 text-slate-600 rounded-xl"
+        >
+            ESPACIO
+        </button>
+        <button
+            onClick={onBackspace}
+            className="col-span-2 h-12 flex items-center justify-center bg-red-50 text-red-500 rounded-xl"
+        >
+            <X size={20} />
+        </button>
+    </div>
+);
+
 const QueueKioskPage: React.FC = () => {
     const { printerConfig, customers } = usePharmaStore();
 
@@ -117,64 +183,7 @@ const QueueKioskPage: React.FC = () => {
     // KEYBOARD LISTENER (Physical Keyboard Support)
     // =============================================================================
 
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            // Ignore if regular inputs are focused (Setup/Activation screens)
-            if ((e.target as HTMLElement).tagName === 'INPUT') return;
 
-            const key = e.key;
-
-            // Global Back/Escape
-            if (key === 'Escape') {
-                if (step === 'IDENTIFY' || step === 'REGISTER' || step === 'PHONE') {
-                    goBack();
-                } else if (step === 'WELCOME') {
-                    setShowExitPrompt(true);
-                }
-                return;
-            }
-
-            // Step: IDENTIFY (RUT)
-            if (step === 'IDENTIFY') {
-                if (/^[0-9kK]$/.test(key)) {
-                    // Need to use functional update wrapper or access current state
-                    // We use the existing handler but it sets state.
-                    // To avoid stale state issues in this closure, we rely on the dependency array
-                    // re-creating this listener on every change. 
-                    handleNumberClick(key.toUpperCase());
-                } else if (key === 'Backspace') {
-                    handleBackspace();
-                } else if (key === 'Enter') {
-                    handleIdentifySubmit();
-                }
-            }
-
-            // Step: REGISTER (Name)
-            if (step === 'REGISTER') {
-                if (/^[a-zA-Z\s\u00f1\u00d1]$/.test(key) && key.length === 1) {
-                    setName(prev => prev + key);
-                } else if (key === 'Backspace') {
-                    setName(prev => prev.slice(0, -1));
-                } else if (key === 'Enter') {
-                    handleRegisterSubmit();
-                }
-            }
-
-            // Step: PHONE
-            if (step === 'PHONE') {
-                if (/^[0-9+]$/.test(key)) {
-                    setPhone(prev => prev.length < 12 ? prev + key : prev);
-                } else if (key === 'Backspace') {
-                    setPhone(prev => prev.length > 4 ? prev.slice(0, -1) : prev);
-                } else if (key === 'Enter') {
-                    handlePhoneSubmit();
-                }
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [step, rut, name, phone, locationId, customers, ticketType]); // Re-bind when state changes to keep closures fresh
 
     // =============================================================================
     // INIT: Load location from localStorage (shared with ContextSelectionPage)
@@ -406,71 +415,68 @@ const QueueKioskPage: React.FC = () => {
     // UI COMPONENTS
     // =============================================================================
 
-    const Keypad = () => (
-        <div className="grid grid-cols-3 gap-3 max-w-xs mx-auto">
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'K', 0].map((k) => (
-                <button
-                    key={k}
-                    onClick={() => handleNumberClick(k.toString())}
-                    className="h-16 text-2xl font-bold bg-slate-100 text-slate-700 rounded-2xl active:bg-blue-100 active:text-blue-600 transition-all border border-slate-200 shadow-sm"
-                >
-                    {k}
-                </button>
-            ))}
-            <button
-                onClick={handleBackspace}
-                className="h-16 flex items-center justify-center bg-red-50 text-red-500 rounded-2xl active:bg-red-100 transition-all border border-red-100"
-            >
-                <X size={28} />
-            </button>
-        </div>
-    );
+    // =============================================================================
+    // KEYBOARD LISTENER (Physical Keyboard Support)
+    // =============================================================================
 
-    const PhoneKeypad = () => (
-        <div className="grid grid-cols-3 gap-3 max-w-xs mx-auto">
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, '+', 0].map((k) => (
-                <button
-                    key={k}
-                    onClick={() => setPhone(prev => prev.length < 12 ? prev + k : prev)}
-                    className="h-16 text-2xl font-bold bg-slate-100 text-slate-700 rounded-2xl active:bg-blue-100 active:text-blue-600 transition-all border border-slate-200 shadow-sm"
-                >
-                    {k}
-                </button>
-            ))}
-            <button
-                onClick={() => setPhone(prev => prev.length > 4 ? prev.slice(0, -1) : prev)}
-                className="h-16 flex items-center justify-center bg-red-50 text-red-500 rounded-2xl active:bg-red-100 transition-all border border-red-100"
-            >
-                <X size={28} />
-            </button>
-        </div>
-    );
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Ignore if regular inputs are focused (Setup/Activation screens)
+            if ((e.target as HTMLElement).tagName === 'INPUT') return;
 
-    const Keyboard = () => (
-        <div className="grid grid-cols-10 gap-1.5 max-w-2xl mx-auto">
-            {'QWERTYUIOPASDFGHJKLÑZXCVBNM'.split('').map(char => (
-                <button
-                    key={char}
-                    onClick={() => setName(prev => prev + char)}
-                    className="h-12 text-lg font-bold bg-slate-100 text-slate-700 rounded-xl active:bg-blue-100 active:text-blue-600 transition-all"
-                >
-                    {char}
-                </button>
-            ))}
-            <button
-                onClick={() => setName(prev => prev + ' ')}
-                className="col-span-8 h-12 text-lg font-bold bg-slate-100 text-slate-600 rounded-xl"
-            >
-                ESPACIO
-            </button>
-            <button
-                onClick={() => setName(prev => prev.slice(0, -1))}
-                className="col-span-2 h-12 flex items-center justify-center bg-red-50 text-red-500 rounded-xl"
-            >
-                <X size={20} />
-            </button>
-        </div>
-    );
+            const key = e.key;
+
+            // Global Back/Escape
+            if (key === 'Escape') {
+                if (step === 'IDENTIFY' || step === 'REGISTER' || step === 'PHONE') {
+                    goBack();
+                } else if (step === 'WELCOME') {
+                    setShowExitPrompt(true);
+                }
+                return;
+            }
+
+            // Step: IDENTIFY (RUT)
+            if (step === 'IDENTIFY') {
+                if (/^[0-9kK]$/.test(key)) {
+                    // Need to use functional update wrapper or access current state
+                    // We use the existing handler but it sets state.
+                    // To avoid stale state issues in this closure, we rely on the dependency array
+                    // re-creating this listener on every change. 
+                    handleNumberClick(key.toUpperCase());
+                } else if (key === 'Backspace') {
+                    handleBackspace();
+                } else if (key === 'Enter') {
+                    handleIdentifySubmit();
+                }
+            }
+
+            // Step: REGISTER (Name)
+            if (step === 'REGISTER') {
+                if (/^[a-zA-Z\s\u00f1\u00d1]$/.test(key) && key.length === 1) {
+                    setName(prev => prev + key);
+                } else if (key === 'Backspace') {
+                    setName(prev => prev.slice(0, -1));
+                } else if (key === 'Enter') {
+                    handleRegisterSubmit();
+                }
+            }
+
+            // Step: PHONE
+            if (step === 'PHONE') {
+                if (/^[0-9+]$/.test(key)) {
+                    setPhone(prev => prev.length < 12 ? prev + key : prev);
+                } else if (key === 'Backspace') {
+                    setPhone(prev => prev.length > 4 ? prev.slice(0, -1) : prev);
+                } else if (key === 'Enter') {
+                    handlePhoneSubmit();
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [step, rut, name, phone, locationId, customers, ticketType]); // Re-bind when state changes to keep closures fresh
 
     // =============================================================================
     // RENDER
@@ -766,7 +772,7 @@ const QueueKioskPage: React.FC = () => {
                         </div>
 
                         <div className="max-w-xs mx-auto mb-10">
-                            <Keypad />
+                            <Keypad onNumberClick={handleNumberClick} onBackspace={handleBackspace} />
                         </div>
 
                         <div className="grid grid-cols-2 gap-6 max-w-md mx-auto">
@@ -807,7 +813,11 @@ const QueueKioskPage: React.FC = () => {
                         </div>
 
                         <div className="max-w-3xl mx-auto mb-10">
-                            <Keyboard />
+                            <Keyboard
+                                onCharClick={(c) => setName(prev => prev + c)}
+                                onSpace={() => setName(prev => prev + ' ')}
+                                onBackspace={() => setName(prev => prev.slice(0, -1))}
+                            />
                         </div>
 
                         <button
@@ -843,7 +853,10 @@ const QueueKioskPage: React.FC = () => {
                         </div>
 
                         <div className="max-w-xs mx-auto mb-10">
-                            <PhoneKeypad />
+                            <PhoneKeypad
+                                onNumberClick={(k) => setPhone(prev => prev.length < 12 ? prev + k : prev)}
+                                onBackspace={() => setPhone(prev => prev.length > 4 ? prev.slice(0, -1) : prev)}
+                            />
                         </div>
 
                         <div className="grid grid-cols-2 gap-6 max-w-md mx-auto">

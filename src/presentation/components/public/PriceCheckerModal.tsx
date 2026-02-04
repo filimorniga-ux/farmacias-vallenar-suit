@@ -60,15 +60,6 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
     const [hasMore, setHasMore] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Initializer
-    useEffect(() => {
-        if (isOpen) {
-            resetState();
-        } else {
-            setQuery(''); // Clear on fully close
-        }
-    }, [isOpen]);
-
     const resetState = () => {
         setMode('LANDING');
         setQuery('');
@@ -83,6 +74,15 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
         setHasMore(true);
         setError(null);
     };
+
+    // Initializer
+    useEffect(() => {
+        if (isOpen) {
+            resetState();
+        } else {
+            setQuery(''); // Clear on fully close
+        }
+    }, [isOpen]);
 
     // Auto-focus input when entering search modes (ONLY if not mobile to avoid keyboard popup)
     useEffect(() => {
