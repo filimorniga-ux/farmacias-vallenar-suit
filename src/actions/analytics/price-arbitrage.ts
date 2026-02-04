@@ -26,6 +26,7 @@ interface DBRow {
     target_product_id: string | null;
     created_at: Date;
     raw_active_principle: string | null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     raw_misc: any;
     canonical_name: string | null;
     canonical_barcode: string | null;
@@ -37,6 +38,7 @@ export interface UnifiedProduct {
     ispCode: string | null;
     sku: string | null;
     activePrinciple: string | null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     misc: any;
     offerings: Offering[];
     bestPrice: number;
@@ -62,6 +64,7 @@ export async function searchUnifiedProducts(searchTerm: string, filters?: Search
     if ((!searchTerm || searchTerm.trim().length < 2) && (!filters || Object.keys(filters).length === 0)) return [];
 
     try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const params: any[] = [];
         const whereClauses: string[] = [];
 
@@ -87,7 +90,7 @@ export async function searchUnifiedProducts(searchTerm: string, filters?: Search
             whereClauses.push(`ii.normalized_action_id = $${params.length}`);
         }
 
-        const whereSQL = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
+
 
         // 3. Fetch enriched matches using CTEs (Performance Optimization)
         const sql = `

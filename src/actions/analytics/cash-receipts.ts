@@ -47,6 +47,7 @@ export async function getCashReceipts(filter: CashReceiptsFilter): Promise<{ suc
             AND s.timestamp BETWEEN $1 AND $2
         `;
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const params: any[] = [start.toISOString(), end.toISOString()];
         let paramIndex = 3;
 
@@ -83,9 +84,9 @@ export async function getCashReceipts(filter: CashReceiptsFilter): Promise<{ suc
             }))
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[CashReceipts] Error fetching data:', error);
-        return { success: false, error: 'Error al obtener recibos: ' + error.message };
+        return { success: false, error: 'Error al obtener recibos: ' + (error as Error).message };
     }
 }
 
@@ -120,7 +121,7 @@ export async function getReceiptDetails(id: string): Promise<{ success: boolean;
                 total: Number(row.total)
             }))
         };
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Error fetching receipt details:', error);
         return { success: false, error: 'Error al obtener detalles' };
     }

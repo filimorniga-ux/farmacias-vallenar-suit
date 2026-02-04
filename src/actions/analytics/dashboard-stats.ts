@@ -16,7 +16,7 @@ export interface DashboardStats {
 export async function getDashboardStats(): Promise<DashboardStats> {
 
     try {
-        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
 
         // 1. Sales Stats (Today) & Last Sale Time
         const salesQuery = `
