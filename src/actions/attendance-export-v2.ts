@@ -39,11 +39,12 @@ async function getSession(): Promise<{ userId: string; role: string; locationId?
     } catch { return null; }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function auditExport(userId: string, params: any): Promise<void> {
     try {
         await query(`INSERT INTO audit_log (user_id, action_code, entity_type, new_values, created_at)
             VALUES ($1, 'EXPORT', 'ATTENDANCE', $2::jsonb, NOW())`, [userId, JSON.stringify(params)]);
-    } catch { }
+    } catch { /* empty */ }
 }
 
 /**
@@ -65,6 +66,7 @@ export async function exportAttendanceReportSecure(
     }
 
     try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const sqlParams: any[] = [params.startDate, params.endDate];
         let locationFilter = '';
         if (locationId) {
@@ -81,6 +83,7 @@ export async function exportAttendanceReportSecure(
             ORDER BY a.timestamp DESC
         `, sqlParams);
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const data = res.rows.map((log: any) => {
             const ts = new Date(log.timestamp);
             let typeLabel = log.type;
@@ -123,7 +126,7 @@ export async function exportAttendanceReportSecure(
 
         return { success: true, data: buffer.toString('base64'), filename: `Asistencia_${params.startDate.split('T')[0]}.xlsx` };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Export] Attendance error');
         return { success: false, error: 'Error generando reporte' };
     }
