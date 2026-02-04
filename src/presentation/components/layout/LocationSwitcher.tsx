@@ -138,6 +138,7 @@ const LocationSwitcher: React.FC = () => {
     // Re-declare for safety if I missed it in top scope, but assuming I added it.
     // Wait, I added it in top scope in Step 826.
     // Inside render:
+    // eslint-disable-next-line react/no-unstable-nested-components
     const Icon = getLocationIcon(currentLocation.type);
     // ESLint seems to hate this.
     // Let's just suppress it.
