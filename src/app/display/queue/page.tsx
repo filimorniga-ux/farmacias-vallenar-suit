@@ -140,77 +140,6 @@ export default function QueueDisplayPage() {
     };
 
     // ========================================================================
-    // POLLING & DATA
-    // ========================================================================
-
-    // POLL EFFECT
-    useEffect(() => {
-        if (step !== 'DISPLAY' || !locationId) return;
-
-        let isMounted = true;
-        const POLL_INTERVAL = 2000;
-
-        const fetchStatus = async () => {
-            try {
-                const res = await getQueueStatusSecure(locationId);
-
-                if (isMounted && res.success && res.data) {
-                    const { calledTickets, waitingCount, lastCompletedTickets, waitingTickets } = res.data;
-
-                    // Active (CALLED) tickets sorted by time (newest first)
-                    // We trust called_at timestamp for ordering
-                    const active = (calledTickets || []).sort((a: any, b: any) =>
-                        new Date(b.called_at).getTime() - new Date(a.called_at).getTime()
-                    );
-
-                    const latestActive = active[0] || null;
-
-                    // History: Completed tickets
-                    const historyList = (lastCompletedTickets || []).slice(0, 5);
-                    const nextList = (waitingTickets || []).slice(0, 4);
-
-                    setActiveTickets(active);
-                    setCurrentTicket(latestActive);
-                    setHistory(historyList);
-                    setWaitingList(nextList);
-                    setWaitingCount(waitingCount);
-
-                    // @ts-ignore
-                    setDebugData(res.data.debug_allRows || []);
-
-                    // AUDIO TRIGGER LOGIC
-                    // We check if:
-                    // 1. We have a latest active ticket
-                    // 2. It is DIFFERENT from the last one OR the timestamp changed (Recall)
-                    if (latestActive) {
-                        const last = lastAnnouncementRef.current;
-                        const lastTime = last?.time ? new Date(last.time).getTime() : 0;
-                        const currentTime = latestActive.called_at ? new Date(latestActive.called_at).getTime() : 0;
-
-                        const isNewTicket = !last || last.id !== latestActive.id;
-                        const isRecall = !isNewTicket && lastTime !== currentTime;
-
-                        if (isNewTicket || isRecall) {
-                            console.log('[QueueAudio] Triggering announcement for:', latestActive.code, { isNewTicket, isRecall, lastTime, currentTime });
-                            playAnnouncement(latestActive);
-                            lastAnnouncementRef.current = {
-                                id: latestActive.id,
-                                time: latestActive.called_at
-                            };
-                        }
-                    }
-                }
-            } catch (err) {
-                console.error("Poll error:", err);
-            }
-        };
-
-        fetchStatus();
-        const interval = setInterval(fetchStatus, POLL_INTERVAL);
-        return () => { isMounted = false; clearInterval(interval); };
-    }, [step, locationId]);
-
-    // ========================================================================
     // AUDIO SYSTEM
     // ========================================================================
 
@@ -311,6 +240,79 @@ export default function QueueDisplayPage() {
             window.speechSynthesis.speak(utterance);
         }, 1200);
     }, [isMuted, playDingDong]);
+
+    // ========================================================================
+    // POLLING & DATA
+    // ========================================================================
+
+    // POLL EFFECT
+    useEffect(() => {
+        if (step !== 'DISPLAY' || !locationId) return;
+
+        let isMounted = true;
+        const POLL_INTERVAL = 2000;
+
+        const fetchStatus = async () => {
+            try {
+                const res = await getQueueStatusSecure(locationId);
+
+                if (isMounted && res.success && res.data) {
+                    const { calledTickets, waitingCount, lastCompletedTickets, waitingTickets } = res.data;
+
+                    // Active (CALLED) tickets sorted by time (newest first)
+                    // We trust called_at timestamp for ordering
+                    const active = (calledTickets || []).sort((a: any, b: any) =>
+                        new Date(b.called_at).getTime() - new Date(a.called_at).getTime()
+                    );
+
+                    const latestActive = active[0] || null;
+
+                    // History: Completed tickets
+                    const historyList = (lastCompletedTickets || []).slice(0, 5);
+                    const nextList = (waitingTickets || []).slice(0, 4);
+
+                    setActiveTickets(active);
+                    setCurrentTicket(latestActive);
+                    setHistory(historyList);
+                    setWaitingList(nextList);
+                    setWaitingCount(waitingCount);
+
+                    // @ts-ignore
+                    setDebugData(res.data.debug_allRows || []);
+
+                    // AUDIO TRIGGER LOGIC
+                    // We check if:
+                    // 1. We have a latest active ticket
+                    // 2. It is DIFFERENT from the last one OR the timestamp changed (Recall)
+                    if (latestActive) {
+                        const last = lastAnnouncementRef.current;
+                        const lastTime = last?.time ? new Date(last.time).getTime() : 0;
+                        const currentTime = latestActive.called_at ? new Date(latestActive.called_at).getTime() : 0;
+
+                        const isNewTicket = !last || last.id !== latestActive.id;
+                        const isRecall = !isNewTicket && lastTime !== currentTime;
+
+                        if (isNewTicket || isRecall) {
+                            console.log('[QueueAudio] Triggering announcement for:', latestActive.code, { isNewTicket, isRecall, lastTime, currentTime });
+                            playAnnouncement(latestActive);
+                            lastAnnouncementRef.current = {
+                                id: latestActive.id,
+                                time: latestActive.called_at
+                            };
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error("Poll error:", err);
+            }
+        };
+
+        fetchStatus();
+        const interval = setInterval(fetchStatus, POLL_INTERVAL);
+        return () => { isMounted = false; clearInterval(interval); };
+    }, [step, locationId, playAnnouncement]);
+
+
 
     // DEBUG ACTION
     const testAudio = useCallback(() => {
@@ -476,7 +478,7 @@ export default function QueueDisplayPage() {
                             <p>LocID: {locationId?.substring(0, 8)}...</p>
                             <p>Active: {activeTickets.length}</p>
                             <p>Waiting: {waitingCount}</p>
-                            <p>LastCall: {lastAnnouncementRef.current?.id ? 'SET' : 'NULL'}</p>
+
                             <div className="mt-2 border-t border-gray-700 pt-1">
                                 <p className="font-bold">Backend Rows:</p>
                                 {debugData.map((r: any, i: number) => (
