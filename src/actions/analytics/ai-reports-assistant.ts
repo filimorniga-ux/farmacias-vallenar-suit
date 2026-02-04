@@ -10,6 +10,7 @@ const openai = new OpenAI({
 // Tipos para las respuestas de las Tools
 interface QueryResult {
     success: boolean;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     data?: any[];
     error?: string;
     summary?: string;
@@ -34,6 +35,7 @@ async function querySales(args: { product_name?: string, location_name?: string,
             WHERE 1=1
         `;
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const params: any[] = [];
 
 
@@ -65,12 +67,13 @@ async function querySales(args: { product_name?: string, location_name?: string,
         `;
         const res = await query(sql, params);
         return { success: true, data: res.rows, summary: `Found ${res.rowCount} sales records.` };
-    } catch (e: any) {
+    } catch (e: unknown) {
         console.error('Error querying sales:', e);
-        return { success: false, error: e.message };
+        return { success: false, error: (e as Error).message };
     }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function queryInventory(_args: { product_name?: string, location_id?: string, critical_only?: boolean }): Promise<QueryResult> {
     try {
         // NOTE: Inventory table schema might also vary. Using basic columns.
@@ -89,8 +92,8 @@ async function queryInventory(_args: { product_name?: string, location_id?: stri
         // Implementation paused/simplified to avoid crash if inventory tables missing/different.
         // Returning mock success to prevent crash but indicate limitation.
         return { success: true, summary: "Inventory query not fully adapted to new schema yet." };
-    } catch (e: any) {
-        return { success: false, error: e.message };
+    } catch (e: unknown) {
+        return { success: false, error: (e as Error).message };
     }
 }
 
@@ -107,6 +110,7 @@ async function queryInvoices(args: { date?: string, supplier_name?: string, limi
             FROM invoice_headers ih
             WHERE 1=1
         `;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const params: any[] = [];
 
         if (args.date) {
@@ -118,8 +122,8 @@ async function queryInvoices(args: { date?: string, supplier_name?: string, limi
 
         const res = await query(sql, params);
         return { success: true, data: res.rows };
-    } catch (e: any) {
-        return { success: false, error: e.message };
+    } catch (e: unknown) {
+        return { success: false, error: (e as Error).message };
     }
 }
 
@@ -143,8 +147,8 @@ async function queryStaff(args: { location_id?: string, status?: 'ACTIVE' | 'ALL
 
         const res = await query(sql);
         return { success: true, data: res.rows };
-    } catch (e: any) {
-        return { success: false, error: e.message };
+    } catch (e: unknown) {
+        return { success: false, error: (e as Error).message };
     }
 }
 
@@ -153,6 +157,7 @@ async function queryStaff(args: { location_id?: string, status?: 'ACTIVE' | 'ALL
 // 2. Main Server Action
 // ------------------------------------------------------------------
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function askReportsAssistant(messages: any[], context?: { locationId?: string, locationName?: string }) {
     try {
         const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
@@ -260,7 +265,9 @@ export async function askReportsAssistant(messages: any[], context?: { locationI
 
             for (const toolCall of toolCalls) {
                 // Assert function accessing as usage is correct per OpenAI API but likely missing in specific Type union
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const fnName = (toolCall as any).function.name;
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const fnArgs = JSON.parse((toolCall as any).function.arguments);
 
                 let result: QueryResult = { success: false, error: "Unknown tool" };
@@ -281,6 +288,7 @@ export async function askReportsAssistant(messages: any[], context?: { locationI
             // Step 3: Get final response from AI with the data
             const secondResponse = await openai.chat.completions.create({
                 model: "gpt-4o",
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 messages: [systemMsg, ...messages, ...toolMessages] as any, // Keep cast if strict mismatch persists
             });
 
@@ -295,11 +303,11 @@ export async function askReportsAssistant(messages: any[], context?: { locationI
             usage: response.usage
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("AI Assistant Error:", error);
         return {
             message: { role: "assistant", content: "Lo siento, tuve un problema interno al procesar tu solicitud." },
-            error: error.message
+            error: (error as Error).message
         };
     }
 }
