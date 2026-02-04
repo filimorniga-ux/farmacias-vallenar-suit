@@ -29,14 +29,7 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ viewMode = 'LIVE'
         setInternalTab(viewMode);
     }, [viewMode]);
 
-    // Data Fetching
-    useEffect(() => {
-        if (internalTab === 'LIVE') {
-            loadLiveData();
-        } else {
-            loadHistoryData();
-        }
-    }, [internalTab, dateRange]);
+
 
     const loadLiveData = async () => {
         setIsLoading(true);
@@ -76,6 +69,17 @@ const AttendanceManager: React.FC<AttendanceManagerProps> = ({ viewMode = 'LIVE'
         }
         setIsLoading(false);
     }
+
+    // Data Fetching
+    useEffect(() => {
+        if (internalTab === 'LIVE') {
+            loadLiveData();
+        } else {
+            loadHistoryData();
+        }
+    }, [internalTab, dateRange]);
+
+
 
     const activeTab = internalTab;
 
