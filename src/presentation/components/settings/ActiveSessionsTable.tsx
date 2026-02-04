@@ -11,13 +11,6 @@ export function ActiveSessionsTable() {
     const [sessions, setSessions] = useState<ActiveSession[]>([]);
     const [loading, setLoading] = useState(false);
 
-    // Auto Refresh every 30s
-    useEffect(() => {
-        loadSessions();
-        const interval = setInterval(loadSessions, 30000);
-        return () => clearInterval(interval);
-    }, []);
-
     const loadSessions = async () => {
         setLoading(true);
         const res = await getActiveSessionsSecure();
@@ -26,6 +19,13 @@ export function ActiveSessionsTable() {
         }
         setLoading(false);
     };
+
+    // Auto Refresh every 30s
+    useEffect(() => {
+        loadSessions();
+        const interval = setInterval(loadSessions, 30000);
+        return () => clearInterval(interval);
+    }, []);
 
     const handleRevoke = async (targetUserId: string, targetName: string) => {
         const adminPin = prompt(`Ingrese su PIN para cerrar la sesión de ${targetName}:`);

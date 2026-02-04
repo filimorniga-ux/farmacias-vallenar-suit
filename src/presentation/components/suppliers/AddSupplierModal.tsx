@@ -85,6 +85,32 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
     const [paymentTerms, setPaymentTerms] = useState<'CONTADO' | '30_DIAS' | '60_DIAS' | '90_DIAS'>('30_DIAS');
     const [leadTimeDays, setLeadTimeDays] = useState(7);
 
+    const handleReset = () => {
+        setRut('');
+        setBusinessName('');
+        setFantasyName('');
+        setSector('');
+        setWebsite('');
+        setAddress('');
+        setRegion('');
+        setCity('');
+        setCommune('');
+        setPhone1('');
+        setPhone2('');
+        setEmailOrders('');
+        setEmailBilling('');
+        setContactEmail('');
+        setContactName('');
+        setBankName('');
+        setAccountType('CORRIENTE');
+        setAccountNumber('');
+        setRutHolder('');
+        setBrands([]);
+        setBrandInput('');
+        setPaymentTerms('30_DIAS');
+        setLeadTimeDays(7);
+    };
+
     // Effect to populate data
     React.useEffect(() => {
         if (isOpen && supplierToEdit) {
@@ -194,31 +220,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
         onClose();
     };
 
-    const handleReset = () => {
-        setRut('');
-        setBusinessName('');
-        setFantasyName('');
-        setSector('');
-        setWebsite('');
-        setAddress('');
-        setRegion('');
-        setCity('');
-        setCommune('');
-        setPhone1('');
-        setPhone2('');
-        setEmailOrders('');
-        setEmailBilling('');
-        setContactEmail('');
-        setContactName('');
-        setBankName('');
-        setAccountType('CORRIENTE');
-        setAccountNumber('');
-        setRutHolder('');
-        setBrands([]);
-        setBrandInput('');
-        setPaymentTerms('30_DIAS');
-        setLeadTimeDays(7);
-    };
+
 
     if (!isOpen) return null;
 

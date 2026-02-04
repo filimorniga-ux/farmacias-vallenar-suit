@@ -49,7 +49,7 @@ const OvertimeApprovalSchema = z.object({
 // ============================================================================
 
 const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'];
-const OVERTIME_THRESHOLD_MINUTES = 240; // 4 horas sin aprobación
+// const OVERTIME_THRESHOLD_MINUTES = 240; // 4 horas sin aprobación
 
 // Secuencia válida de marcajes
 // Secuencia válida de marcajes

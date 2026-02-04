@@ -32,10 +32,6 @@ export const FinancialAccountsSettings: React.FC = () => {
         location_id: ''
     });
 
-    useEffect(() => {
-        loadData();
-    }, []);
-
     const loadData = async () => {
         setIsLoading(true);
         const [accRes, locRes] = await Promise.all([
@@ -51,6 +47,10 @@ export const FinancialAccountsSettings: React.FC = () => {
         }
         setIsLoading(false);
     };
+
+    useEffect(() => {
+        loadData();
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();

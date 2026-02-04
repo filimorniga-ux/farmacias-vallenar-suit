@@ -2,48 +2,52 @@ import React, { useState } from 'react';
 import { Cloud, Database, ExternalLink, CreditCard, Calendar, Bell, CheckCircle, AlertTriangle } from 'lucide-react';
 import { BILLING_LINKS } from '../../../domain/config/infrastructure';
 
+
+const ServiceCard = ({ title, icon: Icon, status, cost, cycle, link, color, gradient }: any) => (
+    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden group hover:shadow-md transition-all">
+        <div className={`h-2 w-full bg-gradient-to-r ${gradient}`}></div>
+        <div className="p-6">
+            <div className="flex justify-between items-start mb-4">
+                <div className={`p-3 rounded-xl bg-${color}-50 text-${color}-600`}>
+                    <Icon size={24} />
+                </div>
+                <span className="px-2 py-1 bg-emerald-50 text-emerald-600 text-xs font-bold rounded-lg border border-emerald-100 flex items-center gap-1">
+                    <CheckCircle size={12} /> {status}
+                </span>
+            </div>
+
+            <h3 className="font-bold text-slate-800 text-lg mb-1">{title}</h3>
+            <p className="text-slate-400 text-xs font-medium mb-4 uppercase tracking-wider">Suscripción Activa</p>
+
+            <div className="space-y-3 mb-6">
+                <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Costo Estimado</span>
+                    <span className="font-bold text-slate-800">{cost}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Ciclo</span>
+                    <span className="font-bold text-slate-800">{cycle}</span>
+                </div>
+            </div>
+
+            <a
+                href={link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`flex items-center justify-center gap-2 w-full py-3 rounded-xl font-bold text-sm text-white bg-gradient-to-r ${gradient} hover:opacity-90 transition-opacity shadow-lg shadow-${color}-500/20`}
+            >
+                <CreditCard size={16} /> Gestionar Pago
+                <ExternalLink size={12} className="opacity-70" />
+            </a>
+        </div>
+    </div>
+);
+
 const InfrastructureBillingPanel = () => {
     const [notify, setNotify] = useState(true);
 
-    const ServiceCard = ({ title, icon: Icon, status, cost, cycle, link, color, gradient }: any) => (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden group hover:shadow-md transition-all">
-            <div className={`h-2 w-full bg-gradient-to-r ${gradient}`}></div>
-            <div className="p-6">
-                <div className="flex justify-between items-start mb-4">
-                    <div className={`p-3 rounded-xl bg-${color}-50 text-${color}-600`}>
-                        <Icon size={24} />
-                    </div>
-                    <span className="px-2 py-1 bg-emerald-50 text-emerald-600 text-xs font-bold rounded-lg border border-emerald-100 flex items-center gap-1">
-                        <CheckCircle size={12} /> {status}
-                    </span>
-                </div>
 
-                <h3 className="font-bold text-slate-800 text-lg mb-1">{title}</h3>
-                <p className="text-slate-400 text-xs font-medium mb-4 uppercase tracking-wider">Suscripción Activa</p>
 
-                <div className="space-y-3 mb-6">
-                    <div className="flex justify-between text-sm">
-                        <span className="text-slate-500">Costo Estimado</span>
-                        <span className="font-bold text-slate-800">{cost}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                        <span className="text-slate-500">Ciclo</span>
-                        <span className="font-bold text-slate-800">{cycle}</span>
-                    </div>
-                </div>
-
-                <a
-                    href={link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`flex items-center justify-center gap-2 w-full py-3 rounded-xl font-bold text-sm text-white bg-gradient-to-r ${gradient} hover:opacity-90 transition-opacity shadow-lg shadow-${color}-500/20`}
-                >
-                    <CreditCard size={16} /> Gestionar Pago
-                    <ExternalLink size={12} className="opacity-70" />
-                </a>
-            </div>
-        </div>
-    );
 
     return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">

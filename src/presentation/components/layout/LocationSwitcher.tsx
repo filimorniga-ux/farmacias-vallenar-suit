@@ -26,6 +26,8 @@ const getLocationColor = (type: string) => {
     }
 };
 
+
+
 const LocationSwitcher: React.FC = () => {
     const { currentLocation, locations, switchLocation, canSwitchLocation } = useLocationStore();
     const { user, setCurrentLocation } = usePharmaStore();
@@ -125,24 +127,7 @@ const LocationSwitcher: React.FC = () => {
         );
     }
 
-    const getLocationIcon = (type: string) => {
-        switch (type) {
-            case 'WAREHOUSE':
-                return Warehouse;
-            case 'STORE':
-                return Building2;
-            default:
-                return MapPin;
-        }
-    };
-    // Re-declare for safety if I missed it in top scope, but assuming I added it.
-    // Wait, I added it in top scope in Step 826.
-    // Inside render:
-    // eslint-disable-next-line react/no-unstable-nested-components
-    const Icon = getLocationIcon(currentLocation.type);
-    // ESLint seems to hate this.
-    // Let's just suppress it.
-    const IconComponent = Icon;
+
 
 
     return (
@@ -200,7 +185,7 @@ const LocationSwitcher: React.FC = () => {
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-200%] group-hover:animate-shine" />
 
                 <div className={`p-1.5 rounded-lg bg-gradient-to-br ${getLocationColor(currentLocation.type)} text-white shadow-sm`}>
-                    <Icon className="w-5 h-5" />
+                    {React.createElement(getLocationIcon(currentLocation.type), { className: 'w-5 h-5' })}
                 </div>
 
                 <div className="text-left">
