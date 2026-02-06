@@ -4,12 +4,15 @@ import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
-    Calendar, Download, FileText, Search, Loader,
+    Calendar, Download, FileText, Search, Loader, Printer,
     ChevronLeft, ChevronRight, DollarSign, User, X, Eye
 } from 'lucide-react';
 import { getCashReceipts, getReceiptDetails, CashReceipt, ReceiptDetailItem } from '@/actions/analytics/cash-receipts';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
+import { printSaleTicket } from '../../utils/print-utils';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { useLocationStore } from '../../store/useLocationStore';
 
 interface CashReceiptsReportProps {
     startDate: Date;
@@ -24,6 +27,39 @@ export function CashReceiptsReport({ startDate, endDate }: CashReceiptsReportPro
     const [selectedReceipt, setSelectedReceipt] = useState<CashReceipt | null>(null);
     const [detailItems, setDetailItems] = useState<ReceiptDetailItem[]>([]);
     const [loadingDetail, setLoadingDetail] = useState(false);
+
+    const { hardware } = useSettingsStore();
+    const { currentLocation } = useLocationStore();
+
+    async function handleReprint() {
+        if (!selectedReceipt) return;
+
+        // Adapt CashReceipt to SaleTransaction format for printer
+        // Note: detailItems are already loaded when modal is open
+        const saleData: any = {
+            id: selectedReceipt.id,
+            total: selectedReceipt.total_amount, // Mapped correctly for TicketBoleta
+            items: detailItems,
+            timestamp: new Date(selectedReceipt.timestamp).getTime(), // Convert to number (timestamp)
+            payment_method: 'CASH', // Default field, but maybe we should map 'Efectivo'
+            user_name: selectedReceipt.user_name,
+            dte_type: 'RECIBO',
+            dte_folio: selectedReceipt.dte_folio || (selectedReceipt.id ? `INT-${selectedReceipt.id.slice(0, 6).toUpperCase()}` : undefined),
+            status: selectedReceipt.status,
+            seller_id: selectedReceipt.user_name // Fallback for seller_id
+        };
+
+        try {
+            await printSaleTicket(saleData, currentLocation?.config, hardware, {
+                cashierName: selectedReceipt.user_name,
+                branchName: currentLocation?.name
+            });
+            toast.success('Imprimiendo copia...');
+        } catch (error) {
+            console.error(error);
+            toast.error('Error al imprimir');
+        }
+    }
 
     useEffect(() => {
         fetchData();
@@ -139,6 +175,7 @@ export function CashReceiptsReport({ startDate, endDate }: CashReceiptsReportPro
                         <thead className="bg-gray-50 border-b border-gray-200">
                             <tr>
                                 <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Fecha</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">N° Doc</th>
                                 <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Cajero</th>
                                 <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Resumen Items</th>
                                 <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Total</th>
@@ -169,6 +206,9 @@ export function CashReceiptsReport({ startDate, endDate }: CashReceiptsReportPro
                                     >
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                             {format(new Date(item.timestamp), 'dd MMM HH:mm', { locale: es })}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-800">
+                                            {item.dte_folio || (item.id ? `INT-${item.id.slice(0, 6).toUpperCase()}` : 'Interno')}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                                             <div className="flex items-center gap-2">
@@ -273,6 +313,16 @@ export function CashReceiptsReport({ startDate, endDate }: CashReceiptsReportPro
                                             </tr>
                                         </tfoot>
                                     </table>
+                                    {/* Action Button */}
+                                    <div className="mt-6 pt-4 border-t border-gray-100 flex justify-end gap-3">
+                                        <button
+                                            onClick={handleReprint}
+                                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-bold"
+                                        >
+                                            <Printer size={18} />
+                                            Reimprimir Comprobante
+                                        </button>
+                                    </div>
                                 </div>
                             )}
                         </div>

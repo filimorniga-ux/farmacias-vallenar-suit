@@ -1507,7 +1507,7 @@ export async function exportCashMovementHistory(
                     -- Combine Venta # with item list
                     CONCAT(
                         'Venta #', COALESCE(s.dte_folio::text, 'S/N'), ': ',
-                        COALESCE(STRING_AGG(CONCAT(si.quantity, 'x ', si.product_name), ', '), 'Sin items')
+                        COALESCE(STRING_AGG(CONCAT(si.quantity, 'x ', si.product_name), '\n'), 'Sin items')
                     ) as reason,
                     s.timestamp,
                     u.name as user_name,

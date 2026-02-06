@@ -126,10 +126,18 @@ export default function ManagerDashboard() {
                     className="space-y-6"
                 >
                     {/* --- FINANCIAL BREAKDOWN CARDS --- */}
-                    <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-                        {/* Cash */}
+                    <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+                        {/* Opening Fund */}
                         <MetricCard
-                            title="Efectivo"
+                            title="Fondo Inicial"
+                            value={branchDetail.financials.openingCash}
+                            icon={Wallet}
+                            color="text-amber-600"
+                            bg="bg-amber-50"
+                        />
+                        {/* Cash Sales */}
+                        <MetricCard
+                            title="Ventas Efectivo"
                             value={branchDetail.financials.cash}
                             icon={Banknote}
                             color="text-emerald-600"
@@ -201,14 +209,22 @@ export default function ManagerDashboard() {
 
                                         {/* Financial Mini-Summary */}
                                         <div className="grid grid-cols-2 gap-2 mt-2 pt-3 border-t border-slate-50">
-                                            <div className="bg-slate-50 p-2 rounded-lg">
-                                                <p className="text-[10px] text-slate-500 uppercase">Efectivo</p>
-                                                <p className="font-bold text-sm text-emerald-600">
+                                            <div className="bg-amber-50 p-2 rounded-lg col-span-2">
+                                                <p className="text-[10px] text-amber-600 font-bold uppercase flex items-center gap-1">
+                                                    <Wallet size={10} /> Fondo Inicial
+                                                </p>
+                                                <p className="font-bold text-sm text-slate-800">
+                                                    {formatCurrency(terminal.financials.openingCash)}
+                                                </p>
+                                            </div>
+                                            <div className="bg-emerald-50 p-2 rounded-lg">
+                                                <p className="text-[10px] text-emerald-600 font-bold uppercase">Efectivo</p>
+                                                <p className="font-bold text-sm text-slate-800">
                                                     {formatCurrency(terminal.financials.cash)}
                                                 </p>
                                             </div>
                                             <div className="bg-slate-50 p-2 rounded-lg">
-                                                <p className="text-[10px] text-slate-500 uppercase">Total</p>
+                                                <p className="text-[10px] text-slate-500 font-bold uppercase">Total Venta</p>
                                                 <p className="font-bold text-sm text-slate-700">
                                                     {formatCurrency(terminal.financials.totalCollected)}
                                                 </p>
@@ -245,8 +261,8 @@ export default function ManagerDashboard() {
                                             return (
                                                 <div key={staff.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-xl transition-colors">
                                                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs ${staff.status === 'IN' ? 'bg-gradient-to-br from-emerald-400 to-teal-500' :
-                                                            staff.status === 'LUNCH' ? 'bg-gradient-to-br from-amber-400 to-orange-500' :
-                                                                'bg-gradient-to-br from-indigo-400 to-purple-500'
+                                                        staff.status === 'LUNCH' ? 'bg-gradient-to-br from-amber-400 to-orange-500' :
+                                                            'bg-gradient-to-br from-indigo-400 to-purple-500'
                                                         }`}>
                                                         {staff.name.charAt(0)}
                                                     </div>
@@ -261,8 +277,8 @@ export default function ManagerDashboard() {
                                                         </p>
                                                     </div>
                                                     <div className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${staff.status === 'IN' ? 'text-emerald-600 bg-emerald-50' :
-                                                            staff.status === 'LUNCH' ? 'text-amber-600 bg-amber-50' :
-                                                                'text-slate-600 bg-slate-50'
+                                                        staff.status === 'LUNCH' ? 'text-amber-600 bg-amber-50' :
+                                                            'text-slate-600 bg-slate-50'
                                                         }`}>
                                                         {staff.status === 'IN' ? 'TRABAJANDO' :
                                                             staff.status === 'LUNCH' ? 'COLACIÓN' : staff.status}

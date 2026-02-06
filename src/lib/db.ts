@@ -19,9 +19,9 @@ if (!process.env.DATABASE_URL) {
 // Configuración robusta
 const connectionConfig = {
     connectionString: process.env.DATABASE_URL,
-    ssl: isProduction ? { rejectUnauthorized: false } : undefined, // SSL only for Tiger Cloud (Prod)
-    max: 20, // Increased from 5 to 20 to handle concurrent server actions and polling
-    connectionTimeoutMillis: 60000, // Increased to 60s for slow dev starts
+    ssl: isProduction ? { rejectUnauthorized: false } : undefined, // Disable SSL for local Docker
+    max: 20, // Increased from 5 to 20
+    connectionTimeoutMillis: 60000,
     idleTimeoutMillis: 30000,
     keepAlive: true,
 };
@@ -109,6 +109,25 @@ export async function query(text: string, params?: any[]) {
 
 // Función Helper para obtener un cliente de la pool (para transacciones)
 export async function getClient() {
-    const client = await pool.connect();
-    return client;
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 1000; // 1 segundo
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            const client = await pool.connect();
+            return client;
+        } catch (error: any) {
+            const isLastAttempt = attempt === MAX_RETRIES;
+            const isConnectionError = error.code === 'ECONNRESET' || error.message?.includes('ECONNRESET') || error.code === '57P03';
+
+            if (isLastAttempt || !isConnectionError) {
+                console.error(`❌ [DB] Error obteniendo cliente (Intento ${attempt}/${MAX_RETRIES}):`, error.message);
+                throw error;
+            }
+
+            console.warn(`⚠️ [DB] Fallo conexión (Intento ${attempt}/${MAX_RETRIES}). Reintentando en ${RETRY_DELAY}ms...`, error.message);
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        }
+    }
+    throw new Error('No se pudo obtener cliente de DB tras reintentos');
 }

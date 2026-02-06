@@ -201,6 +201,7 @@ async function fallbackToLegacyAudit(input: AuditEventInput): Promise<{ success:
  */
 export async function getAuditEvents(filters: {
     userId?: string;
+    userName?: string;
     locationId?: string;
     terminalId?: string;
     sessionId?: string;
@@ -220,47 +221,51 @@ export async function getAuditEvents(filters: {
         let paramIndex = 1;
 
         if (filters.userId && filters.userId !== '') {
-            conditions.push(`user_id = $${paramIndex++}::uuid`);
+            conditions.push(`ae.user_id = $${paramIndex++}::uuid`);
             params.push(filters.userId);
         }
+        if (filters.userName && filters.userName !== '') {
+            conditions.push(`u.name ILIKE $${paramIndex++}`);
+            params.push(`%${filters.userName}%`);
+        }
         if (filters.locationId && filters.locationId !== '') {
-            conditions.push(`location_id = $${paramIndex++}::uuid`);
+            conditions.push(`ae.location_id = $${paramIndex++}::uuid`);
             params.push(filters.locationId);
         }
         if (filters.terminalId && filters.terminalId !== '') {
-            conditions.push(`terminal_id = $${paramIndex++}::uuid`);
+            conditions.push(`ae.terminal_id = $${paramIndex++}::uuid`);
             params.push(filters.terminalId);
         }
         if (filters.sessionId) {
-            conditions.push(`session_id = $${paramIndex++}`);
+            conditions.push(`ae.session_id = $${paramIndex++}`);
             params.push(filters.sessionId);
         }
         if (filters.actionCategory) {
-            conditions.push(`action_category = $${paramIndex++}`);
+            conditions.push(`ae.action_category = $${paramIndex++}`);
             params.push(filters.actionCategory);
         }
         if (filters.actionType) {
-            conditions.push(`action_type = $${paramIndex++}`);
+            conditions.push(`ae.action_type = $${paramIndex++}`);
             params.push(filters.actionType);
         }
         if (filters.resourceType) {
-            conditions.push(`resource_type = $${paramIndex++}`);
+            conditions.push(`ae.resource_type = $${paramIndex++}`);
             params.push(filters.resourceType);
         }
         if (filters.resourceId) {
-            conditions.push(`resource_id = $${paramIndex++}`);
+            conditions.push(`ae.resource_id = $${paramIndex++}`);
             params.push(filters.resourceId);
         }
         if (filters.startDate) {
-            conditions.push(`created_at >= $${paramIndex++}`);
+            conditions.push(`ae.created_at >= $${paramIndex++}`);
             params.push(`${filters.startDate} 00:00:00`);
         }
         if (filters.endDate) {
-            conditions.push(`created_at <= $${paramIndex++}`);
+            conditions.push(`ae.created_at <= $${paramIndex++}`);
             params.push(`${filters.endDate} 23:59:59`);
         }
         if (filters.onlyPendingReview) {
-            conditions.push(`requires_manager_review = TRUE AND reviewed_at IS NULL`);
+            conditions.push(`ae.requires_manager_review = TRUE AND ae.reviewed_at IS NULL`);
         }
 
         const limit = filters.limit || 100;
@@ -268,9 +273,11 @@ export async function getAuditEvents(filters: {
 
         const whereClause = conditions.join(' AND ');
 
-        // Count total
         const countRes = await query(
-            `SELECT COUNT(*) as total FROM audit_events WHERE ${whereClause}`,
+            `SELECT COUNT(*) as total 
+             FROM audit_events ae
+             LEFT JOIN users u ON ae.user_id::text = u.id::text
+             WHERE ${whereClause}`,
             params
         );
         const total = Number(countRes.rows[0].total);
@@ -284,10 +291,10 @@ export async function getAuditEvents(filters: {
                 l.name as location_name,
                 ru.name as reviewer_name
             FROM audit_events ae
-            LEFT JOIN users u ON ae.user_id = u.id
+            LEFT JOIN users u ON ae.user_id::text = u.id::text
             LEFT JOIN terminals t ON ae.terminal_id = t.id
             LEFT JOIN locations l ON ae.location_id = l.id
-            LEFT JOIN users ru ON ae.reviewed_by = ru.id
+            LEFT JOIN users ru ON ae.reviewed_by::text = ru.id::text
             WHERE ${whereClause}
             ORDER BY ae.created_at DESC
             LIMIT $${paramIndex++} OFFSET $${paramIndex++}

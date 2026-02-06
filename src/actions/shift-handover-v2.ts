@@ -42,7 +42,7 @@ const ExecuteHandoverSchema = z.object({
     amountToWithdraw: z.number().min(0),
     amountToKeep: z.number().min(0),
     userId: z.string().min(1, { message: "ID de usuario requerido" }),
-    userPin: z.string().min(4, { message: "PIN de usuario requerido" }),
+    userPin: z.string().optional(), // OPTIONAL: Can be empty if only supervisor auth is required
     supervisorPin: z.string().min(4, { message: "PIN de supervisor requerido" }), // NEW
     nextUserId: UUIDSchema.optional(),
     notes: z.string().max(500).optional(),
@@ -385,12 +385,22 @@ export async function executeHandoverSecure(params: {
         // --- INICIO DE TRANSACCIÓN ---
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-        // 2a. Validar PIN del usuario (Cajero)
-        const pinResult = await validateUserPin(client, userId, userPin);
-        if (!pinResult.valid) {
-            await client.query('ROLLBACK');
-            logger.warn({ userId }, '🚫 Handover: Cashier PIN validation failed');
-            return { success: false, error: 'PIN de cajero incorrecto' };
+        // 2a. Validar PIN del usuario (Cajero) - Opcional
+        let cashierName = 'Unknown User';
+        if (userPin && userPin.length >= 4) {
+            const pinResult = await validateUserPin(client, userId, userPin);
+            if (!pinResult.valid) {
+                await client.query('ROLLBACK');
+                logger.warn({ userId }, '🚫 Handover: Cashier PIN validation failed');
+                return { success: false, error: 'PIN de cajero incorrecto' };
+            }
+            cashierName = pinResult.user?.name || cashierName;
+        } else {
+            // Si no hay PIN, confiamos en el ID pero buscamos el nombre para logs
+            const userCheck = await client.query('SELECT name FROM users WHERE id = $1', [userId]);
+            if (userCheck.rows.length > 0) {
+                cashierName = userCheck.rows[0].name;
+            }
         }
 
         // 2b. Validar PIN del Supervisor (Gerente/Admin)
@@ -511,10 +521,10 @@ export async function executeHandoverSecure(params: {
                 diff: declaredCash - expectedCash,
                 remittance_amount: amountToWithdraw,
                 remittance_id: remittanceId,
-                closed_by: pinResult.user?.name,
+                closed_by: cashierName,
                 authorized_by_supervisor: supervisorAuth.authorizedBy.name // LOG SUPERVISOR
             },
-            description: notes || `Cierre autorizado por ${supervisorAuth.authorizedBy.name} (Cajero: ${pinResult.user?.name})`
+            description: notes || `Cierre autorizado por ${supervisorAuth.authorizedBy.name} (Cajero: ${cashierName})`
         });
 
         // --- COMMIT ---
@@ -528,7 +538,7 @@ export async function executeHandoverSecure(params: {
             await notifyManagersSecure({
                 locationId: terminal.location_id,
                 title: "💰 Nueva Remesa Pendiente",
-                message: `El cajero ${pinResult.user?.name} ha cerrado turno. Monto: $${amountToWithdraw.toLocaleString('es-CL')}`,
+                message: `El cajero ${cashierName} ha cerrado turno. Monto: $${amountToWithdraw.toLocaleString('es-CL')}`,
                 link: "/finance/treasury"
             });
         } catch (notifyError) {

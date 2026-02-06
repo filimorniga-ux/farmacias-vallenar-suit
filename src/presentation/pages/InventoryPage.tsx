@@ -118,6 +118,11 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
                                                 <p className="text-xs text-slate-400">{item.laboratory || 'Laboratorio N/A'}</p>
                                             </div>
                                             <div className="flex gap-1 flex-wrap justify-end max-w-[100px]">
+                                                {(item.registration_source === 'POS_EXPRESS' || item.is_express_entry) && (
+                                                    <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded-lg text-[10px] font-bold flex items-center gap-1 border border-orange-200">
+                                                        <AlertTriangle size={8} /> INCOMPLETO
+                                                    </span>
+                                                )}
                                                 {item.source_system === 'AI_PARSER' && (
                                                     <span className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded-lg text-[10px] font-bold flex items-center gap-1">
                                                         <Sparkles size={8} /> IA
@@ -195,6 +200,11 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
                                                 {item.source_system === 'AI_PARSER' && (
                                                     <span title="Creado/Abastecido por IA" className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded-lg text-[10px] font-bold border border-indigo-200 flex items-center gap-1">
                                                         <Sparkles size={10} /> IA
+                                                    </span>
+                                                )}
+                                                {(item.registration_source === 'POS_EXPRESS' || item.is_express_entry) && (
+                                                    <span title="Creado en Caja (Incompleto)" className="px-2 py-1 bg-orange-100 text-orange-700 rounded-lg text-[10px] font-bold border border-orange-200 flex items-center gap-1">
+                                                        <AlertTriangle size={10} /> POS
                                                     </span>
                                                 )}
                                                 {item.is_bioequivalent && <span title="Bioequivalente" className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-xs font-bold border border-emerald-200">BIO</span>}
@@ -352,7 +362,8 @@ const InventoryPage: React.FC = () => {
     const [filters, setFilters] = useState({
         coldChain: false,
         expiring: false,
-        critical: false
+        critical: false,
+        incomplete: false
     });
 
     // Mobile Detection
@@ -407,6 +418,10 @@ const InventoryPage: React.FC = () => {
 
             if (filters.critical) {
                 if (item.stock_actual > item.stock_min) return false;
+            }
+
+            if (filters.incomplete) {
+                if (item.registration_source !== 'POS_EXPRESS' && !item.is_express_entry) return false;
             }
 
             return true;
@@ -624,6 +639,12 @@ const InventoryPage: React.FC = () => {
                         >
                             <Filter size={14} /> Stock Crítico
                         </button>
+                        <button
+                            onClick={() => setFilters(f => ({ ...f, incomplete: !f.incomplete }))}
+                            className={`px-3 py-2 rounded-lg text-xs font-bold border flex items-center gap-2 transition ${filters.incomplete ? 'bg-orange-100 text-orange-700 border-orange-200' : 'bg-white text-slate-500 border-slate-200'}`}
+                        >
+                            <AlertTriangle size={14} /> Express/Caja
+                        </button>
                     </div>
 
                     {/* Danger Zone */}
@@ -777,7 +798,13 @@ const InventoryPage: React.FC = () => {
                     productName={priceAdjState.product?.name}
                     sku={priceAdjState.product?.sku}
                     currentPrice={priceAdjState.product?.price_sell_unit || priceAdjState.product?.price}
-                    onClose={() => setPriceAdjState(prev => ({ ...prev, isOpen: false }))}
+                    onClose={() => {
+                        console.log('🔄 InventoryPage: Price modal closed. Triggering refetch()...');
+                        setPriceAdjState(prev => ({ ...prev, isOpen: false }));
+                        refetch().then(res => {
+                            console.log('📦 InventoryPage: Refetch completed', res.status, res.data?.length);
+                        });
+                    }}
                 />
             )}
         </div>

@@ -1,11 +1,11 @@
-'use client';
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { usePharmaStore } from '../store/useStore';
-import { Ticket, UserPlus, ArrowRight, Settings, Printer, X, Phone, User, MapPin, Check, ChevronLeft, LogOut } from 'lucide-react';
+import { useLocationStore } from '../store/useLocationStore';
+import { Ticket, UserPlus, ArrowRight, Settings, Printer, X, Phone, User, MapPin, Check, ChevronLeft, LogOut, QrCode } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PrinterService } from '../../domain/services/PrinterService';
 import { toast } from 'sonner';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/presentation/components/ui/tabs"
 import { getPublicLocationsSecure } from '../../actions/public-network-v2';
 import { createTicketSecure } from '../../actions/queue-v2';
 
@@ -93,6 +93,7 @@ const Keyboard = ({ onCharClick, onSpace, onBackspace }: { onCharClick: (c: stri
 
 const QueueKioskPage: React.FC = () => {
     const { printerConfig, customers } = usePharmaStore();
+    const { kiosks, updateKioskStatus, locations: storeLocations, fetchLocations } = useLocationStore();
 
     // Kiosk Mode State
     const [isKioskActive, setIsKioskActive] = useState(false);
@@ -123,6 +124,7 @@ const QueueKioskPage: React.FC = () => {
 
     // Setup Lock (for changing location)
     const [setupPin, setSetupPin] = useState('');
+    const [pairingCode, setPairingCode] = useState(''); // New State for Pairing Code
     const [isSetupUnlocked, setIsSetupUnlocked] = useState(false);
 
     // Valid PINs (1213 = admin)
@@ -269,6 +271,41 @@ const QueueKioskPage: React.FC = () => {
         } else {
             setSetupPin('');
             toast.error('PIN Incorrecto');
+        }
+    };
+
+    const handlePairWithCode = (code: string) => {
+        console.log('Attempting to pair with code:', code);
+        const kiosk = kiosks.find(k => k.pairing_code === code);
+
+        if (kiosk) {
+            console.log('Kiosk found:', kiosk);
+            // 1. Set Location
+            setLocationId(kiosk.location_id);
+            localStorage.setItem('preferred_location_id', kiosk.location_id);
+
+            // 2. Find Location Name (Try local state or store)
+            const locName = locations.find(l => l.id === kiosk.location_id)?.name
+                || storeLocations.find(l => l.id === kiosk.location_id)?.name;
+
+            if (locName) {
+                localStorage.setItem('preferred_location_name', locName);
+            }
+
+            // 3. Mark as Active locally and in store
+            updateKioskStatus(kiosk.id, 'ACTIVE');
+
+            // 4. Enter Kiosk Mode
+            setIsKioskActive(true);
+            toast.success(`¡Vinculado a ${locName || 'Sucursal'}!`);
+
+            // 5. Clean up
+            setPairingCode('');
+            enterFullscreen();
+        } else {
+            console.warn('Invalid code. Available kiosks:', kiosks);
+            setPairingCode('');
+            toast.error('Código inválido o expirado');
         }
     };
 
@@ -513,25 +550,54 @@ const QueueKioskPage: React.FC = () => {
                     <h1 className="text-3xl font-black text-slate-800 mb-2">Totem de Turnos</h1>
 
                     {/* Step 1: Select Location if not set */}
-                    {!hasLocation && locations.length > 0 && (
-                        <div className="mb-8">
-                            <p className="text-slate-500 mb-4 font-medium">Seleccione la sucursal</p>
-                            <div className="grid gap-3">
-                                {locations.map(loc => (
-                                    <button
-                                        key={loc.id}
-                                        onClick={() => {
-                                            setLocationId(loc.id);
-                                            localStorage.setItem('preferred_location_id', loc.id);
-                                            localStorage.setItem('preferred_location_name', loc.name);
+                    {/* Step 1: Select Location or Pair Code if not set */}
+                    {!hasLocation && (
+                        <div className="mb-8 w-full">
+                            <Tabs defaultValue="list" className="w-full">
+                                <TabsList className="grid w-full grid-cols-2 mb-6">
+                                    <TabsTrigger value="list">Lista</TabsTrigger>
+                                    <TabsTrigger value="code">Código</TabsTrigger>
+                                </TabsList>
+
+                                {/* OPTION A: LIST */}
+                                <TabsContent value="list">
+                                    <p className="text-slate-500 mb-4 font-medium">Seleccione sucursal manualmente</p>
+                                    <div className="grid gap-3 max-h-64 overflow-y-auto">
+                                        {locations.map(loc => (
+                                            <button
+                                                key={loc.id}
+                                                onClick={() => {
+                                                    setLocationId(loc.id);
+                                                    localStorage.setItem('preferred_location_id', loc.id);
+                                                    localStorage.setItem('preferred_location_name', loc.name);
+                                                }}
+                                                className="p-4 bg-white border border-slate-100 rounded-2xl text-slate-700 font-bold hover:bg-sky-50 hover:border-sky-300 hover:text-sky-700 transition-all flex items-center gap-3 shadow-sm group text-left"
+                                            >
+                                                <MapPin size={18} className="text-sky-400 group-hover:text-sky-500" />
+                                                <span className="truncate">{loc.name}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </TabsContent>
+
+                                {/* OPTION B: PAIRING CODE */}
+                                <TabsContent value="code">
+                                    <p className="text-slate-500 mb-6 font-medium">Ingrese código de vinculación</p>
+                                    <input
+                                        type="text"
+                                        maxLength={6}
+                                        placeholder="CÓDIGO"
+                                        className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl px-4 py-6 text-center text-slate-800 text-3xl font-mono font-bold uppercase focus:border-sky-500 outline-none mb-4 transition-all tracking-widest placeholder:text-slate-300"
+                                        value={pairingCode}
+                                        onChange={e => {
+                                            const val = e.target.value.toUpperCase();
+                                            setPairingCode(val);
+                                            if (val.length === 6) handlePairWithCode(val);
                                         }}
-                                        className="p-4 bg-white border border-slate-100 rounded-2xl text-slate-700 font-bold hover:bg-sky-50 hover:border-sky-300 hover:text-sky-700 transition-all flex items-center gap-3 shadow-sm group"
-                                    >
-                                        <MapPin size={18} className="text-sky-400 group-hover:text-sky-500" />
-                                        {loc.name}
-                                    </button>
-                                ))}
-                            </div>
+                                    />
+                                    <p className="text-xs text-slate-400">Genera este código desde Gestión de Red</p>
+                                </TabsContent>
+                            </Tabs>
                         </div>
                     )}
 
@@ -664,18 +730,48 @@ const QueueKioskPage: React.FC = () => {
                             <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100">
                                 <Settings className="mx-auto text-blue-500 mb-4" size={48} />
                                 <h2 className="text-2xl text-slate-800 font-bold mb-4">Configuración</h2>
-                                <p className="text-slate-500 mb-6 text-sm">Ingrese el PIN de administrador</p>
-                                <input
-                                    type="password"
-                                    maxLength={4}
-                                    placeholder="••••"
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-4 text-center text-slate-800 text-3xl tracking-[1em] focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
-                                    value={setupPin}
-                                    onChange={e => {
-                                        setSetupPin(e.target.value);
-                                        if (e.target.value.length === 4) unlockSetup(e.target.value);
-                                    }}
-                                />
+
+                                <div className="space-y-6">
+                                    {/* Option A: Manual PIN */}
+                                    <div>
+                                        <p className="text-slate-500 mb-2 text-xs font-bold uppercase tracking-wider">Acceso Manual (Admin)</p>
+                                        <input
+                                            type="password"
+                                            maxLength={4}
+                                            placeholder="••••"
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-center text-slate-800 text-2xl tracking-[0.5em] focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition-all placeholder:tracking-normal"
+                                            value={setupPin}
+                                            onChange={e => {
+                                                const val = e.target.value;
+                                                setSetupPin(val);
+                                                if (val.length === 4) unlockSetup(val);
+                                            }}
+                                        />
+                                    </div>
+
+                                    <div className="relative flex py-2 items-center">
+                                        <div className="flex-grow border-t border-slate-200"></div>
+                                        <span className="flex-shrink-0 mx-4 text-slate-400 text-xs font-bold uppercase">O Vincular</span>
+                                        <div className="flex-grow border-t border-slate-200"></div>
+                                    </div>
+
+                                    {/* Option B: Pairing Code */}
+                                    <div>
+                                        <p className="text-slate-500 mb-2 text-xs font-bold uppercase tracking-wider">Código de Vinculación</p>
+                                        <input
+                                            type="text"
+                                            maxLength={6}
+                                            placeholder="CÓDIGO"
+                                            className="w-full bg-cyan-50 border border-cyan-200 rounded-xl px-4 py-3 text-center text-cyan-800 text-2xl font-mono font-bold uppercase focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 outline-none transition-all placeholder:text-cyan-300/50"
+                                            value={pairingCode}
+                                            onChange={e => {
+                                                const val = e.target.value.toUpperCase();
+                                                setPairingCode(val);
+                                                if (val.length === 6) handlePairWithCode(val);
+                                            }}
+                                        />
+                                    </div>
+                                </div>
                             </div>
                         ) : (
                             <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100">

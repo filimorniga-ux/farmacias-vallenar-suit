@@ -102,7 +102,7 @@ const LocationSwitcher: React.FC = () => {
                                 </h3>
                             </div>
                             <div className="max-h-[400px] overflow-y-auto p-2 space-y-1">
-                                {locations.map((loc) => (
+                                {locations.filter(l => l.is_active !== false).map((loc) => (
                                     <button
                                         key={loc.id}
                                         onClick={() => handleLocationSwitch(loc.id)}
@@ -228,7 +228,7 @@ const LocationSwitcher: React.FC = () => {
 
                         {/* Locations List */}
                         <div className="max-h-[400px] overflow-y-auto p-2 space-y-1">
-                            {locations.map((location) => {
+                            {locations.filter(l => l.is_active !== false).map((location) => {
                                 const LocationIcon = getLocationIcon(location.type);
                                 const isActive = location.id === currentLocation?.id;
 

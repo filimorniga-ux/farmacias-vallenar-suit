@@ -186,12 +186,13 @@ interface PaymentMethodSelectorProps {
 function PaymentMethodSelector({ selected, onChange, disabled }: PaymentMethodSelectorProps) {
     const methods = [
         { key: 'CASH' as const, label: 'EFECTIVO', icon: Banknote, color: 'emerald' },
-        { key: 'DEBIT' as const, label: 'TARJETA', icon: CreditCard, color: 'blue' },
+        { key: 'DEBIT' as const, label: 'DÉBITO', icon: CreditCard, color: 'blue' },
+        { key: 'CREDIT' as const, label: 'CRÉDITO', icon: CreditCard, color: 'indigo' },
         { key: 'TRANSFER' as const, label: 'TRANSF.', icon: Smartphone, color: 'purple' },
     ];
 
     return (
-        <div className="grid grid-cols-3 gap-4 mb-8">
+        <div className="grid grid-cols-2 gap-4 mb-8">
             {methods.map(({ key, label, icon: Icon, color }) => (
                 <button
                     key={key}

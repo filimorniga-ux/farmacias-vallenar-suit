@@ -140,7 +140,9 @@ export async function getOrganizationStructureSecure(explicitUserId?: string): P
     data?: { locations: any[]; terminals: any[] };
     error?: string;
 }> {
+    console.time('⏱️ [Network] getOrganizationStructureSecure');
     let session = await getSession();
+
 
     // Fallback: If no session headers, but explicit user ID provided (e.g. from client store)
     if (!session && explicitUserId && UUIDSchema.safeParse(explicitUserId).success) {
@@ -209,6 +211,7 @@ export async function getOrganizationStructureSecure(explicitUserId?: string): P
 
         const terminals = res.rows.flatMap((row: any) => row.terminals);
 
+        console.timeEnd('⏱️ [Network] getOrganizationStructureSecure');
         return { success: true, data: { locations, terminals } };
 
     } catch (error: any) {

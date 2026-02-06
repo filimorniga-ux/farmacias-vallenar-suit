@@ -127,6 +127,8 @@ export interface InventoryBatch {
     bioequivalent?: boolean; // Alias
     active_ingredient?: string; // Alias
     source_system?: string; // 'MANUAL' | 'AI_PARSER' | 'WMS'
+    registration_source?: string; // NEW: 'POS_EXPRESS' | 'MANUAL'
+    is_express_entry?: boolean; // NEW: Flag for products created at POS
     created_at?: number; // Timestamp of creation/restock
 }
 

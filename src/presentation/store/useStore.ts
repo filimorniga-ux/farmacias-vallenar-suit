@@ -1366,13 +1366,34 @@ export const usePharmaStore = create<PharmaState>()(
                     const quote = result.data;
 
                     // Convert QuoteItems to CartItems
-                    const cartItems: CartItem[] = quote.items.map((item: any) => ({
-                        id: item.product_id || item.sku,
-                        sku: item.sku,
-                        name: item.name,
-                        price: item.unit_price,
-                        quantity: item.quantity,
-                    }));
+                    // Convert QuoteItems to CartItems with Hybrid Strategy (Inventory Match + Fallback)
+                    const cartItems: CartItem[] = quote.items.map((item: any) => {
+                        const invItem = state.inventory.find(i => i.sku === item.sku);
+                        const basePrice = invItem ? invItem.price : Number(item.unitPrice) || 0;
+                        const finalName = invItem ? invItem.name : (item.name || 'Producto Desconocido');
+                        const qty = Number(item.quantity) || 1;
+
+                        // Recalculate discount based on VALID price
+                        let discountObj = undefined;
+                        if (item.discount && Number(item.discount) > 0) {
+                            const discountPct = Number(item.discount);
+                            const discountAmount = Math.round(basePrice * (discountPct / 100)); // Standard rounding
+                            const finalPrice = basePrice - discountAmount;
+                            discountObj = {
+                                discountAmount,
+                                finalPrice
+                            };
+                        }
+
+                        return {
+                            id: invItem?.id || item.productId || item.sku, // Prefer Inventory Batch ID -> Quote Product ID -> SKU (Fallback)
+                            sku: item.sku,
+                            name: finalName,
+                            price: basePrice,
+                            quantity: qty,
+                            discount: discountObj
+                        };
+                    });
 
                     set({
                         cart: cartItems,

@@ -13,7 +13,7 @@ import { toast } from 'sonner';
 const NetworkPage = () => {
     const { locations, kiosks, currentLocation, addLocation, switchLocation, generatePairingCode } = useLocationStore();
     const { employees, user } = usePharmaStore(); // Need employees for Team Mgmt
-    const [activeTab, setActiveTab] = useState<'BRANCHES' | 'TEAMS' | 'DEVICES' | 'MANAGERS'>('BRANCHES');
+    const [activeTab, setActiveTab] = useState<'BRANCHES' | 'TEAMS' | 'DEVICES'>('BRANCHES');
 
     // Wizard State
     const [isWizardOpen, setIsWizardOpen] = useState(false);
@@ -21,9 +21,16 @@ const NetworkPage = () => {
     const [pairingCode, setPairingCode] = useState<string | null>(null);
     const [editingLocation, setEditingLocation] = useState<Location | null>(null);
 
-    // Manager Promotion State
-    const [promotionTarget, setPromotionTarget] = useState<EmployeeProfile | null>(null);
-    const [managerPin, setManagerPin] = useState('');
+    // Device Wizard State
+    const [isDeviceWizardOpen, setIsDeviceWizardOpen] = useState(false);
+    const [newDevice, setNewDevice] = useState<{ name: string; type: 'QUEUE' | 'ATTENDANCE'; locationId: string }>({
+        name: '',
+        type: 'QUEUE',
+        locationId: ''
+    });
+    const { registerKiosk } = useLocationStore();
+
+
 
     const handleCreateLocation = async () => {
         if (!newLocation.name || !newLocation.address) return;
@@ -49,6 +56,29 @@ const NetworkPage = () => {
         }
     };
 
+    const handleCreateDevice = () => {
+        if (!newDevice.name || !newDevice.locationId) {
+            toast.error('Nombre y ubicación requeridos');
+            return;
+        }
+
+        const kioskId = `K-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+
+        registerKiosk({
+            id: kioskId,
+            type: newDevice.type,
+            location_id: newDevice.locationId,
+            status: 'INACTIVE', // Starts inactive until paired
+            pairing_code: generatePairingCode(kioskId)
+        });
+
+        toast.success(`Dispositivo ${kioskId} creado`);
+        setIsDeviceWizardOpen(false);
+        setNewDevice({ name: '', type: 'QUEUE', locationId: '' });
+        // Optionally show pairing code immediately
+        handleGenerateCode(kioskId);
+    };
+
     const handleGenerateCode = (kioskId: string) => {
         const code = generatePairingCode(kioskId);
         setPairingCode(code);
@@ -71,7 +101,7 @@ const NetworkPage = () => {
             } else {
                 toast.error('Error al mover personal: ' + res.error);
             }
-        } catch (error) {
+        } catch (_error) {
             toast.error('Error de conexión');
         }
     };
@@ -255,7 +285,10 @@ const NetworkPage = () => {
                 <h3 className="font-bold text-slate-800 flex items-center gap-2">
                     <Monitor className="text-slate-400" /> Kioscos & Dispositivos
                 </h3>
-                <button className="text-sm font-bold text-cyan-600 hover:bg-cyan-50 px-3 py-1 rounded-lg transition">
+                <button
+                    onClick={() => setIsDeviceWizardOpen(true)}
+                    className="text-sm font-bold text-cyan-600 hover:bg-cyan-50 px-3 py-1 rounded-lg transition"
+                >
                     + Vincular Nuevo
                 </button>
             </div>
@@ -291,63 +324,7 @@ const NetworkPage = () => {
         </div>
     );
 
-    const renderManagers = () => (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-            <div className="flex justify-between items-center mb-6">
-                <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                    <Shield className="text-slate-400" /> Gestión de Gerentes (Socios)
-                </h3>
-            </div>
 
-            <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                    <thead>
-                        <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase">
-                            <th className="pb-3 pl-4">Empleado</th>
-                            <th className="pb-3">Rol Actual</th>
-                            <th className="pb-3">Sucursal Base</th>
-                            <th className="pb-3 text-right pr-4">Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                        {employees.map(emp => (
-                            <tr key={emp.id} className="group hover:bg-slate-50 transition-colors">
-                                <td className="py-3 pl-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-500 text-xs">
-                                            {emp.name.charAt(0)}
-                                        </div>
-                                        <div>
-                                            <p className="font-bold text-slate-700 text-sm">{emp.name}</p>
-                                            <p className="text-xs text-slate-400">{emp.rut}</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td className="py-3">
-                                    <span className={`px-2 py-1 rounded-full text-xs font-bold ${emp.role === 'MANAGER' ? 'bg-purple-100 text-purple-600' : 'bg-slate-100 text-slate-500'}`}>
-                                        {emp.role}
-                                    </span>
-                                </td>
-                                <td className="py-3 text-sm text-slate-600">
-                                    {locations.find(l => l.id === emp.base_location_id)?.name || '-'}
-                                </td>
-                                <td className="py-3 text-right pr-4">
-                                    {emp.role !== 'MANAGER' && (
-                                        <button
-                                            onClick={() => setPromotionTarget(emp)}
-                                            className="text-xs font-bold text-cyan-600 hover:bg-cyan-50 px-3 py-1 rounded-lg transition"
-                                        >
-                                            Ascender a Socio
-                                        </button>
-                                    )}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    );
 
     return (
         <div className="h-full flex flex-col bg-slate-50 p-6 overflow-hidden">
@@ -386,7 +363,7 @@ const NetworkPage = () => {
                         value={currentLocation?.id}
                         onChange={(e) => switchLocation(e.target.value)}
                     >
-                        {locations.map(loc => (
+                        {locations.filter(l => l.is_active !== false).map(loc => (
                             <option key={loc.id} value={loc.id}>{loc.name}</option>
                         ))}
                     </select>
@@ -413,12 +390,7 @@ const NetworkPage = () => {
                 >
                     Dispositivos
                 </button>
-                <button
-                    onClick={() => setActiveTab('MANAGERS')}
-                    className={`px-4 py-2 font-bold text-sm border-b-2 transition-colors ${activeTab === 'MANAGERS' ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
-                >
-                    Gerentes
-                </button>
+
             </div>
 
             {/* Content Area */}
@@ -426,7 +398,7 @@ const NetworkPage = () => {
                 {activeTab === 'BRANCHES' && renderBranches()}
                 {activeTab === 'TEAMS' && renderTeams()}
                 {activeTab === 'DEVICES' && renderDevices()}
-                {activeTab === 'MANAGERS' && renderManagers()}
+
             </div>
 
             {/* New Location Wizard Modal */}
@@ -488,6 +460,81 @@ const NetworkPage = () => {
                                     className="py-3 rounded-xl font-bold bg-cyan-600 text-white hover:bg-cyan-700"
                                 >
                                     Crear Ubicación
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* New Device Wizard Modal */}
+            {isDeviceWizardOpen && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in duration-200">
+                        <h3 className="text-xl font-bold text-slate-800 mb-4">Vincular Nuevo Dispositivo</h3>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-bold text-slate-600 mb-1">Tipo de Dispositivo</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                        onClick={() => setNewDevice({ ...newDevice, type: 'QUEUE' })}
+                                        className={`p-3 rounded-xl border-2 font-bold text-sm transition-all ${newDevice.type === 'QUEUE' ? 'border-cyan-500 bg-cyan-50 text-cyan-700' : 'border-slate-200 text-slate-400'}`}
+                                    >
+                                        <div className="flex flex-col items-center">
+                                            <Tablet size={24} className="mb-2" />
+                                            Kiosco / Filas
+                                        </div>
+                                    </button>
+                                    <button
+                                        onClick={() => setNewDevice({ ...newDevice, type: 'ATTENDANCE' })}
+                                        className={`p-3 rounded-xl border-2 font-bold text-sm transition-all ${newDevice.type === 'ATTENDANCE' ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-slate-200 text-slate-400'}`}
+                                    >
+                                        <div className="flex flex-col items-center">
+                                            <Users size={24} className="mb-2" />
+                                            Reloj Control
+                                        </div>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-bold text-slate-600 mb-1">Nombre del Dispositivo</label>
+                                <input
+                                    type="text"
+                                    className="w-full p-3 border-2 border-slate-200 rounded-xl font-medium"
+                                    placeholder="Ej: Kiosco Entrada Principal"
+                                    value={newDevice.name}
+                                    onChange={(e) => setNewDevice({ ...newDevice, name: e.target.value })}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-bold text-slate-600 mb-1">Ubicación Asignada</label>
+                                <select
+                                    className="w-full p-3 border-2 border-slate-200 rounded-xl font-medium"
+                                    value={newDevice.locationId}
+                                    onChange={(e) => setNewDevice({ ...newDevice, locationId: e.target.value })}
+                                >
+                                    <option value="">Seleccionar Sucursal...</option>
+                                    {locations.filter(l => l.is_active !== false).map(loc => (
+                                        <option key={loc.id} value={loc.id}>{loc.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3 mt-6">
+                                <button
+                                    onClick={() => setIsDeviceWizardOpen(false)}
+                                    className="py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={handleCreateDevice}
+                                    className="py-3 rounded-xl font-bold bg-cyan-600 text-white hover:bg-cyan-700"
+                                >
+                                    Crear Dispositivo
                                 </button>
                             </div>
                         </div>

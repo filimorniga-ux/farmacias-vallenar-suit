@@ -14,7 +14,6 @@
 
 import { query } from '@/lib/db';
 import { headers } from 'next/headers';
-import { checkRateLimit } from '@/lib/rate-limiter';
 import { unstable_cache } from 'next/cache';
 
 export interface PublicLocation {
@@ -29,6 +28,7 @@ export async function getPublicLocationsSecure(): Promise<{
     data?: PublicLocation[];
     error?: string;
 }> {
+    console.time('⏱️ [PublicNetwork] getPublicLocationsSecure');
     try {
         const res = await query(`
             SELECT id, name, address, type 
@@ -44,6 +44,7 @@ export async function getPublicLocationsSecure(): Promise<{
             type: row.type,
         }));
 
+        console.timeEnd('⏱️ [PublicNetwork] getPublicLocationsSecure');
         return { success: true, data };
 
     } catch (error: any) {
