@@ -70,7 +70,7 @@ export class ClinicalAgent {
             cart.forEach(item => {
                 // Revisar Hipertensión
                 if (customer.health_tags.includes('HYPERTENSION')) {
-                    const conflict = CONTRAINDICATIONS.HYPERTENSION.find(drug => item.name.includes(drug) || item.active_ingredients?.includes(drug));
+                    const conflict = CONTRAINDICATIONS.HYPERTENSION.find(drug => (item.name && item.name.includes(drug)) || item.active_ingredients?.includes(drug));
                     if (conflict) {
                         blockingItems.push(`${item.name} (Contiene ${conflict})`);
                     }
@@ -78,7 +78,7 @@ export class ClinicalAgent {
 
                 // Revisar Embarazo
                 if (customer.health_tags.includes('PREGNANT')) {
-                    const conflict = CONTRAINDICATIONS.PREGNANT.find(drug => item.name.includes(drug) || item.active_ingredients?.includes(drug));
+                    const conflict = CONTRAINDICATIONS.PREGNANT.find(drug => (item.name && item.name.includes(drug)) || item.active_ingredients?.includes(drug));
                     if (conflict) {
                         blockingItems.push(`${item.name} (Riesgo en Embarazo: ${conflict})`);
                     }
@@ -86,7 +86,7 @@ export class ClinicalAgent {
 
                 // Revisar Diabetes
                 if (customer.health_tags.includes('DIABETIC')) {
-                    const conflict = CONTRAINDICATIONS.DIABETIC.find(drug => item.name.includes(drug));
+                    const conflict = CONTRAINDICATIONS.DIABETIC.find(drug => item.name && item.name.includes(drug));
                     if (conflict) {
                         blockingItems.push(`${item.name} (No apto para diabéticos)`);
                     }
@@ -97,7 +97,7 @@ export class ClinicalAgent {
         // 2. Lógica de Cross-Selling (Independiente del cliente)
         cart.forEach(item => {
             CROSS_SELLING_RULES.forEach(rule => {
-                if (item.name.includes(rule.trigger) || item.active_ingredients?.includes(rule.trigger)) {
+                if ((item.name && item.name.includes(rule.trigger)) || item.active_ingredients?.includes(rule.trigger)) {
                     if (!suggestedItems.includes(rule.suggestion)) {
                         suggestedItems.push(rule.suggestion);
                     }

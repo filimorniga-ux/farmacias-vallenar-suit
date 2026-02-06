@@ -1004,7 +1004,7 @@ export async function getQuoteHistory(
         let paramIndex = 1;
 
         if (customerId) {
-            conditions.push(`q.customer_id = $${paramIndex++}`);
+            conditions.push(`q.customer_id = $${paramIndex++}::text`);
             params.push(customerId);
         }
 
@@ -1049,7 +1049,7 @@ export async function getQuoteHistory(
         }
 
         if (customerId) {
-            userFilter += ` AND q.customer_id = $${currentParamIndex}`;
+            userFilter += ` AND q.customer_id = $${currentParamIndex}::text`;
             queryParams.push(customerId);
             currentParamIndex++;
         }
@@ -1072,8 +1072,8 @@ export async function getQuoteHistory(
                 (SELECT COUNT(*) FROM quote_items WHERE quote_id = q.id) as items_count,
                 u.name as creator_name
             FROM quotes q
-            LEFT JOIN users u ON q.created_by = u.id
-            LEFT JOIN customers c ON q.customer_id = c.id
+            LEFT JOIN users u ON q.user_id = u.id::text
+            LEFT JOIN customers c ON q.customer_id = c.id::text
             WHERE 1=1 ${userFilter}
             ORDER BY q.created_at DESC
             LIMIT $1 OFFSET $2
@@ -1125,19 +1125,22 @@ export async function retrieveQuoteSecure(
     }
 
     try {
+        console.log('[Debug] retrieveQuoteSecure: Starting for ID', quoteId);
         const { query } = await import('@/lib/db');
 
         // Get quote with creator info
+        console.log('[Debug] Fetching quote header...');
         const quoteRes = await query(`
             SELECT 
                 q.*,
                 u.name as created_by_name,
                 c.name as customer_display_name
             FROM quotes q
-            LEFT JOIN users u ON q.user_id = u.id
-            LEFT JOIN customers c ON q.customer_id = c.id
-            WHERE q.id = $1
+            LEFT JOIN users u ON q.user_id = u.id::text
+            LEFT JOIN customers c ON q.customer_id = c.id::text
+            WHERE q.id = $1::uuid
         `, [quoteId]);
+        console.log('[Debug] Header fetched. Rows:', quoteRes.rows.length);
 
         if (quoteRes.rows.length === 0) {
             return { success: false, error: 'Cotización no encontrada' };
@@ -1146,16 +1149,11 @@ export async function retrieveQuoteSecure(
         const quote = quoteRes.rows[0];
 
         // Get quote items
+        console.log('[Debug] Fetching items...');
         const itemsRes = await query(`
-            SELECT 
-                qi.*,
-                p.name as product_name,
-                p.sku
-            FROM quote_items qi
-            LEFT JOIN products p ON qi.product_id = p.id
-            WHERE qi.quote_id = $1
-            ORDER BY qi.created_at
+            SELECT * FROM quote_items WHERE quote_id = $1::uuid
         `, [quoteId]);
+        console.log('[Debug] Items fetched. Count:', itemsRes.rows.length);
 
         // Validate Location and Stock (Optional but recommended)
         const stockWarnings: string[] = [];
@@ -1167,8 +1165,8 @@ export async function retrieveQuoteSecure(
                 const stockRes = await query(`
                     SELECT sku, quantity_real 
                     FROM inventory_batches 
-                    WHERE location_id = $1 AND sku = ANY($2::text[])
-                 `, [quote.location_id, skuList]);
+                    WHERE location_id = $1 AND sku = ANY($2:: text[])
+            `, [quote.location_id, skuList]);
 
                 const stockMap = new Map();
                 stockRes.rows.forEach((r: any) => {
@@ -1178,12 +1176,13 @@ export async function retrieveQuoteSecure(
                 itemsRes.rows.forEach(item => {
                     const available = stockMap.get(item.sku) || 0;
                     if (available < item.quantity) {
-                        stockWarnings.push(`Stock bajo para ${item.product_name || item.sku}: ${available}/${item.quantity}`);
+                        stockWarnings.push(`Stock bajo para ${item.product_name || item.sku}: ${available} / ${item.quantity}`);
                     }
                 });
             }
         }
 
+        console.log('[Debug] Returning success data...');
         return {
             success: true,
             data: {
@@ -1212,7 +1211,7 @@ export async function retrieveQuoteSecure(
 
     } catch (error: any) {
         logger.error({ error, quoteId }, '[Quotes] Retrieve quote error');
-        return { success: false, error: 'Error obteniendo cotización' };
+        return { success: false, error: 'Error obteniendo cotización: ' + (error.message || 'Error desconocido') };
     }
 }
 
@@ -1243,23 +1242,23 @@ export async function getQuotesSecure(
 
         // Search by Code (Partial Match)
         if (searchCode && searchCode.trim().length > 0) {
-            conditions.push(`q.code ILIKE $${idx++}`);
-            params.push(`%${searchCode.trim()}%`);
+            conditions.push(`q.code ILIKE $${idx++} `);
+            params.push(`% ${searchCode.trim()}% `);
         }
 
         // Filter by current user
         if (session?.user?.id) {
-            conditions.push(`q.user_id = $${idx++}`);
+            conditions.push(`q.user_id = $${idx++}::text `);
             params.push(session.user.id);
         }
 
         if (customerId) {
-            conditions.push(`q.customer_id = $${idx++}`);
+            conditions.push(`q.customer_id = $${idx++}::text `);
             params.push(customerId);
         }
 
         if (startDate) {
-            conditions.push(`q.created_at >= $${idx++}`);
+            conditions.push(`q.created_at >= $${idx++} `);
             params.push(startDate);
         }
 
@@ -1267,31 +1266,31 @@ export async function getQuotesSecure(
             // Set end date to end of day
             const eod = new Date(endDate);
             eod.setHours(23, 59, 59, 999);
-            conditions.push(`q.created_at <= $${idx++}`);
+            conditions.push(`q.created_at <= $${idx++} `);
             params.push(eod);
         }
 
-        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')} ` : '';
 
         // Count total
         const countRes = await pool.query(
-            `SELECT COUNT(*) FROM quotes q ${whereClause}`,
+            `SELECT COUNT(*) FROM quotes q ${whereClause} `,
             params
         );
         const total = parseInt(countRes.rows[0].count);
 
         // Fetch paginated
         const res = await pool.query(`
-            SELECT 
-                q.id, q.code, q.total, q.created_at, q.valid_until, q.status,
-                q.customer_name, q.customer_phone, q.customer_email,
-                u.name as creator_name
+    SELECT
+    q.id, q.code, q.total, q.created_at, q.valid_until, q.status,
+        q.customer_name, q.customer_phone, q.customer_email,
+        u.name as creator_name
             FROM quotes q
-            LEFT JOIN users u ON q.user_id = u.id
+            LEFT JOIN users u ON q.user_id = u.id::text
             ${whereClause}
             ORDER BY q.created_at DESC
             LIMIT $${idx++} OFFSET $${idx++}
-        `, [...params, pageSize, offset]);
+    `, [...params, pageSize, offset]);
 
         return { success: true, data: res.rows, total };
     } catch (error: any) {
@@ -1316,13 +1315,13 @@ export async function getQuoteDetailsSecure(quoteId: string): Promise<{ success:
     try {
         // Fetch Header
         const headerRes = await pool.query(`
-            SELECT 
-                q.*,
-                u.name as creator_name,
-                l.name as location_name,
-                l.address as location_address
+    SELECT
+    q.*,
+        u.name as creator_name,
+        l.name as location_name,
+        l.address as location_address
             FROM quotes q
-            LEFT JOIN users u ON q.user_id = u.id
+            LEFT JOIN users u ON q.user_id = u.id::text
             LEFT JOIN locations l ON q.location_id::uuid = l.id
             WHERE q.id = $1::uuid
         `, [quoteId]);
@@ -1332,7 +1331,7 @@ export async function getQuoteDetailsSecure(quoteId: string): Promise<{ success:
 
         // Fetch Items
         const itemsRes = await pool.query(`
-            SELECT * FROM quote_items WHERE quote_id = $1::uuid
+    SELECT * FROM quote_items WHERE quote_id = $1:: uuid
         `, [quoteId]);
 
         return {

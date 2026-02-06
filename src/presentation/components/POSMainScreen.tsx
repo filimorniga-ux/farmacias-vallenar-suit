@@ -50,6 +50,7 @@ import { Cart } from './pos/Cart';
 import { validateSupervisorPin } from '../../actions/auth-v2';
 import { POSHeaderActions } from './pos/POSHeaderActions';
 import QuoteHistoryModal from './quotes/QuoteHistoryModal';
+import { ExpressAddProductModal } from './pos/ExpressAddProductModal';
 
 // Helper: Formatear número con separadores de miles (puntos)
 const formatWithThousands = (value: string | number): string => {
@@ -281,6 +282,10 @@ const POSMainScreen: React.FC = () => {
     // Quote Mode
     const [isQuoteMode, setIsQuoteMode] = useState(false);
 
+    // Express Product Creation
+    const [isExpressModalOpen, setIsExpressModalOpen] = useState(false);
+    const [scannedBarcode, setScannedBarcode] = useState('');
+
     // NOTE: isCheckoutProcessing, autoPrint, paymentMethod, transferId, pointsToRedeem
     // are now managed internally by PaymentModal via useCheckout hook
 
@@ -334,7 +339,9 @@ const POSMainScreen: React.FC = () => {
                 toast.error('Producto en DB pero no sincronizado localmente. Sincronice.');
             }
         } else {
-            toast.error('Producto no encontrado');
+            // Trigger Express Creation
+            setScannedBarcode(decodedText);
+            setIsExpressModalOpen(true);
         }
     };
 
@@ -368,7 +375,9 @@ const POSMainScreen: React.FC = () => {
                 const audio = new Audio('/beep.mp3'); // Assuming file exists or just placeholder
                 audio.play().catch(() => { });
             } else {
-                toast.error('Producto no encontrado');
+                // Trigger Express Creation via Hardware Scanner
+                setScannedBarcode(code);
+                setIsExpressModalOpen(true);
             }
         }
     });
@@ -981,10 +990,10 @@ const POSMainScreen: React.FC = () => {
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100 bg-white">
-                                            {cartWithDiscounts.map((item) => {
+                                            {cartWithDiscounts.map((item, index) => {
                                                 const fullItem = inventory.find(i => i.id === item.id);
                                                 return (
-                                                    <tr key={item.id} className="hover:bg-slate-50 transition-colors group">
+                                                    <tr key={item.id || item.sku || `item-${index}`} className="hover:bg-slate-50 transition-colors group">
                                                         <td className="p-4">
                                                             <div className="flex flex-col">
                                                                 <span className="font-bold text-slate-800 text-lg leading-tight">
@@ -1060,10 +1069,10 @@ const POSMainScreen: React.FC = () => {
 
                                 {/* Mobile List View (Hidden on Desktop) */}
                                 <div className="md:hidden space-y-3">
-                                    {cartWithDiscounts.map((item) => {
+                                    {cartWithDiscounts.map((item, index) => {
                                         const fullItem = inventory.find(i => i.id === item.id);
                                         return (
-                                            <div key={item.id} className="flex justify-between items-center p-3 bg-white rounded-xl border border-slate-100 shadow-sm">
+                                            <div key={item.id || item.sku || `item-${index}`} className="flex justify-between items-center p-3 bg-white rounded-xl border border-slate-100 shadow-sm">
                                                 <div className="flex-1">
                                                     <div className="flex items-center gap-2 mb-1">
                                                         <h3 className="font-bold text-slate-800 text-base">{fullItem ? formatProductLabel(fullItem) : item.name}</h3>
@@ -1312,6 +1321,16 @@ const POSMainScreen: React.FC = () => {
             <QuoteHistoryModal
                 isOpen={isQuoteHistoryOpen}
                 onClose={() => setIsQuoteHistoryOpen(false)}
+            />
+
+            <ExpressAddProductModal
+                isOpen={isExpressModalOpen}
+                scannedBarcode={scannedBarcode}
+                onClose={() => setIsExpressModalOpen(false)}
+                onSuccess={(newProduct) => {
+                    // Type assertion may be needed depending on strictness, but structure matches
+                    addToCart(newProduct as any, 1);
+                }}
             />
         </div>
     );

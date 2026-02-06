@@ -31,8 +31,8 @@ export const AuditLogTable: React.FC = () => {
         try {
             // V2: Nuevo formato de llamada
             const res = await getAuditEvents({
-                userId: userFilter || undefined,
-                actionType: actionFilter || undefined,
+                userName: userFilter && userFilter.trim() !== '' ? userFilter : undefined,
+                actionType: actionFilter && actionFilter !== '' ? actionFilter : undefined,
                 startDate: dateFilter.start,
                 endDate: dateFilter.end,
                 limit: 100

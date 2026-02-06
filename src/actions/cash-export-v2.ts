@@ -35,6 +35,8 @@ const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'];
 // HELPERS
 // ============================================================================
 
+import { getSessionSecure } from './auth-v2';
+
 async function getSession(): Promise<{
     userId: string;
     role: string;
@@ -43,56 +45,43 @@ async function getSession(): Promise<{
     userName?: string;
 } | null> {
     try {
-        const { cookies } = await import('next/headers');
-        const cookieStore = await cookies();
-        const sessionToken = cookieStore.get('session_token')?.value;
+        // 1. Use centralized secure session
+        const session = await getSessionSecure();
+        if (!session) return null;
 
-        // 1. Try Secure Session Token (Best Practice)
-        if (sessionToken) {
-            const res = await query(
-                `SELECT u.id as "userId", u.role, u.assigned_location_id as "locationId", 
-                        s.terminal_id as "terminalId", u.name as "userName"
-                 FROM sessions s
-                 JOIN users u ON s.user_id = u.id
-                 WHERE s.token = $1 AND s.expires_at > NOW()`,
-                [sessionToken]
-            );
+        // 2. Enrich for Cashiers/POS context if needed
+        let terminalId = undefined;
+        let locationId = session.locationId;
 
-            if ((res.rowCount || 0) > 0) {
-                const row = res.rows[0];
-                return {
-                    userId: row.userId,
-                    role: row.role,
-                    locationId: row.locationId || undefined,
-                    terminalId: row.terminalId || undefined,
-                    userName: row.userName || undefined
-                };
+        // If no location in cookie, try to fetch from DB (redundant but safe)
+        if (!locationId) {
+            const userRes = await query('SELECT assigned_location_id FROM users WHERE id = $1::uuid', [session.userId]);
+            if ((userRes.rowCount ?? 0) > 0) {
+                locationId = userRes.rows[0].assigned_location_id;
             }
         }
 
-        // 2. Fallback: Auth-V2 Cookies (user_id + user_role)
-        const userId = cookieStore.get('user_id')?.value;
-        if (userId) {
-            const res = await query(
-                `SELECT id, role, name, assigned_location_id 
-                 FROM users 
-                 WHERE id = $1 AND is_active = true`,
-                [userId]
-            );
+        // 3. Find Active Terminal Session (Important for Cashiers)
+        // Check for an open session for this user
+        const shiftRes = await query(
+            `SELECT terminal_id, id as session_id 
+             FROM cash_register_sessions 
+             WHERE user_id = $1::uuid AND closed_at IS NULL 
+             ORDER BY opened_at DESC LIMIT 1`,
+            [session.userId]
+        );
 
-            if ((res.rowCount || 0) > 0) {
-                const user = res.rows[0];
-                return {
-                    userId: user.id,
-                    role: user.role,
-                    locationId: user.assigned_location_id || undefined,
-                    userName: user.name || undefined,
-                    terminalId: undefined
-                };
-            }
+        if ((shiftRes.rowCount ?? 0) > 0) {
+            terminalId = shiftRes.rows[0].terminal_id;
         }
 
-        return null; // No valid session found
+        return {
+            userId: session.userId,
+            role: session.role,
+            locationId,
+            terminalId,
+            userName: session.userName
+        };
     } catch (error) {
         logger.error({ error }, '[Cash Export] getSession error');
         return null;
@@ -103,7 +92,7 @@ async function auditExport(userId: string, exportType: string, params: any): Pro
     try {
         await query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, new_values, created_at)
-            VALUES ($1, 'EXPORT', 'CASH', $2::jsonb, NOW())
+            VALUES ($1::uuid, 'EXPORT', 'CASH', $2::jsonb, NOW())
         `, [userId, JSON.stringify({ export_type: exportType, ...params })]);
     } catch { }
 }
@@ -115,27 +104,27 @@ async function auditExport(userId: string, exportType: string, params: any): Pro
 /**
  * 💵 Generar Reporte de Caja (RBAC Completo)
  */
+// ----------------------------------------------------------------------------
+// GENERATE CASH REPORT (ENHANCED V2)
+// ----------------------------------------------------------------------------
+
 export async function generateCashReportSecure(
-    params: { startDate: string; endDate: string; locationId?: string; terminalId?: string }
+    params: { startDate: string; endDate: string; locationId?: string; terminalId?: string; sessionId?: string }
 ): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
     const session = await getSession();
     if (!session) {
         return { success: false, error: 'No autenticado' };
     }
 
-    // RBAC: Determinar acceso
+    // RBAC
     let effectiveLocationId = params.locationId;
     let effectiveTerminalId = params.terminalId;
 
     if (session.role === 'CASHIER') {
-        // Cajero: Solo su terminal/turno actual
         effectiveTerminalId = session.terminalId;
         effectiveLocationId = session.locationId;
-        if (!effectiveTerminalId) {
-            return { success: false, error: 'Cajero debe estar en turno activo para exportar' };
-        }
+        if (!effectiveTerminalId) return { success: false, error: 'Requieres turno activo' };
     } else if (!ADMIN_ROLES.includes(session.role)) {
-        // Manager: Solo su ubicación
         effectiveLocationId = session.locationId;
     }
 
@@ -144,328 +133,401 @@ export async function generateCashReportSecure(
         const endD = new Date(params.endDate);
         endD.setHours(23, 59, 59, 999);
 
-        // 📝 FIX: Use 'shifts' table instead of 'cash_register_sessions'
-        // and ensure we cast params if needed, though Date objects usually work with TIMESTAMPTZ.
-        // We also align column name 'start_time' instead of 'opened_at'.
+        // 1. DATA FETCHING
 
-        // 1. Obtener Fondo Inicial (Opening Amount) de los turnos en el periodo
-        const shiftParams: any[] = [startD, endD];
+        // A. SHIFTS (Turnos, Aperturas, Cierres, Desajustes)
         let shiftFilter = '';
-        if (effectiveLocationId) {
-            // Note: cash_register_sessions doesn't have location_id directly, usually inferred from terminal
-            // But we join terminals t which has location_id
-            shiftFilter += ` AND t.location_id = $${shiftParams.length + 1}::uuid`;
-            shiftParams.push(effectiveLocationId);
-        }
-        if (effectiveTerminalId) {
-            shiftFilter += ` AND s.terminal_id = $${shiftParams.length + 1}::uuid`;
-            shiftParams.push(effectiveTerminalId);
+        const shiftParams: any[] = [startD, endD];
+        if (effectiveLocationId) { shiftFilter += ` AND t.location_id = $${shiftParams.length + 1}::uuid`; shiftParams.push(effectiveLocationId); }
+        if (effectiveTerminalId) { shiftFilter += ` AND s.terminal_id = $${shiftParams.length + 1}::uuid`; shiftParams.push(effectiveTerminalId); }
+
+        // If specific session
+        let sessionFilter = '';
+        if (params.sessionId) {
+            sessionFilter = ` AND s.id = $${shiftParams.length + 1}::uuid`;
+            shiftParams.push(params.sessionId);
         }
 
         const shiftSql = `
-            SELECT COALESCE(SUM(s.opening_amount), 0) as total_opening
+            SELECT s.id, s.opened_at, s.closed_at, s.opening_amount, s.closing_amount, s.cash_difference,
+                   u.name as cashier_name, t.name as terminal_name, l.name as branch_name
             FROM cash_register_sessions s
+            LEFT JOIN users u ON s.user_id::text = u.id::text
             LEFT JOIN terminals t ON s.terminal_id::text = t.id::text
-            WHERE s.opened_at >= $1 AND s.opened_at <= $2 ${shiftFilter}
-        `;
-        const shiftRes = await query(shiftSql, shiftParams);
-        const totalOpening = Number(shiftRes.rows[0]?.total_opening || 0);
-
-
-        const sqlParams: any[] = [params.startDate, params.endDate];
-        let locationFilter = '';
-        if (effectiveLocationId) {
-            locationFilter = 'AND t.location_id = $3::uuid';
-            sqlParams.push(effectiveLocationId);
-        }
-
-        const sql = `
-            SELECT s.id, s.opened_at as start_time, s.closed_at as end_time, s.status,
-                   s.opening_amount, s.closing_amount,
-                   (s.opening_amount + (
-                       SELECT COALESCE(SUM(total_amount), 0) FROM sales 
-                       WHERE session_id = s.id AND payment_method = 'CASH'
-                   )) as expected_amount,
-                   t.name as terminal_name, l.name as location_name, u.name as cashier_name
-            FROM cash_register_sessions s
-            LEFT JOIN terminals t ON s.terminal_id = t.id
-            LEFT JOIN locations l ON t.location_id = l.id
-            LEFT JOIN users u ON s.user_id = u.id
-            WHERE s.opened_at >= $1::timestamp AND (s.closed_at <= $2::timestamp OR s.closed_at IS NULL)
-            ${locationFilter}
+            LEFT JOIN locations l ON t.location_id::text = l.id::text
+            WHERE s.opened_at >= $1 AND s.opened_at <= $2 ${shiftFilter} ${sessionFilter}
             ORDER BY s.opened_at DESC
         `;
+        const shiftsRes = await query(shiftSql, shiftParams);
 
-        // 2. Obtener Ventas
-        const salesParams: any[] = [startD, endD];
+        // B. SALES (Ventas con detalle de items y clientes)
+        // Note: Using subquery for items to avoid massive row multiplication
         let salesFilter = '';
-        if (effectiveLocationId) {
-            salesFilter += ` AND s.location_id = $${salesParams.length + 1}::uuid`;
-            salesParams.push(effectiveLocationId);
-        }
-        if (effectiveTerminalId) {
-            salesFilter += ` AND s.terminal_id = $${salesParams.length + 1}::uuid`;
-            salesParams.push(effectiveTerminalId);
-        }
+        const salesParams: any[] = [startD, endD];
+        if (effectiveLocationId) { salesFilter += ` AND s.location_id = $${salesParams.length + 1}::uuid`; salesParams.push(effectiveLocationId); }
+        if (effectiveTerminalId) { salesFilter += ` AND s.terminal_id = $${salesParams.length + 1}::uuid`; salesParams.push(effectiveTerminalId); }
+        if (params.sessionId) { salesFilter += ` AND s.session_id = $${salesParams.length + 1}::uuid`; salesParams.push(params.sessionId); }
 
         const salesSql = `
-            SELECT s.timestamp, s.total_amount, s.payment_method, l.name as branch_name,
-                   t.name as terminal_name, u.name as seller_name, s.dte_folio
+            SELECT 
+                s.id, s.timestamp, s.total_amount, s.payment_method, s.dte_folio,
+                u.name as seller_name, t.name as terminal_name, l.name as branch_name,
+                COALESCE(s.customer_rut, c.rut) as client_rut, 
+                COALESCE(s.customer_name, c.name) as client_name, 
+                c.loyalty_points, s.points_discount as points_redeemed,
+                (
+                    SELECT STRING_AGG(si.product_name || ' (x' || si.quantity || ')', E'\n')
+                    FROM sale_items si
+                    WHERE si.sale_id = s.id
+                ) as items_summary
             FROM sales s
-            LEFT JOIN locations l ON s.location_id::text = l.id::text
-            LEFT JOIN terminals t ON s.terminal_id::text = t.id::text
             LEFT JOIN users u ON s.user_id::text = u.id::text
+            LEFT JOIN terminals t ON s.terminal_id::text = t.id::text
+            LEFT JOIN locations l ON s.location_id::text = l.id::text
+            LEFT JOIN customers c ON s.customer_rut = c.rut
             WHERE s.timestamp >= $1 AND s.timestamp <= $2 ${salesFilter}
             ORDER BY s.timestamp DESC
-            LIMIT 5000
         `;
         const salesRes = await query(salesSql, salesParams);
 
-        // 3. Obtener Movimientos de Caja
-        const cashParams: any[] = [startD, endD];
-        let cashFilter = '';
-        if (effectiveLocationId) {
-            cashFilter += ` AND cm.location_id = $${cashParams.length + 1}::uuid`;
-            cashParams.push(effectiveLocationId);
-        }
-        if (effectiveTerminalId) {
-            cashFilter += ` AND cm.terminal_id = $${cashParams.length + 1}::uuid`;
-            cashParams.push(effectiveTerminalId);
-        }
+        // C. MOVEMENTS (Ingresos, Egresos, Retiros)
+        let movFilter = '';
+        const movParams: any[] = [startD, endD];
+        if (effectiveLocationId) { movFilter += ` AND cm.location_id = $${movParams.length + 1}::uuid`; movParams.push(effectiveLocationId); }
+        if (effectiveTerminalId) { movFilter += ` AND cm.terminal_id = $${movParams.length + 1}::uuid`; movParams.push(effectiveTerminalId); }
+        if (params.sessionId) { movFilter += ` AND cm.session_id = $${movParams.length + 1}::uuid`; movParams.push(params.sessionId); }
 
-        const cashSql = `
+        const movSql = `
             SELECT cm.timestamp, cm.type, cm.amount, cm.reason,
-                   l.name as location_name, t.name as terminal_name, u.name as user_name
+                   u.name as user_name, t.name as terminal_name, l.name as branch_name
             FROM cash_movements cm
-            LEFT JOIN locations l ON cm.location_id::text = l.id::text
-            LEFT JOIN terminals t ON cm.terminal_id::text = t.id::text
             LEFT JOIN users u ON cm.user_id::text = u.id::text
-            WHERE cm.timestamp >= $1 AND cm.timestamp <= $2 ${cashFilter}
+            LEFT JOIN terminals t ON cm.terminal_id::text = t.id::text
+            LEFT JOIN locations l ON cm.location_id::text = l.id::text
+            WHERE cm.timestamp >= $1 AND cm.timestamp <= $2 ${movFilter}
             ORDER BY cm.timestamp DESC
         `;
-        const cashRes = await query(cashSql, cashParams);
+        const movRes = await query(movSql, movParams);
 
-        // --- PROCESAMIENTO DE DATOS ---
-        const sales = salesRes.rows.map((s: any) => ({
-            ...s,
-            total_amount: Number(s.total_amount)
-        }));
+        // 2. DATA MERGING & PROCESSING
 
-        const movements = cashRes.rows.map((m: any) => ({
-            ...m,
-            amount: Number(m.amount)
-        }));
+        // Combine everything into a chronological flow
+        // Type: 'SALE', 'INCOME', 'EXPENSE', 'OPENING', 'CLOSING', 'DIFF'
+        // Combine everything into a chronological flow
+        // Type: 'SALE', 'INCOME', 'EXPENSE', 'OPENING', 'CLOSING', 'DIFF'
+        interface FlowItem {
+            timestamp: Date;
+            type: string;
+            description: string;
+            category: string;
+            responsible: string;
+            branch: string;
+            terminal: string;
+            in: number;
+            out: number;
+            client?: string;
+            rut?: string;
+            details?: string;
+            folio?: string;
+            method?: string;
+        }
 
-        // Calcular Totales por Método
-        const totalsByMethod: Record<string, number> = {
-            'CASH': 0, 'DEBIT': 0, 'CREDIT': 0, 'TRANSFER': 0, 'CHECK': 0, 'OTHER': 0
-        };
+        const flow: FlowItem[] = [];
         let totalSales = 0;
-
-        sales.forEach((s: any) => {
-            const method = s.payment_method || 'OTHER';
-            totalsByMethod[method] = (totalsByMethod[method] || 0) + s.total_amount;
-            totalSales += s.total_amount;
-        });
-
-        // Calcular Ingresos y Egresos (Movimientos)
-        let totalExtraIncome = 0;
+        let totalOpening = 0;
         let totalExpenses = 0;
+        let totalIncome = 0;
 
-        movements.forEach((m: any) => {
-            if (m.type === 'EXTRA_INCOME') {
-                totalExtraIncome += m.amount;
-            } else if (['EXPENSE', 'WITHDRAWAL'].includes(m.type)) {
-                totalExpenses += m.amount;
+        // Process Shifts (Opening/Closing)
+        shiftsRes.rows.forEach((s: any) => {
+            // Opening
+            if (s.opening_amount > 0) {
+                flow.push({
+                    timestamp: new Date(s.opened_at),
+                    type: 'FONDO INICIAL',
+                    description: 'Apertura de Caja',
+                    category: 'APERTURA',
+                    responsible: s.cashier_name,
+                    branch: s.branch_name,
+                    terminal: s.terminal_name,
+                    in: Number(s.opening_amount),
+                    out: 0,
+                    folio: '-',
+                    method: 'EFECTIVO',
+                    client: '-',
+                    rut: '-'
+                });
+                totalOpening += Number(s.opening_amount);
+            }
+            // Closing (if exists)
+            if (s.closed_at) {
+                const expectedAmount = Number(s.closing_amount) - Number(s.cash_difference);
+                const diff = Number(s.cash_difference);
+                flow.push({
+                    timestamp: new Date(s.closed_at),
+                    type: 'CIERRE DE CAJA',
+                    description: `Cierre de Turno (Esperado: $${expectedAmount.toLocaleString('es-CL')})`,
+                    category: 'CIERRE',
+                    responsible: s.cashier_name,
+                    branch: s.branch_name,
+                    terminal: s.terminal_name,
+                    in: 0,
+                    out: 0,
+                    details: diff !== 0 ? `Descuadre: $${diff.toLocaleString('es-CL')}` : 'Cuadre Perfecto',
+                    folio: '-',
+                    method: '-',
+                    client: '-',
+                    rut: '-'
+                });
+
+                if (diff !== 0) {
+                    flow.push({
+                        timestamp: new Date(s.closed_at),
+                        type: diff > 0 ? 'SOBRANTE DE CAJA' : 'FALTANTE DE CAJA',
+                        description: 'Desajuste detectado al cierre',
+                        category: 'DESAJUSTE',
+                        responsible: s.cashier_name,
+                        branch: s.branch_name,
+                        terminal: s.terminal_name,
+                        in: diff > 0 ? diff : 0,
+                        out: diff < 0 ? Math.abs(diff) : 0,
+                        folio: '-',
+                        method: 'EFECTIVO',
+                        client: '-',
+                        rut: '-'
+                    });
+                }
             }
         });
 
-        // Operación Matemática: Esperado en Caja (Efectivo)
-        // Fondo Inicial + Ventas Efectivo + Ingresos Extras - Gastos = Efectivo en Caja
-        const expectedCash = totalOpening + totalsByMethod['CASH'] + totalExtraIncome - totalExpenses;
+        // Process Sales
+        salesRes.rows.forEach((s: any) => {
+            flow.push({
+                timestamp: new Date(s.timestamp),
+                type: 'VENTA',
+                description: s.items_summary || 'Sin items', // Items go to description/items column
+                category: 'VENTA', // General Category
+                responsible: s.seller_name,
+                branch: s.branch_name,
+                terminal: s.terminal_name,
+                in: Number(s.total_amount),
+                out: 0,
+                client: s.client_name || 'Cliente Desconocido',
+                rut: s.client_rut || 'Sin RUT',
+                details: undefined, // Already in description
+                folio: s.dte_folio || (s.id ? `INT-${s.id.slice(0, 6).toUpperCase()}` : 'S/N'),
+                method: s.payment_method || 'PENDIENTE'
+            });
+            totalSales += Number(s.total_amount);
+        });
 
+        // Process Movements
+        movRes.rows.forEach((m: any) => {
+            const isIncome = m.type === 'INGRESO' || m.type === 'EXTRA_INCOME';
+            flow.push({
+                timestamp: new Date(m.timestamp),
+                type: isIncome ? 'INGRESO EXTRA' : 'GASTO/RETIRO',
+                description: m.reason,
+                category: m.type,
+                responsible: m.user_name,
+                branch: m.branch_name,
+                terminal: m.terminal_name,
+                in: isIncome ? Number(m.amount) : 0,
+                out: !isIncome ? Number(m.amount) : 0,
+                folio: '-',
+                method: 'EFECTIVO', // Usually cash movements are cash
+                client: '-',
+                rut: '-'
+            });
 
-        // --- GENERACIÓN DE EXCEL (Multi-Hoja Manual) ---
+            if (isIncome) totalIncome += Number(m.amount);
+            else totalExpenses += Number(m.amount);
+        });
+
+        // IDEM: Totals by Method
+        // ... (Keep existing logic)
+
+        // Sort Flow by Date DESC
+        flow.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+
+        // 3. EXCEL GENERATION
         const { default: ExcelJS } = await import('exceljs');
         const workbook = new ExcelJS.Workbook();
-        workbook.creator = session.userName || 'Sistema';
-        workbook.created = new Date();
+        workbook.creator = session.userName || 'Sistema Pharma';
 
-        // HOJA 1: RESUMEN (Summary)
-        const summarySheet = workbook.addWorksheet('Resumen de Caja');
+        // --- HOJA 1: RESUMEN (Dashbaord Style) ---
+        const summarySheet = workbook.addWorksheet('Resumen General');
+        // ... (Keep existing summary logic mostly, maybe refined)
+        // Calculate Totals by Payment Method
+        const salesByMethod: Record<string, number> = {};
+        salesRes.rows.forEach((s: any) => {
+            const method = s.payment_method || 'PENDIENTE';
+            salesByMethod[method] = (salesByMethod[method] || 0) + Number(s.total_amount);
+        });
 
-        // Estilos
         const titleStyle = { font: { bold: true, size: 14, color: { argb: 'FFFFFFFF' } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F2937' } } } as any;
-        const headerStyle = { font: { bold: true }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } } } as any;
         const currencyFormat = '"$"#,##0';
 
-        // Título Principal
         summarySheet.mergeCells('A1:C1');
-        summarySheet.getCell('A1').value = 'REPORTE DE ARQUEO DE CAJA';
+        summarySheet.getCell('A1').value = 'RESUMEN EJECUTIVO DE CAJA';
         summarySheet.getCell('A1').style = titleStyle;
         summarySheet.getCell('A1').alignment = { horizontal: 'center' };
 
-        summarySheet.mergeCells('A2:C2');
-        summarySheet.getCell('A2').value = `${startD.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })} - ${endD.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}`;
-        summarySheet.getCell('A2').alignment = { horizontal: 'center' };
+        summarySheet.getCell('A3').value = 'Periodo:';
+        summarySheet.getCell('B3').value = `${startD.toLocaleDateString()} - ${endD.toLocaleDateString()}`;
 
-        // Sección 1: Flujo de Efectivo (The Math)
-        summarySheet.getCell('A4').value = 'FLUJO DE EFECTIVO (CÁLCULO)';
-        summarySheet.getCell('A4').font = { bold: true, size: 12 };
-
-        const cashFlowData = [
-            ['(+) Fondo Inicial', totalOpening],
-            ['(+) Ventas Efectivo', totalsByMethod['CASH']],
-            ['(+) Ingresos Extras', totalExtraIncome],
-            ['(-) Gastos / Retiros', totalExpenses], // Excel logic usually adds, so display as positive but label implies minus? Or keep consistent.
-            ['(=) TOTAL ESPERADO EN CAJA', expectedCash]
+        const summaryData = [
+            ['(+) Fondo Inicial Total', totalOpening],
+            ['(+) Ventas Totales', totalSales],
         ];
 
-        cashFlowData.forEach((row, idx) => {
+        // Insert Payment Methods Details
+        Object.entries(salesByMethod).forEach(([method, amount]) => {
+            summaryData.push([`      • ${method}`, amount]);
+        });
+
+        summaryData.push(
+            ['(+) Otros Ingresos', totalIncome],
+            ['(-) Gastos y Retiros', totalExpenses],
+            ['(=) FLUJO NETO', totalOpening + totalSales + totalIncome - totalExpenses]
+        );
+
+        summaryData.forEach((row, idx) => {
             const r = idx + 5;
             summarySheet.getCell(`A${r}`).value = row[0];
             summarySheet.getCell(`B${r}`).value = row[1];
             summarySheet.getCell(`B${r}`).numFmt = currencyFormat;
-            if (idx === 4) { // Total Row
-                summarySheet.getCell(`A${r}`).font = { bold: true };
-                summarySheet.getCell(`B${r}`).font = { bold: true };
-                summarySheet.getCell(`B${r}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } }; // Light Green
-            }
+            if (idx === 4) summarySheet.getCell(`B${r}`).font = { bold: true, size: 12 };
         });
 
-        // Sección 2: Ventas por Medio de Pago
-        summarySheet.getCell('D4').value = 'TOTALES POR MEDIO DE PAGO';
-        summarySheet.getCell('D4').font = { bold: true, size: 12 };
-
-        const paymentData = [
-            ['Efectivo', totalsByMethod['CASH']],
-            ['Débito', totalsByMethod['DEBIT']],
-            ['Crédito', totalsByMethod['CREDIT']],
-            ['Transferencia', totalsByMethod['TRANSFER']],
-            ['Cheque', totalsByMethod['CHECK']],
-            ['Otro', totalsByMethod['OTHER']],
-            ['TOTAL VENTAS', totalSales]
-        ];
-
-        paymentData.forEach((row, idx) => {
-            const r = idx + 5;
-            summarySheet.getCell(`D${r}`).value = row[0];
-            summarySheet.getCell(`E${r}`).value = row[1];
-            summarySheet.getCell(`E${r}`).numFmt = currencyFormat;
-            if (idx === 6) { // Total Sales
-                summarySheet.getCell(`D${r}`).font = { bold: true };
-                summarySheet.getCell(`E${r}`).font = { bold: true };
-            }
-        });
-
-        summarySheet.getColumn(1).width = 25;
-        summarySheet.getColumn(2).width = 15;
-        summarySheet.getColumn(4).width = 20;
-        summarySheet.getColumn(5).width = 15;
+        summarySheet.getColumn('A').width = 25;
+        summarySheet.getColumn('B').width = 20;
 
 
-        // HOJA 2: DETALLE VENTAS (Detailed Sales with Columns)
-        const salesSheet = workbook.addWorksheet('Detalle Ventas');
+        // --- HOJA 2: FLUJO DETALLADO (The Masterpiece) ---
+        const detailSheet = workbook.addWorksheet('Flujo Detallado');
 
-        salesSheet.columns = [
-            { header: 'Fecha', key: 'date', width: 20 },
+        detailSheet.columns = [
+            { header: 'Folio (Recibo)', key: 'folio', width: 20 },
+            { header: 'Fecha', key: 'date', width: 12 },
             { header: 'Hora', key: 'time', width: 10 },
-            { header: 'Folio/DTE', key: 'dte', width: 15 },
-            { header: 'Vendedor', key: 'seller', width: 20 },
-            { header: 'Monto Total', key: 'total', width: 15 },
-            { header: 'Efectivo', key: 'cash', width: 12 },
-            { header: 'Débito', key: 'debit', width: 12 },
-            { header: 'Crédito', key: 'credit', width: 12 },
-            { header: 'Transf.', key: 'transfer', width: 12 },
-            { header: 'Otro', key: 'other', width: 12 },
+            { header: 'Items / Descripción', key: 'desc', width: 50 },
+            { header: 'Medio Pago', key: 'method', width: 15 },
+            { header: 'Cliente', key: 'client', width: 25 },
+            { header: 'RUT', key: 'rut', width: 15 },
+            { header: 'Vendedor', key: 'user', width: 20 },
+            { header: 'Caja', key: 'term', width: 15 },
+            { header: 'Sucursal', key: 'branch', width: 20 },
+            { header: 'Entrada ($)', key: 'in', width: 15 },
+            { header: 'Salida ($)', key: 'out', width: 15 },
         ];
 
-        // Style Headers
-        salesSheet.getRow(1).eachCell((cell) => {
+        // Header Style
+        detailSheet.getRow(1).eachCell(cell => {
             cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0052CC' } };
         });
 
-        const salesRows = sales.map((s: any) => ({
-            date: new Date(s.timestamp).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }),
-            time: new Date(s.timestamp).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago' }),
-            dte: s.dte_folio || 'S/N',
-            seller: s.seller_name,
-            total: s.total_amount,
-            cash: s.payment_method === 'CASH' ? s.total_amount : 0,
-            debit: s.payment_method === 'DEBIT' ? s.total_amount : 0,
-            credit: s.payment_method === 'CREDIT' ? s.total_amount : 0,
-            transfer: s.payment_method === 'TRANSFER' ? s.total_amount : 0,
-            other: (!['CASH', 'DEBIT', 'CREDIT', 'TRANSFER'].includes(s.payment_method)) ? s.total_amount : 0
+        const detailRows = flow.map(f => ({
+            folio: f.folio || '-',
+            date: f.timestamp.toLocaleDateString('es-CL'),
+            time: f.timestamp.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }),
+            desc: f.details ? `${f.description}\n${f.details}` : f.description, // Items already in description for Sales
+            method: f.method,
+            client: f.client,
+            rut: f.rut,
+            user: f.responsible,
+            term: f.terminal,
+            branch: f.branch,
+            in: f.in || null,
+            out: f.out || null,
         }));
 
-        salesSheet.addRows(salesRows);
+        detailSheet.addRows(detailRows);
 
-        // Format Currency Columns (E to J)
-        ['E', 'F', 'G', 'H', 'I', 'J'].forEach(col => {
-            salesSheet.getColumn(col).numFmt = currencyFormat;
+        // Styling Rows
+        detailSheet.eachRow((row, rowNumber) => {
+            if (rowNumber === 1) return; // Skip Header
+
+            // Wrap text for Description column (Items)
+            row.getCell('desc').alignment = { vertical: 'top', wrapText: true };
+            row.getCell('folio').alignment = { vertical: 'top', horizontal: 'center' };
+
+            row.eachCell(cell => {
+                // Safe cast to number for column comparison to avoid TS lint errors
+                if (Number(cell.col) !== 4) cell.alignment = { ...cell.alignment, vertical: 'top' };
+            });
+
+            // Conditional formatting logic
+            const type = row.getCell('method').value as string; // Using method for some logic or category from before?
+            // Wait, we lost 'category' in columns, but we have it in flow.
+            // Let's use the 'in' 'out' or just re-inspect flow?
+            // It's cleaner to check values in the row or just basic logic.
+
+            const income = Number(row.getCell('in').value || 0);
+            const expense = Number(row.getCell('out').value || 0);
+
+            if (expense > 0) {
+                row.getCell('out').font = { color: { argb: 'FFDC2626' }, bold: true }; // Red
+            }
+            if (income > 0) {
+                row.getCell('in').font = { color: { argb: 'FF16A34A' }, bold: true }; // Green
+            }
+
+            // Highlight Shifts
+            const desc = row.getCell('desc').value?.toString() || '';
+            if (desc.includes('Apertura de Caja')) {
+                row.eachCell(c => c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFDE047' } }); // Yellow
+            } else if (desc.includes('Cierre de Turno')) {
+                row.eachCell(c => c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFCBD5E1' } }); // Gray
+            }
         });
 
+        ['K', 'L'].forEach(col => detailSheet.getColumn(col).numFmt = currencyFormat);
 
-        // HOJA 3: MOVIMIENTOS (Movements)
-        const movSheet = workbook.addWorksheet('Movimientos de Caja');
 
-        movSheet.columns = [
-            { header: 'Fecha', key: 'date', width: 20 },
-            { header: 'Hora', key: 'time', width: 10 },
-            { header: 'Tipo', key: 'type', width: 15 },
-            { header: 'Motivo / Descripción', key: 'reason', width: 40 },
-            { header: 'Usuario', key: 'user', width: 20 },
-            { header: 'Ingreso (+)', key: 'in', width: 15 },
-            { header: 'Egreso (-)', key: 'out', width: 15 },
+        // --- HOJA 3: TURNOS (Audit) ---
+        const shiftSheet = workbook.addWorksheet('Auditoría Turnos');
+        shiftSheet.columns = [
+            { header: 'Fecha', key: 'date', width: 12 },
+            { header: 'Cajero', key: 'user', width: 20 },
+            { header: 'Caja', key: 'term', width: 15 },
+            { header: 'Apertura', key: 'open', width: 15 },
+            { header: 'Venta Sistema', key: 'sys', width: 15 }, // Expected - Opening basically
+            { header: 'Cierre Real', key: 'close', width: 15 },
+            { header: 'Diferencia', key: 'diff', width: 15 },
         ];
 
-        // Style Headers
-        movSheet.getRow(1).eachCell((cell) => {
-            cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDC2626' } }; // Red header for movements
-        });
+        // Header
+        shiftSheet.getRow(1).font = { bold: true };
 
-        const movRows = movements.map((m: any) => ({
-            date: new Date(m.timestamp).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }),
-            time: new Date(m.timestamp).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago' }),
-            type: m.type === 'EXTRA_INCOME' ? 'INGRESO' : (m.type === 'EXPENSE' ? 'GASTO' : 'RETIRO'),
-            reason: m.reason,
-            user: m.user_name,
-            in: m.type === 'EXTRA_INCOME' ? m.amount : 0,
-            out: ['EXPENSE', 'WITHDRAWAL'].includes(m.type) ? m.amount : 0
+        const shiftRows = shiftsRes.rows.map((s: any) => ({
+            date: new Date(s.opened_at).toLocaleString('es-CL'),
+            user: s.cashier_name,
+            term: s.terminal_name,
+            open: Number(s.opening_amount),
+            sys: Number(s.closing_amount) - Number(s.cash_difference), // Sales + In/Out handled by system
+            close: s.closing_amount ? Number(s.closing_amount) : 'Activo',
+            diff: s.closing_amount ? Number(s.cash_difference) : 0
         }));
 
-        movSheet.addRows(movRows);
-
-        // Format Currency
-        ['F', 'G'].forEach(col => {
-            movSheet.getColumn(col).numFmt = currencyFormat;
-        });
+        shiftSheet.addRows(shiftRows);
+        ['D', 'E', 'F', 'G'].forEach(col => shiftSheet.getColumn(col).numFmt = currencyFormat);
 
 
-        // Buffer final
+        // FINALIZE
         const buffer = await workbook.xlsx.writeBuffer();
-
-        await auditExport(session.userId, 'CASH_REPORT', {
-            startDate: params.startDate,
-            endDate: params.endDate,
-            locationId: effectiveLocationId,
-            salesRows: salesRes.rowCount,
-            cashRows: cashRes.rowCount,
-        });
-
-        logger.info({ userId: session.userId, role: session.role }, '💵 [Export] Cash report exported (V2 Advanced)');
+        await auditExport(session.userId, 'CASH_REPORT_V2_ENHANCED', { ...params });
 
         return {
             success: true,
             data: Buffer.from(buffer).toString('base64'),
-            filename: `Arqueo_${params.startDate.split('T')[0]}.xlsx`,
+            filename: `FlujoCaja_${params.startDate.split('T')[0]}.xlsx`,
         };
 
     } catch (error: any) {
-        logger.error({ error }, '[Export] Cash report error');
-        return { success: false, error: 'Error generando reporte: ' + error.message };
+        logger.error({ error }, '[Export] Cash report V2 error');
+        return { success: false, error: 'Error generando reporte detallado: ' + error.message };
     }
 }
 
@@ -506,8 +568,8 @@ export async function exportSalesDetailSecure(
                    s.discount_amount, s.payment_method, s.dte_folio, s.dte_status,
                    u.name as seller_name, l.name as location_name
             FROM sales s
-            LEFT JOIN users u ON s.user_id = u.id
-            LEFT JOIN locations l ON s.location_id = l.id
+            LEFT JOIN users u ON s.user_id::text = u.id::text
+            LEFT JOIN locations l ON s.location_id::text = l.id::text
             WHERE s.timestamp >= $1::timestamp AND s.timestamp <= $2::timestamp ${locationFilter}
             ORDER BY s.timestamp DESC
             LIMIT 10000
@@ -549,7 +611,7 @@ export async function exportSalesDetailSecure(
             data,
         });
 
-        await auditExport(session.userId, 'SALES_DETAIL', { ...params, rows: res.rowCount });
+        await auditExport(session.userId, 'SALES_DETAIL', { ...params, rows: res.rowCount ?? 0 });
 
         return {
             success: true,
@@ -597,12 +659,12 @@ export async function exportShiftSummarySecure(
 
         const sql = `
             SELECT s.id, s.opened_at as start_time, s.closed_at as end_time, s.status,
-                   s.opening_amount, s.closing_amount, s.expected_amount,
+                   s.opening_amount, s.closing_amount, s.cash_difference,
                    t.name as terminal_name, l.name as location_name, u.name as cashier_name
             FROM cash_register_sessions s
-            LEFT JOIN terminals t ON s.terminal_id = t.id
-            LEFT JOIN locations l ON t.location_id = l.id
-            LEFT JOIN users u ON s.user_id = u.id
+            LEFT JOIN terminals t ON s.terminal_id::text = t.id::text
+            LEFT JOIN locations l ON t.location_id::text = l.id::text
+            LEFT JOIN users u ON s.user_id::text = u.id::text
             WHERE s.opened_at >= $1::timestamp AND (s.closed_at <= $2::timestamp OR s.closed_at IS NULL)
             ${locationFilter}
             ORDER BY s.opened_at DESC
@@ -618,8 +680,8 @@ export async function exportShiftSummarySecure(
             end: row.end_time ? new Date(Number(row.end_time)).toLocaleString('es-CL', { timeZone: 'America/Santiago' }) : 'Activo',
             opening: Number(row.opening_amount || 0),
             closing: Number(row.closing_amount || 0),
-            expected: Number(row.expected_amount || 0),
-            diff: Number(row.closing_amount || 0) - Number(row.expected_amount || 0),
+            expected: Number(row.closing_amount || 0) - Number(row.cash_difference || 0),
+            diff: Number(row.cash_difference || 0),
         }));
 
         const excel = new ExcelService();
@@ -642,7 +704,7 @@ export async function exportShiftSummarySecure(
             data,
         });
 
-        await auditExport(session.userId, 'SHIFT_SUMMARY', { ...params, rows: res.rowCount });
+        await auditExport(session.userId, 'SHIFT_SUMMARY', { ...params, rows: res.rowCount ?? 0 });
 
         return {
             success: true,

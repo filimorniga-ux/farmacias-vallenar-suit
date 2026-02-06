@@ -20,7 +20,6 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
     const [declaredAmount, setDeclaredAmount] = useState<string>('');
     const [summary, setSummary] = useState<HandoverSummary | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [userPin, setUserPin] = useState<string>('');
     const [supervisorPin, setSupervisorPin] = useState<string>(''); // NEW: Supervisor PIN
 
     // Step 1: Calculate
@@ -52,10 +51,7 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
         if (!currentTerminalId || !summary || !user) return;
 
         // Validar PINs antes de ejecutar
-        if (!userPin || userPin.length < 4) {
-            toast.error('El cajero debe ingresar su PIN');
-            return;
-        }
+
         if (!supervisorPin || supervisorPin.length < 4) {
             toast.error('Se requiere autorización de Supervisor');
             return;
@@ -69,7 +65,7 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
             amountToWithdraw: summary.amountToWithdraw,
             amountToKeep: summary.amountToKeep,
             userId: user.id,
-            userPin: userPin,
+            userPin: '', // Optional now
             supervisorPin: supervisorPin, // PASS NEW PIN
             notes: `Cierre de turno por ${user.name}`,
         });
@@ -266,21 +262,7 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
                             </div>
 
                             {/* PIN de Confirmación & Autorización */}
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
-                                    <label className="block text-xs font-bold text-slate-800 mb-2 uppercase">
-                                        PIN Cajero ({user?.name?.split(' ')[0]})
-                                    </label>
-                                    <input
-                                        type="password"
-                                        inputMode="numeric"
-                                        maxLength={4}
-                                        placeholder="••••"
-                                        value={userPin}
-                                        onChange={(e) => setUserPin(e.target.value.replace(/\D/g, ''))}
-                                        className="w-full text-xl font-mono font-bold p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-200 outline-none text-center"
-                                    />
-                                </div>
+                            <div className="max-w-xs mx-auto w-full">
 
                                 <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl">
                                     <label className="block text-xs font-bold text-amber-900 mb-2 uppercase flex items-center gap-1">
@@ -300,7 +282,7 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
 
                             <button
                                 onClick={handleConfirm}
-                                disabled={!userPin || userPin.length !== 4 || !supervisorPin || supervisorPin.length !== 4}
+                                disabled={!supervisorPin || supervisorPin.length !== 4}
                                 className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-900/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <CheckCircle size={20} /> Validar y Cerrar Turno
@@ -309,7 +291,6 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
                             <button
                                 onClick={() => {
                                     setStep('COUNT');
-                                    setUserPin(''); // Limpiar PIN al volver
                                 }}
                                 className="w-full py-2 text-gray-500 text-sm hover:text-gray-800 underline"
                             >

@@ -110,9 +110,123 @@ const DeactivateProductSchema = z.object({
     adminPin: z.string().min(4).max(8).regex(/^\d+$/, 'PIN de admin requerido'),
 });
 
-// ============================================================================
-// CONSTANTS
-// ============================================================================
+// --- Gestión de Caja (Cash Flow) ---
+export type CashMovementType = 'IN' | 'OUT';
+export type CashMovementReason = 'SUPPLIES' | 'SERVICES' | 'WITHDRAWAL' | 'OTHER' | 'INITIAL_FUND' | 'OTHER_INCOME' | 'SALARY_ADVANCE' | 'CHANGE' | 'OWNER_CONTRIBUTION';
+
+export interface CashMovement {
+    id: string;
+    shift_id: string;
+    timestamp: number;
+    type: CashMovementType;
+    amount: number;
+    reason: CashMovementReason;
+    description: string;
+    evidence_url?: string; // URL de la foto
+    is_cash: boolean; // Si afecta el efectivo físico
+    user_id: string;
+}
+
+// ... existing code ...
+
+const CreateExpressProductSchema = z.object({
+    barcode: z.string().min(1, 'Código requerido'),
+    name: z.string().min(2, 'Nombre requerido'),
+    price: z.number().min(0, 'Precio inválido'),
+    userId: UUIDSchema,
+});
+
+/**
+ * ⚡ Create Product Express (POS)
+ */
+export async function createProductExpressSecure(data: z.infer<typeof CreateExpressProductSchema>): Promise<{
+    success: boolean;
+    data?: { productId: string; name: string };
+    error?: string;
+}> {
+    const validated = CreateExpressProductSchema.safeParse(data);
+    if (!validated.success) {
+        return { success: false, error: validated.error.issues[0]?.message };
+    }
+
+    const { barcode, name, price, userId } = validated.data;
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        // Check duplicates
+        const existing = await client.query('SELECT id, name FROM products WHERE sku = $1', [barcode]);
+        if (existing.rows.length > 0) {
+            await client.query('ROLLBACK');
+            return {
+                success: false,
+                error: `Ya existe un producto con este código: ${existing.rows[0].name}`
+            };
+        }
+
+        const productId = randomUUID();
+        const batchId = randomUUID();
+
+        // 1. Insert Product (Marked as Express)
+        await client.query(`
+            INSERT INTO products (
+                id, sku, name, price, price_sell_box, price_sell_unit, 
+                cost_net, cost_price, tax_percent,
+                stock_minimo_seguridad, stock_total, stock_actual,
+                registration_source, is_express_entry,
+                condicion_venta, created_at, updated_at, is_active
+            ) VALUES (
+                $1, $2, $3, $4, $4, $4,
+                0, 0, 19,
+                0, 100, 100, -- Dummy Stock to allow immediate sale
+                'POS_EXPRESS', true,
+                'VD', NOW(), NOW(), true
+            )
+        `, [productId, barcode, name, price]);
+
+        // 2. Insert Batch (For inventory management)
+        await client.query(`
+            INSERT INTO inventory_batches (
+                id, product_id, sku, name,
+                price_sell_box, sale_price,
+                stock_actual, quantity_real,
+                cost_net, unit_cost,
+                expiry_date, created_at, updated_at
+            ) VALUES (
+                $1, $2, $3, $4,
+                $5, $5,
+                100, 100, -- Dummy Stock
+                0, 0,
+                NULL, NOW(), NOW()
+            )
+        `, [batchId, productId, barcode, name, price]);
+
+        // 3. Audit
+        await insertProductAudit(client, {
+            actionCode: 'PRODUCT_EXPRESS_CREATE',
+            userId,
+            productId,
+            newValues: { sku: barcode, name, price, source: 'POS' }
+        });
+
+        await client.query('COMMIT');
+
+        // Force revalidation
+        revalidatePath('/inventario');
+        revalidatePath('/pos');
+
+        return { success: true, data: { productId, name } };
+
+    } catch (error: any) {
+        await client.query('ROLLBACK');
+        console.error('[Products] Express Create Error:', error);
+        return { success: false, error: 'Error creando producto express' };
+    } finally {
+        client.release();
+    }
+}
+
 
 const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'];
 const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];

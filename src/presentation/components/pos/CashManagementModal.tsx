@@ -70,10 +70,9 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
             setDescription('');
 
             // Auto-trigger supervisor modal for sensitive actions (AUDIT only blocks viewing)
-            if (mode === 'AUDIT' && currentShift?.status === 'ACTIVE') {
+            if ((mode === 'AUDIT' || mode === 'CLOSE') && currentShift?.status === 'ACTIVE') {
                 setIsSupervisorModalOpen(true);
-            } else if (mode === 'CLOSE') {
-                setIsAuditVisible(true); // Close mode shows audit immediately, PIN required at end
+                setIsAuditVisible(false); // Ensure hidden until auth
             }
         }
     }, [isOpen, mode]);
@@ -136,6 +135,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                 endDate: new Date(end).toISOString(),
                 locationId: user?.assigned_location_id,
                 terminalId: currentShift.terminal_id,
+                sessionId: currentShift.id, // V2: Precision export
             });
 
             if (result.success && result.data) {
@@ -171,7 +171,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
     const handleRegisterMovement = async () => {
         const numAmount = parseInt(amount.replace(/\./g, ''));
         if (isNaN(numAmount) || numAmount <= 0) return;
-        if (!evidence && description.length < 5) return;
+        if (!evidence && description.length < 3) return;
 
         // Check if we need PIN for large withdrawals
         const requiresPin = movementType === 'OUT' && numAmount > WITHDRAWAL_THRESHOLD;

@@ -135,7 +135,7 @@ const TicketBoleta: React.FC<TicketBoletaProps> = ({ sale, companyName = 'FARMAC
                 ) : isDTE ? (
                     <h3 className="font-bold text-sm">DETALLE VENTA BOLETA N° {folio}</h3>
                 ) : (
-                    <h3 className="font-bold text-sm">DETALLE VENTA INT.</h3>
+                    <h3 className="font-bold text-sm">DETALLE VENTA INT. {folio !== '000000' ? `N° ${folio}` : ''}</h3>
                 )}
             </div>
 

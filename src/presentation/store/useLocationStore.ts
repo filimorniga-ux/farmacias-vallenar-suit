@@ -63,14 +63,15 @@ export const useLocationStore = create<LocationState>()(
 
                 set({ isLoading: true });
 
-                // Safety Timeout
+                // Safety Timeout (Extended for Cloud Latency / Dev Cold Start)
                 const timeout = setTimeout(() => {
                     const currentState = get() as any;
                     if (currentState.isLoading) {
-                        console.error('📍 [LocationStore] Sync TIMEOUT after 15s');
+                        console.error('📍 [LocationStore] Sync TIMEOUT after 60s - Retry advised');
+                        toast.error('La sincronización de ubicaciones está tardando más de lo esperado. Por favor recargue si persiste.');
                         set({ isLoading: false });
                     }
-                }, 15000);
+                }, 60000);
 
                 try {
                     const { usePharmaStore } = await import('./useStore'); // Import store to get user

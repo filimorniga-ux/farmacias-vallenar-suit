@@ -24,6 +24,7 @@ export interface FinancialBreakdown {
     transfer: number;
     otherIncome: number;
     expenses: number;
+    openingCash: number;
     totalCollected: number;
 }
 
@@ -147,14 +148,21 @@ export async function getManagerRealTimeDataSecure(
             ),
             CashMovements AS (
                 SELECT 
-                    COALESCE(SUM(CASE WHEN type = 'INGRESO' THEN amount ELSE 0 END), 0) as other_income,
-                    COALESCE(SUM(CASE WHEN type IN ('GASTO', 'RETIRO') THEN amount ELSE 0 END), 0) as expenses
+                    COALESCE(SUM(CASE WHEN type IN ('INGRESO', 'EXTRA_INCOME') THEN amount ELSE 0 END), 0) as other_income,
+                    COALESCE(SUM(CASE WHEN type IN ('GASTO', 'RETIRO', 'EXPENSE', 'WITHDRAWAL') THEN amount ELSE 0 END), 0) as expenses
                 FROM cash_movements cm
                 JOIN terminals t ON cm.terminal_id = t.id
                 WHERE t.location_id = $1::uuid
                   AND DATE(cm.timestamp) = CURRENT_DATE
+            ),
+            OpeningFunds AS (
+                SELECT COALESCE(SUM(opening_amount), 0) as opening_cash
+                FROM cash_register_sessions crs
+                JOIN terminals t ON crs.terminal_id = t.id
+                WHERE t.location_id = $1::uuid
+                  AND DATE(crs.opened_at) = CURRENT_DATE
             )
-            SELECT * FROM SalesStats, CashMovements
+            SELECT * FROM SalesStats, CashMovements, OpeningFunds
         `, [targetId]);
 
         const fData = financialsRes.rows[0];
@@ -165,6 +173,7 @@ export async function getManagerRealTimeDataSecure(
             transfer: Number(fData.transfer),
             otherIncome: Number(fData.other_income),
             expenses: Number(fData.expenses),
+            openingCash: Number(fData.opening_cash),
             totalCollected: Number(fData.cash) + Number(fData.debit) + Number(fData.credit) + Number(fData.transfer)
         };
 
@@ -190,7 +199,14 @@ export async function getManagerRealTimeDataSecure(
                 COALESCE(SUM(CASE WHEN s.payment_method = 'CASH' THEN s.total_amount ELSE 0 END), 0) as cash,
                 COALESCE(SUM(CASE WHEN s.payment_method = 'DEBIT' THEN s.total_amount ELSE 0 END), 0) as debit,
                 COALESCE(SUM(CASE WHEN s.payment_method = 'CREDIT' THEN s.total_amount ELSE 0 END), 0) as credit,
-                COALESCE(SUM(CASE WHEN s.payment_method = 'TRANSFER' THEN s.total_amount ELSE 0 END), 0) as transfer
+                COALESCE(SUM(CASE WHEN s.payment_method = 'TRANSFER' THEN s.total_amount ELSE 0 END), 0) as transfer,
+                -- Opening Funds (Sum of today's sessions for this terminal)
+                (
+                    SELECT COALESCE(SUM(opening_amount), 0)
+                    FROM cash_register_sessions crs_open
+                    WHERE crs_open.terminal_id = t.id
+                      AND DATE(crs_open.opened_at) = CURRENT_DATE
+                ) as opening_cash
             FROM terminals t
             LEFT JOIN sales s ON s.terminal_id = t.id 
                 AND s.status = 'COMPLETED' 
@@ -205,8 +221,8 @@ export async function getManagerRealTimeDataSecure(
         const terminalMovementsRes = await query(`
              SELECT 
                 cm.terminal_id,
-                COALESCE(SUM(CASE WHEN type = 'INGRESO' THEN amount ELSE 0 END), 0) as other_income,
-                COALESCE(SUM(CASE WHEN type IN ('GASTO', 'RETIRO') THEN amount ELSE 0 END), 0) as expenses
+                COALESCE(SUM(CASE WHEN type IN ('INGRESO', 'EXTRA_INCOME') THEN amount ELSE 0 END), 0) as other_income,
+                COALESCE(SUM(CASE WHEN type IN ('GASTO', 'RETIRO', 'EXPENSE', 'WITHDRAWAL') THEN amount ELSE 0 END), 0) as expenses
             FROM cash_movements cm
             JOIN terminals t ON cm.terminal_id = t.id
             WHERE t.location_id = $1::uuid 
@@ -238,6 +254,7 @@ export async function getManagerRealTimeDataSecure(
                     transfer: Number(row.transfer),
                     otherIncome: movs.income,
                     expenses: movs.expenses,
+                    openingCash: Number(row.opening_cash),
                     totalCollected: Number(row.cash) + Number(row.debit) + Number(row.credit) + Number(row.transfer)
                 }
             };

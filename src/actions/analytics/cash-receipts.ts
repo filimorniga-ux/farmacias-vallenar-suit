@@ -8,9 +8,10 @@ export interface CashReceipt {
     timestamp: string; // Changed to string for serialization safety
     total_amount: number;
     user_name: string;
-    items_count: number;
     items_summary: string;
+    items_count: number;
     status: string;
+    dte_folio: string | null;
 }
 
 export interface CashReceiptsFilter {
@@ -21,7 +22,7 @@ export interface CashReceiptsFilter {
 }
 
 export async function getCashReceipts(filter: CashReceiptsFilter): Promise<{ success: boolean; data?: CashReceipt[]; error?: string }> {
-    console.log('[CashReceipts] Action called with filters:', JSON.stringify(filter));
+    console.log('[CashReceipts] Action called with filters:', JSON.stringify({ ...filter, startDate: filter.startDate?.toString() }));
     try {
         const { startDate, endDate = new Date(), minAmount, maxAmount } = filter;
 
@@ -39,11 +40,12 @@ export async function getCashReceipts(filter: CashReceiptsFilter): Promise<{ suc
                 u.name as user_name,
                 COUNT(si.id) as items_count,
                 STRING_AGG(si.product_name, ', ' ORDER BY si.product_name) as items_summary,
-                s.status
+                s.status,
+                s.dte_folio
             FROM sales s
             LEFT JOIN users u ON s.user_id = u.id
             LEFT JOIN sale_items si ON s.id = si.sale_id
-            WHERE s.dte_type = 'RECIBO'
+            WHERE (s.dte_type = 'RECIBO' OR s.dte_folio IS NULL)
             AND s.timestamp BETWEEN $1 AND $2
         `;
 
@@ -64,7 +66,7 @@ export async function getCashReceipts(filter: CashReceiptsFilter): Promise<{ suc
         }
 
         queryStr += `
-            GROUP BY s.id, s.timestamp, s.total_amount, u.name, s.status
+            GROUP BY s.id, s.timestamp, s.total_amount, u.name, s.status, s.dte_folio
             ORDER BY s.timestamp DESC
         `;
 
@@ -79,8 +81,9 @@ export async function getCashReceipts(filter: CashReceiptsFilter): Promise<{ suc
                 total_amount: Number(row.total_amount),
                 user_name: row.user_name || 'Desconocido',
                 items_count: Number(row.items_count),
-                items_summary: row.items_summary ? (row.items_summary.length > 50 ? row.items_summary.substring(0, 50) + '...' : row.items_summary) : '',
-                status: row.status
+                items_summary: row.items_summary ? (String(row.items_summary).length > 50 ? String(row.items_summary).substring(0, 50) + '...' : String(row.items_summary)) : '',
+                status: row.status,
+                dte_folio: row.dte_folio ? String(row.dte_folio) : null
             }))
         };
 

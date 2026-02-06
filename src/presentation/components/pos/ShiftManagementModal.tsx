@@ -68,10 +68,22 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     // Auto-select user's location and restrict options
     useEffect(() => {
         const user = usePharmaStore.getState().user; // Get current user
-        if (user && user.assigned_location_id) {
-            setSelectedLocation(user.assigned_location_id);
+        if (user) {
+            if (user.assigned_location_id) {
+                // 1. Prioridad: Sucursal asignada por sistema (Fija)
+                setSelectedLocation(user.assigned_location_id);
+            } else {
+                // 2. Fallback: Última sucursal usada (Recordada en navegador)
+                const lastLocationId = typeof window !== 'undefined' ? localStorage.getItem('current_location_id') : null;
+                if (lastLocationId) {
+                    // Verificar que aún exista en la lista (evitar IDs obsletos)
+                    // Nota: 'locations' puede estar vacío al inicio, así que confiamos y dejamos que el select lo maneje
+                    // O mejor, verificamos cuando 'locations' cambie.
+                    setSelectedLocation(lastLocationId);
+                }
+            }
         }
-    }, [isOpen, employees]);
+    }, [isOpen, employees]); // Se mantiene employees como trigger de carga de usuario si cambia
 
     const availableLocations = locations.filter(l => {
         // Exclude inactive locations

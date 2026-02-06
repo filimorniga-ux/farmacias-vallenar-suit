@@ -177,7 +177,19 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
 
     const handleReprint = (item: any) => {
         if (item.type === 'SALE') {
-            printSaleTicket(item as SaleTransaction, storeLocation?.config, hardware, {
+
+            // Note: The printSaleTicket logic uses item.dte_folio. If it's internal, it might be null.
+            // TicketBoleta handles null folio by showing 'INT-...' if we pass it, OR we data patch here.
+            // But printSaleTicket takes `SaleTransaction`.
+            // Let's modify the item before passing if needed?
+            // Actually, item IS `SaleTransaction` (roughly).
+            // Let's ensure dte_folio has a fallback if dte_type is not fiscal.
+            const saleToPrint = {
+                ...item,
+                timestamp: new Date(item.timestamp).getTime(),
+                dte_folio: item.dte_folio || (item.id ? `INT-${item.id.slice(0, 6).toUpperCase()}` : undefined)
+            };
+            printSaleTicket(saleToPrint as SaleTransaction, storeLocation?.config, hardware, {
                 cashierName: item.seller_name || item.user_name || 'Vendedor',
                 branchName: storeLocation?.name || 'Sucursal'
             });
@@ -189,7 +201,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
 
     const handleExport = async () => {
         setIsExporting(true);
-        toast.info('Generando Excel...');
+        toast.info('Generando Excel con formato...');
 
         try {
             // Manual parse to fix timezone UTC issue
@@ -241,74 +253,116 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
 
             const totalSales = totals['CASH'] + totals['DEBIT'] + totals['CREDIT'] + totals['TRANSFER'] + totals['CHECK'] + totals['OTHER'];
 
-            // --- 2. PREPARE SHEETS ---
+            // --- 2. GENERATE FILES WITH EXCELJS ---
+            const ExcelJS = (await import('exceljs')).default;
+            const workbook = new ExcelJS.Workbook();
+            workbook.creator = 'Farmacias Vallenar Suit';
+            workbook.created = new Date();
 
-            // Sheet 1: RESUMEN
-            const summaryRows = [
-                { Concepto: 'RESUMEN DEL PERIODO', Monto: '' },
-                { Concepto: `${startDate} al ${endDate}`, Monto: '' },
-                { Concepto: '', Monto: '' },
-                { Concepto: 'VENTAS POR MEDIO PAGO', Monto: '' },
-                { Concepto: 'Efectivo', Monto: totals['CASH'] },
-                { Concepto: 'Débito', Monto: totals['DEBIT'] },
-                { Concepto: 'Crédito', Monto: totals['CREDIT'] },
-                { Concepto: 'Transferencia', Monto: totals['TRANSFER'] },
-                { Concepto: 'Cheque', Monto: totals['CHECK'] },
-                { Concepto: 'Otro', Monto: totals['OTHER'] },
-                { Concepto: 'TOTAL VENTAS', Monto: totalSales },
-                { Concepto: '', Monto: '' },
-                { Concepto: 'MOVIMIENTOS DE CAJA', Monto: '' },
-                { Concepto: 'Ingresos Extras (+)', Monto: totals['EXTRA_INCOME'] },
-                { Concepto: 'Gastos / Retiros (-)', Monto: totals['EXPENSE'] },
-                { Concepto: 'FLUJO NETO (Ing - Gas)', Monto: totals['EXTRA_INCOME'] - totals['EXPENSE'] },
+            // SHEET 1: RESUMEN
+            const wsSummary = workbook.addWorksheet('Resumen');
+
+            // Header Style
+            const headerStyle = {
+                font: { bold: true, color: { argb: 'FFFFFFFF' } },
+                fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0052CC' } },
+                alignment: { horizontal: 'center', vertical: 'middle' }
+            } as any;
+
+            // Columns
+            wsSummary.columns = [
+                { header: 'Concepto', key: 'concept', width: 35 },
+                { header: 'Monto', key: 'amount', width: 20, style: { numFmt: '"$"#,##0' } }
             ];
 
-            // Sheet 2: DETALLE
-            const detailRows = data.map(item => {
+            // Apply Header Style
+            wsSummary.getRow(1).eachCell((cell) => {
+                cell.style = headerStyle;
+            });
+
+            // Data
+            const summaryData = [
+                { concept: 'RESUMEN DEL PERIODO', amount: null },
+                { concept: `${startDate} al ${endDate}`, amount: null },
+                { concept: '', amount: null },
+                { concept: 'VENTAS POR MEDIO PAGO', amount: null },
+                { concept: 'Efectivo', amount: totals['CASH'] },
+                { concept: 'Débito', amount: totals['DEBIT'] },
+                { concept: 'Crédito', amount: totals['CREDIT'] },
+                { concept: 'Transferencia', amount: totals['TRANSFER'] },
+                { concept: 'Cheque', amount: totals['CHECK'] },
+                { concept: 'Otro', amount: totals['OTHER'] },
+                { concept: 'TOTAL VENTAS', amount: totalSales },
+                { concept: '', amount: null },
+                { concept: 'MOVIMIENTOS DE CAJA', amount: null },
+                { concept: 'Ingresos Extras (+)', amount: totals['EXTRA_INCOME'] },
+                { concept: 'Gastos / Retiros (-)', amount: totals['EXPENSE'] },
+                { concept: 'FLUJO NETO (Ing - Gas)', amount: totals['EXTRA_INCOME'] - totals['EXPENSE'] },
+            ];
+
+            summaryData.forEach(row => wsSummary.addRow(row));
+
+            // SHEET 2: DETALLE
+            const wsDetail = workbook.addWorksheet('Detalle Historial');
+
+            wsDetail.columns = [
+                { header: 'Fecha', key: 'date', width: 12 },
+                { header: 'Hora', key: 'time', width: 10 },
+                { header: 'Tipo', key: 'type', width: 15 },
+                { header: 'Descripción / Items', key: 'desc', width: 60, style: { alignment: { wrapText: true, vertical: 'top' } } }, // WRAP TEXT ENABLED
+                { header: 'Usuario', key: 'user', width: 20 },
+                { header: 'Cliente', key: 'client', width: 25 },
+                { header: 'Documento', key: 'doc', width: 15 },
+                { header: 'Total Origen', key: 'total', width: 15, style: { numFmt: '"$"#,##0', alignment: { vertical: 'top' } } },
+                { header: 'Efectivo', key: 'cash', width: 15, style: { numFmt: '"$"#,##0', alignment: { vertical: 'top' } } },
+                { header: 'Débito', key: 'debit', width: 15, style: { numFmt: '"$"#,##0', alignment: { vertical: 'top' } } },
+                { header: 'Crédito', key: 'credit', width: 15, style: { numFmt: '"$"#,##0', alignment: { vertical: 'top' } } },
+                { header: 'Transferencia', key: 'transfer', width: 15, style: { numFmt: '"$"#,##0', alignment: { vertical: 'top' } } },
+                { header: 'Ingreso (+)', key: 'income', width: 15, style: { numFmt: '"$"#,##0', alignment: { vertical: 'top' } } },
+                { header: 'Salida (-)', key: 'expense', width: 15, style: { numFmt: '"$"#,##0', alignment: { vertical: 'top' } } },
+            ];
+
+            // Apply Header Style to Detail Sheet
+            wsDetail.getRow(1).eachCell((cell) => {
+                cell.style = headerStyle;
+            });
+
+            // Map Data
+            data.forEach(item => {
                 const isSale = item.type === 'SALE';
                 const method = item.payment_method || 'OTHER';
                 const amount = Number(item.amount) || 0;
 
-                return {
-                    Fecha: formatChileDate(item.timestamp, { hour: undefined, minute: undefined }),
-                    Hora: formatChileDate(item.timestamp, { day: undefined, month: undefined, year: undefined }),
-                    Tipo: isSale ? 'VENTA' : (item.type === 'EXTRA_INCOME' ? 'INGRESO' : 'GASTO/RETIRO'),
-                    Descripción: item.reason,
-                    Usuario: item.user_name || 'Sistema',
-                    Cliente: item.customer_name || (isSale ? 'Anónimo' : '-'),
-                    Documento: item.dte_folio || '-',
-                    'Total Origen': amount, // Columna de referencia
-                    'Efectivo': (isSale && method === 'CASH') ? amount : 0,
-                    'Débito': (isSale && method === 'DEBIT') ? amount : 0,
-                    'Crédito': (isSale && method === 'CREDIT') ? amount : 0,
-                    'Transferencia': (isSale && method === 'TRANSFER') ? amount : 0,
-                    'Ingreso (+)': item.type === 'EXTRA_INCOME' ? amount : 0,
-                    'Salida (-)': ['EXPENSE', 'WITHDRAWAL'].includes(item.type) ? amount : 0
-                };
+                wsDetail.addRow({
+                    date: formatChileDate(item.timestamp, { hour: undefined, minute: undefined }),
+                    time: formatChileDate(item.timestamp, { day: undefined, month: undefined, year: undefined }),
+                    type: isSale ? 'VENTA' : (item.type === 'EXTRA_INCOME' ? 'INGRESO' : 'GASTO/RETIRO'),
+                    desc: item.reason, // Contains \n from backend
+                    user: item.user_name || 'Sistema',
+                    client: item.customer_name || (isSale ? 'Anónimo' : '-'),
+                    doc: item.dte_folio || '-',
+                    total: amount,
+                    cash: (isSale && method === 'CASH') ? amount : 0,
+                    debit: (isSale && method === 'DEBIT') ? amount : 0,
+                    credit: (isSale && method === 'CREDIT') ? amount : 0,
+                    transfer: (isSale && method === 'TRANSFER') ? amount : 0,
+                    income: item.type === 'EXTRA_INCOME' ? amount : 0,
+                    expense: ['EXPENSE', 'WITHDRAWAL'].includes(item.type) ? amount : 0
+                });
             });
 
-            // --- 3. GENERATE FILES ---
-            const XLSX = await import('xlsx');
-            const workbook = XLSX.utils.book_new();
+            // Generate Blob and Download
+            const buffer = await workbook.xlsx.writeBuffer();
+            const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 
-            // Add Summary Sheet
-            const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
-            // Adjust column width
-            wsSummary['!cols'] = [{ wch: 30 }, { wch: 15 }];
-            XLSX.utils.book_append_sheet(workbook, wsSummary, "Resumen");
+            // Helper to trigger download
+            const url = window.URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = `Historial_Ventas_${startDate}_${endDate}.xlsx`;
+            anchor.click();
+            window.URL.revokeObjectURL(url);
 
-            // Add Detail Sheet
-            const wsDetail = XLSX.utils.json_to_sheet(detailRows);
-            wsDetail['!cols'] = [
-                { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 40 }, // Desc
-                { wch: 20 }, { wch: 20 }, { wch: 10 }, // Doc
-                { wch: 12 }, // Total
-                { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, // Methods
-                { wch: 12 }, { wch: 12 } // In/Out
-            ];
-            XLSX.utils.book_append_sheet(workbook, wsDetail, "Detalle Historial");
-
-            XLSX.writeFile(workbook, `Historial_${startDate}_${endDate}.xlsx`);
             toast.success('Historial descargado con éxito');
 
         } catch (error: any) {

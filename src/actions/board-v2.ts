@@ -32,7 +32,6 @@ export async function postNote(data: z.infer<typeof NoteSchema>) {
             ]
         );
 
-        revalidatePath('/board');
         return { success: true };
     } catch (e: any) {
         return { success: false, error: e.message };
@@ -70,7 +69,6 @@ export async function deleteNote(id: string, userId: string) {
         }
 
         await client.query('DELETE FROM board_notes WHERE id = $1', [id]);
-        revalidatePath('/board');
         return { success: true };
     } catch (e: any) {
         return { success: false, error: e.message };

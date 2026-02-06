@@ -12,7 +12,8 @@ import {
     getDetailedFinancialSummarySecure, getLogisticsKPIsSecure, getStockMovementsDetailSecure,
     CashFlowEntry, TaxSummary, InventoryValuation, PayrollPreview, LogisticsKPIs
 } from '../../actions/reports-detail-v2';
-import { exportCashFlowSecure, exportPayrollSecure, exportTaxSummarySecure, exportAttendanceSecure } from '../../actions/finance-export-v2';
+import { exportPayrollSecure, exportTaxSummarySecure, exportAttendanceSecure } from '../../actions/finance-export-v2';
+import { generateCashReportSecure } from '../../actions/cash-export-v2';
 
 import { HRReportTab } from '../components/reports/HRReportTab';
 import { CashReceiptsReport } from '../components/reports/CashReceiptsReport';
@@ -156,7 +157,7 @@ const ReportsPage: React.FC = () => {
 
             // V2: Usar función específica según tab
             if (activeTab === 'cash') {
-                result = await exportCashFlowSecure({ startDate, endDate, locationId });
+                result = await generateCashReportSecure({ startDate, endDate, locationId });
             } else if (activeTab === 'tax') {
                 const monthStr = `${dateRange.from.getFullYear()}-${(dateRange.from.getMonth() + 1).toString().padStart(2, '0')}`;
                 result = await exportTaxSummarySecure(monthStr);
@@ -168,7 +169,7 @@ const ReportsPage: React.FC = () => {
                 return;
             } else {
                 // Logistics - use cash flow as fallback
-                result = await exportCashFlowSecure({ startDate, endDate, locationId });
+                result = await generateCashReportSecure({ startDate, endDate, locationId });
             }
 
             if (result.success && result.data) {
@@ -195,7 +196,7 @@ const ReportsPage: React.FC = () => {
 
     const allTabs = [
         { id: 'cash' as const, label: 'Flujo de Caja', icon: DollarSign, roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'] },
-        { id: 'receipts' as const, label: 'Recibos (No Boleta)', icon: FileText, roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'CAJERO'] },
+        { id: 'receipts' as const, label: 'Recibos', icon: FileText, roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'CAJERO'] },
         { id: 'tax' as const, label: 'Tributario', icon: FileText, roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'CONTADOR'] },
         { id: 'logistics' as const, label: 'Logística', icon: Package, roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'WAREHOUSE', 'QF'] },
         { id: 'hr' as const, label: 'RR.HH.', icon: Users, roles: ['RRHH', 'ADMIN', 'GERENTE_GENERAL', 'MANAGER'] }

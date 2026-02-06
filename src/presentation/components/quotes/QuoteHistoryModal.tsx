@@ -124,7 +124,11 @@ export default function QuoteHistoryModal({ isOpen, onClose }: QuoteHistoryModal
         page: 1,
         pageSize: 50,
         status: undefined as 'PENDING' | 'CONVERTED' | 'EXPIRED' | 'CANCELLED' | undefined,
-        startDate: getChileDate(), // Default to Today
+        startDate: (() => {
+            const d = getChileDate();
+            d.setHours(0, 0, 0, 0);
+            return d;
+        })(), // Default to Today 00:00:00
         endDate: undefined as Date | undefined,
         searchCode: '', // New Search Field
     });
