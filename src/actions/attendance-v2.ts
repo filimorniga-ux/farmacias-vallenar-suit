@@ -416,7 +416,7 @@ export async function registerAttendanceSecure(
 export async function getMyAttendanceHistory(
     startDate?: Date,
     endDate?: Date
-): Promise<{ success: boolean; data?: any[]; error?: string }> {
+): Promise<{ success: boolean; data?: Record<string, unknown>[]; error?: string }> {
     const session = await getSession();
     if (!session) {
         return { success: false, error: 'No autenticado' };
@@ -456,7 +456,7 @@ export async function getMyAttendanceHistory(
  */
 export async function getTeamAttendanceHistory(
     filters?: { locationId?: string; startDate?: Date; endDate?: Date }
-): Promise<{ success: boolean; data?: any[]; error?: string }> {
+): Promise<{ success: boolean; data?: Record<string, unknown>[]; error?: string }> {
     const session = await getSession();
     if (!session) {
         return { success: false, error: 'No autenticado' };
@@ -707,7 +707,7 @@ export async function getAttendanceSummary(
  */
 export async function getTodayAttendanceSecure(
     locationId?: string
-): Promise<{ success: boolean; data?: any[]; error?: string }> {
+): Promise<{ success: boolean; data?: Record<string, unknown>[]; error?: string }> {
     const session = await getSession();
     if (!session) {
         return { success: false, error: 'No autenticado' };
@@ -790,7 +790,7 @@ export async function getApprovedAttendanceHistory(
         locationId?: string;
         userId?: string;
     }
-): Promise<{ success: boolean; data?: any[]; error?: string }> {
+): Promise<{ success: boolean; data?: Record<string, unknown>[]; error?: string }> {
     const session = await getSession();
     if (!session) {
         return { success: false, error: 'No autenticado' };
@@ -811,7 +811,7 @@ export async function getApprovedAttendanceHistory(
             JOIN users u ON a.user_id = u.id
             WHERE 1=1
         `;
-        const params: any[] = [];
+        const params: (string | Date)[] = [];
         let paramIndex = 1;
 
         if (filters.startDate) {
