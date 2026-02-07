@@ -13,7 +13,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 // Connection Config (using env vars or default for dev)
 const pool = new Pool({
-    connectionString: process.env.POSTGRES_URL || process.env.DATABASE_URL || 'postgres://default:postgres@localhost:5432/verceldb',
+    connectionString: process.env.POSTGRES_URL || process.env.DATABASE_URL,
     ssl: process.env.POSTGRES_URL ? { rejectUnauthorized: false } : undefined
 });
 

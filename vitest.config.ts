@@ -8,7 +8,7 @@ export default defineConfig({
         environment: 'node',
         globals: true,
         env: {
-            DATABASE_URL: 'postgres://test:test@localhost:5432/test_db_mock',
+            DATABASE_URL: process.env.DATABASE_URL || 'postgres://test:test@localhost:5432/test_db_mock',
         },
         alias: {
             '@': path.resolve(__dirname, './src'),

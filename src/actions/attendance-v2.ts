@@ -14,6 +14,7 @@
  */
 
 import { pool, query } from '@/lib/db';
+import { PoolClient } from 'pg';
 import { z } from 'zod';
 import { headers } from 'next/headers';
 import { randomUUID } from 'crypto';
@@ -93,7 +94,7 @@ async function getSession(): Promise<{ userId: string; role: string } | null> {
 
 async function validateManagerPin(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    client: any,
+    client: PoolClient,
     pin: string
 ): Promise<{ valid: boolean; manager?: { id: string; name: string }; error?: string }> {
     try {
@@ -301,8 +302,7 @@ export async function getBatchEmployeeStatusForKiosk(
     }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function getLastAttendanceType(client: any, userId: string): Promise<string | null> {
+async function getLastAttendanceType(client: PoolClient, userId: string): Promise<string | null> {
     const res = await client.query(`
         SELECT type FROM attendance_logs
         WHERE user_id = $1 
@@ -428,7 +428,7 @@ export async function getMyAttendanceHistory(
             FROM attendance_logs
             WHERE user_id = $1
         `;
-        const params: any[] = [session.userId];
+        const params: (string | Date)[] = [session.userId];
         let paramIndex = 2;
 
         if (startDate) {
@@ -445,7 +445,7 @@ export async function getMyAttendanceHistory(
         const res = await query(sql, params);
         return { success: true, data: res.rows };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Attendance] Get history error');
         return { success: false, error: 'Error obteniendo historial' };
     }
@@ -473,7 +473,7 @@ export async function getTeamAttendanceHistory(
             JOIN users u ON a.user_id = u.id
             WHERE 1=1
         `;
-        const params: any[] = [];
+        const params: (string | Date)[] = [];
         let paramIndex = 1;
 
         if (filters?.locationId) {
@@ -498,7 +498,7 @@ export async function getTeamAttendanceHistory(
         const res = await query(sql, params);
         return { success: true, data: res.rows };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Attendance] Get team history error');
         return { success: false, error: 'Error obteniendo historial' };
     }
@@ -550,7 +550,7 @@ export async function calculateOvertimeSecure(
             },
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Attendance] Calculate overtime error');
         return { success: false, error: 'Error calculando overtime' };
     }
@@ -604,7 +604,7 @@ export async function approveOvertimeSecure(
         logger.info({ attendanceId, approved }, '✅ [Attendance] Overtime approved');
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         logger.error({ error }, '[Attendance] Approve overtime error');
         return { success: false, error: 'Error aprobando overtime' };
@@ -691,7 +691,7 @@ export async function getAttendanceSummary(
             },
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Attendance] Get summary error');
         return { success: false, error: 'Error obteniendo resumen' };
     }
@@ -755,9 +755,9 @@ export async function getTodayAttendanceSecure(
 
         return { success: true, data: mappedData };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Attendance] Get today attendance error');
-        return { success: false, error: `Error obteniendo monitor en vivo: ${error.message}` };
+        return { success: false, error: `Error obteniendo monitor en vivo: ${(error as Error).message}` };
     } finally {
         client.release();
     }

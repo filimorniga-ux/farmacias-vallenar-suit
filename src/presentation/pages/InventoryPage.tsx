@@ -21,7 +21,8 @@ import MobileActionScroll from '../components/ui/MobileActionScroll';
 import { toast } from 'sonner';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import InventorySkeleton from '../components/skeletons/InventorySkeleton';
-import { useInventoryQuery } from '../hooks/useInventoryQuery';
+
+import { useInventoryPagedQuery } from '../hooks/useInventoryPagedQuery';
 import { formatSku, getEffectiveUnits } from '../../lib/utils/inventory-utils';
 
 // --- Internal Component for Virtualized List ---
@@ -38,6 +39,9 @@ interface InventoryListProps {
     canQuickAdjust: boolean;
     canPriceAdjust: boolean;
     onPriceAdjust: (item: any) => void;
+    fetchNextPage: () => void;
+    hasNextPage: boolean;
+    isFetchingNextPage: boolean;
 }
 
 const InventoryList: React.FC<InventoryListProps> = React.memo(({
@@ -52,7 +56,10 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
 
     canQuickAdjust,
     canPriceAdjust,
-    onPriceAdjust
+    onPriceAdjust,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage
 }) => {
     const parentRef = useRef<HTMLDivElement>(null);
 
@@ -61,11 +68,31 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
     const getScrollElement = useCallback(() => parentRef.current, []);
 
     const rowVirtualizer = useVirtualizer({
-        count: items.length,
+        count: hasNextPage ? items.length + 1 : items.length,
         getScrollElement,
         estimateSize,
         overscan: 5,
     });
+
+    useEffect(() => {
+        const [lastItem] = [...rowVirtualizer.getVirtualItems()].reverse();
+        if (!lastItem) return;
+
+        if (
+            lastItem.index >= items.length - 1 &&
+            hasNextPage &&
+            !isFetchingNextPage
+        ) {
+            console.log('📜 Reached end of list, fetching next page...');
+            fetchNextPage();
+        }
+    }, [
+        hasNextPage,
+        fetchNextPage,
+        items.length,
+        isFetchingNextPage,
+        rowVirtualizer.getVirtualItems(),
+    ]);
 
     return (
         <div
@@ -95,6 +122,26 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
                     )}
 
                     {rowVirtualizer.getVirtualItems().map(virtualRow => {
+                        const isLoaderRow = virtualRow.index > items.length - 1;
+                        if (isLoaderRow) {
+                            return (
+                                <div
+                                    key="loader"
+                                    ref={rowVirtualizer.measureElement}
+                                    data-index={virtualRow.index}
+                                    className="absolute top-0 left-0 w-full flex justify-center p-4"
+                                    style={{
+                                        transform: `translateY(${virtualRow.start + (!isMobile ? 48 : 0)}px)`,
+                                    }}
+                                >
+                                    <div className="flex items-center gap-2 text-indigo-600 font-bold bg-white/80 px-4 py-2 rounded-full shadow-sm">
+                                        <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                                        Cargando más productos...
+                                    </div>
+                                </div>
+                            );
+                        }
+
                         const item = items[virtualRow.index];
 
                         return (
@@ -308,25 +355,66 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
 
 
 const InventoryPage: React.FC = () => {
-    // 1. Usar nuevo Hook de Query (Reemplaza inventory y fetchInventory del store global)
-    const { currentLocationId, setCurrentLocation, user, setInventory } = usePharmaStore();
-    const { data: inventoryData, isLoading, refetch } = useInventoryQuery(currentLocationId);
+    // 1. Pagination State
+    // 1. Pagination State
+    // const [page, setPage] = useState(1); // Removed for Infinite Scroll
+    const [limit] = useState(50);
 
-    // Sincronizar con Zustand para compatibilidad con Modales Legacy
+    // 2. Filters State
+    const [searchTerm, setSearchTerm] = useState('');
+    // Debounce search term for query
+    const [debouncedSearch, setDebouncedSearch] = useState('');
+
     useEffect(() => {
-        if (inventoryData) {
-            setInventory(inventoryData);
-        }
-    }, [inventoryData, setInventory]);
+        const timer = setTimeout(() => {
+            setDebouncedSearch(searchTerm);
+            // setPage(1); // Reset to page 1 on search - Handled by query key change
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [searchTerm]);
 
-    // Adaptador para mantener compatibilidad con codigo existente que espera 'inventory'
-    const inventory = inventoryData || [];
+    const [activeTab, setActiveTab] = useState<'ALL' | 'MEDS' | 'RETAIL' | 'CONTROLLED'>('ALL');
+    const [filters, setFilters] = useState({
+        coldChain: false,
+        expiring: false,
+        critical: false,
+        incomplete: false
+    });
 
+    const { currentLocationId, setCurrentLocation, user } = usePharmaStore();
     const { locations } = useLocationStore();
     const activeLocation = locations.find(l => l.id === currentLocationId);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [activeTab, setActiveTab] = useState<'MEDS' | 'RETAIL' | 'CONTROLLED'>('MEDS');
-    const [isGrouped, setIsGrouped] = useState(true); // Default to Grouped
+
+    // 3. New Infinite Query
+    const {
+        data: infiniteData,
+        isLoading,
+        refetch,
+        fetchNextPage,
+        hasNextPage,
+        isFetchingNextPage
+    } = useInventoryPagedQuery(
+        currentLocationId,
+        { limit },
+        {
+            search: debouncedSearch,
+            category: activeTab,
+            stockStatus: filters.critical ? 'CRITICAL' : filters.expiring ? 'EXPIRING' : 'ALL',
+            incomplete: filters.incomplete
+        }
+    );
+
+    // Flatten all pages into a single array
+    const inventoryData = useMemo(() => {
+        return infiniteData?.pages.flatMap(page => page.data) || [];
+    }, [infiniteData]);
+
+    const meta = infiniteData?.pages[0]?.meta || { total: 0, page: 1, totalPages: 1 };
+
+    // Reset page when filters change - Handled by query keys automatically
+    // useEffect(() => setPage(1), [activeTab, filters]);
+
+    const [isGrouped, setIsGrouped] = useState(false); // Disable grouping by default for paged view
     const [isEntryModalOpen, setIsEntryModalOpen] = useState(false);
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -343,8 +431,6 @@ const InventoryPage: React.FC = () => {
         product?: any;
     }>({ isOpen: false, mode: 'SINGLE' });
 
-
-
     // Nuclear Delete State
     const [isNuclearModalOpen, setIsNuclearModalOpen] = useState(false);
     const [nuclearConfirmation, setNuclearConfirmation] = useState('');
@@ -357,14 +443,6 @@ const InventoryPage: React.FC = () => {
     const canManageInventory = hasPermission(user, 'MANAGE_INVENTORY');
     const canDelete = user?.role === 'MANAGER' || user?.role === 'ADMIN';
     const canQuickAdjust = user?.role === 'MANAGER' || user?.role === 'ADMIN' || user?.role === 'GERENTE_GENERAL';
-
-    // Smart Filters
-    const [filters, setFilters] = useState({
-        coldChain: false,
-        expiring: false,
-        critical: false,
-        incomplete: false
-    });
 
     // Mobile Detection
     const [isMobile, setIsMobile] = useState(false);
@@ -390,65 +468,6 @@ const InventoryPage: React.FC = () => {
         onScan: handleScan,
         minLength: 3
     });
-
-    const filteredInventory = useMemo(() => {
-        if (!inventory) return [];
-
-        // 1. Filter Logic
-        const filtered = inventory.filter(item => {
-            // Text Search
-            const term = searchTerm.toLowerCase();
-            const matchesSearch =
-                (item.name || '').toLowerCase().includes(term) ||
-                (item.sku || '').toLowerCase().includes(term) ||
-                (item.dci || '').toLowerCase().includes(term);
-
-            if (!matchesSearch) return false;
-
-            // Tab Filter
-            if (activeTab === 'MEDS' && item.category !== 'MEDICAMENTO') return false;
-            if (activeTab === 'RETAIL' && item.category === 'MEDICAMENTO') return false;
-            if (activeTab === 'CONTROLLED' && !['R', 'RR', 'RCH'].includes(item.condition)) return false;
-
-            // Smart Filters
-            if (filters.expiring) {
-                const monthsUntilExpiry = (item.expiry_date - Date.now()) / (1000 * 60 * 60 * 24 * 30);
-                if (monthsUntilExpiry > 6) return false;
-            }
-
-            if (filters.critical) {
-                if (item.stock_actual > item.stock_min) return false;
-            }
-
-            if (filters.incomplete) {
-                if (item.registration_source !== 'POS_EXPRESS' && !item.is_express_entry) return false;
-            }
-
-            return true;
-        });
-
-        // 2. Grouping Logic
-        if (isGrouped) {
-            const groupedMap = new Map<string, any>();
-
-            filtered.forEach(item => {
-                const key = item.sku || item.name; // Prefer SKU
-                if (!groupedMap.has(key)) {
-                    // Clone to avoid mutating original
-                    groupedMap.set(key, { ...item, _count: 1 });
-                } else {
-                    const existing = groupedMap.get(key);
-                    existing.stock_actual += (item as any).quantity_real || item.stock_actual; // Sum quantity_real
-                    existing._count += 1;
-                    // Keep earliest expiry? Or show range? For now keep first.
-                }
-            });
-
-            return Array.from(groupedMap.values());
-        }
-
-        return filtered;
-    }, [inventory, searchTerm, activeTab, filters, isGrouped]);
 
     const getStockStatus = (item: any) => {
         if (item.stock_actual <= 0) return 'bg-red-100 text-red-700 border-red-200';
@@ -521,7 +540,7 @@ const InventoryPage: React.FC = () => {
                             <div className="flex items-center gap-2 px-3 py-1 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full shadow-md">
                                 <Package size={14} className="text-white" />
                                 <span className="text-xs font-bold text-white">
-                                    {filteredInventory.length} artículo{filteredInventory.length !== 1 ? 's' : ''}
+                                    {meta.total} artículo{meta.total !== 1 ? 's' : ''}
                                 </span>
                             </div>
 
@@ -596,6 +615,12 @@ const InventoryPage: React.FC = () => {
 
                 <div className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide border-b border-slate-200 mb-6 pb-1">
                     <button
+                        onClick={() => setActiveTab('ALL')}
+                        className={`flex-none min-w-[30%] md:min-w-0 md:flex-1 snap-center py-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-4 ${activeTab === 'ALL' ? 'border-indigo-500 text-indigo-700 bg-indigo-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                    >
+                        🌎 TODOS
+                    </button>
+                    <button
                         onClick={() => setActiveTab('MEDS')}
                         className={`flex-none min-w-[45%] md:min-w-0 md:flex-1 snap-center py-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-4 ${activeTab === 'MEDS' ? 'border-cyan-500 text-cyan-700 bg-cyan-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
@@ -661,7 +686,7 @@ const InventoryPage: React.FC = () => {
 
             {/* Data Grid (Desktop) & Cards (Mobile) */}
             <InventoryList
-                items={filteredInventory}
+                items={inventoryData}
                 isMobile={isMobile}
                 user={user}
                 onEdit={(item) => { setEditingItem(item); setIsEditModalOpen(true); }}
@@ -672,7 +697,32 @@ const InventoryPage: React.FC = () => {
                 canDelete={canDelete}
                 canQuickAdjust={canQuickAdjust}
                 canPriceAdjust={canQuickAdjust}
+                fetchNextPage={fetchNextPage}
+                hasNextPage={!!hasNextPage}
+                isFetchingNextPage={isFetchingNextPage}
             />
+
+
+
+            {/* Loading Indicator for Infinite Scroll */}
+            {isFetchingNextPage && (
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 bg-white/90 backdrop-blur px-4 py-2 rounded-full shadow-lg border border-indigo-100 flex items-center gap-2 animate-in slide-in-from-bottom-5">
+                    <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                    <span className="text-xs font-bold text-indigo-700">Cargando...</span>
+                </div>
+            )}
+
+            {/* Pagination Controls */}
+            {/* Pagination Controls Removed for Infinite Scroll */}
+            <div className="bg-white border-t border-slate-200 p-2 shrink-0 flex items-center justify-between text-xs text-slate-400">
+                <div>
+                    Total: <span className="font-bold text-slate-600">{meta.total}</span> productos
+                </div>
+                <div>
+                    Mostrando {inventoryData.length}
+                </div>
+            </div>
+
 
             {/* Mobile Scanner FAB */}
             <div className="md:hidden fixed bottom-24 right-4 z-40">
@@ -802,7 +852,9 @@ const InventoryPage: React.FC = () => {
                         console.log('🔄 InventoryPage: Price modal closed. Triggering refetch()...');
                         setPriceAdjState(prev => ({ ...prev, isOpen: false }));
                         refetch().then(res => {
-                            console.log('📦 InventoryPage: Refetch completed', res.status, res.data?.length);
+                            // TypeScript fix: Infinite queries have pages, not a single data array
+                            const count = res.data?.pages.reduce((acc, page) => acc + page.data.length, 0) || 0;
+                            console.log('📦 InventoryPage: Refetch completed', res.status, count);
                         });
                     }}
                 />

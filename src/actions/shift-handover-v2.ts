@@ -387,7 +387,12 @@ export async function executeHandoverSecure(params: {
 
         // 2a. Validar PIN del usuario (Cajero) - Opcional
         let cashierName = 'Unknown User';
-        if (userPin && userPin.length >= 4) {
+        if (userPin) {
+            if (userPin.length < 4) {
+                await client.query('ROLLBACK');
+                return { success: false, error: 'PIN de usuario inválido (muy corto)' };
+            }
+
             const pinResult = await validateUserPin(client, userId, userPin);
             if (!pinResult.valid) {
                 await client.query('ROLLBACK');

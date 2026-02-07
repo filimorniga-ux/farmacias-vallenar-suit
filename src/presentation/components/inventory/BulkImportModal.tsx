@@ -20,7 +20,7 @@ interface ImportedRow {
     laboratory?: string;
     price_sell: number;
     price: number;
-    price_sell_box: number;
+    price_sell_box: number; // Derived or same as price
     cost_net: number;
     stock: number;
     lot_number: string;
@@ -29,6 +29,18 @@ interface ImportedRow {
     is_refrigerated?: string; // SI/NO
     units_per_box?: number;
     price_sell_unit?: number;
+
+    // New fields from Official Template
+    barcodes?: string; // Separated by commas
+    category?: string;
+    active_ingredients?: string;
+    bioequivalent?: string; // true/false or SI/NO
+    description?: string;
+    isp_code?: string;
+    therapeutic_action?: string;
+    concentration?: string;
+    prescription_type?: string;
+
     isValid: boolean;
     errors: string[];
     needs_review?: boolean;
@@ -52,33 +64,86 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
     // --- Parsing Logic ---
 
     const parseOfficialRow = (row: any[]): ImportedRow => {
-        const errors: string[] = [];
-        const sku = row[0]?.toString() || '';
-        const name = row[1]?.toString() || '';
-        const price_sell = parseFloat(row[4]) || 0;
+        /**
+         * OFFICIAL CSV MAPPING (15 Cols):
+         * 0: Name
+         * 1: SKU
+         * 2: Barcodes
+         * 3: Price
+         * 4: Stock
+         * 5: Category
+         * 6: Laboratory
+         * 7: ActiveIngredients
+         * 8: Bioequivalent
+         * 9: Description
+         * 10: ISP_Code
+         * 11: TherapeuticAction
+         * 12: Units
+         * 13: Concentration
+         * 14: PrescriptionType
+         */
 
-        if (!sku) errors.push('Falta SKU');
+        const errors: string[] = [];
+
+        const name = row[0]?.toString().trim() || '';
+        const rawSku = row[1]?.toString().trim() || '';
+        const barcodes = row[2]?.toString().trim() || '';
+        const price_sell = parseFloat(row[3]) || 0;
+        const stock = parseInt(row[4]) || 0;
+
+        // Validation
+        let sku = rawSku;
+        if (!sku) {
+            // Generate SKU from first barcode if present, else GEN-UUID
+            const firstBarcode = barcodes.split(',')[0]?.trim();
+            if (firstBarcode) {
+                sku = firstBarcode;
+            } else {
+                // If no SKU and no Barcode, mark as error or generate temp?
+                // Let's generate a temporary one to allow import, but flag it
+                // errors.push('Falta SKU'); // Strict Mode
+                sku = 'GEN-' + uuidv4().substring(0, 8).toUpperCase();
+            }
+        }
+
         if (!name) errors.push('Falta Nombre');
-        if (price_sell <= 0) errors.push('Precio inválido');
+        // Price allow 0? Maybe warning
+        if (price_sell < 0) errors.push('Precio inválido');
+
+        // Defaults
+        const cost_net = Math.round(price_sell * 0.6); // 60% default cost if not provided
 
         return {
             id: uuidv4(),
             sku,
             name,
-            dci: row[2]?.toString(),
-            laboratory: row[3]?.toString(),
+            barcodes,
             price_sell,
             price: price_sell,
-            price_sell_box: price_sell,
-            cost_net: parseFloat(row[5]) || 0,
-            stock: parseInt(row[6]) || 0,
-            lot_number: row[7]?.toString() || 'S/L',
-            expiry_date: row[8]?.toString() || '',
-            location: row[9]?.toString(),
-            is_refrigerated: row[10]?.toString(),
+            price_sell_box: price_sell, // Assuming box price
+            cost_net,
+            stock,
+            category: row[5]?.toString().trim(),
+            laboratory: row[6]?.toString().trim(),
+            dci: row[7]?.toString().trim(), // ActiveIngredients -> DCI
+            active_ingredients: row[7]?.toString().trim(),
+            bioequivalent: row[8]?.toString().trim(),
+            description: row[9]?.toString().trim(),
+            isp_code: row[10]?.toString().trim(),
+            therapeutic_action: row[11]?.toString().trim(),
+            units_per_box: parseInt(row[12]) || 1,
+            concentration: row[13]?.toString().trim(),
+            prescription_type: row[14]?.toString().trim(),
+
+            // Standard fields default
+            lot_number: 'GENERAL',
+            expiry_date: '31/12/2030',
+            location: 'BODEGA_CENTRAL',
+            is_refrigerated: 'NO',
+
             isValid: errors.length === 0,
             errors,
-            needs_review: false
+            needs_review: !rawSku // parameters needing review
         };
     };
 
@@ -174,9 +239,10 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                 let parsedRows: ImportedRow[] = [];
 
                 if (importFormat === 'OFFICIAL') {
+                    // Start from line 2 (skip header)
                     const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
                     const rows = jsonData.slice(1) as any[][];
-                    parsedRows = rows.map(parseOfficialRow).filter(r => r.sku || r.name);
+                    parsedRows = rows.map(parseOfficialRow).filter(r => r.name); // Filter empty rows (name is required)
                 } else {
                     const jsonData = XLSX.utils.sheet_to_json(worksheet);
                     parsedRows = jsonData.map((row: any, index: number) => parseLegacyRow(row, index));
@@ -185,14 +251,13 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                 setImportedData(parsedRows);
                 setStep('PREVIEW');
 
-                if (importFormat === 'LEGACY') {
-                    toast.info(`Se procesaron ${parsedRows.length} productos.`, {
-                        description: 'Modo Flexible activado: Se han rellenado datos faltantes.'
-                    });
+                if (parsedRows.length > 0) {
+                    toast.info(`Se procesaron ${parsedRows.length} líneas.`);
                 }
+
             } catch (error) {
                 console.error(error);
-                toast.error('Error al procesar el archivo Excel');
+                toast.error('Error al procesar el archivo Excel/CSV');
             } finally {
                 setIsProcessing(false);
             }
@@ -213,16 +278,40 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
 
     const handleDownloadTemplate = () => {
         const headers = [
-            'SKU', 'Nombre', 'DCI', 'Laboratorio', 'Precio Venta', 'Costo Neto', 'Stock', 'Lote', 'Vencimiento (DD/MM/AAAA)', 'Ubicación', 'Es Refrigerado (SI/NO)'
+            'Name', 'SKU', 'Barcodes', 'Price', 'Stock', 'Category',
+            'Laboratory', 'ActiveIngredients', 'Bioequivalent', 'Description',
+            'ISP_Code', 'TherapeuticAction', 'Units', 'Concentration', 'PrescriptionType'
         ];
         const example = [
-            '780001', 'Paracetamol 500mg', 'Paracetamol', 'Mintlab', 1990, 500, 100, 'L-2024', '31/12/2025', 'ESTANTE-A', 'NO'
+            'PARACETAMOL 500MG TAB', '780001', '780001,780002', 1990, 100,
+            'MEDICAMENTO', 'MINTLAB', 'PARACETAMOL', 'true', 'Analgesico',
+            'F-1234', 'DOLOR', 20, '500MG', 'VD'
         ];
 
         const ws = XLSX.utils.aoa_to_sheet([headers, example]);
+
+        // Auto-width columns for better formatting
+        ws['!cols'] = [
+            { wch: 45 }, // Name
+            { wch: 15 }, // SKU
+            { wch: 25 }, // Barcodes
+            { wch: 12 }, // Price
+            { wch: 10 }, // Stock
+            { wch: 20 }, // Category
+            { wch: 20 }, // Laboratory
+            { wch: 30 }, // ActiveIngredients
+            { wch: 15 }, // Bioequivalent
+            { wch: 50 }, // Description
+            { wch: 15 }, // ISP_Code
+            { wch: 30 }, // TherapeuticAction
+            { wch: 10 }, // Units
+            { wch: 15 }, // Concentration
+            { wch: 20 }  // PrescriptionType
+        ];
+
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Plantilla');
-        XLSX.writeFile(wb, 'Formato_Vallenar.xlsx');
+        XLSX.writeFile(wb, 'Formato_Oficial_Vallenar.xlsx');
     };
 
     const handleUpdateRow = (id: string, field: keyof ImportedRow, value: any) => {
@@ -237,7 +326,6 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
     const handleImport = async () => {
         setIsProcessing(true);
         let successCount = 0;
-        const errorCount = 0;
 
         try {
             const validRows = importedData.filter(r => r.isValid);
@@ -251,16 +339,27 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
             const uniqueMap = new Map<string, any>();
 
             validRows.forEach(row => {
+                // If SKU is auto-generated (starts with GEN-), we might want to check name?
+                // For now, strict on SKU.
+
                 const existing = uniqueMap.get(row.sku);
 
                 // Parse date DD/MM/YYYY to timestamp
                 let expiry = Date.now() + 31536000000; // Default 1 year
-                if (row.expiry_date) {
+                if (row.expiry_date && row.expiry_date.includes('/')) {
                     const parts = row.expiry_date.split('/');
                     if (parts.length === 3) {
                         expiry = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0])).getTime();
                     }
                 }
+
+                // Map 'Bioequivalent' string to boolean
+                const isBio = String(row.bioequivalent).toLowerCase() === 'true' || String(row.bioequivalent).toLowerCase() === 'si';
+
+                // Map 'PrescriptionType' to simplified condition codes if needed
+                let condition = 'VD'; // Venta Directa default
+                const typeUpper = (row.prescription_type || '').toUpperCase();
+                if (typeUpper.includes('RECETA') || typeUpper.includes('RET')) condition = 'R';
 
                 const itemData = {
                     id: uuidv4(),
@@ -276,13 +375,21 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                     location_id: row.location || 'BODEGA_CENTRAL',
                     is_refrigerated: row.is_refrigerated?.toUpperCase() === 'SI',
                     status: 'AVAILABLE',
-                    isp_register: '', // Allow empty
-                    format: '', // Allow empty
+
+                    // Enhanced fields
+                    isp_register: row.isp_code || '',
+                    barcode: row.barcodes ? row.barcodes.split(',')[0].trim() : (row.sku.length > 6 ? row.sku : undefined),
+                    format: row.units_per_box ? `${row.units_per_box} UN` : 'UNITARIO',
                     units_per_box: row.units_per_box || 1,
-                    price_sell_unit: row.price_sell_unit || row.price_sell,
-                    is_bioequivalent: false,
-                    condition: 'VD',
-                    category: 'MEDICAMENTO',
+                    price_sell_unit: row.price_sell_unit || (row.price_sell / (row.units_per_box || 1)),
+                    is_bioequivalent: isBio,
+                    condition: condition,
+                    category: row.category || 'MEDICAMENTO',
+                    description: row.description || '',
+
+                    active_ingredients: row.active_ingredients ? row.active_ingredients.split(',').map(s => s.trim()) : [],
+                    therapeutic_action: row.therapeutic_action || '',
+
                     // Ensure price persistence fields are set
                     price: row.price_sell,
                     price_sell_box: row.price_sell
@@ -291,9 +398,10 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                 if (existing) {
                     // MERGE STRATEGY
                     existing.stock_actual += itemData.stock_actual;
-                    existing.price_sell = Math.max(existing.price_sell, itemData.price_sell);
-                    existing.price = existing.price_sell; // Sync
-                    existing.price_sell_box = existing.price_sell; // Sync
+                    // Update price only if higher? Or last one wins? Let's say last one wins for official.
+                    existing.price_sell = itemData.price_sell;
+                    existing.price = existing.price_sell;
+                    existing.price_sell_box = existing.price_sell;
                 } else {
                     uniqueMap.set(row.sku, itemData);
                 }
@@ -307,9 +415,7 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
             // 2. Persist to Database (Tiger Cloud)
             const { TigerDataService } = await import('../../../domain/services/TigerDataService');
 
-            // Use try/catch for the API call to handle partial failures if possible, 
-            // though currently uploadBulkInventory throws on error.
-            // We rely on the service to handle batching.
+            // Use try/catch for the API call 
             await TigerDataService.uploadBulkInventory(itemsToImport, (progress, message) => {
                 // setUploadProgress(progress);
             });
@@ -317,12 +423,10 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
             successCount = itemsToImport.length;
 
             // 3. Refresh Data
-            // const { fetchInventorySecure } = await import('../../../actions/sync-v2');
-            // await fetchInventorySecure();
             await queryClient.invalidateQueries({ queryKey: ['inventory', currentLocationId] });
 
             toast.success('Importación Completada', {
-                description: `Se importaron ${successCount} productos correctamente.`
+                description: `Se importaron ${successCount} productos con el Formato Oficial.`
             });
 
             onClose();
@@ -332,10 +436,8 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
         } catch (error) {
             console.error('Import error:', error);
             toast.error('Error durante la importación', {
-                description: 'Hubo un problema al guardar los datos en la nube. Verifique su conexión.'
+                description: 'Hubo un problema al guardar los datos.'
             });
-            // Even if it fails, we might have some success if we implemented partial batching in service,
-            // but for now we assume all-or-nothing for the batch unless service changes.
         } finally {
             setIsProcessing(false);
         }
@@ -344,7 +446,7 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
     if (!isOpen) return null;
 
     const validCount = importedData.filter(r => r.isValid).length;
-    const errorCount = importedData.length - validCount;
+    const errorCount = importedData.filter(r => !r.isValid).length;
     const reviewCount = importedData.filter(r => r.needs_review).length;
 
     return (
@@ -401,7 +503,7 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                                         </div>
                                         <h3 className="text-xl font-bold text-gray-800 mb-2">Sube tu plantilla oficial</h3>
                                         <p className="text-gray-500 mb-6">
-                                            Estructura estricta. Ideal para cargas limpias y validadas.
+                                            Formato enriquecido (15 columnas) para actualización completa de inventario y Kardex.
                                         </p>
                                         <button
                                             onClick={handleDownloadTemplate}
@@ -418,23 +520,8 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                                         </div>
                                         <h3 className="text-xl font-bold text-gray-800 mb-2">Importador Inteligente Legacy</h3>
                                         <p className="text-gray-500 mb-4">
-                                            Sube tu Excel antiguo. El sistema intentará separar Nombre/Laboratorio y rellenará datos faltantes.
+                                            Formatos antiguos o variables. El sistema intentará deducir columnas.
                                         </p>
-                                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6 text-xs text-blue-800 text-left">
-                                            <strong>⚠️ Nota Importante:</strong> El sistema usará el <u>Código de Barras</u> como SKU principal para facilitar la venta con pistola. Si hay duplicados en el Excel, se sumará el stock.
-                                        </div>
-                                        <div className="text-xs text-left bg-orange-50 p-4 rounded-lg border border-orange-100 text-orange-800">
-                                            <strong>Columnas esperadas (flexible):</strong>
-                                            <ul className="list-disc pl-4 mt-1 space-y-1">
-                                                <li>Col A: Código Barras (Si falta, se genera auto)</li>
-                                                <li>Col B: Nombre Completo (ej: "AMOXICILINA LAB CHILE")</li>
-                                                <li>Col C: Stock</li>
-                                                <li>Col D: Precio Venta</li>
-                                                <li>Col E: Costo Neto</li>
-                                                <li>Col F: Grupo/Ubicación (Opcional)</li>
-                                            </ul>
-                                            <p className="mt-2 text-[10px] opacity-80">* El sistema intentará detectar si el orden es diferente (ej: Stock en Col B).</p>
-                                        </div>
                                     </>
                                 )}
                             </div>
@@ -500,12 +587,8 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                                             <th className="p-3 border-b">SKU</th>
                                             <th className="p-3 border-b">Nombre Producto</th>
                                             <th className="p-3 border-b">Laboratorio</th>
-                                            <th className="p-3 border-b">Unidades</th>
                                             <th className="p-3 border-b">Precio</th>
-                                            <th className="p-3 border-b">P. Unit</th>
                                             <th className="p-3 border-b">Stock</th>
-                                            <th className="p-3 border-b w-32">Lote</th>
-                                            <th className="p-3 border-b w-32">Vencimiento</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100 bg-white">
@@ -532,54 +615,17 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                                                 </td>
                                                 <td className="p-3 font-mono text-xs">{row.sku}</td>
                                                 <td className="p-3 font-bold text-gray-800">
-                                                    <input
-                                                        type="text"
-                                                        value={row.name}
-                                                        onChange={(e) => handleUpdateRow(row.id, 'name', e.target.value)}
-                                                        className="bg-transparent border-none focus:ring-1 focus:ring-blue-500 rounded w-full text-sm font-bold"
-                                                    />
+                                                    {row.name}
                                                 </td>
                                                 <td className="p-3 text-gray-600">
-                                                    <input
-                                                        type="text"
-                                                        value={row.laboratory}
-                                                        onChange={(e) => handleUpdateRow(row.id, 'laboratory', e.target.value)}
-                                                        className="bg-transparent border-none focus:ring-1 focus:ring-blue-500 rounded w-full text-xs"
-                                                    />
-                                                </td>
-                                                <td className="p-3 text-center bg-blue-50/50 font-mono text-xs text-blue-700">
-                                                    {row.units_per_box || 1}
+                                                    {row.laboratory}
                                                 </td>
                                                 <td className="p-3 font-bold">${(row.price_sell || 0).toLocaleString()}</td>
-                                                <td className="p-3 text-xs text-slate-500">${row.price_sell_unit?.toLocaleString()}</td>
                                                 <td className="p-3">{row.stock}</td>
-                                                <td className="p-3">
-                                                    <input
-                                                        type="text"
-                                                        value={row.lot_number}
-                                                        onChange={(e) => handleUpdateRow(row.id, 'lot_number', e.target.value)}
-                                                        className={`w-full px-2 py-1 rounded border text-xs ${row.lot_number === 'LOTE-MIGRACION' ? 'border-orange-300 bg-orange-50 text-orange-800' : 'border-gray-200'
-                                                            }`}
-                                                    />
-                                                </td>
-                                                <td className="p-3">
-                                                    <input
-                                                        type="text"
-                                                        value={row.expiry_date}
-                                                        onChange={(e) => handleUpdateRow(row.id, 'expiry_date', e.target.value)}
-                                                        className="w-full px-2 py-1 rounded border border-gray-200 text-xs"
-                                                        placeholder="DD/MM/YYYY"
-                                                    />
-                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
                                 </table>
-                                {importedData.length > 200 && (
-                                    <div className="p-4 text-center text-gray-500 text-sm bg-gray-50 border-t border-gray-200">
-                                        Mostrando primeros 200 de {importedData.length} registros. Los demás se importarán correctamente.
-                                    </div>
-                                )}
                             </div>
                         </div>
                     )}
@@ -589,40 +635,23 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                 <div className="p-6 border-t border-gray-100 bg-gray-50 rounded-b-2xl flex justify-between items-center">
                     {step === 'PREVIEW' ? (
                         <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                            {isUploading ? (
-                                <div className="w-full">
-                                    <div className="flex justify-between text-xs mb-1">
-                                        <span className="font-medium text-slate-600">{uploadMessage}</span>
-                                        <span className="font-bold text-cyan-600">{uploadProgress}%</span>
-                                    </div>
-                                    <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                                        <div
-                                            className="bg-cyan-600 h-2.5 rounded-full transition-all duration-300 ease-out"
-                                            style={{ width: `${uploadProgress}%` }}
-                                        ></div>
-                                    </div>
-                                </div>
-                            ) : (
-                                <>
-                                    <button
-                                        onClick={() => {
-                                            setStep('UPLOAD');
-                                            setImportedData([]);
-                                        }}
-                                        className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition"
-                                    >
-                                        Cancelar
-                                    </button>
-                                    <button
-                                        onClick={handleImport}
-                                        disabled={validCount === 0 || isProcessing}
-                                        className="px-6 py-2 bg-cyan-600 text-white font-bold rounded-xl hover:bg-cyan-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-cyan-200 flex items-center gap-2"
-                                    >
-                                        {isProcessing ? <Loader2 className="animate-spin" /> : <Save size={20} />}
-                                        Confirmar e Importar ({validCount})
-                                    </button>
-                                </>
-                            )}
+                            <button
+                                onClick={() => {
+                                    setStep('UPLOAD');
+                                    setImportedData([]);
+                                }}
+                                className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={handleImport}
+                                disabled={validCount === 0 || isProcessing}
+                                className="px-6 py-2 bg-cyan-600 text-white font-bold rounded-xl hover:bg-cyan-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-cyan-200 flex items-center gap-2"
+                            >
+                                {isProcessing ? <Loader2 className="animate-spin" /> : <Save size={20} />}
+                                Confirmar e Importar ({validCount})
+                            </button>
                         </div>
                     ) : (
                         <div />

@@ -889,146 +889,205 @@ export async function clearLocationInventorySecure(params: {
 /**
  * Obtiene inventario de una ubicación con validación
  */
+/**
+ * Obtiene inventario de una ubicación con validación y paginación
+ */
 export async function getInventorySecure(
-    locationId: string
-): Promise<{ success: boolean; data?: any[]; error?: string }> {
-
+    locationId: string,
+    params: {
+        page?: number;
+        limit?: number;
+        search?: string;
+        category?: string;
+        stockStatus?: 'CRITICAL' | 'EXPIRING' | 'NORMAL' | 'ALL';
+        incomplete?: boolean;
+        pagination?: boolean; // New flag to control pagination mode
+    } = {}
+): Promise<{
+    success: boolean;
+    data: any[];
+    meta?: { total: number; page: number; totalPages: number };
+    error?: string
+}> {
+    console.log('🔍 [getInventorySecure] Params:', { locationId, ...params });
     if (!z.string().uuid().safeParse(locationId).success) {
-        console.warn('⚠️ [Inventory v2] Invalid locationId provided to getInventorySecure:', locationId);
-        return { success: false, error: 'ID de ubicación inválido' };
+        return { success: false, error: 'ID de ubicación inválido', data: [] };
     }
 
+    const isPaged = params.pagination !== false; // Default to true (Paged)
+    const page = Math.max(1, params.page || 1);
+    const limit = isPaged ? Math.min(Math.max(1, params.limit || 50), 200) : -1; // -1 for ALL
+    const offset = isPaged ? (page - 1) * limit : 0;
+    const searchTerm = (params.search || '').trim();
 
     try {
-        // UNION: Get both new products AND legacy inventory (22,980 items)
+        const { query } = await import('@/lib/db');
+
+        // Construcción dinámica de filtros WHERE
+        const whereConditions: string[] = [];
+        const queryParams: any[] = [locationId];
+        let paramIndex = 2; // Start at 2 because $1 is locationId
+
+        // Base Filter: Location logic handled in CTEs/Join, but we refine here if needed
+        // For efficiency, we will inject filters into a CTE or main WHERE
+
+        // Search Filter
+        if (searchTerm) {
+            whereConditions.push(`(
+                ib.sku ILIKE $${paramIndex} OR 
+                ib.name ILIKE $${paramIndex} OR 
+                ib.dci ILIKE $${paramIndex}
+            )`);
+            queryParams.push(`%${searchTerm}%`);
+            paramIndex++;
+        }
+
+        // Category Filter
+        if (params.category && params.category !== 'ALL') {
+            if (params.category === 'MEDS') {
+                // MEDS = Todo lo que NO es Retail explícito
+                // Incluye: FARMACIA, MEDICAMENTOS, OTROS, SIN ASIGNACION, etc.
+                whereConditions.push(`(
+                    (ib.category NOT ILIKE '%PERFUMERIA%' AND 
+                    ib.category NOT ILIKE '%NATURALES%' AND 
+                    ib.category NOT ILIKE '%ALIMENTOS%' AND 
+                    ib.category NOT ILIKE '%BEBIDAS%' AND 
+                    ib.category NOT ILIKE '%ACCESORIOS%' AND
+                    ib.category NOT ILIKE '%ASEO%') 
+                    OR ib.category IS NULL
+                )`);
+            } else if (params.category === 'RETAIL') {
+                // RETAIL = Solo categorías explícitas de Retail
+                whereConditions.push(`(
+                    ib.category ILIKE '%PERFUMERIA%' OR 
+                    ib.category ILIKE '%NATURALES%' OR 
+                    ib.category ILIKE '%ALIMENTOS%' OR 
+                    ib.category ILIKE '%BEBIDAS%' OR 
+                    ib.category ILIKE '%ACCESORIOS%' OR
+                    ib.category ILIKE '%ASEO%'
+                )`);
+            } else if (params.category === 'CONTROLLED') {
+                whereConditions.push(`ib.condition IN ('R', 'RR', 'RCH')`);
+            }
+        }
+
+        // Stock Status Filter
+        if (params.stockStatus === 'CRITICAL') {
+            if (params.stockStatus === 'CRITICAL') {
+                whereConditions.push(`COALESCE(ib.stock_actual, 0) <= COALESCE(ib.stock_min, 5)`);
+            }
+        }
+
+        // Incomplete Data Filter
+        if (params.incomplete) {
+            whereConditions.push(`(ib.source_system = 'POS_EXPRESS')`);
+        }
+
+        const whereClause = whereConditions.length > 0
+            ? 'AND ' + whereConditions.join(' AND ')
+            : '';
+
+        // Unified Query with Pagination
+        // We join inventory_batches (ib) FULL OUTER JOIN products (p) 
+        // to get both: items in stock (ib) and catalog items (p) if we want to show 0 stock?
+        // OR current logic: Batches UNION Catalog Items not in batches.
+
         const sql = `
-            -- Batches reales en la ubicación
-            WITH location_batches AS (
+            WITH combined_inventory AS (
+                -- 1. Batches in location
                 SELECT 
-                    ib.product_id::text,
                     ib.id::text as batch_id,
-                    ib.sku::text,
-                    ib.name::text,
-                    NULL::text as dci,
-                    NULL::text as laboratory,
-                    NULL::text as isp_register,
-                    NULL::text as format,
-                    1 as units_per_box,
-                    false as is_bioequivalent,
-                    COALESCE(ib.sale_price, 0) as price_sell_box,
-                    COALESCE(ib.price_sell_box, 0) as price_sell_box_alt,
-                    COALESCE(ib.sale_price, 0) as price_sell_unit,
-                    COALESCE(ib.cost_net, 0) as cost_net,
-                    COALESCE(ib.unit_cost, 0) as cost_price,
-                    19 as tax_percent,
-                    COALESCE(ib.quantity_real, 0) as stock_actual,
-                    COALESCE(ib.quantity_real, 0) as stock_total,
-                    COALESCE(ib.stock_min, 5) as stock_min,
-                    ib.location_id::text,
-                    false as es_frio,
-                    false as comisionable,
-                    'VD'::text as condition,
-                    ib.lot_number::text,
-                    ib.expiry_date::timestamp as expiry_date_ts,
-                    'inventory_batches' as source,
-                    ib.source_system::text,
-                    ib.created_at::timestamp as created_at_ts,
-                    -- New Fields (Placeholders for UNION compatibility)
-                    NULL::text as concentration,
-                    NULL::text as therapeutic_action,
-                    NULL::text as units,
-                    NULL::text as prescription_type
+                    ib.product_id::text,
+                    ib.sku,
+                    COALESCE(ib.name, p.name) as name,
+                    p.dci,
+                    p.laboratory,
+                    p.category,
+                    p.condicion_venta as condition,
+                    ib.quantity_real as stock_actual,
+                    COALESCE(ib.stock_min, p.stock_minimo_seguridad, 5) as stock_min,
+                    COALESCE(ib.sale_price, ib.price_sell_box, p.price) as price,
+                    ib.expiry_date,
+
+                    false as is_express_entry, -- Fallback since column missing in DB
+                    ib.source_system,
+                    ib.created_at
                 FROM inventory_batches ib
+                LEFT JOIN products p ON ib.product_id::text = p.id
                 WHERE ib.location_id = $1::uuid
-            ),
-            -- Productos del catálogo (solo si no tienen lotes en esta ubicación)
-            catalog_products AS (
+                
+                UNION ALL
+                
+                -- 2. Products not in batches (Zero Stock)
                 SELECT 
-                    p.id::text as product_id,
-                    p.id::text as batch_id,
-                    p.sku::text,
-                    p.name::text,
-                    p.dci::text,
-                    p.laboratory::text,
-                    p.isp_register::text,
-                    p.format::text,
-                    p.units_per_box,
-                    p.is_bioequivalent,
-                    p.price as price_sell_box,
-                    p.price_sell_box as price_sell_box_alt,
-                    p.price_sell_unit,
-                    p.cost_net,
-                    p.cost_price,
-                    p.tax_percent,
-                    p.stock_actual,
-                    p.stock_total,
-                    p.stock_minimo_seguridad as stock_min,
-                    p.location_id::text,
-                    p.es_frio,
-                    p.comisionable,
-                    p.condicion_venta::text as condition,
-                    NULL::text as lot_number,
-                    NULL::timestamp as expiry_date_ts,
-                    'products' as source,
-                    p.source_system::text,
-                    p.created_at::timestamp as created_at_ts,
-                    -- New Fields
-                    p.concentration::text,
-                    p.therapeutic_action::text,
-                    p.units::text,
-                    p.prescription_type::text
+                    p.id as batch_id, -- Placeholder ID
+                    p.id as product_id,
+                    p.sku,
+                    p.name,
+                    p.dci,
+                    p.laboratory,
+                    p.category,
+                    p.condicion_venta as condition,
+                    0 as stock_actual,
+                    COALESCE(p.stock_minimo_seguridad, 5) as stock_min,
+                    p.price,
+                    NULL as expiry_date,
+
+                    false as is_express_entry, -- Fallback since column missing in DB
+                    p.source_system,
+                    p.created_at
                 FROM products p
                 WHERE (p.location_id = $1::text OR p.location_id IS NULL)
                 AND NOT EXISTS (
-                    SELECT 1 FROM location_batches lb 
-                    WHERE lb.sku = p.sku
+                    SELECT 1 FROM inventory_batches ib 
+                    WHERE ib.sku = p.sku AND ib.location_id = $1::uuid
                 )
+            ),
+            filtered_inventory AS (
+                SELECT ib.*, COUNT(*) OVER() as total_count 
+                FROM combined_inventory ib
+                WHERE 1=1 ${whereClause}
             )
-            
-            SELECT * FROM location_batches
-            UNION ALL
-            SELECT * FROM catalog_products
+            SELECT * FROM filtered_inventory
             ORDER BY name ASC
+            ${isPaged ? `LIMIT $${paramIndex} OFFSET $${paramIndex + 1}` : ''}
         `;
 
-        const res = await query(sql, [locationId]);
+        if (isPaged) {
+            queryParams.push(limit, offset);
+        }
+
+        const res = await query(sql, queryParams);
+
+        const total = res.rows.length > 0 ? Number(res.rows[0].total_count) : 0;
+        const totalPages = isPaged ? Math.ceil(total / limit) : 1;
 
         const inventory = res.rows.map(row => ({
-            id: row.batch_id || row.product_id,
+            id: row.batch_id,
             product_id: row.product_id,
             sku: row.sku,
             name: row.name,
             dci: row.dci,
             laboratory: row.laboratory,
-            isp_register: row.isp_register,
-            category: 'MEDICAMENTO', // Default for now
-            location_id: row.location_id || locationId,
-            stock_actual: Number(row.stock_actual) || 0,
-            stock_total: Number(row.stock_total) || 0,
-            stock_min: Number(row.stock_min) || 5,
-            price: Number(row.price_sell_box) || 0,
-            price_sell_box: Number(row.price_sell_box) || 0,
-            price_sell_unit: Number(row.price_sell_unit) || 0,
-            cost_price: Number(row.cost_net) || Number(row.cost_price) || 0,
-            cost_net: Number(row.cost_net) || 0,
-            tax_percent: Number(row.tax_percent) || 19,
-            format: row.format,
-            units_per_box: row.units_per_box || 1,
-            is_bioequivalent: row.is_bioequivalent || false,
+            category: row.category,
+            stock_actual: Number(row.stock_actual),
+            stock_min: Number(row.stock_min),
+            price: Number(row.price),
             condition: row.condition || 'VD',
-            allows_commission: row.comisionable || false,
-            expiry_date: row.expiry_date_ts ? new Date(row.expiry_date_ts).getTime() : null,
-            lot_number: row.lot_number,
-            _source: row.source, // For debugging
-            source_system: row.source_system || 'MANUAL',
-            created_at: row.created_at_ts ? new Date(row.created_at_ts).getTime() : null
+            is_express_entry: row.is_express_entry,
+            source_system: row.source_system,
+            expiry_date: row.expiry_date ? new Date(row.expiry_date).getTime() : null,
         }));
 
-        return { success: true, data: inventory };
+        return {
+            success: true,
+            data: inventory,
+            meta: { total, page, totalPages }
+        };
 
     } catch (error: any) {
-        logger.error({ err: error }, 'Error fetching inventory');
-        return { success: false, error: error.message };
+        logger.error({ err: error }, 'Error fetching inventory paged');
+        return { success: false, error: error.message, data: [] };
     }
 }
 
