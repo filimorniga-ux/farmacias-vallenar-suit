@@ -102,9 +102,20 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
         try {
             const formDataAny = formData as any;
 
+            // 🔍 Robust Product ID Resolution
+            // Problem: Sometimes `product` is a Batch (id=batch_id) where product_id might be missing.
+            // Solution: Try product.product_id -> Try finding by SKU in inventory -> Fail gracefully.
+            const resolvedProductId = product.product_id ||
+                inventory.find(i => i.sku === product.sku && i.product_id)?.product_id;
+
+            if (!resolvedProductId) {
+                toast.error('Error crítico: No se encuentra el ID Maestro del producto. Contacte a soporte.');
+                return;
+            }
+
             // Call the new Master Update Action
             const result = await updateProductMasterSecure({
-                productId: product.product_id || product.id,
+                productId: resolvedProductId,
                 sku: rawSku || undefined,
                 name: formData.name || undefined,
                 description: formDataAny.description || undefined,
