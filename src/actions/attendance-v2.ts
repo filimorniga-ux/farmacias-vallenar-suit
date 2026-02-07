@@ -93,7 +93,6 @@ async function getSession(): Promise<{ userId: string; role: string } | null> {
 }
 
 async function validateManagerPin(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     client: PoolClient,
     pin: string
 ): Promise<{ valid: boolean; manager?: { id: string; name: string }; error?: string }> {
