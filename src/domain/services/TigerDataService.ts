@@ -110,32 +110,61 @@ export const TigerDataService = {
      * 1. Fetch Inventory (Strict Location Filter)
      * Updated to use getInventory from actions/inventory.ts
      */
+    /**
+     * 1. Fetch Inventory (Legacy - Fetch ALL for POS/Offline)
+     * Calls secure action with pagination: false
+     */
     fetchInventory: async (locationId?: string): Promise<InventoryBatch[]> => {
-        console.log('🐯 [Tiger Data] Fetching inventory for location:', locationId);
+        console.log('🐯 [Tiger Data] Fetching FULL inventory for location:', locationId);
+
+        if (!locationId) return [];
+
         try {
-            // 1. Try to fetch from Server Action (Strict Mode)
             const { getInventorySecure } = await import('../../actions/inventory-v2');
-
-            // If no locationId, we might fetch all? Or fail safer? 
-            // For now, if no location, return empty to force selection or handle gracefully.
-            if (!locationId) {
-                console.warn('⚠️ [Tiger Data] No location specified for inventory fetch.');
-                return [];
-            }
-
-            const result = await getInventorySecure(locationId);
+            // Explicitly disable pagination to get all items
+            const result = await getInventorySecure(locationId, { pagination: false });
 
             if (result.success && result.data) {
-                console.log(`✅ [Tiger Data] Loaded ${result.data.length} items from DB for ${locationId}`);
+                console.log(`✅ [Tiger Data] Loaded ${result.data.length} items (FULL) from DB`);
                 return result.data as InventoryBatch[];
             }
-
-            // Only throw if success is false 
-            console.error('❌ [Tiger Data] DB Fetch returned error:', result.error);
-            return []; // Return empty if error, but do NOT fall back to mocks. Mocks are for dev only.
+            return [];
         } catch (error) {
-            console.error('❌ [Tiger Data] DB Fetch failed (Exception):', error);
-            return []; // Return empty on crash. NEVER return mock data in this context to avoid confusion.
+            console.error('❌ [Tiger Data] Full Inventory Fetch failed:', error);
+            return [];
+        }
+    },
+
+    /**
+     * 1.1 Fetch Inventory Paged (For Management UI)
+     */
+    fetchInventoryPaged: async (
+        locationId: string,
+        params: {
+            page?: number;
+            limit?: number;
+            search?: string;
+            category?: string;
+            stockStatus?: 'CRITICAL' | 'EXPIRING' | 'NORMAL' | 'ALL';
+            incomplete?: boolean;
+        }
+    ): Promise<{ data: InventoryBatch[]; meta: { total: number; page: number; totalPages: number } }> => {
+        console.log('🐯 [Tiger Data] Fetching PAGED inventory:', params);
+
+        try {
+            const { getInventorySecure } = await import('../../actions/inventory-v2');
+            const result = await getInventorySecure(locationId, { ...params, pagination: true });
+
+            if (result.success && result.data) {
+                return {
+                    data: result.data as InventoryBatch[],
+                    meta: result.meta || { total: 0, page: 1, totalPages: 1 }
+                };
+            }
+            throw new Error(result.error || 'Failed to fetch paged inventory');
+        } catch (error) {
+            console.error('❌ [Tiger Data] Paged Fetch failed:', error);
+            return { data: [], meta: { total: 0, page: 1, totalPages: 1 } };
         }
     },
 

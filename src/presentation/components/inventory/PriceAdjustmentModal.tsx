@@ -240,24 +240,23 @@ export default function PriceAdjustmentModal({ mode, sku, productName, currentPr
                         </form>
                     ) : (
                         <div className="space-y-4">
-                            {!pin && (
-                                <div className="p-4 bg-gray-50 rounded-xl mb-4 border border-gray-200">
-                                    <label className="block text-sm font-medium text-slate-700 mb-2">
-                                        Ingresa tu PIN para habilitar "Deshacer"
-                                    </label>
-                                    <div className="relative">
-                                        <input
-                                            type="password"
-                                            maxLength={6}
-                                            value={pin}
-                                            onChange={(e) => setPin(e.target.value)}
-                                            placeholder="PIN de seguridad"
-                                            className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 tracking-widest text-center"
-                                        />
-                                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                                    </div>
+                            <div className="p-4 bg-gray-50 rounded-xl mb-4 border border-gray-200">
+                                <label className="block text-sm font-medium text-slate-700 mb-2">
+                                    Ingresa tu PIN para habilitar "Deshacer"
+                                </label>
+                                <div className="relative">
+                                    <input
+                                        type="password"
+                                        maxLength={6}
+                                        value={pin}
+                                        onChange={(e) => setPin(e.target.value)}
+                                        placeholder="PIN de seguridad"
+                                        className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 tracking-widest text-center"
+                                    />
+                                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                                 </div>
-                            )}
+                            </div>
+
                             {history.length === 0 ? (
                                 <div className="text-center py-8 text-slate-400">
                                     No hay historial de ajustes recientes.
@@ -289,11 +288,13 @@ export default function PriceAdjustmentModal({ mode, sku, productName, currentPr
                                         ) : (
                                             <button
                                                 onClick={() => handleUndo(item.id)}
-                                                disabled={!pin || loading}
-                                                className="text-red-500 hover:text-red-700 font-bold text-xs flex items-center gap-1 underline disabled:opacity-50 disabled:no-underline"
+                                                disabled={pin.length < 4 || loading}
+                                                className="text-red-500 hover:text-red-700 font-bold text-xs flex items-center gap-1 underline disabled:opacity-50 disabled:no-underline transition-all"
+                                                title={pin.length < 4 ? 'Ingresa PIN completo (mín 4 dígitos)' : 'Revertir cambio'}
                                             >
                                                 <div className="flex items-center gap-1 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-colors">
-                                                    <span className="transform rotate-180 inline-block">↩</span> DESHACER CAMBIOS
+                                                    <span className="transform rotate-180 inline-block">↩</span>
+                                                    {pin.length < 4 ? 'INGRESA PIN...' : 'DESHACER CAMBIOS'}
                                                 </div>
                                             </button>
                                         )}

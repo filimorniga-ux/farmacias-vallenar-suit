@@ -66,6 +66,8 @@ export interface InventoryBatch {
     format?: string; // Comprimido, Jarabe (Optional)
     units_per_box?: number; // Unidades por caja (Optional, Default 1)
     is_bioequivalent?: boolean; // Es Bioequivalente (Optional)
+    description?: string; // NEW: Descripción para web/pos
+    therapeutic_action?: string; // NEW: Acción terapeútica
 
     // Legacy / Optional / Derived
     concentration: string;

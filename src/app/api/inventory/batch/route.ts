@@ -37,13 +37,17 @@ export async function POST(request: Request) {
                 id, sku, name, dci, laboratory, 
                 price, price_sell_box, cost_net, location_id,
                 stock_total, stock_actual, 
-                format, is_bioequivalent, category
+                format, is_bioequivalent, category,
+                description, therapeutic_action, units_per_box, isp_register,
+                condicion_venta, barcode, concentration, price_sell_unit
             )
             VALUES (
                 $1, $2, $3, $4, $5, 
                 $6, $6, $7, $8,
                 $9, $9, 
-                $10, $11, $12
+                $10, $11, $12,
+                $13, $14, $15, $16,
+                $17, $18, $19, $20
             )
             ON CONFLICT (sku) DO UPDATE SET
                 name = EXCLUDED.name,
@@ -54,7 +58,18 @@ export async function POST(request: Request) {
                 price = EXCLUDED.price,
                 price_sell_box = EXCLUDED.price_sell_box,
                 cost_net = EXCLUDED.cost_net,
-                location_id = EXCLUDED.location_id
+                location_id = EXCLUDED.location_id,
+                description = EXCLUDED.description,
+                therapeutic_action = EXCLUDED.therapeutic_action,
+                units_per_box = EXCLUDED.units_per_box,
+                isp_register = EXCLUDED.isp_register,
+                condicion_venta = EXCLUDED.condicion_venta,
+                barcode = EXCLUDED.barcode,
+                concentration = EXCLUDED.concentration,
+                price_sell_unit = EXCLUDED.price_sell_unit,
+                format = EXCLUDED.format,
+                is_bioequivalent = EXCLUDED.is_bioequivalent,
+                category = EXCLUDED.category
             RETURNING id;
         `;
 
@@ -88,7 +103,15 @@ export async function POST(request: Request) {
                 product.stock_actual || 0, // $9 (Maps to stock_total AND stock_actual)
                 product.format || 'UNIDAD', // $10
                 product.is_bioequivalent || false, // $11
-                product.category || 'MEDICAMENTO' // $12
+                product.category || 'MEDICAMENTO', // $12
+                product.description || '', // $13
+                product.therapeutic_action || '', // $14
+                product.units_per_box || 1, // $15
+                product.isp_register || '', // $16
+                product.condition || 'VD', // $17 (Mapped to condicion_venta)
+                product.barcode || product.sku, // $18
+                product.concentration || '', // $19
+                product.price_sell_unit || (priceToSave / (product.units_per_box || 1)) // $20
             ]);
         }
 
