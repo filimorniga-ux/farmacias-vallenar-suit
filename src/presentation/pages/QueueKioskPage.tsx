@@ -562,7 +562,7 @@ const QueueKioskPage: React.FC = () => {
                                 {/* OPTION A: LIST */}
                                 <TabsContent value="list">
                                     <p className="text-slate-500 mb-4 font-medium">Seleccione sucursal manualmente</p>
-                                    <div className="grid gap-3 max-h-64 overflow-y-auto">
+                                    <div className="grid gap-3 max-h-64 overflow-y-auto touch-pan-y overscroll-contain">
                                         {locations.map(loc => (
                                             <button
                                                 key={loc.id}
@@ -641,7 +641,7 @@ const QueueKioskPage: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-b from-white to-slate-50 flex flex-col items-center justify-center p-6 relative overflow-hidden select-none">
+        <div className="min-h-dvh pt-safe pb-safe bg-gradient-to-b from-white to-slate-50 flex flex-col items-center justify-center p-6 relative overflow-hidden select-none">
 
             {/* Exit Prompt Modal */}
             {showExitPrompt && (
@@ -693,7 +693,7 @@ const QueueKioskPage: React.FC = () => {
             `}</style>
 
             {/* Header with Location */}
-            <header className="absolute top-0 left-0 right-0 bg-white border-b border-slate-100 py-5 px-8 flex items-center justify-between shadow-sm z-20">
+            <header className="absolute top-0 left-0 right-0 bg-white border-b border-slate-100 py-5 pt-safe px-8 flex items-center justify-between shadow-sm z-20">
                 <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-sky-50 rounded-2xl flex items-center justify-center text-sky-600 border border-sky-100">
                         <MapPin size={24} />

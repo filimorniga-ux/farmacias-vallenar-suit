@@ -310,7 +310,7 @@ const AttendanceKioskPage: React.FC = () => {
     // --- Renders ---
     if (isLocked) {
         return (
-            <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 relative overflow-hidden select-none touch-manipulation">
+            <div className="min-h-dvh pt-safe pb-safe bg-slate-50 flex flex-col items-center justify-center p-4 relative overflow-hidden select-none touch-manipulation">
                 {/* Background Ambience */}
                 <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none opacity-50">
                     <div className="absolute top-[10%] left-[20%] w-[500px] h-[500px] bg-sky-200/40 rounded-full blur-[100px]" />
@@ -395,7 +395,7 @@ const AttendanceKioskPage: React.FC = () => {
 
     if (authenticatedEmployee) {
         return (
-            <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 relative overflow-hidden">
+            <div className="min-h-dvh pt-safe pb-safe bg-slate-50 flex flex-col items-center justify-center p-4 relative overflow-hidden">
                 {/* Background Ambience */}
                 <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none opacity-50">
                     <div className="absolute top-[10%] left-[20%] w-[500px] h-[500px] bg-sky-200/40 rounded-full blur-[100px]" />
@@ -557,9 +557,9 @@ const AttendanceKioskPage: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen bg-slate-100 flex flex-col">
+        <div className="min-h-dvh bg-slate-100 flex flex-col">
             {/* Header */}
-            <div className="bg-white p-8 border-b border-slate-100 flex justify-between items-center shadow-sm relative z-10">
+            <div className="bg-white p-8 pt-safe pl-safe pr-safe border-b border-slate-100 flex justify-between items-center shadow-sm relative z-10">
                 <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-sky-50 rounded-2xl flex items-center justify-center text-sky-600 border border-sky-100">
                         <Clock size={28} />
@@ -605,7 +605,7 @@ const AttendanceKioskPage: React.FC = () => {
             </div>
 
             {/* Employee Grid */}
-            <div className="flex-1 p-8 overflow-y-auto">
+            <div className="flex-1 p-8 overflow-y-auto touch-pan-y overscroll-contain">
                 {isLoadingEmployees ? (
                     <div className="flex flex-col items-center justify-center h-full gap-4">
                         <Loader2 className="w-12 h-12 text-sky-500 animate-spin" />

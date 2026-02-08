@@ -207,8 +207,8 @@ const SupplyChainPage: React.FC = () => {
     };
 
     return (
-        <div data-testid="supply-chain-page" className="h-full p-6 bg-slate-50 flex flex-col overflow-hidden">
-            <header className="mb-8 flex justify-between items-center flex-shrink-0">
+        <div data-testid="supply-chain-page" className="h-dvh p-4 md:p-6 pb-safe bg-slate-50 flex flex-col overflow-hidden">
+            <header className="mb-4 md:mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 flex-shrink-0">
                 <div>
                     <h1 className="text-3xl font-extrabold text-slate-900 flex items-center gap-3">
                         <Truck className="text-cyan-600" /> Cadena de Suministro
@@ -228,7 +228,7 @@ const SupplyChainPage: React.FC = () => {
                 </div>
             </header>
 
-            <div className="flex-1 flex gap-6 overflow-hidden">
+            <div className="flex-1 flex flex-col lg:flex-row gap-6 overflow-hidden">
                 {/* Left: Predictive Analysis */}
                 <div className="flex-[2] bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col overflow-hidden">
                     <div className="p-6 border-b border-slate-100 flex justify-between items-center">
@@ -253,83 +253,85 @@ const SupplyChainPage: React.FC = () => {
                         </button>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-0">
-                        {isAnalyzing ? (
-                            <div className="h-full flex flex-col items-center justify-center text-slate-400">
-                                <RefreshCw className="animate-spin mb-4" size={48} />
-                                <p>Analizando patrones de consumo...</p>
-                            </div>
-                        ) : suggestions.length === 0 ? (
-                            <div className="h-full flex flex-col items-center justify-center text-slate-400">
-                                <CheckCircle className="mb-4 text-emerald-200" size={64} />
-                                <p>Todo en orden. No se requieren compras urgentes.</p>
-                            </div>
-                        ) : (
-                            <table className="w-full text-left">
-                                <thead className="bg-slate-50 text-slate-500 font-bold text-xs uppercase sticky top-0 z-10">
-                                    <tr>
-                                        <th className="p-4">Producto</th>
-                                        <th className="p-4">Stock</th>
-                                        <th className="p-4">Venta (30d)</th>
-                                        <th className="p-4">Cobertura</th>
-                                        <th className="p-4">Sugerencia</th>
-                                        <th className="p-4 text-center">Acción</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100 text-sm">
-                                    {suggestions.map((item, idx) => (
-                                        <tr key={`${item.sku}-${idx}`} className="hover:bg-slate-50 transition">
-                                            <td className="p-4">
-                                                <div className="font-bold text-slate-800">{item.product_name}</div>
-                                                <div className="text-xs text-slate-400 font-mono">{item.sku}</div>
-                                            </td>
-                                            <td className="p-4">
-                                                <div className="font-bold text-slate-800">{item.current_stock} un.</div>
-                                            </td>
-                                            <td className="p-4 text-slate-500">
-                                                {Math.round(item.daily_avg_sales * 30)} un/mes
-                                            </td>
-                                            <td className="p-4">
-                                                <div className="flex items-center gap-2">
-                                                    {item.days_until_stockout <= 5 ? (
-                                                        <span className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg font-bold text-xs flex items-center gap-1.5">
-                                                            🔴 {item.days_until_stockout} días
-                                                        </span>
-                                                    ) : item.days_until_stockout <= 15 ? (
-                                                        <span className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg font-bold text-xs flex items-center gap-1.5">
-                                                            🟡 {item.days_until_stockout} días
-                                                        </span>
-                                                    ) : (
-                                                        <span className="px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-lg font-bold text-xs flex items-center gap-1.5">
-                                                            🟢 {item.days_until_stockout > 900 ? '∞' : item.days_until_stockout} días
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </td>
-                                            <td className="p-4">
-                                                <div className="flex items-center gap-2">
-                                                    <input
-                                                        type="number"
-                                                        className={`w-20 p-2 border rounded-lg font-bold text-center focus:outline-none border-purple-300 bg-purple-50 text-purple-700`}
-                                                        value={item.suggested_order_qty}
-                                                        onChange={(e) => updateSuggestion(item.sku, 'suggested_order_qty', parseInt(e.target.value))}
-                                                    />
-                                                    <span className="text-xs text-slate-400">cajas</span>
-                                                </div>
-                                            </td>
-                                            <td className="p-4 text-center">
-                                                <button
-                                                    onClick={() => removeSuggestion(item.sku)}
-                                                    className="text-slate-400 hover:text-red-500 transition"
-                                                >
-                                                    <AlertTriangle size={16} />
-                                                </button>
-                                            </td>
+                    <div className="flex-1 overflow-y-auto p-0 touch-pan-y overscroll-contain">
+                        <div className="overflow-x-auto touch-pan-x">
+                            {isAnalyzing ? (
+                                <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                                    <RefreshCw className="animate-spin mb-4" size={48} />
+                                    <p>Analizando patrones de consumo...</p>
+                                </div>
+                            ) : suggestions.length === 0 ? (
+                                <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                                    <CheckCircle className="mb-4 text-emerald-200" size={64} />
+                                    <p>Todo en orden. No se requieren compras urgentes.</p>
+                                </div>
+                            ) : (
+                                <table className="w-full text-left">
+                                    <thead className="bg-slate-50 text-slate-500 font-bold text-xs uppercase sticky top-0 z-10">
+                                        <tr>
+                                            <th className="p-4">Producto</th>
+                                            <th className="p-4">Stock</th>
+                                            <th className="p-4">Venta (30d)</th>
+                                            <th className="p-4">Cobertura</th>
+                                            <th className="p-4">Sugerencia</th>
+                                            <th className="p-4 text-center">Acción</th>
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        )}
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 text-sm">
+                                        {suggestions.map((item, idx) => (
+                                            <tr key={`${item.sku}-${idx}`} className="hover:bg-slate-50 transition">
+                                                <td className="p-4">
+                                                    <div className="font-bold text-slate-800">{item.product_name}</div>
+                                                    <div className="text-xs text-slate-400 font-mono">{item.sku}</div>
+                                                </td>
+                                                <td className="p-4">
+                                                    <div className="font-bold text-slate-800">{item.current_stock} un.</div>
+                                                </td>
+                                                <td className="p-4 text-slate-500">
+                                                    {Math.round(item.daily_avg_sales * 30)} un/mes
+                                                </td>
+                                                <td className="p-4">
+                                                    <div className="flex items-center gap-2">
+                                                        {item.days_until_stockout <= 5 ? (
+                                                            <span className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg font-bold text-xs flex items-center gap-1.5">
+                                                                🔴 {item.days_until_stockout} días
+                                                            </span>
+                                                        ) : item.days_until_stockout <= 15 ? (
+                                                            <span className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg font-bold text-xs flex items-center gap-1.5">
+                                                                🟡 {item.days_until_stockout} días
+                                                            </span>
+                                                        ) : (
+                                                            <span className="px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-lg font-bold text-xs flex items-center gap-1.5">
+                                                                🟢 {item.days_until_stockout > 900 ? '∞' : item.days_until_stockout} días
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="p-4">
+                                                    <div className="flex items-center gap-2">
+                                                        <input
+                                                            type="number"
+                                                            className={`w-20 p-2 border rounded-lg font-bold text-center focus:outline-none border-purple-300 bg-purple-50 text-purple-700`}
+                                                            value={item.suggested_order_qty}
+                                                            onChange={(e) => updateSuggestion(item.sku, 'suggested_order_qty', parseInt(e.target.value))}
+                                                        />
+                                                        <span className="text-xs text-slate-400">cajas</span>
+                                                    </div>
+                                                </td>
+                                                <td className="p-4 text-center">
+                                                    <button
+                                                        onClick={() => removeSuggestion(item.sku)}
+                                                        className="text-slate-400 hover:text-red-500 transition"
+                                                    >
+                                                        <AlertTriangle size={16} />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
                     </div>
 
                     {suggestions.length > 0 && (

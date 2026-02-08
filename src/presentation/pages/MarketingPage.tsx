@@ -51,7 +51,7 @@ const MarketingPage: React.FC = () => {
     };
 
     return (
-        <div className="p-8 max-w-7xl mx-auto">
+        <div className="p-4 md:p-8 max-w-7xl mx-auto min-h-dvh pb-safe">
             <header className="mb-8">
                 <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-3">
                     <Award className="text-purple-600" size={32} />
@@ -61,22 +61,22 @@ const MarketingPage: React.FC = () => {
             </header>
 
             {/* Tabs */}
-            <div className="flex gap-4 mb-8 border-b border-gray-200">
+            <div className="flex gap-4 mb-8 border-b border-gray-200 overflow-x-auto touch-pan-x no-scrollbar">
                 <button
                     onClick={() => setActiveTab('CAMPAIGNS')}
-                    className={`pb-4 px-4 font-bold flex items-center gap-2 transition ${activeTab === 'CAMPAIGNS' ? 'text-purple-600 border-b-2 border-purple-600' : 'text-gray-400 hover:text-gray-600'}`}
+                    className={`pb-4 px-4 font-bold flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'CAMPAIGNS' ? 'text-purple-600 border-b-2 border-purple-600' : 'text-gray-400 hover:text-gray-600'}`}
                 >
                     <Tag size={20} /> Campañas
                 </button>
                 <button
                     onClick={() => setActiveTab('GIFTCARDS')}
-                    className={`pb-4 px-4 font-bold flex items-center gap-2 transition ${activeTab === 'GIFTCARDS' ? 'text-purple-600 border-b-2 border-purple-600' : 'text-gray-400 hover:text-gray-600'}`}
+                    className={`pb-4 px-4 font-bold flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'GIFTCARDS' ? 'text-purple-600 border-b-2 border-purple-600' : 'text-gray-400 hover:text-gray-600'}`}
                 >
                     <Gift size={20} /> Gift Cards
                 </button>
                 <button
                     onClick={() => setActiveTab('LOYALTY')}
-                    className={`pb-4 px-4 font-bold flex items-center gap-2 transition ${activeTab === 'LOYALTY' ? 'text-purple-600 border-b-2 border-purple-600' : 'text-gray-400 hover:text-gray-600'}`}
+                    className={`pb-4 px-4 font-bold flex items-center gap-2 transition whitespace-nowrap ${activeTab === 'LOYALTY' ? 'text-purple-600 border-b-2 border-purple-600' : 'text-gray-400 hover:text-gray-600'}`}
                 >
                     <Award size={20} /> Club de Puntos
                 </button>
@@ -220,7 +220,7 @@ const MarketingPage: React.FC = () => {
             {/* New Promo Modal */}
             {isPromoModalOpen && (
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
-                    <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in duration-200">
+                    <div className="bg-white rounded-2xl p-4 md:p-6 w-full max-w-md shadow-2xl animate-in zoom-in duration-200 m-4">
                         <h2 className="text-xl font-bold mb-4">Nueva Promoción</h2>
                         <div className="space-y-4">
                             <div>

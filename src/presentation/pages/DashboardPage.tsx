@@ -232,9 +232,9 @@ const DashboardPage: React.FC = () => {
     );
 
     return (
-        <div className="min-h-screen bg-slate-50 pb-20">
+        <div className="min-h-dvh bg-slate-50 pb-20">
             {/* HEADER */}
-            <header className="bg-white/80 backdrop-blur-md sticky top-0 z-30 border-b border-slate-200 px-6 py-4">
+            <header className="bg-white/80 backdrop-blur-md sticky top-0 z-30 border-b border-slate-200 px-4 md:px-6 py-4 pt-safe">
                 <div className="max-w-4xl mx-auto flex justify-between items-center">
                     <div>
                         <h1 className="text-xl font-bold text-slate-800">Hola, {user?.name || 'Invitado'}</h1>
@@ -288,7 +288,7 @@ const DashboardPage: React.FC = () => {
                 </div>
             </header>
 
-            <main className="p-6 space-y-8 max-w-md mx-auto md:max-w-4xl">
+            <main className="p-4 md:p-6 space-y-6 md:space-y-8 max-w-md mx-auto md:max-w-4xl">
 
                 {/* 0. CRITICAL ALERTS */}
                 <div className="md:col-span-full">
@@ -432,7 +432,7 @@ const DashboardPage: React.FC = () => {
                 {/* 3. QUICK ACCESS MODULES */}
                 <section>
                     <h2 className="text-sm font-bold text-slate-400 mb-4 uppercase tracking-wider">Módulos de Sistema</h2>
-                    <div className="grid grid-cols-4 gap-3">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         {isQueryLoading ? (
                             <>
                                 <ModuleCardSkeleton />
@@ -453,7 +453,7 @@ const DashboardPage: React.FC = () => {
 
             </main>
 
-            <div className="fixed bottom-6 right-6">
+            <div className="fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] right-6 z-20">
                 <button
                     onClick={() => handleCardClick('/reports')}
                     className="bg-slate-900 text-white p-4 rounded-full shadow-xl shadow-slate-400/50 hover:scale-105 transition-transform flex items-center gap-2"

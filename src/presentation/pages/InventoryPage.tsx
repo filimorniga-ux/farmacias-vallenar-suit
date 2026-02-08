@@ -109,7 +109,7 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
     return (
         <div
             ref={parentRef}
-            className="flex-1 overflow-y-auto px-6 pb-20"
+            className="flex-1 overflow-y-auto px-4 md:px-6 pb-safe touch-pan-y overscroll-contain"
         >
             <div className="bg-transparent md:bg-white md:rounded-3xl md:shadow-sm md:border border-slate-200 overflow-hidden min-h-full relative">
 
@@ -618,8 +618,8 @@ const InventoryPage: React.FC = () => {
     };
 
     return (
-        <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
-            <div className="p-6 pb-0 shrink-0">
+        <div className="h-dvh flex flex-col bg-slate-50 overflow-hidden">
+            <div className="p-4 md:p-6 pb-0 shrink-0 pt-safe">
                 {/* Header */}
                 <header className="mb-6 flex flex-col md:flex-row md:justify-between md:items-end gap-4">
                     <div>
@@ -735,7 +735,7 @@ const InventoryPage: React.FC = () => {
                     </button>
                 </div>
 
-                <div className="p-4 flex gap-4 items-center bg-slate-50/50">
+                <div className="p-4 flex flex-col md:flex-row gap-4 items-stretch md:items-center bg-slate-50/50">
                     <div className="relative flex-1">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                         <input

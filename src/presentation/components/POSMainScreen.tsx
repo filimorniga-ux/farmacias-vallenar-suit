@@ -632,7 +632,7 @@ const POSMainScreen: React.FC = () => {
     // --- MISSING LOCATION STATE RENDER ---
     if (!currentLocationId) {
         return (
-            <div className="h-screen w-full bg-slate-100 flex flex-col items-center justify-center p-4">
+            <div className="min-h-dvh w-full bg-slate-100 flex flex-col items-center justify-center p-4">
                 <div className="bg-white p-8 md:p-12 rounded-3xl shadow-xl max-w-lg w-full text-center border border-slate-200">
                     <div className="w-24 h-24 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-6">
                         <CornerDownLeft size={48} className="text-amber-500" />
@@ -650,7 +650,7 @@ const POSMainScreen: React.FC = () => {
     // --- BLOCKED STATE RENDER ---
     if (!currentShift || currentShift.status === 'CLOSED') {
         return (
-            <div className="h-screen w-full bg-slate-50 flex flex-col items-center justify-center p-4 relative overflow-hidden">
+            <div className="min-h-dvh w-full bg-slate-50 flex flex-col items-center justify-center p-4 relative overflow-hidden">
                 {/* Subtle Background Pattern */}
                 <div className="absolute inset-0 opacity-[0.03] bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] pointer-events-none"></div>
 
@@ -683,7 +683,7 @@ const POSMainScreen: React.FC = () => {
     }
 
     return (
-        <div className="flex h-[calc(100vh-80px)] bg-slate-100 overflow-hidden">
+        <div className="flex h-[calc(100dvh-80px)] bg-slate-100 overflow-hidden">
 
             {/* COL 1: Búsqueda (Fixed 400px Desktop, 100% Mobile Catalog View) */}
             <div className={`w-full md:w-[400px] flex-col p-4 md:p-6 md:pr-3 gap-4 h-full ${mobileView === 'CART' ? 'hidden md:flex' : 'flex'}`}>
@@ -744,7 +744,7 @@ const POSMainScreen: React.FC = () => {
 
                     <div
                         ref={parentRef}
-                        className="flex-1 overflow-y-auto p-4 pb-24 md:pb-4"
+                        className="flex-1 overflow-y-auto p-4 pb-24 md:pb-4 touch-pan-y overscroll-contain"
                     >
                         {searchTerm ? (
                             <div
@@ -843,7 +843,7 @@ const POSMainScreen: React.FC = () => {
             )}
 
             {/* COL 2: Carrito y Pago (Always visible on Desktop, Toggled on Mobile) */}
-            <div className={`fixed inset-0 z-50 bg-slate-100 md:static md:bg-transparent md:z-auto md:flex md:flex-1 flex-col p-4 md:p-6 md:pl-0 gap-4 ${mobileView === 'CART' ? 'flex' : 'hidden'} md:flex`}>
+            <div className={`fixed inset-0 z-50 bg-slate-100 md:static md:bg-transparent md:z-auto md:flex md:flex-1 flex-col p-4 pt-safe pb-safe md:p-6 md:pl-0 gap-4 ${mobileView === 'CART' ? 'flex' : 'hidden'} md:flex`}>
                 {/* QueueWidget se movió al header del carrito */}
 
                 <div className={`flex-1 rounded-3xl shadow-xl border border-slate-200 overflow-hidden flex flex-col h-full transition-colors ${isQuoteMode ? 'bg-amber-50 border-amber-200' : 'bg-white'} `}>
@@ -968,7 +968,7 @@ const POSMainScreen: React.FC = () => {
                     </div>
 
                     {/* Cart Items */}
-                    <div className="flex-1 overflow-y-auto p-4 md:p-6">
+                    <div className="flex-1 overflow-y-auto p-4 md:p-6 touch-pan-y overscroll-contain">
                         {cart.length === 0 ? (
                             <div className="h-full flex flex-col items-center justify-center text-slate-300">
                                 <ShoppingCart size={80} className="mb-6 opacity-20" />

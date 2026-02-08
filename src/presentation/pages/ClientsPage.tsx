@@ -197,14 +197,14 @@ const ClientsPage: React.FC = () => {
     };
 
     return (
-        <div className="p-6 bg-slate-50 min-h-screen">
-            <header className="mb-8 flex justify-between items-center">
+        <div className="p-4 md:p-6 bg-slate-50 min-h-dvh pb-safe touch-pan-y">
+            <header className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-extrabold text-slate-900">Directorio de Clientes</h1>
                     <p className="text-slate-500">CRM & Fidelización</p>
                 </div>
-                <div className="flex gap-4">
-                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex gap-4">
+                <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex justify-center gap-4">
                         <div className="text-center">
                             <p className="text-xs font-bold text-slate-400 uppercase">Total Clientes</p>
                             <p className="text-2xl font-extrabold text-slate-900">{customers.length}</p>
@@ -217,34 +217,35 @@ const ClientsPage: React.FC = () => {
                             </p>
                         </div>
                     </div>
-                    <div className="flex bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                        <button
-                            onClick={() => { setExportType('SUMMARY'); setIsExportModalOpen(true); }}
-                            className="px-4 py-4 text-slate-700 font-bold hover:bg-slate-50 transition flex items-center gap-2 border-r border-slate-200"
-                        >
-                            <Download size={20} />
-                            Resumen Clientes
-                        </button>
-                        <button
-                            onClick={() => { setExportType('HISTORY'); setIsExportModalOpen(true); }}
-                            className="px-4 py-4 text-slate-700 font-bold hover:bg-slate-50 transition flex items-center gap-2"
-                        >
-                            <History size={20} />
-                            Historial Detallado
-                        </button>
-                    </div>
+                </div>
+                <div className="flex bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden w-full md:w-auto">
                     <button
-                        onClick={handleOpenAdd}
-                        className="px-6 py-4 bg-cyan-600 text-white font-bold rounded-2xl hover:bg-cyan-700 transition shadow-lg flex items-center gap-2"
+                        onClick={() => { setExportType('SUMMARY'); setIsExportModalOpen(true); }}
+                        className="flex-1 px-4 py-4 text-slate-700 font-bold hover:bg-slate-50 transition flex items-center justify-center gap-2 border-r border-slate-200"
                     >
-                        <Plus size={20} /> Nuevo Cliente
+                        <Download size={20} />
+                        <span className="hidden sm:inline">Resumen</span>
+                    </button>
+                    <button
+                        onClick={() => { setExportType('HISTORY'); setIsExportModalOpen(true); }}
+                        className="flex-1 px-4 py-4 text-slate-700 font-bold hover:bg-slate-50 transition flex items-center justify-center gap-2"
+                    >
+                        <History size={20} />
+                        <span className="hidden sm:inline">Historial</span>
                     </button>
                 </div>
-            </header>
+                <button
+                    onClick={handleOpenAdd}
+                    className="px-6 py-4 bg-cyan-600 text-white font-bold rounded-2xl hover:bg-cyan-700 transition shadow-lg flex items-center justify-center gap-2 w-full md:w-auto"
+                >
+                    <Plus size={20} /> Nuevo Cliente
+                </button>
+
+            </header >
 
             <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className="p-6 border-b border-slate-100">
-                    <div className="relative max-w-md">
+                    <div className="relative w-full md:max-w-md">
                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
                         <input
                             type="text"
@@ -256,7 +257,7 @@ const ClientsPage: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto touch-pan-x overscroll-contain">
                     <table className="w-full text-left">
                         <thead className="bg-slate-50 text-slate-500 font-bold text-sm">
                             <tr>
@@ -357,194 +358,200 @@ const ClientsPage: React.FC = () => {
             </div>
 
             {/* Add/Edit Modal */}
-            {(isAddModalOpen || editingCustomer) && (
-                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-                        <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                            <h2 className="text-xl font-bold text-slate-800">
-                                {editingCustomer ? 'Editar Cliente' : 'Nuevo Cliente'}
-                            </h2>
-                            <button onClick={() => { setIsAddModalOpen(false); setEditingCustomer(null); }} className="text-slate-400 hover:text-slate-600">
-                                <X size={24} />
-                            </button>
+            {
+                (isAddModalOpen || editingCustomer) && (
+                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+                            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                                <h2 className="text-xl font-bold text-slate-800">
+                                    {editingCustomer ? 'Editar Cliente' : 'Nuevo Cliente'}
+                                </h2>
+                                <button onClick={() => { setIsAddModalOpen(false); setEditingCustomer(null); }} className="text-slate-400 hover:text-slate-600">
+                                    <X size={24} />
+                                </button>
+                            </div>
+                            <form onSubmit={handleSave} className="p-6 space-y-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1">RUT *</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            className="w-full p-3 border border-slate-300 rounded-xl focus:border-cyan-500 focus:outline-none"
+                                            value={formData.rut}
+                                            onChange={e => setFormData({ ...formData, rut: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1">Nombre Completo *</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            className="w-full p-3 border border-slate-300 rounded-xl focus:border-cyan-500 focus:outline-none"
+                                            value={formData.fullName}
+                                            onChange={e => setFormData({ ...formData, fullName: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1">Teléfono</label>
+                                        <input
+                                            type="tel"
+                                            className="w-full p-3 border border-slate-300 rounded-xl focus:border-cyan-500 focus:outline-none"
+                                            value={formData.phone}
+                                            onChange={e => setFormData({ ...formData, phone: e.target.value })}
+                                            placeholder="+569..."
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1">Email</label>
+                                        <input
+                                            type="email"
+                                            className="w-full p-3 border border-slate-300 rounded-xl focus:border-cyan-500 focus:outline-none"
+                                            value={formData.email}
+                                            onChange={e => setFormData({ ...formData, email: e.target.value })}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Etiquetas</label>
+                                    <div className="flex gap-2 flex-wrap">
+                                        {['VIP', 'CRONICO', 'TERCERA_EDAD', 'CONVENIO'].map(tag => (
+                                            <button
+                                                key={tag}
+                                                type="button"
+                                                onClick={() => toggleTag(tag)}
+                                                className={`px-3 py-1 rounded-full text-sm font-bold border transition ${formData.tags?.includes(tag)
+                                                    ? 'bg-purple-600 text-white border-purple-600'
+                                                    : 'bg-white text-slate-500 border-slate-200 hover:border-purple-300'
+                                                    }`}
+                                            >
+                                                {tag}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="pt-4 flex justify-end gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => { setIsAddModalOpen(false); setEditingCustomer(null); }}
+                                        className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded-xl transition"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        className="px-6 py-2 bg-cyan-600 text-white font-bold rounded-xl hover:bg-cyan-700 transition flex items-center gap-2"
+                                    >
+                                        <Save size={18} /> Guardar
+                                    </button>
+                                </div>
+                            </form>
                         </div>
-                        <form onSubmit={handleSave} className="p-6 space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
+                    </div>
+                )
+            }
+
+            {/* History Modal */}
+            {
+                viewingHistory && (
+                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl h-[80vh] flex flex-col animate-in fade-in zoom-in duration-200">
+                            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
                                 <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-1">RUT *</label>
-                                    <input
-                                        type="text"
-                                        required
-                                        className="w-full p-3 border border-slate-300 rounded-xl focus:border-cyan-500 focus:outline-none"
-                                        value={formData.rut}
-                                        onChange={e => setFormData({ ...formData, rut: e.target.value })}
-                                    />
+                                    <h2 className="text-xl font-bold text-slate-800">Historial de Compras</h2>
+                                    <p className="text-slate-500">{viewingHistory.fullName}</p>
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-1">Nombre Completo *</label>
-                                    <input
-                                        type="text"
-                                        required
-                                        className="w-full p-3 border border-slate-300 rounded-xl focus:border-cyan-500 focus:outline-none"
-                                        value={formData.fullName}
-                                        onChange={e => setFormData({ ...formData, fullName: e.target.value })}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-1">Teléfono</label>
-                                    <input
-                                        type="tel"
-                                        className="w-full p-3 border border-slate-300 rounded-xl focus:border-cyan-500 focus:outline-none"
-                                        value={formData.phone}
-                                        onChange={e => setFormData({ ...formData, phone: e.target.value })}
-                                        placeholder="+569..."
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-1">Email</label>
-                                    <input
-                                        type="email"
-                                        className="w-full p-3 border border-slate-300 rounded-xl focus:border-cyan-500 focus:outline-none"
-                                        value={formData.email}
-                                        onChange={e => setFormData({ ...formData, email: e.target.value })}
-                                    />
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={handleExportHistory}
+                                        disabled={isExporting}
+                                        className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition flex items-center gap-2 disabled:opacity-50"
+                                    >
+                                        {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                                        Exportar
+                                    </button>
+                                    <button onClick={() => setViewingHistory(null)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
+                                        <X size={24} />
+                                    </button>
                                 </div>
                             </div>
-
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-2">Etiquetas</label>
-                                <div className="flex gap-2 flex-wrap">
-                                    {['VIP', 'CRONICO', 'TERCERA_EDAD', 'CONVENIO'].map(tag => (
-                                        <button
-                                            key={tag}
-                                            type="button"
-                                            onClick={() => toggleTag(tag)}
-                                            className={`px-3 py-1 rounded-full text-sm font-bold border transition ${formData.tags?.includes(tag)
-                                                ? 'bg-purple-600 text-white border-purple-600'
-                                                : 'bg-white text-slate-500 border-slate-200 hover:border-purple-300'
-                                                }`}
-                                        >
-                                            {tag}
-                                        </button>
-                                    ))}
-                                </div>
+                            <div className="flex-1 overflow-y-auto p-6">
+                                {historyLoading ? (
+                                    <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                                        <Loader2 size={48} className="animate-spin mb-4 text-cyan-500" />
+                                        <p>Cargando historial...</p>
+                                    </div>
+                                ) : customerHistory.length === 0 ? (
+                                    <div className="text-center py-12 text-slate-400">
+                                        <History size={48} className="mx-auto mb-4 opacity-50" />
+                                        <p>No hay compras registradas</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {customerHistory.map(sale => (
+                                            <div key={sale.id} className="border border-slate-200 rounded-xl p-4 hover:border-blue-300 transition">
+                                                <div className="flex justify-between items-start mb-3">
+                                                    <div>
+                                                        <p className="font-bold text-slate-800">Compra #{sale.id.slice(-6)}</p>
+                                                        <p className="text-xs text-slate-500">{new Date(sale.timestamp).toLocaleString()}</p>
+                                                    </div>
+                                                    <span className="font-mono font-bold text-lg text-slate-900">
+                                                        ${sale.total.toLocaleString()}
+                                                    </span>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    {sale.items.map((item, idx) => (
+                                                        <div key={idx} className="flex justify-between text-sm text-slate-600">
+                                                            <span>{item.quantity}x {item.name}</span>
+                                                            <span>${(item.price * item.quantity).toLocaleString()}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
+                        </div>
+                    </div>
+                )
+            }
 
-                            <div className="pt-4 flex justify-end gap-3">
+            {/* Delete Confirmation */}
+            {
+                deletingCustomer && (
+                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in duration-200">
+                            <div className="flex flex-col items-center text-center mb-6">
+                                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
+                                    <AlertTriangle size={32} className="text-red-600" />
+                                </div>
+                                <h2 className="text-xl font-bold text-slate-900">¿Eliminar Cliente?</h2>
+                                <p className="text-slate-500 mt-2">
+                                    Se marcará a <strong>{deletingCustomer.fullName}</strong> como inactivo.
+                                    No se perderá el historial de ventas.
+                                </p>
+                            </div>
+                            <div className="flex gap-3">
                                 <button
-                                    type="button"
-                                    onClick={() => { setIsAddModalOpen(false); setEditingCustomer(null); }}
-                                    className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded-xl transition"
+                                    onClick={() => setDeletingCustomer(null)}
+                                    className="flex-1 py-3 text-slate-600 font-bold hover:bg-slate-100 rounded-xl transition"
                                 >
                                     Cancelar
                                 </button>
                                 <button
-                                    type="submit"
-                                    className="px-6 py-2 bg-cyan-600 text-white font-bold rounded-xl hover:bg-cyan-700 transition flex items-center gap-2"
+                                    onClick={handleDelete}
+                                    className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition"
                                 >
-                                    <Save size={18} /> Guardar
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
-
-            {/* History Modal */}
-            {viewingHistory && (
-                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl h-[80vh] flex flex-col animate-in fade-in zoom-in duration-200">
-                        <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                            <div>
-                                <h2 className="text-xl font-bold text-slate-800">Historial de Compras</h2>
-                                <p className="text-slate-500">{viewingHistory.fullName}</p>
-                            </div>
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={handleExportHistory}
-                                    disabled={isExporting}
-                                    className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition flex items-center gap-2 disabled:opacity-50"
-                                >
-                                    {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-                                    Exportar
-                                </button>
-                                <button onClick={() => setViewingHistory(null)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
-                                    <X size={24} />
+                                    Eliminar
                                 </button>
                             </div>
                         </div>
-                        <div className="flex-1 overflow-y-auto p-6">
-                            {historyLoading ? (
-                                <div className="flex flex-col items-center justify-center py-12 text-slate-400">
-                                    <Loader2 size={48} className="animate-spin mb-4 text-cyan-500" />
-                                    <p>Cargando historial...</p>
-                                </div>
-                            ) : customerHistory.length === 0 ? (
-                                <div className="text-center py-12 text-slate-400">
-                                    <History size={48} className="mx-auto mb-4 opacity-50" />
-                                    <p>No hay compras registradas</p>
-                                </div>
-                            ) : (
-                                <div className="space-y-4">
-                                    {customerHistory.map(sale => (
-                                        <div key={sale.id} className="border border-slate-200 rounded-xl p-4 hover:border-blue-300 transition">
-                                            <div className="flex justify-between items-start mb-3">
-                                                <div>
-                                                    <p className="font-bold text-slate-800">Compra #{sale.id.slice(-6)}</p>
-                                                    <p className="text-xs text-slate-500">{new Date(sale.timestamp).toLocaleString()}</p>
-                                                </div>
-                                                <span className="font-mono font-bold text-lg text-slate-900">
-                                                    ${sale.total.toLocaleString()}
-                                                </span>
-                                            </div>
-                                            <div className="space-y-1">
-                                                {sale.items.map((item, idx) => (
-                                                    <div key={idx} className="flex justify-between text-sm text-slate-600">
-                                                        <span>{item.quantity}x {item.name}</span>
-                                                        <span>${(item.price * item.quantity).toLocaleString()}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
                     </div>
-                </div>
-            )}
-
-            {/* Delete Confirmation */}
-            {deletingCustomer && (
-                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in duration-200">
-                        <div className="flex flex-col items-center text-center mb-6">
-                            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
-                                <AlertTriangle size={32} className="text-red-600" />
-                            </div>
-                            <h2 className="text-xl font-bold text-slate-900">¿Eliminar Cliente?</h2>
-                            <p className="text-slate-500 mt-2">
-                                Se marcará a <strong>{deletingCustomer.fullName}</strong> como inactivo.
-                                No se perderá el historial de ventas.
-                            </p>
-                        </div>
-                        <div className="flex gap-3">
-                            <button
-                                onClick={() => setDeletingCustomer(null)}
-                                className="flex-1 py-3 text-slate-600 font-bold hover:bg-slate-100 rounded-xl transition"
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                onClick={handleDelete}
-                                className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition"
-                            >
-                                Eliminar
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Export Modal */}
             <AdvancedExportModal
@@ -556,7 +563,7 @@ const ClientsPage: React.FC = () => {
                 itemLabel="Clientes"
                 isLoading={isExporting}
             />
-        </div>
+        </div >
     );
 };
 

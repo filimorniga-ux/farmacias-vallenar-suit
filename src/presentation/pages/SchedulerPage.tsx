@@ -70,7 +70,7 @@ export default function SchedulerPage() {
     }
 
     return (
-        <div className="h-full bg-slate-50 flex flex-col">
+        <div className="h-dvh bg-slate-50 flex flex-col pb-safe">
             <div className="flex-none p-4 pb-0">
                 <h1 className="text-2xl font-bold text-slate-800">Gestor de Horarios</h1>
                 <p className="text-sm text-slate-500">Planificación semanal de turnos</p>

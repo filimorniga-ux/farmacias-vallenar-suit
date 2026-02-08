@@ -75,7 +75,7 @@ const PriceCheckPage: React.FC = () => {
     }).slice(0, 6); // Limit results
 
     return (
-        <div className="min-h-screen bg-slate-900 text-white overflow-hidden flex flex-col relative">
+        <div className="min-h-dvh bg-slate-900 text-white overflow-hidden flex flex-col relative">
 
             {/* Background Elements */}
             <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 opacity-20 pointer-events-none">
@@ -84,7 +84,7 @@ const PriceCheckPage: React.FC = () => {
             </div>
 
             {/* Header */}
-            <header className="relative z-10 p-8 flex justify-between items-center">
+            <header className="relative z-10 p-8 pt-safe pl-safe pr-safe flex justify-between items-center">
                 <div>
                     <h1 className="text-4xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
                         Consultor de Precios
@@ -115,7 +115,7 @@ const PriceCheckPage: React.FC = () => {
 
                 {/* Search Results Grid */}
                 {!selectedProduct && searchTerm && (
-                    <div className="w-full grid grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom-4">
+                    <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom-4">
                         {filteredProducts.map(product => (
                             <div
                                 key={product.id}
@@ -154,7 +154,7 @@ const PriceCheckPage: React.FC = () => {
                         initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.95 }}
-                        className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-8"
+                        className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-8 pt-safe pb-safe pl-safe pr-safe"
                     >
                         <div className="bg-white text-slate-900 w-full max-w-4xl rounded-[3rem] overflow-hidden shadow-2xl relative">
 
@@ -257,7 +257,7 @@ const PriceCheckPage: React.FC = () => {
 
                                     <div className="mt-8">
                                         <h4 className="text-lg font-bold text-slate-800 mb-4">Alternativas Disponibles ({selectedProduct.dci})</h4>
-                                        <div className="space-y-3 max-h-[200px] overflow-y-auto pr-2">
+                                        <div className="space-y-3 max-h-[200px] overflow-y-auto pr-2 touch-pan-y overscroll-contain">
                                             {alternatives.length > 0 ? (
                                                 alternatives.map(alt => (
                                                     <div key={alt.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
