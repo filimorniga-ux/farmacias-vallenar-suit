@@ -72,13 +72,16 @@ function getSeverity(actionCode: string): 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
     return ACTION_SEVERITY_MAP[actionCode] || 'LOW';
 }
 
-async function metaAudit(userId: string, action: string, details: any): Promise<void> {
+async function metaAudit(userId: string, action: string, details: Record<string, unknown>): Promise<void> {
     try {
         await query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, new_values, created_at)
             VALUES ($1, $2, 'AUDIT_LOG', $3::jsonb, NOW())
         `, [userId, action, JSON.stringify(details)]);
-    } catch { }
+    } catch (error) {
+        // Silently fail meta-audit to avoid loops
+        console.error('Meta-audit error:', error);
+    }
 }
 
 // ============================================================================
@@ -96,8 +99,8 @@ interface AuditLogEntry {
     actionCode: string;
     entityType: string;
     entityId: string;
-    oldValues: Record<string, any> | null;
-    newValues: Record<string, any> | null;
+    oldValues: Record<string, unknown> | null;
+    newValues: Record<string, unknown> | null;
     justification: string | null;
     severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
     ipAddress: string | null;
@@ -140,7 +143,7 @@ export async function getAuditLogsSecure(params: z.infer<typeof GetAuditLogsSche
 
     try {
         const whereConditions: string[] = [];
-        const queryParams: any[] = [];
+        const queryParams: unknown[] = [];
         let paramIndex = 1;
 
         if (startDate) { whereConditions.push(`al.created_at >= $${paramIndex}::timestamp`); queryParams.push(startDate); paramIndex++; }
@@ -154,7 +157,7 @@ export async function getAuditLogsSecure(params: z.infer<typeof GetAuditLogsSche
             paramIndex++;
         }
         if (severity && severity !== 'ALL') {
-            const severityActions = Object.entries(ACTION_SEVERITY_MAP).filter(([_, sev]) => sev === severity).map(([action]) => action);
+            const severityActions = Object.entries(ACTION_SEVERITY_MAP).filter(([, sev]) => sev === severity).map(([action]) => action);
             if (severityActions.length > 0) {
                 whereConditions.push(`al.action_code = ANY($${paramIndex}::text[])`);
                 queryParams.push(severityActions);
@@ -187,6 +190,7 @@ export async function getAuditLogsSecure(params: z.infer<typeof GetAuditLogsSche
 
         const dataRes = await query(dataSql, queryParams);
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const logs: AuditLogEntry[] = dataRes.rows.map((row: any) => ({
             id: row.id,
             timestamp: row.timestamp,
@@ -210,7 +214,7 @@ export async function getAuditLogsSecure(params: z.infer<typeof GetAuditLogsSche
 
         return { success: true, data: logs, total, page, totalPages: Math.ceil(total / limit) };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Audit] Get logs error');
         return { success: false, error: 'Error obteniendo logs' };
     }
@@ -282,9 +286,9 @@ export async function getAuditStatsSecure(): Promise<{
                 topUsers: topUsersRes.rows.map((r: any) => ({ name: r.name, count: Number(r.count) })),
             },
         };
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Audit] Stats error');
-        return { success: false, error: error.message };
+        return { success: false, error: (error as Error).message };
     }
 }
 
@@ -306,7 +310,7 @@ export async function exportAuditLogsSecure(
 
     try {
         const whereConditions: string[] = [];
-        const queryParams: any[] = [];
+        const queryParams: unknown[] = [];
         let paramIndex = 1;
 
         if (params.startDate) { whereConditions.push(`al.created_at >= $${paramIndex}::timestamp`); queryParams.push(params.startDate); paramIndex++; }
@@ -364,9 +368,9 @@ export async function exportAuditLogsSecure(
         logger.info({ userId: session.userId, rows: data.length }, '📤 [Audit] Export');
         return { success: true, data };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Audit] Export error');
-        return { success: false, error: error.message };
+        return { success: false, error: (error as Error).message };
     }
 }
 

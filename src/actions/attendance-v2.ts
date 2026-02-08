@@ -838,9 +838,9 @@ export async function getApprovedAttendanceHistory(
         const res = await query(sql, params);
         return { success: true, data: res.rows };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Attendance] Get approved history error');
-        return { success: false, error: 'Error obteniendo historial: ' + error.message };
+        return { success: false, error: 'Error obteniendo historial: ' + (error as Error).message };
     }
 }
 
@@ -872,6 +872,11 @@ export async function ensureCheckInSecure(
                 AND timestamp >= NOW() - INTERVAL '24 hours'
                 AND type = 'CHECK_IN'
             `, [userId]);
+
+        // Use checkRes to avoid lint error (and actually check)
+        if (checkRes.rowCount && checkRes.rowCount > 0) {
+            return true; // Already checked in
+        }
 
         // Si ya tiene entrada (o varias), asumimos que está OK.
         // Podríamos refinar para ver si la última es OUT, pero la estrategia es simple:

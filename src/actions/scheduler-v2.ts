@@ -109,6 +109,56 @@ export async function deleteShiftTemplate(id: string) {
     }
 }
 
+
+// ============================================================================
+// TIME OFF MANAGEMENT
+// ============================================================================
+
+const TimeOffSchema = z.object({
+    id: z.string().uuid().optional(),
+    userId: z.string().uuid(),
+    type: z.enum(['VACATION', 'SICK_LEAVE', 'PERSONAL', 'FAMILY_EMERGENCY', 'OTHER']),
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Format YYYY-MM-DD"),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Format YYYY-MM-DD"),
+    notes: z.string().optional(),
+    status: z.enum(['PENDING', 'APPROVED', 'REJECTED']).default('APPROVED'),
+});
+
+/**
+ * Registrar o Actualizar Ausencia (Vacaciones, Licencias)
+ */
+export async function upsertTimeOffRequest(data: z.infer<typeof TimeOffSchema>) {
+    const parsed = TimeOffSchema.safeParse(data);
+    if (!parsed.success) {
+        return { success: false, error: parsed.error.issues[0].message };
+    }
+
+    const { id, userId, type, startDate, endDate, notes, status } = parsed.data;
+
+    try {
+        if (id) {
+            // Update
+            await query(`
+                UPDATE time_off_requests 
+                SET type = $2, start_date = $3, end_date = $4, notes = $5, status = $6, updated_at = NOW()
+                WHERE id = $1
+            `, [id, type, startDate, endDate, notes, status]);
+        } else {
+            // Insert
+            await query(`
+                INSERT INTO time_off_requests (user_id, type, start_date, end_date, notes, status)
+                VALUES ($1, $2, $3, $4, $5, $6)
+            `, [userId, type, startDate, endDate, notes, status]);
+        }
+
+        revalidatePath('/rrhh/horarios');
+        return { success: true };
+    } catch (error) {
+        console.error('Error upserting time off:', error);
+        return { success: false, error: 'Failed to save time off request' };
+    }
+}
+
 /**
  * Crear o Actualizar un Turno (Control Manual)
  * - Calcula is_overtime automáticamente
