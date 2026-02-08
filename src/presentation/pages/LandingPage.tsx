@@ -411,14 +411,13 @@ const LandingPage: React.FC = () => {
                             </p>
                             <div className="flex flex-wrap gap-3">
                                 <a
-                                    href="https://github.com/filimorniga-ux/farmacias-vallenar-suit/releases/download/5.0.1/FarmaciasVallenar-Setup.exe"
+                                    href="https://github.com/filimorniga-ux/farmacias-vallenar-suit/releases/latest/download/FarmaciasVallenar-Setup.exe"
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    download
                                     className="flex items-center gap-2 px-4 py-2 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-lg transition-all text-xs font-bold border border-sky-100 shadow-sm"
                                 >
                                     <Monitor size={14} className="text-sky-500" />
-                                    <span>Windows</span>
+                                    <span>Windows (Última)</span>
                                 </a>
                                 <div className="h-8 w-px bg-slate-200 hidden md:block"></div>
                                 <a
