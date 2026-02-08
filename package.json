@@ -25,6 +25,7 @@
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
     "build:desktop": "electron-builder",
     "build:win": "electron-builder --win",
+    "build:mobile": "npm run build && npx cap sync",
     "clean:desktop": "rm -rf dist-desktop",
     "checkpoint": "git add . && git commit -m \"Auto Checkpoint $(date)\" && git push",
     "seed:demo": "tsx src/scripts/seed-demo-vallenar.ts",
