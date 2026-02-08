@@ -48,15 +48,15 @@ const SettingsPage: React.FC = () => {
     };
 
     return (
-        <div className="p-6 bg-slate-50 min-h-screen">
-            <header className="mb-8 flex justify-between items-center">
+        <div className="p-4 md:p-6 bg-slate-50 min-h-dvh pb-safe">
+            <header className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-extrabold text-slate-900">Configuración</h1>
                     <p className="text-slate-500">Administración del Sistema</p>
                 </div>
 
                 {/* Global SII Toggle */}
-                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-4">
+                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between gap-4 w-full md:w-auto">
                     <div className="text-right">
                         <p className="text-sm font-bold text-slate-800">Integración SII</p>
                         <p className="text-xs text-slate-500">{enable_sii_integration ? 'Modo Fiscal (Boleta)' : 'Modo Control Interno'}</p>
@@ -72,7 +72,7 @@ const SettingsPage: React.FC = () => {
 
             {/* Tabs */}
             <div className="bg-white rounded-t-3xl shadow-sm border border-slate-200 overflow-hidden max-w-7xl">
-                <div className="flex border-b border-slate-200 overflow-x-auto">
+                <div className="flex border-b border-slate-200 overflow-x-auto touch-pan-x no-scrollbar">
                     <button
                         onClick={() => setActiveTab('general')}
                         className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'general'
@@ -351,7 +351,7 @@ const SettingsPage: React.FC = () => {
                         <div>
                             <h2 className="text-2xl font-bold text-slate-800">Configuración de Inteligencia Artificial</h2>
                             <p className="text-slate-500 mt-2">
-                                Configure los proveedores de IA para el procesamiento automático de facturas 
+                                Configure los proveedores de IA para el procesamiento automático de facturas
                                 y otras funcionalidades inteligentes del sistema.
                             </p>
                         </div>

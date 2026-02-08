@@ -128,11 +128,11 @@ export const ProductSalesReportPage: React.FC = () => {
     };
 
     return (
-        <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
+        <div className="h-dvh flex flex-col bg-slate-50 overflow-hidden pb-safe">
 
             {/* 1. Header & Filters */}
-            <div className="bg-white border-b border-slate-200 p-6 flex flex-col gap-4 shrink-0 shadow-sm z-10">
-                <div className="flex justify-between items-center">
+            <div className="bg-white border-b border-slate-200 p-4 md:p-6 flex flex-col gap-4 shrink-0 shadow-sm z-10 pt-safe">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
                         <div className="flex items-center gap-3 mb-1">
                             <button
@@ -148,7 +148,7 @@ export const ProductSalesReportPage: React.FC = () => {
                         </div>
                         <p className="text-slate-500 font-medium text-sm ml-11">Analiza el rendimiento de inventario y rotación.</p>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 w-full md:w-auto justify-end">
                         <button
                             onClick={handleDownload}
                             disabled={isExporting}
@@ -307,7 +307,7 @@ export const ProductSalesReportPage: React.FC = () => {
                     </div>
 
                     {/* Rows */}
-                    <div className="flex-1 overflow-y-auto custom-scrollbar">
+                    <div className="flex-1 overflow-y-auto custom-scrollbar touch-pan-y overscroll-contain">
                         {isLoading ? (
                             <div className="flex flex-col items-center justify-center h-64 text-slate-400">
                                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-500 mb-4"></div>

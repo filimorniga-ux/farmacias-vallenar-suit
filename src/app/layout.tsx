@@ -29,7 +29,7 @@ export default function RootLayout({
 }) {
     return (
         <html lang="es">
-            <body className={inter.className} suppressHydrationWarning={true}>
+            <body className={`${inter.className} min-h-dvh pt-safe pb-safe`} suppressHydrationWarning={true}>
                 <Providers>
                     {children}
                 </Providers>

@@ -327,8 +327,8 @@ const NetworkPage = () => {
 
 
     return (
-        <div className="h-full flex flex-col bg-slate-50 p-6 overflow-hidden">
-            <header className="flex justify-between items-center mb-6">
+        <div className="h-dvh flex flex-col bg-slate-50 p-4 md:p-6 overflow-hidden pb-safe">
+            <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 shrink-0">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
                         <MapPin className="text-cyan-600" />
@@ -346,7 +346,7 @@ const NetworkPage = () => {
             </header>
 
             {/* Current Context Banner */}
-            <div className="bg-slate-800 text-white p-4 rounded-xl mb-6 flex justify-between items-center shadow-lg">
+            <div className="bg-slate-800 text-white p-4 rounded-xl mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-lg shrink-0">
                 <div className="flex items-center gap-3">
                     <div className="p-2 bg-white/10 rounded-lg">
                         {currentLocation?.type === 'WAREHOUSE' ? <Warehouse size={24} /> : <Store size={24} />}
@@ -356,8 +356,8 @@ const NetworkPage = () => {
                         <h2 className="text-xl font-bold">{currentLocation?.name}</h2>
                     </div>
                 </div>
-                <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-400">Cambiar vista:</span>
+                <div className="flex items-center gap-2 w-full md:w-auto">
+                    <span className="text-xs text-slate-400 whitespace-nowrap">Cambiar vista:</span>
                     <select
                         className="bg-white text-slate-800 border border-slate-300 rounded-lg px-3 py-1 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 shadow-sm"
                         value={currentLocation?.id}
@@ -371,7 +371,7 @@ const NetworkPage = () => {
             </div>
 
             {/* Tabs */}
-            <div className="flex gap-2 mb-6 border-b border-slate-200">
+            <div className="flex gap-2 mb-6 border-b border-slate-200 overflow-x-auto touch-pan-x no-scrollbar shrink-0">
                 <button
                     onClick={() => setActiveTab('BRANCHES')}
                     className={`px-4 py-2 font-bold text-sm border-b-2 transition-colors ${activeTab === 'BRANCHES' ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}

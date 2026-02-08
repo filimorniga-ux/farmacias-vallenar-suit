@@ -203,7 +203,7 @@ export const SupplierProfile = () => {
     };
 
     return (
-        <div className="min-h-screen bg-slate-50">
+        <div className="min-h-dvh bg-slate-50 pb-safe">
             {/* Header / Hero */}
             <div className="bg-white border-b border-slate-200 shadow-sm">
                 <div className="max-w-7xl mx-auto px-6 py-6">
@@ -243,7 +243,7 @@ export const SupplierProfile = () => {
                     </div>
 
                     {/* Tabs */}
-                    <div className="flex gap-6 mt-8 border-b border-slate-200">
+                    <div className="flex gap-6 mt-8 border-b border-slate-200 overflow-x-auto touch-pan-x no-scrollbar">
                         {[
                             { id: 'PROFILE', label: 'Perfil & Contacto', icon: Building2 },
                             { id: 'HISTORY', label: 'Historial Pedidos', icon: History },
@@ -371,7 +371,7 @@ export const SupplierProfile = () => {
                 )}
 
                 {activeTab === 'HISTORY' && (
-                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden overflow-x-auto touch-pan-x">
                         <table className="w-full text-left text-sm">
                             <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
                                 <tr>
@@ -453,7 +453,7 @@ export const SupplierProfile = () => {
                                 <PlusIcon /> Nueva Factura / NC
                             </button>
                         </div>
-                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden overflow-x-auto touch-pan-x">
                             <table className="w-full text-left text-sm">
                                 <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
                                     <tr>
@@ -532,7 +532,7 @@ export const SupplierProfile = () => {
 
                 {activeTab === 'ACCOUNT_AI' && (
                     <div className="space-y-6">
-                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden overflow-x-auto touch-pan-x">
                             <table className="w-full text-left text-sm">
                                 <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
                                     <tr>
@@ -632,7 +632,7 @@ export const SupplierProfile = () => {
                                 <PlusIcon /> Subir Catálogo
                             </button>
                         </div>
-                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden overflow-x-auto touch-pan-x">
                             <table className="w-full text-left text-sm">
                                 <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
                                     <tr>

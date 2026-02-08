@@ -155,10 +155,10 @@ const HRPage = () => {
     };
 
     return (
-        <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
+        <div className="h-dvh flex flex-col bg-slate-50 overflow-hidden pb-safe">
             {/* Master Header & Tabs */}
-            <div className="bg-white border-b border-slate-200 px-8 pt-8 pb-0 shadow-sm z-10">
-                <div className="flex justify-between items-center mb-8">
+            <div className="bg-white border-b border-slate-200 px-4 md:px-8 pt-8 pb-0 shadow-sm z-10 shrink-0">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                     <div>
                         <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-3">
                             <Users className="text-blue-600" size={32} />
@@ -178,7 +178,7 @@ const HRPage = () => {
                     )}
                 </div>
 
-                <div className="flex gap-12">
+                <div className="flex gap-6 md:gap-12 overflow-x-auto touch-pan-x no-scrollbar pb-1">
                     <button
                         onClick={() => setActiveTab('DIRECTORY')}
                         className={`pb-6 px-4 font-bold text-base transition-all relative flex items-center gap-3 ${activeTab === 'DIRECTORY' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
@@ -207,7 +207,7 @@ const HRPage = () => {
             </div>
 
             {/* Content Area */}
-            <div className="flex-1 overflow-hidden bg-slate-50 p-6">
+            <div className="flex-1 overflow-hidden bg-slate-50 p-4 md:p-6 flex flex-col">
                 {activeTab === 'DIRECTORY' && (
                     <div className="h-full flex flex-col max-w-7xl mx-auto">
                         {/* Search Bar */}
@@ -224,7 +224,7 @@ const HRPage = () => {
 
                         {/* Employee Table */}
                         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex-1 flex flex-col">
-                            <div className="overflow-y-auto flex-1">
+                            <div className="overflow-auto touch-pan-x touch-pan-y flex-1 overscroll-contain">
                                 {isLoading ? (
                                     <div className="flex items-center justify-center h-full">
                                         <Loader2 className="animate-spin text-blue-600" size={48} />

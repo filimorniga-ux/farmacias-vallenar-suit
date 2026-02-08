@@ -328,8 +328,8 @@ export const WarehouseOps = () => {
     };
 
     return (
-        <div className="p-6 space-y-6 h-[calc(100vh-80px)] overflow-y-auto">
-            <div className="flex justify-between items-center">
+        <div className="p-4 md:p-6 space-y-6 h-[calc(100dvh-80px)] overflow-y-auto touch-pan-y overscroll-contain pb-safe">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                         <Package className="w-8 h-8 text-blue-600" />
@@ -345,7 +345,7 @@ export const WarehouseOps = () => {
                         </p>
                     )}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                     <button
                         onClick={() => setIsScanReceptionOpen(true)}
                         className="px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 flex items-center gap-2 font-bold text-sm shadow-lg shadow-cyan-200"
@@ -449,7 +449,7 @@ export const WarehouseOps = () => {
 
             {/* Search & Filter Bar */}
             <div className="space-y-2">
-                <div className="flex gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                <div className="flex flex-col md:flex-row gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                     <div className="relative flex-1">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
                         <input
@@ -587,7 +587,7 @@ export const WarehouseOps = () => {
                             <h3 className="text-lg font-bold text-gray-500">No hay movimientos recientes</h3>
                         </div>
                     ) : (
-                        <div className="overflow-x-auto">
+                        <div className="overflow-x-auto touch-pan-x">
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-gray-50 text-gray-700 font-bold border-b border-gray-200">
                                     <tr>

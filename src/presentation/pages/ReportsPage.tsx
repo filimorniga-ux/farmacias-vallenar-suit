@@ -205,9 +205,9 @@ const ReportsPage: React.FC = () => {
     const tabs = allTabs.filter(t => !t.roles || (userRole && t.roles.includes(userRole)));
 
     return (
-        <div className="p-6 space-y-6 h-[calc(100vh-80px)] overflow-y-auto bg-gray-50">
+        <div className="p-4 md:p-6 space-y-6 h-[calc(100dvh-80px)] overflow-y-auto bg-gray-50 pb-safe touch-pan-y overscroll-contain">
             {/* Header */}
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
                         <TrendingUp className="w-8 h-8 text-blue-600" />
@@ -215,7 +215,7 @@ const ReportsPage: React.FC = () => {
                     </h1>
                     <p className="text-gray-600 mt-1">Auditoría detallada y cumplimiento normativo</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2 w-full md:w-auto">
                     <button
                         onClick={() => navigate('/reports/sales-by-product')}
                         className="px-4 py-3 bg-white border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 flex items-center gap-2 font-bold shadow-sm transition-colors"
@@ -244,7 +244,7 @@ const ReportsPage: React.FC = () => {
             {/* Tabs */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200">
                 <div className="border-b border-gray-200">
-                    <div className="flex gap-1 p-2 overflow-x-auto">
+                    <div className="flex gap-1 p-2 overflow-x-auto touch-pan-x no-scrollbar">
                         {tabs.map(tab => (
                             <button
                                 key={tab.id}
@@ -298,7 +298,7 @@ const ReportsPage: React.FC = () => {
                             )}
 
                             <h3 className="text-lg font-bold text-gray-800">Cartola de Movimientos (Ingresos vs Egresos)</h3>
-                            <div className="overflow-x-auto rounded-lg border border-gray-200">
+                            <div className="overflow-x-auto rounded-lg border border-gray-200 touch-pan-x">
                                 <table className="w-full text-sm">
                                     <thead className="bg-gray-50 text-gray-500 font-bold uppercase">
                                         <tr>
@@ -450,7 +450,7 @@ const ReportsPage: React.FC = () => {
                                     {loadingDetail ? (
                                         <div className="p-8 text-center ml-auto mr-auto flex justify-center"><RefreshCw className="w-6 h-6 animate-spin text-blue-500" /></div>
                                     ) : (
-                                        <div className="overflow-x-auto max-h-96">
+                                        <div className="overflow-x-auto max-h-96 touch-pan-x">
                                             <table className="w-full text-sm">
                                                 <thead className="bg-gray-50 text-gray-500 font-bold sticky top-0">
                                                     <tr>
@@ -513,7 +513,7 @@ const ReportsPage: React.FC = () => {
                             </div>
 
                             <h3 className="font-bold text-gray-800 text-lg mt-8">Top 20 Productos de Alto Valor (Pareto)</h3>
-                            <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                            <div className="overflow-x-auto border border-gray-200 rounded-lg touch-pan-x">
                                 <table className="w-full text-sm">
                                     <thead className="bg-gray-50 text-gray-500 font-bold">
                                         <tr>
@@ -559,7 +559,7 @@ const ReportsPage: React.FC = () => {
                                     Pre-Nómina de Remuneraciones
                                 </h3>
 
-                                <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                                <div className="overflow-x-auto border border-gray-200 rounded-lg touch-pan-x">
                                     <table className="w-full text-sm">
                                         <thead className="bg-gray-50 text-gray-500 font-bold">
                                             <tr>
