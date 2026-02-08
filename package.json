@@ -60,7 +60,10 @@
       ],
       "icon": "public/icon.icns",
       "hardenedRuntime": true,
-      "gatekeeperAssess": false
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "identity": "Miguel Perdomo Serrato (XY5KRY6FXK)"
     },
     "dmg": {
       "artifactName": "FarmaciasVallenar-Mac-Universal.dmg"
@@ -128,6 +131,7 @@
     "csv-stringify": "^6.6.0",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
+    "electron-log": "^5.4.3",
     "electron-updater": "^6.7.3",
     "eslint-config-next": "^16.0.7",
     "exceljs": "^4.4.0",

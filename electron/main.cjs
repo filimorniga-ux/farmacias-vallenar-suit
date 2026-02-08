@@ -1,12 +1,37 @@
 const { app, BrowserWindow, ipcMain, globalShortcut, dialog } = require('electron');
 const path = require('path');
 const { autoUpdater } = require('electron-updater');
+const log = require('electron-log');
+
+// ---------------------------------------------------------
+// LOGGING CONFIGURATION
+// ---------------------------------------------------------
+log.transports.file.level = 'info';
+log.transports.console.level = 'debug';
+autoUpdater.logger = log;
+autoUpdater.logger.transports.file.level = 'info';
+
+log.info('App starting...');
+
+// ---------------------------------------------------------
+// GLOBAL ERROR HANDLERS
+// ---------------------------------------------------------
+process.on('uncaughtException', (error) => {
+    log.error('Uncaught Exception:', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+    log.error('Unhandled Rejection:', reason);
+});
 
 // ---------------------------------------------------------
 // AUTO-UPDATER CONFIGURATION
 // ---------------------------------------------------------
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
+
+let retryCount = 0;
+const MAX_RETRIES = 3;
 
 function createWindow() {
     const win = new BrowserWindow({
@@ -29,39 +54,72 @@ function createWindow() {
     win.maximize();
     win.show();
 
+    // HANDLE RENDER PROCESS CRASHES
+    win.webContents.on('render-process-gone', (event, details) => {
+        log.error('Render process gone:', details);
+        dialog.showMessageBox(win, {
+            type: 'error',
+            title: 'Error Crítico',
+            message: 'La aplicación ha encontrado un error inesperado.',
+            detail: `Razón: ${details.reason}`,
+            buttons: ['Reiniciar', 'Salir']
+        }).then(({ response }) => {
+            if (response === 0) {
+                app.relaunch();
+                app.exit(0);
+            } else {
+                app.quit();
+            }
+        });
+    });
+
     // URL CONFIGURATION
     const isDev = !app.isPackaged;
     const startUrl = isDev ? 'http://localhost:3000' : 'https://farmaciasvallenar.vercel.app';
-    console.log('Loading URL:', startUrl);
+    log.info('Loading URL:', startUrl);
 
-    // Handle loading errors with retry dialog
+    // Handle loading errors with retry logic
     const loadContent = () => {
         win.loadURL(startUrl).catch(err => {
-            console.error('Failed to load URL:', err);
-            dialog.showMessageBox(win, {
-                type: 'error',
-                title: 'Error de Conexión',
-                message: 'No se pudo conectar con el servidor de Farmacias Vallenar.',
-                detail: 'Por favor verifique su conexión a internet.',
-                buttons: ['Reintentar', 'Salir']
-            }).then(({ response }) => {
-                if (response === 0) { // Retry
-                    loadContent();
-                } else {
-                    app.quit();
-                }
-            });
+            log.error(`Failed to load URL (Attempt ${retryCount + 1}/${MAX_RETRIES}):`, err);
+
+            if (retryCount < MAX_RETRIES) {
+                retryCount++;
+                setTimeout(loadContent, 5000 * retryCount); // Exponential backoff-ish
+            } else {
+                dialog.showMessageBox(win, {
+                    type: 'error',
+                    title: 'Error de Conexión',
+                    message: 'No se pudo conectar con el servidor de Farmacias Vallenar tras varios intentos.',
+                    detail: 'Por favor verifique su conexión a internet.',
+                    buttons: ['Reintentar', 'Salir']
+                }).then(({ response }) => {
+                    if (response === 0) { // Retry
+                        retryCount = 0;
+                        loadContent();
+                    } else {
+                        app.quit();
+                    }
+                });
+            }
         });
     };
 
     loadContent();
 
     // Check for updates once window is loaded
-    // Check for updates once window is loaded
     win.webContents.on('did-finish-load', () => {
+        log.info('Page loaded successfully');
+        retryCount = 0; // Reset retry count on success
         if (app.isPackaged) {
             autoUpdater.checkForUpdatesAndNotify();
         }
+    });
+
+    // Handle specific load failures (e.g. timeout, DNS error)
+    win.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+        log.warn('Page failed to load:', errorCode, errorDescription);
+        // Retry logic is handled by loadURL catch, but this logs specific network errors
     });
 
     // Open external links in default browser
@@ -104,7 +162,7 @@ ipcMain.handle('get-printers', async (event) => {
             status: p.status
         }));
     } catch (error) {
-        console.error('Failed to get printers:', error);
+        log.error('Failed to get printers:', error);
         return [];
     }
 });
@@ -124,9 +182,10 @@ ipcMain.handle('print-silent', async (event, options) => {
         };
 
         await win.webContents.print(printOptions);
+        log.info('Print job sent successfully');
         return { success: true };
     } catch (error) {
-        console.error('Silent print failed:', error);
+        log.error('Silent print failed:', error);
         return { success: false, error: error.message };
     }
 });
@@ -146,21 +205,25 @@ ipcMain.handle('start-price-audit', async (event, { batchId, products, startOffs
     if (!win) return { success: false, error: 'No window found' };
 
     try {
+        log.info(`Starting price audit for batch ${batchId}`);
         // Run audit in background (non-blocking)
         priceAuditEngine.runAudit(win, batchId, products, startOffset || 0);
         return { success: true, message: 'Audit started' };
     } catch (error) {
+        log.error('Failed to start price audit:', error);
         return { success: false, error: error.message };
     }
 });
 
 // Pause current audit
 ipcMain.handle('pause-price-audit', () => {
+    log.info('Pausing price audit');
     return priceAuditEngine.pauseAudit();
 });
 
 // Stop current audit
 ipcMain.handle('stop-price-audit', () => {
+    log.info('Stopping price audit');
     return priceAuditEngine.stopAudit();
 });
 
@@ -173,11 +236,11 @@ ipcMain.handle('get-price-audit-status', () => {
 // AUTO-UPDATER EVENTS
 // ---------------------------------------------------------
 autoUpdater.on('update-available', () => {
-    // Notify renderer or just log
-    console.log('Update available');
+    log.info('Update available');
 });
 
 autoUpdater.on('update-downloaded', () => {
+    log.info('Update downloaded');
     dialog.showMessageBox({
         type: 'info',
         title: 'Actualización Lista',
