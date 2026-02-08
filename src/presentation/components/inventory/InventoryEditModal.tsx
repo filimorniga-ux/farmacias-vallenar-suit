@@ -252,7 +252,7 @@ const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ isOpen, onClose
                     productId: product.product_id || product.id,
                     sku: formData.sku || 'UNKNOWN',
                     name: formData.name || 'Unknown Product',
-                    locationId: product.location_id || 'BODEGA_CENTRAL', // Default location
+                    locationId: product.location_id || currentLocationId, // Ensure valid UUID
                     warehouseId: undefined, // Let backend handle or default
                     quantity: quantityNum,
                     expiryDate: new Date(receptionData.expiryDate),

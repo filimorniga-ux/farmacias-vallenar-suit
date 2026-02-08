@@ -1,0 +1,2 @@
+ALTER TABLE shift_templates ADD COLUMN IF NOT EXISTS break_start_time TIME WITHOUT TIME ZONE;
+ALTER TABLE shift_templates ADD COLUMN IF NOT EXISTS break_end_time TIME WITHOUT TIME ZONE;

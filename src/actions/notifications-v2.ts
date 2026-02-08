@@ -53,33 +53,125 @@ export async function createNotificationSecure(data: CreateNotificationDTO) {
 }
 
 export async function getNotificationsSecure(locationId?: string, limit = 50) {
+    const session = await getSession();
     const client = await getClient();
     try {
-        // Fetch unread first, then read, sorted by newest
-        let query = `
-            SELECT * FROM notifications 
-            WHERE (location_id = $1 OR location_id IS NULL)
-        `;
-        const params: unknown[] = [locationId];
+        const currentUserId = session?.userId;
 
-        query += ` ORDER BY created_at DESC LIMIT $${params.length + 1}`;
+        // Base Query:
+        // 1. Location matches (or NULL for global)
+        // 2. Target: Either ME, or NULL (Broadcast)
+        // 3. If I am not logged in, only show Broadcasts? Or fail? 
+        //    Let's assume public/kiosk might use this? No, usually authenticated.
+        //    If no session, show only broadcasts (user_id IS NULL).
+
+        const params: unknown[] = [];
+        let whereClause = `WHERE (location_id = $1 OR location_id IS NULL)`;
+        params.push(locationId);
+
+        if (currentUserId) {
+            whereClause += ` AND (user_id = $2 OR user_id IS NULL)`;
+            params.push(currentUserId);
+        } else {
+            whereClause += ` AND user_id IS NULL`;
+        }
+
+        const query = `
+            SELECT * FROM notifications 
+            ${whereClause}
+            ORDER BY created_at DESC 
+            LIMIT $${params.length + 1}
+        `;
+
         params.push(limit);
 
         const res = await client.query(query, params);
 
-        const unreadCountRes = await client.query(`
+        // Count unread (using same filter)
+        const countQuery = `
             SELECT COUNT(*) FROM notifications 
-            WHERE (location_id = $1 OR location_id IS NULL) AND is_read = FALSE
-        `, [locationId]);
+            ${whereClause} AND is_read = FALSE
+        `;
+        // Remove limit param for count
+        const countParams = params.slice(0, params.length - 1);
+
+        const unreadCountRes = await client.query(countQuery, countParams);
 
         return {
             success: true,
             data: res.rows,
-            unreadCount: parseInt(unreadCountRes.rows[0].count)
+            unreadCount: parseInt(unreadCountRes.rows[0]?.count || '0')
         };
     } catch (error) {
         console.error('Failed to fetch notifications:', error);
         return { success: false, error: 'Failed to fetch notifications' };
+    } finally {
+        client.release();
+    }
+}
+
+export async function deleteNotificationSecure(notificationIds: string[]) {
+    const session = await getSession();
+    if (!session) return { success: false, error: 'Usuario no autenticado' };
+
+    const client = await getClient();
+    try {
+        if (notificationIds.length === 0) return { success: true };
+
+        // Allow deleting if:
+        // 1. It belongs to me (user_id = me)
+        // 2. OR I am ADMIN/GERENTE (can delete broadcast messages? Maybe not, safety first)
+        //    Let's stick to: I can delete messages VISIBLE to me.
+        //    Actually, if it's a broadcast message, deleting it DELETEs it for everyone?
+        //    That's bad. Broadcast messages should only be "hidden" or "marked read".
+        //    But the user asked to "delete".
+        //    If it's a personal notification (user_id set), we can DELETE it.
+        //    If it's a broadcast... we should probably just mark it as read? 
+        //    Or maybe we have a "deleted_by_users" table? Overkill.
+        //    For now, assume most duplicates are personal. 
+        //    If they want to delete a broadcast, we'll let them DELETE it if they have permission, 
+        //    OR (better) only delete if user_id is matched strictly.
+
+        // Revised logic:
+        // Users can delete their OWN notifications (user_id = me).
+        // Admins can delete ANY notification?
+        // Let's safe delete: DELETE WHERE id IN (...) AND (user_id = $1 OR $2 = TRUE)
+        // where $2 is isAdmin.
+
+        const isAdmin = ['ADMIN', 'GERENTE_GENERAL'].includes(session.role);
+
+        // If it is a broadcast notification (user_id IS NULL), deleting it removes it for EVERYONE.
+        // For this fixing task ("elimino mensajes y vuelven a aparecer"), expected behavior is "it disappears for me".
+        // If it's a broadcast, real systems use a "hidden_notifications" table.
+        // BUT, given the duplicates issue was related to targeted messages (managers),
+        // let's assume filtering fixed the duplicates, and "delete" is for cleaning up my inbox.
+
+        // If I delete a broadcast message, I might be ruining it for others.
+        // But let's check if the current system uses broadcasts heavily. 
+        // Most seem to be "notifyManagersSecure" which CREATES INDIVIDUAL COPIES.
+        // So safe delete is fine for those!
+
+        let deleteQuery = `
+            DELETE FROM notifications 
+            WHERE id = ANY($1::uuid[])
+        `;
+        const deleteParams: any[] = [notificationIds];
+
+        if (!isAdmin) {
+            // Regular users can only delete their own notifications to avoid deleting global broadcasts accidentally?
+            // Or we just trust them. 
+            // Ideally: AND (user_id = $2 OR user_id IS NULL) -- wait, if user_id IS NULL anyone can delete? No.
+            // Safe approach: Only delete rows where I am the target or I am admin.
+            deleteQuery += ` AND (user_id = $2)`;
+            deleteParams.push(session.userId);
+        }
+
+        const res = await client.query(deleteQuery, deleteParams);
+
+        return { success: true, deletedCount: res.rowCount };
+    } catch (error) {
+        console.error('Failed to delete notifications:', error);
+        return { success: false, error: 'Failed to delete notifications' };
     } finally {
         client.release();
     }

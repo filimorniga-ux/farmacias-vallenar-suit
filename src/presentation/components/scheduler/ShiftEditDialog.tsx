@@ -19,59 +19,75 @@ interface ShiftEditDialogProps {
 export function ShiftEditDialog({ shift, isOpen, onClose }: ShiftEditDialogProps) {
     const [isPending, startTransition] = useTransition();
 
-    // Derived state from shift
-    // shift.start_at is ISO string
-    const initialStart = shift?.start_at ? new Date(shift.start_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : '';
-    const initialEnd = shift?.end_at ? new Date(shift.end_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : '';
+    // Helper robusto para formatear HH:MM requeridos por input type="time"
+    const formatTimeForInput = (isoString?: string) => {
+        if (!isoString) return '';
+        try {
+            const date = new Date(isoString);
+            const hh = date.getHours().toString().padStart(2, '0');
+            const mm = date.getMinutes().toString().padStart(2, '0');
+            return `${hh}:${mm}`;
+        } catch (e) {
+            return '';
+        }
+    };
 
-    const [start, setStart] = useState(initialStart);
-    const [end, setEnd] = useState(initialEnd);
+    const [start, setStart] = useState(formatTimeForInput(shift?.start_at));
+    const [end, setEnd] = useState(formatTimeForInput(shift?.end_at));
     const [notes, setNotes] = useState(shift?.notes || '');
 
     const handleSave = () => {
+        if (!start || !end) {
+            toast.error('Debe ingresar hora de inicio y término');
+            return;
+        }
+
         startTransition(async () => {
-            // Construct ISO strings preserving the original DATE
-            const originalDate = new Date(shift.start_at);
-            const dateStr = originalDate.toISOString().split('T')[0];
+            try {
+                // Use the original START date as the anchor for both times
+                // This prevents issues where the original end date was +1 day but the new shift shouldn't be
+                const baseDate = new Date(shift.start_at);
 
-            // Handle overnight? If end < start, assumed next day?
-            // For strict editing, we might keep the dates. 
-            // Simplest approach: Use the date from start_at for both, unless "Noche".
-            // If original shift was overnight, we need to be careful.
+                // Helper to construct date from base + time string
+                const createDateFromTime = (base: Date, timeStr: string) => {
+                    const [hh, mm] = timeStr.split(':').map(Number);
+                    if (isNaN(hh) || isNaN(mm)) throw new Error('Hora inválida');
+                    const d = new Date(base);
+                    d.setHours(hh, mm, 0, 0);
+                    return d;
+                };
 
-            // Let's preserve the original dates but update times.
-            // Helper to set time
-            const setTime = (baseDate: Date, timeStr: string) => {
-                const [hh, mm] = timeStr.split(':').map(Number);
-                const newDate = new Date(baseDate);
-                newDate.setHours(hh, mm, 0, 0);
-                return newDate;
-            };
+                const newStartAt = createDateFromTime(baseDate, start);
+                const newEndAt = createDateFromTime(baseDate, end);
 
-            const newStartAt = setTime(new Date(shift.start_at), start);
-            const newEndAt = setTime(new Date(shift.end_at), end);
+                // Handle overnight: if end time is earlier than start time, it must be next day
+                if (newEndAt <= newStartAt) {
+                    newEndAt.setDate(newEndAt.getDate() + 1);
+                }
 
-            // Heuristic: If end time is conceptually "next day" but the user edited it...
-            // Best logic for this simple UI: 
-            // If End < Start, add 1 day to End.
-            if (newEndAt < newStartAt) {
-                newEndAt.setDate(newEndAt.getDate() + 1);
-            }
+                // Check for validity
+                if (isNaN(newStartAt.getTime()) || isNaN(newEndAt.getTime())) {
+                    throw new Error('Fecha generada inválida');
+                }
 
-            const res = await upsertShiftV2({
-                id: shift.id,
-                userId: shift.user_id,
-                locationId: shift.location_id,
-                startAt: newStartAt.toISOString(),
-                endAt: newEndAt.toISOString(),
-                notes
-            });
+                const res = await upsertShiftV2({
+                    id: shift.id,
+                    userId: shift.user_id,
+                    locationId: shift.location_id,
+                    startAt: newStartAt.toISOString(),
+                    endAt: newEndAt.toISOString(),
+                    notes
+                });
 
-            if (res.success) {
-                toast.success('Turno actualizado');
-                onClose();
-            } else {
-                toast.error(res.error || 'Error al actualizar');
+                if (res.success) {
+                    toast.success('Turno actualizado');
+                    onClose();
+                } else {
+                    toast.error(res.error || 'Error al actualizar');
+                }
+            } catch (err) {
+                console.error(err);
+                toast.error('Error procesando las fechas');
             }
         });
     };

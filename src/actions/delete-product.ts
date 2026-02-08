@@ -40,7 +40,7 @@ async function validatePin(
             }
         }
         return { valid: false };
-    } catch {
+    } catch (e) {
         return { valid: false };
     }
 }
@@ -64,6 +64,8 @@ export async function deleteProductSecure(
     const { pool } = await import('@/lib/db');
     const client = await pool.connect();
 
+    let authorizedUser: { id: string; name: string } | undefined;
+
     try {
         await client.query('BEGIN');
 
@@ -76,27 +78,77 @@ export async function deleteProductSecure(
                 error: 'PIN de Gerente o Administrador incorrecto'
             };
         }
+        authorizedUser = pinCheck.user;
 
-        // 2. Delete from products table
-        await client.query(
-            'DELETE FROM products WHERE id = $1',
-            [productId]
-        );
+        // 2. CHECK DEPENDENCIES (Check-First Strategy)
+        // Check if any batch of this product has sales
+        const dependenciesCheck = await client.query(`
+            SELECT 1 
+            FROM sale_items si
+            JOIN inventory_batches ib ON si.batch_id = ib.id
+            WHERE ib.product_id = $1
+            LIMIT 1
+        `, [productId]);
 
-        // 3. Delete from inventory_batches table (cascade)
-        await client.query(
-            'DELETE FROM inventory_batches WHERE product_id = $1 OR id = $1',
-            [productId]
-        );
+        const hasSales = (dependenciesCheck.rowCount || 0) > 0;
 
-        // 4. Audit Log
-        await client.query(`
-            INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at)
-            VALUES ($1, 'PRODUCT_DELETE', 'PRODUCT', $2, $3::jsonb, NOW())
-        `, [pinCheck.user?.id || userId, productId, JSON.stringify({
-            deleted_by: pinCheck.user?.name,
-            authorized_by_role: 'GERENTE_GENERAL'
-        })]);
+        if (hasSales) {
+            // STRATEGY: SOFT DELETE
+            // Product has history, cannot hard delete.
+            console.log(`[DELETE_PRODUCT] Product ${productId} has sales. Performing Soft Delete.`);
+
+            await client.query(`
+                UPDATE products 
+                SET is_active = false,
+                    deactivated_at = NOW(),
+                    deactivation_reason = 'Archivado por usuario (tiene ventas históricas)',
+                    updated_at = NOW()
+                WHERE id = $1
+            `, [productId]);
+
+            // Optional: Deactivate batches too if needed, but product inactive is usually enough.
+            // For completeness, we mark batches as inactive to prevent appearing in searches if query doesn't join product.
+            await client.query(`
+                UPDATE inventory_batches
+                SET is_active = false, 
+                    updated_at = NOW()
+                WHERE product_id = $1
+            `, [productId]);
+
+            await client.query(`
+                INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at)
+                VALUES ($1, 'PRODUCT_ARCHIVED', 'PRODUCT', $2, $3::jsonb, NOW())
+            `, [authorizedUser?.id || userId, productId, JSON.stringify({
+                reason: 'Has Sales History',
+                authorized_by: authorizedUser?.name,
+                role: 'GERENTE_GENERAL'
+            })]);
+
+        } else {
+            // STRATEGY: HARD DELETE
+            // Safe to delete physically
+            console.log(`[DELETE_PRODUCT] Product ${productId} is clean. Performing Hard Delete.`);
+
+            // Delete batches first (if cascade is not set/reliable)
+            await client.query(
+                'DELETE FROM inventory_batches WHERE product_id = $1',
+                [productId]
+            );
+
+            // Delete product
+            await client.query(
+                'DELETE FROM products WHERE id = $1',
+                [productId]
+            );
+
+            await client.query(`
+                INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at)
+                VALUES ($1, 'PRODUCT_DELETE', 'PRODUCT', $2, $3::jsonb, NOW())
+            `, [authorizedUser?.id || userId, productId, JSON.stringify({
+                authorized_by: authorizedUser?.name,
+                role: 'GERENTE_GENERAL'
+            })]);
+        }
 
         await client.query('COMMIT');
 
@@ -106,9 +158,10 @@ export async function deleteProductSecure(
     } catch (error: any) {
         await client.query('ROLLBACK');
         console.error('[DELETE_PRODUCT] Error:', error);
+
         return {
             success: false,
-            error: error.message || 'Error al eliminar producto'
+            error: error.message || 'Error al procesar la eliminación del producto'
         };
     } finally {
         client.release();

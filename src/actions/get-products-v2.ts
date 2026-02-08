@@ -81,6 +81,7 @@ export async function getProductsSecure(
             LEFT JOIN inventory_batches ib ON p.id::text = ib.product_id::text AND ib.location_id::text = $2
             LEFT JOIN locations l ON l.id::text = $2
             WHERE (p.name ILIKE $1 OR p.sku ILIKE $1 OR ib.barcode = $3)
+            AND p.is_active = true
             GROUP BY p.id, p.sku, p.name, l.name, p.format
             LIMIT 20
         `;
