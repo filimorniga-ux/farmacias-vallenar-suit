@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { usePharmaStore } from '../../store/useStore';
 import { Plus, Search, Edit2, Trash2, Settings, Package, Percent } from 'lucide-react';
 import { InventoryBatch } from '../../../domain/types';
+import { formatSku } from '../../../lib/utils/inventory-utils';
 import ProductFormModal from './ProductFormModal';
 import ProductDeleteConfirm from './ProductDeleteConfirm';
 import PriceAdjustmentModal from './PriceAdjustmentModal';
@@ -13,8 +14,13 @@ const ProductListPage: React.FC = () => {
     const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
     const [stockFilter, setStockFilter] = useState<'ALL' | 'LOW' | 'OK' | 'EXCESS'>('ALL');
     const [isFormOpen, setIsFormOpen] = useState(false);
-    const [editingProduct, setEditingProduct] = useState<InventoryBatch | undefined>();
-    const [deletingProduct, setDeletingProduct] = useState<InventoryBatch | undefined>();
+
+    // State for expanded rows (by Product Group Key)
+    const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+
+    // Selection states
+    const [editingBatch, setEditingBatch] = useState<InventoryBatch | undefined>();
+    const [deletingBatch, setDeletingBatch] = useState<InventoryBatch | undefined>();
 
     // Price Adjustment State
     const [priceAdjState, setPriceAdjState] = useState<{
@@ -23,32 +29,93 @@ const ProductListPage: React.FC = () => {
         product?: InventoryBatch;
     }>({ isOpen: false, mode: 'SINGLE' });
 
-    const filteredProducts = useMemo(() => {
-        return inventory.filter(product => {
-            const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                product.sku.toLowerCase().includes(searchTerm.toLowerCase());
+    // 1. Group Inventory Logic
+    const groupedInventory = useMemo(() => {
+        const groups: Record<string, {
+            key: string;
+            product_id?: string;
+            sku: string;
+            name: string;
+            category: string;
+            batches: InventoryBatch[];
+            totalStock: number;
+            stockMin: number;
+            stockMax: number;
+            priceMin: number;
+            priceMax: number;
+        }> = {};
 
-            const matchesCategory = categoryFilter === 'ALL' || product.category === categoryFilter;
+        inventory.forEach(batch => {
+            // Grouping Key: Prefer product_id, fallback to SKU, fallback to Name
+            const key = batch.product_id || batch.sku || batch.name;
+
+            if (!groups[key]) {
+                groups[key] = {
+                    key,
+                    product_id: batch.product_id,
+                    sku: batch.sku,
+                    name: batch.name,
+                    category: batch.category,
+                    batches: [],
+                    totalStock: 0,
+                    stockMin: 0,
+                    stockMax: 0,
+                    priceMin: Infinity,
+                    priceMax: -Infinity
+                };
+            }
+
+            const group = groups[key];
+            group.batches.push(batch);
+            group.totalStock += batch.stock_actual;
+            group.stockMin = Math.max(group.stockMin, batch.stock_min); // Take max requirement? or sum? Usually per product settings are unified.
+            group.stockMax = Math.max(group.stockMax, batch.stock_max);
+
+            // Track price range
+            if (batch.price_sell_unit < group.priceMin) group.priceMin = batch.price_sell_unit;
+            if (batch.price_sell_unit > group.priceMax) group.priceMax = batch.price_sell_unit;
+        });
+
+        return Object.values(groups);
+    }, [inventory]);
+
+    // 2. Filter Grouped Products
+    const filteredGroups = useMemo(() => {
+        return groupedInventory.filter(group => {
+            const matchesSearch = group.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                group.sku.toLowerCase().includes(searchTerm.toLowerCase());
+
+            const matchesCategory = categoryFilter === 'ALL' || group.category === categoryFilter;
 
             let matchesStock = true;
             if (stockFilter === 'LOW') {
-                matchesStock = product.stock_actual <= product.stock_min;
+                matchesStock = group.totalStock <= group.stockMin;
             } else if (stockFilter === 'OK') {
-                matchesStock = product.stock_actual > product.stock_min && product.stock_actual <= product.stock_max;
+                matchesStock = group.totalStock > group.stockMin && group.totalStock <= group.stockMax;
             } else if (stockFilter === 'EXCESS') {
-                matchesStock = product.stock_actual > product.stock_max;
+                matchesStock = group.totalStock > group.stockMax;
             }
 
             return matchesSearch && matchesCategory && matchesStock;
         });
-    }, [inventory, searchTerm, categoryFilter, stockFilter]);
+    }, [groupedInventory, searchTerm, categoryFilter, stockFilter]);
 
-    const categories = Array.from(new Set(inventory.map(p => p.category)));
+    const categories = useMemo(() => Array.from(new Set(inventory.map(p => p.category))), [inventory]);
 
-    const getStockStatus = (product: InventoryBatch) => {
-        if (product.stock_actual <= product.stock_min) {
+    const toggleRow = (key: string) => {
+        const newSet = new Set(expandedRows);
+        if (newSet.has(key)) {
+            newSet.delete(key);
+        } else {
+            newSet.add(key);
+        }
+        setExpandedRows(newSet);
+    };
+
+    const getStockStatus = (actual: number, min: number, max: number) => {
+        if (actual <= min) {
             return { label: 'Bajo', color: 'bg-red-100 text-red-700', icon: '🔴' };
-        } else if (product.stock_actual <= product.stock_max) {
+        } else if (actual <= max) {
             return { label: 'OK', color: 'bg-emerald-100 text-emerald-700', icon: '🟢' };
         } else {
             return { label: 'Exceso', color: 'bg-amber-100 text-amber-700', icon: '🟡' };
@@ -65,7 +132,7 @@ const ProductListPage: React.FC = () => {
                         </div>
                         <div>
                             <h1 className="text-2xl font-bold text-slate-900">Gestión de Productos</h1>
-                            <p className="text-slate-500 text-sm">{filteredProducts.length} producto(s)</p>
+                            <p className="text-slate-500 text-sm">{filteredGroups.length} producto(s) maestro(s)</p>
                         </div>
                     </div>
                     <div className="flex gap-2">
@@ -78,13 +145,13 @@ const ProductListPage: React.FC = () => {
                         </button>
                         <button
                             onClick={() => {
-                                setEditingProduct(undefined);
+                                setEditingBatch(undefined);
                                 setIsFormOpen(true);
                             }}
                             className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-xl font-bold hover:bg-cyan-700 transition shadow-sm"
                         >
                             <Plus size={18} />
-                            Nuevo Producto
+                            Nuevo Lote
                         </button>
                     </div>
                 </div>
@@ -125,7 +192,7 @@ const ProductListPage: React.FC = () => {
                 </div>
 
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                    {filteredProducts.length === 0 ? (
+                    {filteredGroups.length === 0 ? (
                         <div className="p-12 text-center text-slate-400">
                             <Package size={48} className="mx-auto mb-4 opacity-50" />
                             <p>No se encontraron productos</p>
@@ -135,82 +202,133 @@ const ProductListPage: React.FC = () => {
                             <table className="w-full">
                                 <thead className="bg-slate-50 border-b border-slate-200">
                                     <tr>
+                                        <th className="w-10 p-4"></th>
                                         <th className="text-left p-4 font-bold text-xs text-slate-600 uppercase">Producto</th>
                                         <th className="text-left p-4 font-bold text-xs text-slate-600 uppercase">Categoría</th>
-                                        <th className="text-center p-4 font-bold text-xs text-slate-600 uppercase">Stock</th>
-                                        <th className="text-center p-4 font-bold text-xs text-slate-600 uppercase">Precio Venta</th>
-                                        <th className="text-center p-4 font-bold text-xs text-slate-600 uppercase">Estado</th>
-                                        <th className="text-center p-4 font-bold text-xs text-slate-600 uppercase">Acciones</th>
+                                        <th className="text-center p-4 font-bold text-xs text-slate-600 uppercase">Stock Total</th>
+                                        <th className="text-center p-4 font-bold text-xs text-slate-600 uppercase">Precio</th>
+                                        <th className="text-center p-4 font-bold text-xs text-slate-600 uppercase">Estado Global</th>
+                                        <th className="text-right p-4 font-bold text-xs text-slate-600 uppercase">Acciones</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {filteredProducts.map(product => {
-                                        const status = getStockStatus(product);
+                                    {filteredGroups.map(group => {
+                                        const status = getStockStatus(group.totalStock, group.stockMin, group.stockMax);
+                                        const isExpanded = expandedRows.has(group.key);
+                                        const hasMultipleBatches = group.batches.length > 0;
+
+                                        // Use the first batch as representative for actions (temporary/legacy compact)
+                                        const masterBatch = group.batches[0];
+
                                         return (
-                                            <tr key={product.id} className="hover:bg-slate-50 transition">
-                                                <td className="p-4">
-                                                    <div className="font-bold text-slate-800">{product.name}</div>
-                                                    <div className="text-xs text-slate-400 font-mono">{formatSku(product.sku)}</div>
-                                                </td>
-                                                <td className="p-4">
-                                                    <span className="text-sm text-slate-600">{product.category}</span>
-                                                </td>
-                                                <td className="p-4 text-center">
-                                                    <div className="font-bold text-slate-800">{product.stock_actual}</div>
-                                                    <div className="text-xs text-slate-400">
-                                                        Min: {product.stock_min} | Max: {product.stock_max}
-                                                    </div>
-                                                </td>
-                                                <td className="p-4 text-center">
-                                                    <span className="font-bold text-emerald-600">
-                                                        ${product.price_sell_unit?.toLocaleString() || 0}
-                                                    </span>
-                                                </td>
-                                                <td className="p-4 text-center">
-                                                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${status.color}`}>
-                                                        {status.icon} {status.label}
-                                                    </span>
-                                                </td>
-                                                <td className="p-4 text-center">
-                                                    <div className="flex justify-center gap-2">
-                                                        <button
-                                                            onClick={() => setPriceAdjState({
-                                                                isOpen: true,
-                                                                mode: 'SINGLE',
-                                                                product
-                                                            })}
-                                                            className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition"
-                                                            title="Ajuste de Precio (%)"
-                                                        >
-                                                            <Percent size={16} />
-                                                        </button>
-                                                        <button
-                                                            onClick={() => {
-                                                                setEditingProduct(product);
-                                                                setIsFormOpen(true);
-                                                            }}
-                                                            className="p-2 text-cyan-600 hover:bg-cyan-50 rounded-lg transition"
-                                                            title="Editar"
-                                                        >
-                                                            <Edit2 size={16} />
-                                                        </button>
-                                                        <button
-                                                            onClick={() => { }}
-                                                            className="p-2 text-slate-400 hover:bg-slate-50 rounded-lg transition"
-                                                            title="Config Auto-Reorden"
-                                                        >
-                                                            <Settings size={16} />
-                                                        </button>
-                                                        <button
-                                                            onClick={() => setDeletingProduct(product)}
-                                                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
-                                                            title="Eliminar"
-                                                        >
-                                                            <Trash2 size={16} />
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                            </tr>
+                                            <React.Fragment key={group.key}>
+                                                {/* MASTER ROW */}
+                                                <tr
+                                                    className={`hover:bg-slate-50 transition cursor-pointer ${isExpanded ? 'bg-slate-50' : ''}`}
+                                                    onClick={() => toggleRow(group.key)}
+                                                >
+                                                    <td className="p-4 text-center">
+                                                        <div className={`transition-transform duration-200 text-slate-400 ${isExpanded ? 'rotate-90' : ''}`}>
+                                                            ▶
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-4">
+                                                        <div className="font-bold text-slate-800">{group.name}</div>
+                                                        <div className="text-xs text-slate-400 font-mono flex gap-2">
+                                                            <span>SKU: {formatSku(group.sku)}</span>
+                                                            <span className="bg-slate-100 px-1 rounded text-slate-500">{group.batches.length} Lotes</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-4">
+                                                        <span className="text-sm text-slate-600">{group.category}</span>
+                                                    </td>
+                                                    <td className="p-4 text-center">
+                                                        <div className="font-bold text-slate-800 text-lg">{group.totalStock}</div>
+                                                    </td>
+                                                    <td className="p-4 text-center">
+                                                        <span className="font-bold text-emerald-600">
+                                                            {group.priceMin === group.priceMax
+                                                                ? `$${group.priceMin.toLocaleString()}`
+                                                                : `$${group.priceMin.toLocaleString()} - $${group.priceMax.toLocaleString()}`
+                                                            }
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-4 text-center">
+                                                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${status.color}`}>
+                                                            {status.icon} {status.label}
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-4 text-right">
+                                                        <div className="flex justify-end gap-2" onClick={e => e.stopPropagation()}>
+                                                            <button
+                                                                onClick={() => setPriceAdjState({
+                                                                    isOpen: true,
+                                                                    mode: 'SINGLE',
+                                                                    product: masterBatch // TODO: Should apply to group/product_id
+                                                                })}
+                                                                className="p-2 text-purple-600 hover:bg-purple-100 rounded-lg transition"
+                                                                title="Ajuste de Precio"
+                                                            >
+                                                                <Percent size={16} />
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+
+                                                {/* DETAILS ROW (Batches) */}
+                                                {isExpanded && (
+                                                    <tr className="bg-slate-50/50">
+                                                        <td colSpan={7} className="p-0">
+                                                            <div className="py-2 pl-14 pr-4 border-l-4 border-cyan-500 ml-6 my-2 bg-white rounded-r-lg shadow-inner">
+                                                                <table className="w-full text-sm">
+                                                                    <thead className="text-xs text-slate-400 border-b border-slate-100">
+                                                                        <tr>
+                                                                            <th className="text-left pb-2 pl-2">Lote / Serie</th>
+                                                                            <th className="text-left pb-2">Vencimiento</th>
+                                                                            <th className="text-center pb-2">Stock</th>
+                                                                            <th className="text-center pb-2">Ubicación</th>
+                                                                            <th className="text-right pb-2 pr-2">Acciones</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        {group.batches.map(batch => (
+                                                                            <tr key={batch.id} className="hover:bg-slate-50">
+                                                                                <td className="py-3 pl-2 font-mono text-slate-600">{batch.lot_number || '---'}</td>
+                                                                                <td className="py-3 text-slate-600">
+                                                                                    {batch.expiry_date
+                                                                                        ? new Date(batch.expiry_date).toLocaleDateString()
+                                                                                        : '---'}
+                                                                                </td>
+                                                                                <td className="py-3 text-center font-bold text-slate-700">{batch.stock_actual}</td>
+                                                                                <td className="py-3 text-center text-slate-500">{batch.aisle || 'Bodega'}</td>
+                                                                                <td className="py-3 text-right pr-2">
+                                                                                    <div className="flex justify-end gap-2">
+                                                                                        <button
+                                                                                            onClick={() => {
+                                                                                                setEditingBatch(batch);
+                                                                                                setIsFormOpen(true);
+                                                                                            }}
+                                                                                            className="p-1 px-2 text-cyan-600 hover:bg-cyan-50 rounded border border-cyan-200 text-xs"
+                                                                                        >
+                                                                                            Editar
+                                                                                        </button>
+                                                                                        <button
+                                                                                            onClick={() => setDeletingBatch(batch)}
+                                                                                            className="p-1 px-2 text-red-600 hover:bg-red-50 rounded border border-red-200 text-xs"
+                                                                                        >
+                                                                                            Eliminar
+                                                                                        </button>
+                                                                                    </div>
+                                                                                </td>
+                                                                            </tr>
+                                                                        ))}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </React.Fragment>
                                         );
                                     })}
                                 </tbody>
@@ -222,19 +340,19 @@ const ProductListPage: React.FC = () => {
 
             {isFormOpen && (
                 <ProductFormModal
-                    product={editingProduct}
+                    product={editingBatch}
                     onClose={() => {
                         setIsFormOpen(false);
-                        setEditingProduct(undefined);
+                        setEditingBatch(undefined);
                     }}
                 />
             )}
 
-            {deletingProduct && (
+            {deletingBatch && (
                 <ProductDeleteConfirm
-                    product={deletingProduct}
-                    onClose={() => setDeletingProduct(undefined)}
-                    onConfirm={() => setDeletingProduct(undefined)}
+                    product={deletingBatch}
+                    onClose={() => setDeletingBatch(undefined)}
+                    onConfirm={() => setDeletingBatch(undefined)}
                 />
             )}
 
@@ -252,9 +370,3 @@ const ProductListPage: React.FC = () => {
 };
 
 export default ProductListPage;
-
-const formatSku = (sku?: string) => {
-    if (!sku) return '---';
-    if (sku.startsWith('AUTO-') || sku.startsWith('TEMP-')) return '---';
-    return sku;
-};

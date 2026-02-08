@@ -39,6 +39,7 @@ interface InventoryListProps {
     canQuickAdjust: boolean;
     canPriceAdjust: boolean;
     onPriceAdjust: (item: any) => void;
+    onAddBatch: (item: any) => void;
     fetchNextPage: () => void;
     hasNextPage: boolean;
     isFetchingNextPage: boolean;
@@ -57,11 +58,22 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
     canQuickAdjust,
     canPriceAdjust,
     onPriceAdjust,
+    onAddBatch,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage
 }) => {
     const parentRef = useRef<HTMLDivElement>(null);
+
+    // State for expanded rows
+    const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+
+    const toggleGroup = useCallback((id: string) => {
+        setExpandedGroups(prev => ({
+            ...prev,
+            [id]: !prev[id]
+        }));
+    }, []);
 
     // FIX: Memoize functions to prevent virtualizer thrashing
     const estimateSize = useCallback(() => isMobile ? 220 : 85, [isMobile]);
@@ -112,10 +124,11 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
                     {/* Header for Desktop Table */}
                     {!isMobile && (
                         <div className="sticky top-0 z-10 bg-slate-50 text-slate-500 font-bold text-xs uppercase tracking-wider shadow-sm flex border-b border-slate-200 h-12 items-center">
-                            <div className="px-4 w-[30%]">Producto</div>
+                            <div className="px-4 w-[5%] text-center">#</div>
+                            <div className="px-4 w-[25%]">Producto</div>
                             <div className="px-4 w-[20%]">Detalle</div>
-                            <div className="px-4 w-[15%]">Atributos</div>
-                            <div className="px-4 w-[15%]">Stock</div>
+                            <div className="px-4 w-[15%]">Stock Total</div>
+                            <div className="px-4 w-[15%]">Lotes / Venc.</div>
                             <div className="px-4 w-[10%] text-right">Precio</div>
                             <div className="px-4 w-[10%] text-center">Acciones</div>
                         </div>
@@ -143,48 +156,60 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
                         }
 
                         const item = items[virtualRow.index];
+                        const isExpanded = !!expandedGroups[item.id];
+                        const batchCount = item.batches?.length || 0;
+                        const hasBatches = batchCount > 0;
+
+                        // Find nearest expiry date
+                        const nearestExpiryBatch = item.batches?.length
+                            ? item.batches.reduce((prev: any, curr: any) => {
+                                if (!curr.expiry_date) return prev;
+                                if (!prev || !prev.expiry_date) return curr;
+                                return new Date(curr.expiry_date) < new Date(prev.expiry_date) ? curr : prev;
+                            }, null)
+                            : null;
 
                         return (
                             <div
                                 key={item.id}
                                 data-index={virtualRow.index}
                                 ref={rowVirtualizer.measureElement}
-                                className={`absolute top-0 left-0 w-full ${!isMobile ? 'hover:bg-slate-50 transition group border-b border-slate-100' : 'px-1 pb-4'}`}
+                                className={`absolute top-0 left-0 w-full ${!isMobile ? 'border-b border-slate-100' : 'px-1 pb-4'}`}
                                 style={{
                                     transform: `translateY(${virtualRow.start + (!isMobile ? 48 : 0)}px)`, // Offset for header in desktop
                                 }}
                             >
                                 {isMobile ? (
-                                    // MOBILE CARD VIEW (Safe Rendering)
+                                    // MOBILE CARD VIEW (Grouped)
                                     <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col gap-3 h-full">
                                         {/* Header */}
                                         <div className="flex justify-between items-start">
-                                            <div>
-                                                <h3 className="font-bold text-slate-800 text-lg">{item.name || 'Sin Nombre'}</h3>
+                                            <div onClick={() => toggleGroup(item.id)} className="flex-1">
+                                                <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
+                                                    {item.name || 'Sin Nombre'}
+                                                    {hasBatches && (
+                                                        <span className="bg-slate-100 text-slate-500 text-[10px] px-2 py-0.5 rounded-full">
+                                                            {batchCount} lotes
+                                                        </span>
+                                                    )}
+                                                </h3>
                                                 <p className="text-xs text-slate-500 font-mono">{formatSku(item.sku)}</p>
                                                 <p className="text-xs text-slate-400">{item.laboratory || 'Laboratorio N/A'}</p>
                                             </div>
                                             <div className="flex gap-1 flex-wrap justify-end max-w-[100px]">
                                                 {(item.registration_source === 'POS_EXPRESS' || item.is_express_entry) && (
                                                     <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded-lg text-[10px] font-bold flex items-center gap-1 border border-orange-200">
-                                                        <AlertTriangle size={8} /> INCOMPLETO
-                                                    </span>
-                                                )}
-                                                {item.source_system === 'AI_PARSER' && (
-                                                    <span className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded-lg text-[10px] font-bold flex items-center gap-1">
-                                                        <Sparkles size={8} /> IA
+                                                        POS
                                                     </span>
                                                 )}
                                                 {item.is_bioequivalent && <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-[10px] font-bold">BIO</span>}
-                                                {item.storage_condition === 'REFRIGERADO' && <span className="px-2 py-1 bg-cyan-100 text-cyan-700 rounded-lg text-[10px] font-bold">FRIO</span>}
-                                                {['R', 'RR', 'RCH'].includes(item.condition) && <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-lg text-[10px] font-bold">RET</span>}
                                             </div>
                                         </div>
 
                                         {/* Body */}
                                         <div className="grid grid-cols-2 gap-4 py-3 border-y border-slate-50">
                                             <div>
-                                                <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Stock</p>
+                                                <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Stock Total</p>
                                                 <p className={`text-2xl font-bold ${item.stock_actual <= (item.stock_min || 5) ? 'text-red-600' : 'text-slate-800'}`}>
                                                     {item.stock_actual || 0}
                                                 </p>
@@ -193,148 +218,217 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
                                             <div className="text-right">
                                                 <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Precio</p>
                                                 <p className="text-2xl font-bold text-slate-800">
-                                                    ${(item.price_sell_box || item.price || 0).toLocaleString()}
-                                                </p>
-                                                <p className="text-[10px] text-slate-400">
-                                                    Unit: ${Math.round((item.price_sell_box || item.price || 0) / getEffectiveUnits(item)).toLocaleString()}
+                                                    ${(item.price || 0).toLocaleString()}
                                                 </p>
                                             </div>
                                         </div>
 
+                                        {/* Expanded Batches (Mobile) */}
+                                        {isExpanded && hasBatches && (
+                                            <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 space-y-2 animate-in slide-in-from-top-2">
+                                                <p className="text-xs font-bold text-slate-400 uppercase">Detalle de Lotes</p>
+                                                {item.batches.map((batch: any) => (
+                                                    <div key={batch.id} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex justify-between items-center">
+                                                        <div>
+                                                            <div className="text-xs font-bold text-slate-700">Lote: {batch.lot_number || 'S/N'}</div>
+                                                            <div className={`text-[10px] flex items-center gap-1 ${batch.expiry_date && new Date(batch.expiry_date) < new Date() ? 'text-red-600 font-bold' : 'text-slate-500'}`}>
+                                                                <History size={10} />
+                                                                {batch.expiry_date ? new Date(batch.expiry_date).toLocaleDateString() : 'Sin Venc.'}
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <div className="font-bold text-slate-800">{batch.stock_actual} un.</div>
+                                                            {canQuickAdjust && (
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        // Construct a partial item for quick adjust that targets the batch
+                                                                        onQuickAdjust({ ...item, id: batch.id, stock_actual: batch.stock_actual, name: `${item.name} (Lote ${batch.lot_number})` });
+                                                                    }}
+                                                                    className="text-[10px] text-blue-600 font-bold hover:underline"
+                                                                >
+                                                                    Ajustar
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
                                         {/* Footer Actions */}
-                                        <div className="flex gap-3 mt-1">
-                                            {canQuickAdjust && (
+                                        <div className="flex gap-2 mt-1">
+                                            <button
+                                                onClick={() => toggleGroup(item.id)}
+                                                className={`flex-1 h-10 rounded-xl flex items-center justify-center gap-2 font-bold text-sm transition-colors ${isExpanded ? 'bg-slate-200 text-slate-600' : 'bg-slate-100 text-slate-500'}`}
+                                            >
+                                                {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                                {isExpanded ? 'Ocultar' : 'Ver Lotes'}
+                                            </button>
+
+                                            {isExpanded && canManageInventory && (
                                                 <button
-                                                    onClick={() => onQuickAdjust(item)}
-                                                    className="flex-1 h-12 bg-green-50 text-green-600 font-bold rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-transform"
+                                                    onClick={() => onAddBatch(item)}
+                                                    className="h-10 px-3 bg-cyan-50 text-cyan-600 rounded-xl flex items-center justify-center gap-1 font-bold text-xs"
                                                 >
-                                                    <Zap size={20} /> Ajuste
+                                                    <Plus size={16} /> Lote
                                                 </button>
                                             )}
+
                                             {canManageInventory && (
                                                 <button
                                                     onClick={() => onEdit(item)}
-                                                    className="flex-1 h-12 bg-blue-50 text-blue-600 font-bold rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-transform"
+                                                    className="h-10 w-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center"
                                                 >
-                                                    <Edit size={20} /> Editar
-                                                </button>
-                                            )}
-                                            {canDelete && (
-                                                <button
-                                                    onClick={() => onDelete(item)}
-                                                    className="h-12 w-12 bg-slate-50 text-slate-400 rounded-xl flex items-center justify-center hover:text-red-600 hover:bg-red-50 active:scale-95 transition-all"
-                                                >
-                                                    <Trash2 size={20} />
+                                                    <Edit size={18} />
                                                 </button>
                                             )}
                                         </div>
                                     </div>
                                 ) : (
-                                    // DESKTOP ROW VIEW
-                                    <div className="flex items-center w-full">
-                                        <div className="p-4 w-[30%]">
-                                            <div className="font-bold text-slate-800 text-lg">{item.name || 'Sin Nombre'}</div>
-                                            <div className="text-sm text-slate-500 font-bold">{item.dci || ''}</div>
-                                            <div className="text-xs text-slate-400 font-mono mt-1">{formatSku(item.sku)}</div>
-                                        </div>
-                                        <div className="p-4 w-[20%]">
-                                            <div className="text-sm font-bold text-slate-700">{item.laboratory || '---'}</div>
-                                            <div className="text-xs text-slate-500 font-mono">{item.isp_register || 'SIN REGISTRO'}</div>
-                                            <div className="text-xs text-slate-400 mt-1">{item.format || ''} x{getEffectiveUnits(item)}</div>
-                                        </div>
-                                        <div className="p-4 w-[15%]">
-                                            <div className="flex gap-1 flex-wrap mb-1">
-                                                {item.source_system === 'AI_PARSER' && (
-                                                    <span title="Creado/Abastecido por IA" className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded-lg text-[10px] font-bold border border-indigo-200 flex items-center gap-1">
-                                                        <Sparkles size={10} /> IA
-                                                    </span>
-                                                )}
-                                                {(item.registration_source === 'POS_EXPRESS' || item.is_express_entry) && (
-                                                    <span title="Creado en Caja (Incompleto)" className="px-2 py-1 bg-orange-100 text-orange-700 rounded-lg text-[10px] font-bold border border-orange-200 flex items-center gap-1">
-                                                        <AlertTriangle size={10} /> POS
-                                                    </span>
-                                                )}
-                                                {item.is_bioequivalent && <span title="Bioequivalente" className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-xs font-bold border border-emerald-200">BIO</span>}
-                                                {item.storage_condition === 'REFRIGERADO' && <span title="Cadena de Frío" className="px-2 py-1 bg-cyan-100 text-cyan-700 rounded-lg text-xs font-bold border border-cyan-200">FRIO</span>}
-                                                {['R', 'RR', 'RCH'].includes(item.condition) && <span title="Receta Retenida" className="px-2 py-1 bg-purple-100 text-purple-700 rounded-lg text-xs font-bold border border-purple-200">RET</span>}
-                                            </div>
-                                            {item.created_at && (
-                                                <div className="text-[10px] text-slate-400 font-medium mt-1">
-                                                    <span className="block text-slate-300 uppercase text-[9px] leading-tight mb-0.5">Ult. Ingreso</span>
-                                                    {new Date(item.created_at).toLocaleDateString()}
+                                    // DESKTOP ROW VIEW (Grouped)
+                                    <div className={`transition-colors ${isExpanded ? 'bg-slate-50' : 'hover:bg-slate-50'}`}>
+                                        {/* Master Row */}
+                                        <div
+                                            className="flex items-center w-full cursor-pointer"
+                                            onClick={() => toggleGroup(item.id)}
+                                        >
+                                            <div className="px-4 w-[5%] py-4 flex justify-center">
+                                                <div className={`p-1 rounded-full transition-colors ${isExpanded ? 'bg-indigo-100 text-indigo-600' : 'text-slate-400 hover:bg-slate-100'}`}>
+                                                    {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                                                 </div>
-                                            )}
-                                        </div>
-                                        <div className="p-4 w-[15%]">
-                                            <div className="flex flex-col items-start">
-                                                <span className={`text-lg font-bold ${item.stock_actual <= (item.stock_min || 5) ? 'text-red-600' : 'text-slate-800'}`}>
-                                                    {item.stock_actual} un.
-                                                </span>
-                                                <span className={`text-xs font-bold ${item.stock_actual <= (item.stock_min || 5) ? 'text-red-500' : 'text-slate-400'}`}>
-                                                    Min: {item.stock_min || 5}
-                                                </span>
-                                                <span className={`text-xs mt-1 px-1.5 py-0.5 rounded ${item.expiry_date && new Date(item.expiry_date).getTime() - Date.now() < 1000 * 60 * 60 * 24 * 90 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>
-                                                    Vence: {item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : '---'}
-                                                </span>
                                             </div>
-                                        </div>
-                                        <div className="p-4 w-[10%] text-right">
-                                            <div className="flex flex-col items-end">
-                                                <span className="font-bold text-slate-800 text-lg">${(item.price_sell_box || item.price || 0).toLocaleString()}</span>
-                                                <span className="text-xs font-bold text-slate-400">
-                                                    (${Math.round((item.price_sell_box || item.price || 0) / getEffectiveUnits(item)).toLocaleString()} / un)
-                                                </span>
-                                                {(user?.role === 'MANAGER' || user?.role === 'ADMIN' || user?.role === 'GERENTE_GENERAL') && (
-                                                    <div className="flex justify-end mt-1">
-                                                        <InventoryCostEditor
-                                                            batchId={item.id}
-                                                            currentCost={item.cost_price || item.cost_net || 0}
-                                                            productName={item.name}
-                                                        />
-                                                    </div>
-                                                )}
+                                            <div className="px-4 w-[25%] py-4">
+                                                <div className="font-bold text-slate-800 text-base">{item.name || 'Sin Nombre'}</div>
+                                                <div className="text-xs text-slate-500 font-mono mt-0.5 flex gap-2">
+                                                    <span>{formatSku(item.sku)}</span>
+                                                    {item.is_bioequivalent && <span className="text-emerald-600 font-bold bg-emerald-50 px-1 rounded">BIO</span>}
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div className="p-4 w-[10%]">
-                                            <div className="flex items-center justify-center gap-1">
-                                                {canQuickAdjust && (
-                                                    <button
-                                                        onClick={() => onQuickAdjust(item)}
-                                                        className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                                                        title="Ajuste Rápido de Stock"
-                                                    >
-                                                        <Zap size={16} />
-                                                    </button>
-                                                )}
-                                                {canPriceAdjust && (
-                                                    <button
-                                                        onClick={() => onPriceAdjust(item)}
-                                                        className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                                                        title="Ajuste de Precio (%)"
-                                                    >
-                                                        <Percent size={16} />
-                                                    </button>
-                                                )}
-                                                {canManageInventory && (
-                                                    <button
-                                                        onClick={() => onEdit(item)}
-                                                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                                        title="Editar Producto"
-                                                    >
-                                                        <Edit size={16} />
-                                                    </button>
-                                                )}
-                                                {canDelete && (
-                                                    <button
-                                                        onClick={() => onDelete(item)}
-                                                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                                        title="Eliminar Producto"
-                                                    >
-                                                        <Trash2 size={16} />
-                                                    </button>
+                                            <div className="px-4 w-[20%] py-4">
+                                                <div className="text-sm font-bold text-slate-700">{item.laboratory || '---'}</div>
+                                                <div className="text-xs text-slate-500">{item.dci || ''}</div>
+                                            </div>
+                                            <div className="px-4 w-[15%] py-4">
+                                                <div className="flex flex-col items-start">
+                                                    <span className={`text-lg font-bold ${item.stock_actual <= (item.stock_min || 5) ? 'text-red-600' : 'text-slate-800'}`}>
+                                                        {item.stock_actual} un.
+                                                    </span>
+                                                    {hasBatches && (
+                                                        <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
+                                                            {batchCount} Lotes
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div className="px-4 w-[15%] py-4">
+                                                {/* Expiry Info (Nearest) */}
+                                                {nearestExpiryBatch ? (
+                                                    <span className={`text-xs font-bold px-2 py-1 rounded inline-flex items-center gap-1 ${new Date(nearestExpiryBatch.expiry_date).getTime() - Date.now() < 1000 * 60 * 60 * 24 * 90
+                                                        ? 'bg-red-100 text-red-700'
+                                                        : 'bg-green-50 text-green-700'
+                                                        }`}>
+                                                        {new Date(nearestExpiryBatch.expiry_date).toLocaleDateString()}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-xs text-slate-400">---</span>
                                                 )}
                                             </div>
+                                            <div className="px-4 w-[10%] text-right py-4">
+                                                <div className="flex flex-col items-end">
+                                                    <span className="font-bold text-slate-800 text-base">${(item.price || 0).toLocaleString()}</span>
+                                                    {(item.price_min && item.price_min !== item.price) && (
+                                                        <span className="text-[10px] text-slate-400">
+                                                            Desde ${item.price_min.toLocaleString()}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div className="px-4 w-[10%] py-4">
+                                                <div className="flex items-center justify-center gap-1">
+                                                    {canManageInventory && (
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); onEdit(item); }}
+                                                            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                            title="Editar Producto Maestro"
+                                                        >
+                                                            <Edit size={16} />
+                                                        </button>
+                                                    )}
+                                                    {canPriceAdjust && (
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); onPriceAdjust(item); }}
+                                                            className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                                                            title="Ajustar Precio"
+                                                        >
+                                                            <div className="font-bold text-xs">$</div>
+                                                        </button>
+                                                    )}
+                                                    {canDelete && (
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); onDelete(item); }}
+                                                            className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                            title="Eliminar Producto"
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </div>
+
+                                        {/* Expanded Batch List */}
+                                        {isExpanded && hasBatches && (
+                                            <div className="bg-slate-50/50 border-t border-slate-100 pl-[5%] pr-4 py-2 animate-in slide-in-from-top-1">
+                                                <div className="flex justify-end mb-2">
+                                                    {canManageInventory && (
+                                                        <button
+                                                            onClick={() => onAddBatch(item)}
+                                                            className="text-xs bg-cyan-600 text-white px-3 py-1.5 rounded-lg shadow-sm hover:bg-cyan-700 font-bold transition-colors flex items-center gap-1"
+                                                        >
+                                                            <Plus size={14} /> Nuevo Lote
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <table className="w-full text-sm">
+                                                    <thead className="text-xs text-slate-400 uppercase font-bold border-b border-slate-200">
+                                                        <tr>
+                                                            <th className="py-2 text-left pl-2">Lote</th>
+                                                            <th className="py-2 text-left">Vencimiento</th>
+                                                            <th className="py-2 text-right">Stock</th>
+                                                            <th className="py-2 text-right">Precio</th>
+                                                            <th className="py-2 text-center">Acciones</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-100">
+                                                        {item.batches.map((batch: any) => (
+                                                            <tr key={batch.id} className="hover:bg-indigo-50/30 transition-colors">
+                                                                <td className="py-2 pl-2 font-mono text-slate-600">{batch.lot_number || 'S/N'}</td>
+                                                                <td className="py-2">
+                                                                    {batch.expiry_date ? (
+                                                                        <span className={`${new Date(batch.expiry_date) < new Date() ? 'text-red-600 font-bold' : 'text-slate-600'}`}>
+                                                                            {new Date(batch.expiry_date).toLocaleDateString()}
+                                                                        </span>
+                                                                    ) : '---'}
+                                                                </td>
+                                                                <td className="py-2 text-right font-bold text-slate-700">{batch.stock_actual}</td>
+                                                                <td className="py-2 text-right text-slate-600">${(batch.price || 0).toLocaleString()}</td>
+                                                                <td className="py-2 text-center">
+                                                                    {canQuickAdjust && (
+                                                                        <button
+                                                                            onClick={() => onQuickAdjust({ ...item, id: batch.id, stock_actual: batch.stock_actual, name: `${item.name} (Lote ${batch.lot_number})` })}
+                                                                            className="text-xs bg-white border border-slate-200 px-2 py-1 rounded shadow-sm hover:border-indigo-300 hover:text-indigo-600 font-medium transition-colors"
+                                                                        >
+                                                                            Ajustar Stock
+                                                                        </button>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -422,6 +516,7 @@ const InventoryPage: React.FC = () => {
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
     const [isQuickStockModalOpen, setIsQuickStockModalOpen] = useState(false);
     const [editingItem, setEditingItem] = useState<any>(null);
+    const [entryInitialProduct, setEntryInitialProduct] = useState<any>(null);
     const [deletingItem, setDeletingItem] = useState<any>(null);
 
     // Price Adjustment State
@@ -697,6 +792,7 @@ const InventoryPage: React.FC = () => {
                 canDelete={canDelete}
                 canQuickAdjust={canQuickAdjust}
                 canPriceAdjust={canQuickAdjust}
+                onAddBatch={(item) => { setEntryInitialProduct(item); setIsEntryModalOpen(true); }}
                 fetchNextPage={fetchNextPage}
                 hasNextPage={!!hasNextPage}
                 isFetchingNextPage={isFetchingNextPage}
@@ -746,8 +842,11 @@ const InventoryPage: React.FC = () => {
 
 
             {/* Modals */}
-            <StockEntryModal isOpen={isEntryModalOpen} onClose={() => setIsEntryModalOpen(false)} />
-            <StockTransferModal isOpen={isTransferModalOpen} onClose={() => setIsTransferModalOpen(false)} />
+            <StockEntryModal
+                isOpen={isEntryModalOpen}
+                onClose={() => { setIsEntryModalOpen(false); setEntryInitialProduct(null); }}
+                initialProduct={entryInitialProduct}
+            /><StockTransferModal isOpen={isTransferModalOpen} onClose={() => setIsTransferModalOpen(false)} />
             <InventoryEditModal isOpen={isEditModalOpen} onClose={() => { setIsEditModalOpen(false); setEditingItem(null); }} product={editingItem} />
             <BulkImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} />
 

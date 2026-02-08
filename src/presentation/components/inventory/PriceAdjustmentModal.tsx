@@ -25,7 +25,10 @@ export default function PriceAdjustmentModal({ mode, sku, productName, currentPr
         const p = parseFloat(percentage);
         if (isNaN(p)) return currentPrice;
         const factor = 1 + (p / 100);
-        return Math.round(currentPrice * factor);
+        // Round up to nearest 50 (CLP Rule)
+        // e.g. 8383 -> 8400, 8320 -> 8350
+        const val = currentPrice * factor;
+        return Math.ceil(val / 50) * 50;
     }, [currentPrice, percentage, mode]);
 
     useEffect(() => {

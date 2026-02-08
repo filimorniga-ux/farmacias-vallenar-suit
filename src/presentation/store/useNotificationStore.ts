@@ -113,13 +113,22 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         }
     },
 
-    deleteNotification: (id) => {
+    deleteNotification: async (id) => {
+        // Optimistic update
         set((state) => ({
             notifications: state.notifications.filter(n => n.id !== id),
             unreadCount: state.notifications.find(n => n.id === id)?.read === false
                 ? Math.max(0, state.unreadCount - 1)
                 : state.unreadCount
         }));
+
+        try {
+            const { deleteNotificationSecure } = await import('@/actions/notifications-v2');
+            await deleteNotificationSecure([id]);
+        } catch (e) {
+            console.error("Failed to delete notification", e);
+            // Optionally revert, but for now let's assume it works or user will see it again on reload
+        }
     },
 
     clearAll: async (category) => {

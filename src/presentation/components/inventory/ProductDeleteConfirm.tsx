@@ -36,7 +36,12 @@ const ProductDeleteConfirm: React.FC<ProductDeleteConfirmProps> = ({ product, on
 
         try {
             // Delete from database first
-            const result = await deleteProductSecure(product.id, user.id, pin);
+            // REVERT: Use product.id to delete the specific row (Batch or Product).
+            // This allows deleting duplicate batches without removing the main product.
+            const targetId = product.id;
+            console.log(`[DELETE] Requesting delete for ID: ${targetId} (Type: ${product.product_id ? 'Batch' : 'Product'})`);
+
+            const result = await deleteProductSecure(targetId, user.id, pin);
 
             if (!result.success) {
                 toast.error(result.error || 'Error al eliminar producto');

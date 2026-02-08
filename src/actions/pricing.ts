@@ -41,11 +41,12 @@ export async function adjustPrices(payload: AdjustPricesPayload) {
         let result;
 
         if (mode === 'ALL') {
-            // Update ALL products in Catalog
+            // Update ALL products in Catalog with Rounding to nearest 50 UP
+            // Logic: CEIL(price / 50) * 50
             result = await query(`
                 UPDATE products 
                 SET 
-                    sale_price = ROUND(sale_price * $1),
+                    sale_price = CEIL((sale_price * $1) / 50.0) * 50,
                     updated_at = NOW()
                 WHERE sale_price > 0
             `, [factor]);
@@ -54,7 +55,7 @@ export async function adjustPrices(payload: AdjustPricesPayload) {
             await query(`
                 UPDATE inventory_batches 
                 SET 
-                    sale_price = ROUND(sale_price * $1),
+                    sale_price = CEIL((sale_price * $1) / 50.0) * 50,
                     updated_at = NOW()
                 WHERE sale_price > 0
             `, [factor]);
@@ -64,7 +65,7 @@ export async function adjustPrices(payload: AdjustPricesPayload) {
             result = await query(`
                 UPDATE products 
                 SET 
-                    sale_price = ROUND(sale_price * $1),
+                    sale_price = CEIL((sale_price * $1) / 50.0) * 50,
                     updated_at = NOW()
                 WHERE sku = $2
             `, [factor, sku]);
@@ -73,7 +74,7 @@ export async function adjustPrices(payload: AdjustPricesPayload) {
             await query(`
                 UPDATE inventory_batches 
                 SET 
-                    sale_price = ROUND(sale_price * $1),
+                    sale_price = CEIL((sale_price * $1) / 50.0) * 50,
                     updated_at = NOW()
                 WHERE sku = $2
             `, [factor, sku]);

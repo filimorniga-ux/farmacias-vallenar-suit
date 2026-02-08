@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, ScanBarcode, Save, Package, Calendar, AlertTriangle, CheckCircle2, Camera } from 'lucide-react';
+import { X, ScanBarcode, Save, Package, Calendar, AlertTriangle, CheckCircle2, Camera, Receipt, Truck } from 'lucide-react';
 import { InventoryBatch } from '../../../domain/types';
 import { usePharmaStore } from '../../store/useStore';
 import { useNetworkStatus } from '../../../hooks/useNetworkStatus';
@@ -8,12 +8,14 @@ import CameraScanner from '../ui/CameraScanner';
 
 import { useQueryClient } from '@tanstack/react-query';
 
+
 interface StockEntryModalProps {
     isOpen: boolean;
     onClose: () => void;
+    initialProduct?: InventoryBatch | null;
 }
 
-const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) => {
+const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, initialProduct }) => {
     const queryClient = useQueryClient();
     const {
         inventory,
@@ -23,7 +25,8 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
         currentWarehouseId,
         user,
         locations,
-        fetchLocations
+        fetchLocations,
+        suppliers
     } = usePharmaStore();
     const { isOnline } = useNetworkStatus();
     const [activeTab, setActiveTab] = useState<'SCAN' | 'CREATE'>('SCAN');
@@ -35,6 +38,11 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
     const [lot, setLot] = useState('');
     const [expiry, setExpiry] = useState('');
     const [quantity, setQuantity] = useState('');
+
+    // Enhanced Batch Fields
+    const [invoiceNumber, setInvoiceNumber] = useState('');
+    const [invoiceDate, setInvoiceDate] = useState('');
+    const [supplierId, setSupplierId] = useState('');
 
     // New Product Fields - Comprehensive State
     const [newProductData, setNewProductData] = useState<Partial<InventoryBatch>>({
@@ -59,11 +67,17 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
     useEffect(() => {
         if (isOpen) {
             resetFlow();
+            if (initialProduct) {
+                setSelectedProduct(initialProduct);
+                setStep('DETAILS');
+                setTimeout(() => lotInputRef.current?.focus(), 100);
+            }
             if (locations.length === 0) {
                 fetchLocations();
             }
         }
-    }, [isOpen, locations.length, fetchLocations]);
+    }, [isOpen, locations.length, fetchLocations, initialProduct]);
+
 
     const handleCameraScan = (decodedText: string) => {
         setScannedSku(decodedText);
@@ -88,6 +102,10 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
         setLot('');
         setExpiry('');
         setQuantity('');
+        setInvoiceNumber('');
+        setInvoiceDate('');
+        setSupplierId('');
+
         setNewProductData({
             condition: 'VD',
             category: 'MEDICAMENTO',
@@ -120,27 +138,61 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
         }
     };
 
-    const handleQuickSave = (e: React.FormEvent) => {
+    const handleQuickSave = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedProduct || !quantity) return;
+        if (isSubmitting) return;
 
+        setIsSubmitting(true);
 
-        // Parse Expiry (MM/YYYY -> Timestamp)
-        let expiryTimestamp = Date.now();
-        const cleanExpiry = expiry.replace(/\//g, '');
-        if (cleanExpiry.length === 6) {
-            const month = parseInt(cleanExpiry.substring(0, 2)) - 1;
-            const year = parseInt(cleanExpiry.substring(2, 6));
-            const lastDay = new Date(year, month + 1, 0).getDate();
-            expiryTimestamp = new Date(year, month, lastDay).getTime();
+        try {
+            // Parse Expiry (MM/YYYY -> Date Object)
+            let expiryDate: Date | undefined = undefined;
+            const cleanExpiry = expiry.replace(/\//g, '');
+            if (cleanExpiry.length === 6) {
+                const month = parseInt(cleanExpiry.substring(0, 2)) - 1;
+                const year = parseInt(cleanExpiry.substring(2, 6));
+                const lastDay = new Date(year, month + 1, 0).getDate();
+                expiryDate = new Date(year, month, lastDay);
+            }
+
+            // Parse Invoice Date (YYYY-MM-DD -> Date Object)
+            let parsedInvoiceDate: Date | undefined = undefined;
+            if (invoiceDate) {
+                parsedInvoiceDate = new Date(invoiceDate);
+            }
+
+            const { createBatchSecure } = await import('../../../actions/inventory-v2');
+
+            const result = await createBatchSecure({
+                productId: selectedProduct.id,
+                sku: selectedProduct.sku,
+                name: selectedProduct.name,
+                locationId: currentLocationId || (locations[0]?.id) || 'BODEGA_CENTRAL',
+                quantity: parseInt(quantity),
+                expiryDate: expiryDate,
+                lotNumber: lot || undefined,
+                unitCost: selectedProduct.cost_net, // Maintain current cost/price
+                salePrice: selectedProduct.price_sell_box,
+                userId: user?.id || '00000000-0000-0000-0000-000000000000',
+                supplierId: supplierId || undefined,
+                invoiceNumber: invoiceNumber || undefined,
+                invoiceDate: parsedInvoiceDate
+            });
+
+            if (result.success) {
+                toast.success(`Ingresadas ${quantity} un. de ${selectedProduct.name}`);
+                await queryClient.invalidateQueries({ queryKey: ['inventory', currentLocationId] });
+                resetFlow();
+            } else {
+                toast.error('Error al ingresar stock: ' + result.error);
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error('Error inesperado al ingresar stock');
+        } finally {
+            setIsSubmitting(false);
         }
-
-
-        // Update Stock (In a real app, this would create a batch entry)
-        updateStock(selectedProduct.id, parseInt(quantity));
-
-        toast.success(`Ingresadas ${quantity} un. de ${selectedProduct.name}`);
-        resetFlow();
     };
 
     const calculateMargin = () => {
@@ -311,13 +363,27 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
                 {/* Tabs */}
                 <div className="flex border-b border-slate-100">
                     <button
-                        onClick={() => { setActiveTab('SCAN'); resetFlow(); }}
+                        onClick={() => {
+                            setActiveTab('SCAN');
+                            if (step === 'NEW_PRODUCT') {
+                                setStep('SCAN');
+                                setScannedSku('');
+                            }
+                            // If in DETAILS, stay in DETAILS
+                        }}
                         className={`flex-1 py-4 font-bold text-sm transition-colors ${activeTab === 'SCAN' ? 'text-cyan-600 border-b-2 border-cyan-600 bg-cyan-50' : 'text-slate-500 hover:bg-slate-50'}`}
                     >
                         Escaneo Rápido (Stock)
                     </button>
                     <button
-                        onClick={() => { setActiveTab('CREATE'); setStep('NEW_PRODUCT'); }}
+                        onClick={() => {
+                            setActiveTab('CREATE');
+                            setStep('NEW_PRODUCT');
+                            // Preserve scanned SKU if we were scanning a new product
+                            if (!newProductData.sku && scannedSku) {
+                                setNewProductData(prev => ({ ...prev, sku: scannedSku }));
+                            }
+                        }}
                         className={`flex-1 py-4 font-bold text-sm transition-colors ${activeTab === 'CREATE' ? 'text-amber-600 border-b-2 border-amber-600 bg-amber-50' : 'text-slate-500 hover:bg-slate-50'}`}
                     >
                         Crear Producto Maestro
@@ -382,6 +448,50 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose }) =>
                             </div>
 
                             <form onSubmit={handleQuickSave} className="grid grid-cols-2 gap-4">
+
+                                {/* New Fields: Supplier & Invoice */}
+                                <div className="col-span-2 grid grid-cols-12 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                    <div className="col-span-12 md:col-span-6">
+                                        <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1">
+                                            <Truck size={14} className="text-cyan-600" /> Proveedor
+                                        </label>
+                                        <select
+                                            className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white"
+                                            value={supplierId}
+                                            onChange={e => setSupplierId(e.target.value)}
+                                        >
+                                            <option value="">-- Sin Proveedor --</option>
+                                            {suppliers.map(s => (
+                                                <option key={s.id} value={s.id}>{s.name || s.business_name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div className="col-span-6 md:col-span-3">
+                                        <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1">
+                                            <Receipt size={14} className="text-cyan-600" /> N° Factura
+                                        </label>
+                                        <input
+                                            type="text"
+                                            className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+                                            value={invoiceNumber}
+                                            onChange={e => setInvoiceNumber(e.target.value)}
+                                            placeholder="Opcional"
+                                        />
+                                    </div>
+
+                                    <div className="col-span-6 md:col-span-3">
+                                        <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1">
+                                            <Calendar size={14} className="text-cyan-600" /> Fecha Doc.
+                                        </label>
+                                        <input
+                                            type="date"
+                                            className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+                                            value={invoiceDate}
+                                            onChange={e => setInvoiceDate(e.target.value)}
+                                        />
+                                    </div>
+                                </div>
                                 <div className="col-span-2">
                                     <label className="block text-sm font-bold text-slate-700 mb-1">Cantidad a Ingresar</label>
                                     <input

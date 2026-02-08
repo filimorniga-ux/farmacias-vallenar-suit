@@ -1,8 +1,6 @@
-import { useState } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { cn } from '@/lib/utils';
-import { Plus, GripVertical, Settings2 } from 'lucide-react';
-import { TemplateManagerModal } from './TemplateManagerModal';
+import { GripVertical } from 'lucide-react';
 
 interface TemplateItemProps {
     template: any;
@@ -31,9 +29,15 @@ function TemplateItem({ template }: TemplateItemProps) {
         >
             <div className="h-8 w-1 rounded-full" style={{ backgroundColor: template.color || '#3b82f6' }} />
             <div className="flex-1">
-                <div className="font-medium leading-none">{template.name}</div>
+                <div className="font-medium leading-none flex items-center gap-2">
+                    {template.name}
+                    {template.is_rest_day && <span className="text-[10px] bg-green-100 text-green-700 px-1 rounded font-bold">LIBRE</span>}
+                </div>
                 <div className="text-xs text-muted-foreground mt-1">
-                    {template.start_time.slice(0, 5)} - {template.end_time.slice(0, 5)}
+                    {template.is_rest_day
+                        ? 'Día de descanso'
+                        : `${template.start_time.slice(0, 5)} - ${template.end_time.slice(0, 5)} (${template.break_minutes || 0}m)`
+                    }
                 </div>
             </div>
             <GripVertical className="h-4 w-4 text-muted-foreground/50" />
@@ -46,43 +50,24 @@ interface PaletteProps {
 }
 
 export function ShiftTemplatePalette({ templates }: PaletteProps) {
-    const [isManageOpen, setIsManageOpen] = useState(false);
-
     return (
-        <>
-            <div className="w-64 border-r bg-muted/10 flex flex-col h-full">
-                <div className="p-4 border-b bg-white/50">
-                    <h3 className="font-semibold text-sm mb-1">Paleta de Turnos</h3>
-                    <p className="text-xs text-muted-foreground">Arrastra para asignar</p>
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                    {templates.map(tmpl => (
-                        <TemplateItem key={tmpl.id} template={tmpl} />
-                    ))}
-
-                    {templates.length === 0 && (
-                        <div className="text-center p-4 border-2 border-dashed rounded-lg">
-                            <p className="text-xs text-muted-foreground">No hay plantillas</p>
-                        </div>
-                    )}
-                </div>
-
-                <div className="p-4 border-t">
-                    <button
-                        onClick={() => setIsManageOpen(true)}
-                        className="w-full flex items-center justify-center gap-2 text-xs border rounded-md p-2 hover:bg-accent text-muted-foreground transition-colors"
-                    >
-                        <Settings2 className="h-3 w-3" /> Gestionar Plantillas
-                    </button>
-                </div>
+        <div className="w-64 border-r bg-muted/10 flex flex-col h-full">
+            <div className="p-4 border-b bg-white/50">
+                <h3 className="font-semibold text-sm mb-1">Paleta de Turnos</h3>
+                <p className="text-xs text-muted-foreground">Arrastra para asignar</p>
             </div>
 
-            <TemplateManagerModal
-                isOpen={isManageOpen}
-                onClose={() => setIsManageOpen(false)}
-                templates={templates}
-            />
-        </>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {templates.map(tmpl => (
+                    <TemplateItem key={tmpl.id} template={tmpl} />
+                ))}
+
+                {templates.length === 0 && (
+                    <div className="text-center p-4 border-2 border-dashed rounded-lg">
+                        <p className="text-xs text-muted-foreground">No hay plantillas</p>
+                    </div>
+                )}
+            </div>
+        </div>
     );
 }

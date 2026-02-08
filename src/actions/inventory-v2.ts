@@ -280,14 +280,18 @@ export async function createBatchSecure(params: {
                 quantity_real, expiry_date, lot_number,
                 unit_cost, sale_price,
                 stock_min, stock_max,
-                supplier_id
+                supplier_id,
+                invoice_number,
+                invoice_date
             ) VALUES (
                 $1::uuid, $2::uuid, $3, $4, 
                 $5::uuid, $6::uuid, 
                 $7, $8, $9,
                 $10, $11,
                 $12, $13,
-                $14::uuid
+                $14::uuid,
+                $15,
+                $16
             )
         `, [
             batchId,
@@ -303,7 +307,9 @@ export async function createBatchSecure(params: {
             salePrice || 0,
             stockMin || 0,
             stockMax || 1000,
-            supplierId || null
+            supplierId || null,
+            invoiceNumber || null,
+            invoiceDate || null
         ]);
 
         // 3.1 Actualizar precio maestro si se solicitó
@@ -325,7 +331,9 @@ export async function createBatchSecure(params: {
         // 4. Registrar movimiento inicial
         const movementId = uuidv4();
         const referenceType = invoiceNumber ? 'INVOICE' : 'INITIAL';
-        const referenceId = invoiceNumber || 'INITIAL'; // Use invoice number if available, otherwise generic
+        // FIX: reference_id is UUID in DB. We cannot store invoice number string there.
+        // We already store invoice info in 'notes'.
+        const referenceId = null;
         const movementNotes = invoiceNumber
             ? `Recepción Factura #${invoiceNumber} ` + (invoiceDate ? `(${invoiceDate.toLocaleDateString()})` : '')
             : 'Creación inicial de lote';
@@ -338,7 +346,7 @@ export async function createBatchSecure(params: {
             ) VALUES (
                 $1::uuid, $2, $3, $4::uuid, 'RECEIPT', 
                 $5, 0, $5, 
-                NOW(), $6::uuid, $7, $8::uuid, $9, $10
+                NOW(), $6::uuid, $7, $8::uuid, $9, $10::uuid
             )
         `, [
             movementId,
@@ -971,12 +979,10 @@ export async function getInventorySecure(
             }
         }
 
-        // Stock Status Filter
-        if (params.stockStatus === 'CRITICAL') {
-            if (params.stockStatus === 'CRITICAL') {
-                whereConditions.push(`COALESCE(ib.stock_actual, 0) <= COALESCE(ib.stock_min, 5)`);
-            }
-        }
+        // Stock Status Filter - Logic moved to HAVING clause or Subquery for aggregation
+        // But for row filtering before group, we might want to filter broadly if ANY batch matches?
+        // Or if the SUM matches? usually stock status is per product.
+        // Let's filter at the END (HAVING) for status.
 
         // Incomplete Data Filter
         if (params.incomplete) {
@@ -987,10 +993,14 @@ export async function getInventorySecure(
             ? 'AND ' + whereConditions.join(' AND ')
             : '';
 
-        // Unified Query with Pagination
+        // Unified Query with Pagination AND GROUPING
         // We join inventory_batches (ib) FULL OUTER JOIN products (p) 
         // to get both: items in stock (ib) and catalog items (p) if we want to show 0 stock?
         // OR current logic: Batches UNION Catalog Items not in batches.
+
+        // GROUP BY Strategy:
+        // Group by Product ID (or SKU/Name if null)
+        // Aggregrate Batches directly.
 
         const sql = `
             WITH combined_inventory AS (
@@ -1008,6 +1018,9 @@ export async function getInventorySecure(
                     COALESCE(ib.stock_min, p.stock_minimo_seguridad, 5) as stock_min,
                     COALESCE(ib.sale_price, ib.price_sell_box, p.price) as price,
                     ib.expiry_date,
+                    ib.lot_number,
+                    ib.location_id,
+                    ib.warehouse_id,
 
                     false as is_express_entry, -- Fallback since column missing in DB
                     ib.source_system,
@@ -1015,12 +1028,13 @@ export async function getInventorySecure(
                 FROM inventory_batches ib
                 LEFT JOIN products p ON ib.product_id::text = p.id
                 WHERE ib.location_id = $1::uuid
+                AND (p.is_active = true OR p.id IS NULL) -- Allow orphaned batches or active products
                 
                 UNION ALL
                 
                 -- 2. Products not in batches (Zero Stock)
                 SELECT 
-                    p.id as batch_id, -- Placeholder ID
+                    NULL as batch_id, -- No batch
                     p.id as product_id,
                     p.sku,
                     p.name,
@@ -1032,23 +1046,59 @@ export async function getInventorySecure(
                     COALESCE(p.stock_minimo_seguridad, 5) as stock_min,
                     p.price,
                     NULL as expiry_date,
+                    NULL as lot_number,
+                    NULL as location_id,
+                    NULL as warehouse_id,
 
                     false as is_express_entry, -- Fallback since column missing in DB
                     p.source_system,
                     p.created_at
                 FROM products p
                 WHERE (p.location_id = $1::text OR p.location_id IS NULL)
+                AND p.is_active = true
                 AND NOT EXISTS (
                     SELECT 1 FROM inventory_batches ib 
                     WHERE ib.sku = p.sku AND ib.location_id = $1::uuid
                 )
             ),
-            filtered_inventory AS (
-                SELECT ib.*, COUNT(*) OVER() as total_count 
+            grouped_inventory AS (
+                SELECT 
+                    COALESCE(product_id, sku, name) as group_key,
+                    MAX(product_id) as product_id,
+                    MAX(sku) as sku,
+                    MAX(name) as name,
+                    MAX(dci) as dci,
+                    MAX(laboratory) as laboratory,
+                    MAX(category) as category,
+                    MAX(condition) as condition,
+                    SUM(stock_actual) as total_stock,
+                    MAX(stock_min) as stock_min,
+                    MAX(price) as price_max,
+                    MIN(price) as price_min,
+                    MAX(source_system) as source_system,
+                    MAX(created_at) as last_entry,
+                    
+                    -- Aggregate Batches
+                    jsonb_agg(
+                        jsonb_build_object(
+                            'id', batch_id,
+                            'stock_actual', stock_actual,
+                            'lot_number', lot_number,
+                            'expiry_date', expiry_date,
+                            'price', price
+                        ) 
+                    ) FILTER (WHERE batch_id IS NOT NULL) as batches,
+                    
+                    COUNT(*) OVER() as total_count 
                 FROM combined_inventory ib
                 WHERE 1=1 ${whereClause}
+                GROUP BY COALESCE(product_id, sku, name)
+                
+                -- Having clause for Stock Status Filter if needed
+                ${params.stockStatus === 'CRITICAL' ? 'HAVING SUM(stock_actual) <= MAX(COALESCE(stock_min, 5))' : ''}
+                ${params.stockStatus === 'EXPIRING' ? 'HAVING MAX(expiry_date) <= NOW() + INTERVAL \'90 days\'' : ''}
             )
-            SELECT * FROM filtered_inventory
+            SELECT *, COUNT(*) OVER() as total_groups FROM grouped_inventory
             ORDER BY name ASC
             ${isPaged ? `LIMIT $${paramIndex} OFFSET $${paramIndex + 1}` : ''}
         `;
@@ -1059,24 +1109,27 @@ export async function getInventorySecure(
 
         const res = await query(sql, queryParams);
 
-        const total = res.rows.length > 0 ? Number(res.rows[0].total_count) : 0;
+        const total = res.rows.length > 0 ? Number(res.rows[0].total_groups) : 0;
         const totalPages = isPaged ? Math.ceil(total / limit) : 1;
 
         const inventory = res.rows.map(row => ({
-            id: row.batch_id,
+            id: row.group_key, // Use group key as ID
             product_id: row.product_id,
             sku: row.sku,
             name: row.name,
             dci: row.dci,
             laboratory: row.laboratory,
             category: row.category,
-            stock_actual: Number(row.stock_actual),
+            stock_actual: Number(row.total_stock), // Total Stock
             stock_min: Number(row.stock_min),
-            price: Number(row.price),
+            price: Number(row.price_max), // Show Max Price or Range in UI
+            price_min: Number(row.price_min),
             condition: row.condition || 'VD',
-            is_express_entry: row.is_express_entry,
+            is_express_entry: false,
             source_system: row.source_system,
-            expiry_date: row.expiry_date ? new Date(row.expiry_date).getTime() : null,
+
+            // Batches Array
+            batches: row.batches || []
         }));
 
         return {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
     DndContext,
     DragOverlay,
@@ -19,8 +19,10 @@ import { InteractiveGrid } from './InteractiveGrid';
 import { MonthlyGrid } from './MonthlyGrid';
 import { ShiftEditDialog } from './ShiftEditDialog';
 import { TimeOffModal } from './TimeOffModal';
+import { TemplateManagerModal } from './TemplateManagerModal';
 import { ScheduleNavigator } from './ScheduleNavigator';
 import { ShiftCard } from './ShiftCard';
+import { Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { upsertShiftV2, generateDraftScheduleV2 } from '@/actions/scheduler-v2';
 
@@ -51,6 +53,7 @@ export function SchedulerContainer({
     // Modals State
     const [editingShift, setEditingShift] = useState<any>(null);
     const [isTimeOffOpen, setIsTimeOffOpen] = useState(false);
+    const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
 
     const sensors = useSensors(
         useSensor(PointerSensor, {
@@ -59,6 +62,12 @@ export function SchedulerContainer({
             },
         })
     );
+
+    const [isMounted, setIsMounted] = useState(false);
+
+    useEffect(() => {
+        setIsMounted(true);
+    }, []);
 
     const handleDragStart = (event: DragStartEvent) => {
         const { active } = event;
@@ -157,8 +166,11 @@ export function SchedulerContainer({
         router.push(`?${params.toString()}`);
     };
 
+    if (!isMounted) return null; // Prevent hydration mismatch
+
     return (
         <DndContext
+            id="scheduler-dnd-context"
             sensors={sensors}
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
@@ -174,6 +186,9 @@ export function SchedulerContainer({
                     />
 
                     <div className="flex gap-2 ml-auto">
+                        <Button variant="outline" onClick={() => setIsTemplateManagerOpen(true)}>
+                            <Settings2 className="mr-2 h-4 w-4" /> Plantillas
+                        </Button>
                         <Button variant="outline" onClick={() => setIsTimeOffOpen(true)} className="border-red-200 hover:bg-red-50 text-red-700">
                             📅 Ausencia
                         </Button>
@@ -232,6 +247,12 @@ export function SchedulerContainer({
                 isOpen={isTimeOffOpen}
                 onClose={() => setIsTimeOffOpen(false)}
                 users={staff}
+            />
+
+            <TemplateManagerModal
+                isOpen={isTemplateManagerOpen}
+                onClose={() => setIsTemplateManagerOpen(false)}
+                templates={templates}
             />
         </DndContext>
     );

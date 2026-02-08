@@ -372,6 +372,7 @@ export interface Supplier {
     id: string;
     rut: string; // Validated
     business_name: string; // Razón Social
+    name?: string; // Alias or commercial name
     fantasy_name: string; // Nombre Fantasía
     website?: string;
     logo_url?: string;
