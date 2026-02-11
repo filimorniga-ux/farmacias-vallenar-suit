@@ -14,7 +14,6 @@
 
 import { query } from '@/lib/db';
 import { z } from 'zod';
-import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
 import { ExcelService } from '@/lib/excel-generator';
 
@@ -23,6 +22,8 @@ import { ExcelService } from '@/lib/excel-generator';
 // ============================================================================
 
 const UUIDSchema = z.string().uuid('ID inválido');
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _dummy = UUIDSchema;
 
 // ============================================================================
 // CONSTANTS
@@ -88,13 +89,15 @@ async function getSession(): Promise<{
     }
 }
 
-async function auditExport(userId: string, exportType: string, params: any): Promise<void> {
+async function auditExport(userId: string, exportType: string, params: Record<string, unknown>): Promise<void> {
     try {
         await query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, new_values, created_at)
             VALUES ($1::uuid, 'EXPORT', 'CASH', $2::jsonb, NOW())
         `, [userId, JSON.stringify({ export_type: exportType, ...params })]);
-    } catch { }
+    } catch (error) {
+        logger.warn({ error }, '[Audit] Export record failed');
+    }
 }
 
 // ============================================================================
@@ -137,7 +140,7 @@ export async function generateCashReportSecure(
 
         // A. SHIFTS (Turnos, Aperturas, Cierres, Desajustes)
         let shiftFilter = '';
-        const shiftParams: any[] = [startD, endD];
+        const shiftParams: (string | Date)[] = [startD, endD];
         if (effectiveLocationId) { shiftFilter += ` AND t.location_id = $${shiftParams.length + 1}::uuid`; shiftParams.push(effectiveLocationId); }
         if (effectiveTerminalId) { shiftFilter += ` AND s.terminal_id = $${shiftParams.length + 1}::uuid`; shiftParams.push(effectiveTerminalId); }
 
@@ -163,7 +166,7 @@ export async function generateCashReportSecure(
         // B. SALES (Ventas con detalle de items y clientes)
         // Note: Using subquery for items to avoid massive row multiplication
         let salesFilter = '';
-        const salesParams: any[] = [startD, endD];
+        const salesParams: (string | Date)[] = [startD, endD];
         if (effectiveLocationId) { salesFilter += ` AND s.location_id = $${salesParams.length + 1}::uuid`; salesParams.push(effectiveLocationId); }
         if (effectiveTerminalId) { salesFilter += ` AND s.terminal_id = $${salesParams.length + 1}::uuid`; salesParams.push(effectiveTerminalId); }
         if (params.sessionId) { salesFilter += ` AND s.session_id = $${salesParams.length + 1}::uuid`; salesParams.push(params.sessionId); }
@@ -192,7 +195,7 @@ export async function generateCashReportSecure(
 
         // C. MOVEMENTS (Ingresos, Egresos, Retiros)
         let movFilter = '';
-        const movParams: any[] = [startD, endD];
+        const movParams: (string | Date)[] = [startD, endD];
         if (effectiveLocationId) { movFilter += ` AND cm.location_id = $${movParams.length + 1}::uuid`; movParams.push(effectiveLocationId); }
         if (effectiveTerminalId) { movFilter += ` AND cm.terminal_id = $${movParams.length + 1}::uuid`; movParams.push(effectiveTerminalId); }
         if (params.sessionId) { movFilter += ` AND cm.session_id = $${movParams.length + 1}::uuid`; movParams.push(params.sessionId); }
@@ -525,9 +528,10 @@ export async function generateCashReportSecure(
             filename: `FlujoCaja_${params.startDate.split('T')[0]}.xlsx`,
         };
 
-    } catch (error: any) {
+    } catch (error) {
         logger.error({ error }, '[Export] Cash report V2 error');
-        return { success: false, error: 'Error generando reporte detallado: ' + error.message };
+        const message = error instanceof Error ? error.message : 'Error desconocido';
+        return { success: false, error: 'Error generando reporte detallado: ' + message };
     }
 }
 
