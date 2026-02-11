@@ -50,9 +50,10 @@ export async function verifyUserPin(userId: string, pin: string) {
         } finally {
             client.release();
         }
-    } catch (error: any) {
+    } catch (error) {
         console.error('Error verifying PIN:', error);
-        return { success: false, error: 'Error de servidor' };
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+        return { success: false, error: errorMessage };
     }
 }
 
@@ -144,8 +145,9 @@ export async function authenticateUserSecure(userId: string, pin: string, locati
         } finally {
             client.release();
         }
-    } catch (error: any) {
+    } catch (error) {
         console.error('Auth Error:', error);
-        return { success: false, error: 'Error de servidor durante login' };
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+        return { success: false, error: errorMessage };
     }
 }

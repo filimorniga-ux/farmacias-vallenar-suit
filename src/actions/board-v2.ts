@@ -2,7 +2,6 @@
 
 import { pool } from '@/lib/db';
 import { z } from 'zod';
-import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
 
 const NoteSchema = z.object({

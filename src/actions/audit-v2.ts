@@ -321,7 +321,7 @@ export async function getAuditEvents(filters: {
 export async function getPendingReviews(locationId?: string): Promise<{ success: boolean; data?: AuditEvent[]; error?: string }> {
     try {
         let whereClause = 'WHERE requires_manager_review = TRUE AND reviewed_at IS NULL';
-        const params: any[] = [];
+        const params: unknown[] = [];
 
         if (locationId) {
             whereClause += ' AND (location_id = $1::uuid OR location_id IS NULL)';
@@ -352,8 +352,9 @@ export async function getPendingReviews(locationId?: string): Promise<{ success:
 
         return { success: true, data: result.rows as AuditEvent[] };
 
-    } catch (error: any) {
-        return { success: false, error: error.message };
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Error desconocido';
+        return { success: false, error: message };
     }
 }
 
@@ -393,8 +394,9 @@ export async function reviewAuditEvent(
 
         return { success: true };
 
-    } catch (error: any) {
-        return { success: false, error: error.message };
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Error desconocido';
+        return { success: false, error: message };
     }
 }
 

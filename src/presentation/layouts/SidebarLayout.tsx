@@ -26,7 +26,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [isLandscape, setIsLandscape] = useState(false);
     const { isCenterOpen, setCenterOpen } = useNotificationStore();
-    const openCalculator = useCalculatorStore(s => s.open);
+    const openCalculator = useCalculatorStore((s: any) => s.open);
 
     useEffect(() => {
         const checkOrientation = () => {
