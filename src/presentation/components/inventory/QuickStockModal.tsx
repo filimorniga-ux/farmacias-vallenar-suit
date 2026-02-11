@@ -67,7 +67,7 @@ const QuickStockModal: React.FC<QuickStockModalProps> = ({ isOpen, onClose, prod
                     updateStock(product.id, finalAdjustment);
 
                     // Background Sync
-                    queryClient.invalidateQueries({ queryKey: ['inventory', currentLocationId] });
+                    queryClient.invalidateQueries({ queryKey: ['inventory'] });
                     onClose();
                     return;
                 } else {
@@ -120,7 +120,7 @@ const QuickStockModal: React.FC<QuickStockModalProps> = ({ isOpen, onClose, prod
 
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md flex flex-col h-dvh max-h-[90vh] animate-in fade-in zoom-in-95 duration-200">
                 {/* Header */}
                 <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 rounded-t-3xl">
                     <div>
@@ -173,7 +173,7 @@ const QuickStockModal: React.FC<QuickStockModalProps> = ({ isOpen, onClose, prod
                             <button onClick={() => setAdjustment(adj => Math.max(0, adj - 1))} className="p-3 bg-slate-100 rounded-xl hover:bg-slate-200 transition"><Minus size={20} /></button>
                             <input
                                 type="number"
-                                className={`w-full p-4 border-2 rounded-2xl font-bold text-2xl text-center focus:outline-none transition-colors 
+                                className={`w-full p-4 border-2 rounded-2xl font-bold text-2xl text-center focus:outline-none transition-colors text-base
                                     ${mode === 'ADD' ? 'border-slate-200 focus:border-green-500 text-green-600' : 'border-slate-200 focus:border-red-500 text-red-600'}`}
                                 value={adjustment}
                                 onChange={(e) => setAdjustment(Math.max(0, parseInt(e.target.value) || 0))}

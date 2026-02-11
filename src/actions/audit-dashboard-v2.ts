@@ -190,23 +190,22 @@ export async function getAuditLogsSecure(params: z.infer<typeof GetAuditLogsSche
 
         const dataRes = await query(dataSql, queryParams);
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const logs: AuditLogEntry[] = dataRes.rows.map((row: any) => ({
-            id: row.id,
-            timestamp: row.timestamp,
-            userId: row.user_id,
-            userName: row.user_name,
-            userRole: row.user_role,
-            locationId: row.location_id,
-            locationName: row.location_name,
-            actionCode: row.action_code,
-            entityType: row.entity_type,
-            entityId: row.entity_id,
-            oldValues: row.old_values,
-            newValues: row.new_values,
-            justification: row.justification,
-            severity: getSeverity(row.action_code),
-            ipAddress: row.ip_address,
+        const logs: AuditLogEntry[] = dataRes.rows.map((row: Record<string, unknown>) => ({
+            id: String(row.id),
+            timestamp: String(row.timestamp),
+            userId: String(row.user_id),
+            userName: String(row.user_name),
+            userRole: String(row.user_role),
+            locationId: row.location_id ? String(row.location_id) : null,
+            locationName: row.location_name ? String(row.location_name) : null,
+            actionCode: String(row.action_code),
+            entityType: String(row.entity_type),
+            entityId: String(row.entity_id),
+            oldValues: (row.old_values as Record<string, unknown>) || null,
+            newValues: (row.new_values as Record<string, unknown>) || null,
+            justification: row.justification ? String(row.justification) : null,
+            severity: getSeverity(String(row.action_code)),
+            ipAddress: row.ip_address ? String(row.ip_address) : null,
         }));
 
         // Meta-auditoría
@@ -232,9 +231,9 @@ export async function getAuditActionTypesSecure(): Promise<{ success: boolean; d
 
     try {
         const res = await query(`SELECT DISTINCT action_code FROM audit_log WHERE action_code IS NOT NULL ORDER BY action_code`);
-        return { success: true, data: res.rows.map((r: any) => r.action_code) };
-    } catch (error: any) {
-        return { success: false, error: error.message };
+        return { success: true, data: res.rows.map((r: { action_code: string }) => r.action_code) };
+    } catch (error: unknown) {
+        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
 }
 
@@ -251,8 +250,8 @@ export async function getAuditUsersSecure(): Promise<{ success: boolean; data?: 
     try {
         const res = await query(`SELECT DISTINCT u.id::text, u.name FROM audit_log al JOIN users u ON al.user_id::text = u.id::text ORDER BY u.name`);
         return { success: true, data: res.rows };
-    } catch (error: any) {
-        return { success: false, error: error.message };
+    } catch (error: unknown) {
+        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
 }
 
@@ -272,7 +271,7 @@ export async function getAuditStatsSecure(): Promise<{
 
     try {
         const todayRes = await query(`SELECT COUNT(*) as total FROM audit_log WHERE created_at >= CURRENT_DATE`);
-        const criticalActions = Object.entries(ACTION_SEVERITY_MAP).filter(([_, sev]) => sev === 'CRITICAL').map(([action]) => action);
+        const criticalActions = Object.entries(ACTION_SEVERITY_MAP).filter(([, sev]) => sev === 'CRITICAL').map(([action]) => action);
         const criticalRes = await query(`SELECT COUNT(*) as total FROM audit_log WHERE created_at >= CURRENT_DATE AND action_code = ANY($1::text[])`, [criticalActions]);
         const topActionsRes = await query(`SELECT action_code as action, COUNT(*) as count FROM audit_log WHERE created_at >= CURRENT_DATE - INTERVAL '7 days' GROUP BY action_code ORDER BY count DESC LIMIT 5`);
         const topUsersRes = await query(`SELECT u.name, COUNT(*) as count FROM audit_log al JOIN users u ON al.user_id::text = u.id::text WHERE al.created_at >= CURRENT_DATE - INTERVAL '7 days' GROUP BY u.name ORDER BY count DESC LIMIT 5`);
@@ -282,8 +281,8 @@ export async function getAuditStatsSecure(): Promise<{
             data: {
                 totalToday: Number(todayRes.rows[0]?.total || 0),
                 criticalToday: Number(criticalRes.rows[0]?.total || 0),
-                topActions: topActionsRes.rows.map((r: any) => ({ action: r.action, count: Number(r.count) })),
-                topUsers: topUsersRes.rows.map((r: any) => ({ name: r.name, count: Number(r.count) })),
+                topActions: topActionsRes.rows.map((r: { action: string; count: string | number }) => ({ action: r.action, count: Number(r.count) })),
+                topUsers: topUsersRes.rows.map((r: { name: string; count: string | number }) => ({ name: r.name, count: Number(r.count) })),
             },
         };
     } catch (error: unknown) {
@@ -302,7 +301,7 @@ export async function getAuditStatsSecure(): Promise<{
 export async function exportAuditLogsSecure(
     params: { startDate?: string; endDate?: string; actionCode?: string; userId?: string },
     adminPin?: string
-): Promise<{ success: boolean; data?: any[]; error?: string }> {
+): Promise<{ success: boolean; data?: Array<Record<string, string | number>>; error?: string }> {
     const session = await getSession();
     if (!session || !AUDIT_VIEWER_ROLES.includes(session.role)) {
         return { success: false, error: 'Acceso denegado' };
@@ -357,7 +356,7 @@ export async function exportAuditLogsSecure(
             LIMIT 5000
         `, queryParams);
 
-        const data = res.rows.map((row: any) => ({
+        const data = res.rows.map((row: Record<string, string>) => ({
             ...row,
             'Fecha': new Date(row['Fecha']).toLocaleString('es-CL'),
         }));

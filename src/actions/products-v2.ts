@@ -24,7 +24,7 @@
 import { pool } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
-import { randomUUID } from 'crypto';
+import { v4 as uuidv4 } from 'uuid';
 import { headers } from 'next/headers';
 
 async function getSession() {
@@ -79,6 +79,8 @@ const CreateProductSchema = z.object({
     initialLocation: z.string().optional(),
     // Barcode (EAN-13, Code128, etc.)
     barcode: z.string().max(50).optional(),
+    // Tax
+    taxPercent: z.number().min(0).optional(),
 });
 
 const UpdateProductSchema = z.object({
@@ -165,8 +167,8 @@ export async function createProductExpressSecure(data: z.infer<typeof CreateExpr
             };
         }
 
-        const productId = randomUUID();
-        const batchId = randomUUID();
+        const productId = uuidv4();
+        const batchId = uuidv4();
 
         // 1. Insert Product (Marked as Express)
         await client.query(`
@@ -287,11 +289,9 @@ async function validateManagerPin(client: any, pin: string): Promise<{
             if (user.access_pin_hash) {
                 pinValid = await bcrypt.compare(pin, user.access_pin_hash);
             } else if (user.access_pin) {
-                const crypto = await import('crypto');
-                const inputBuffer = Buffer.from(pin);
-                const storedBuffer = Buffer.from(user.access_pin);
-                if (inputBuffer.length === storedBuffer.length) {
-                    pinValid = crypto.timingSafeEqual(inputBuffer, storedBuffer);
+                // Simple string comparison for legacy PINs to avoid crypto dependency issues
+                if (pin === user.access_pin) {
+                    pinValid = true;
                 }
             }
 
@@ -327,11 +327,9 @@ async function validateAdminPin(client: any, pin: string): Promise<{
             if (admin.access_pin_hash) {
                 pinValid = await bcrypt.compare(pin, admin.access_pin_hash);
             } else if (admin.access_pin) {
-                const crypto = await import('crypto');
-                const inputBuffer = Buffer.from(pin);
-                const storedBuffer = Buffer.from(admin.access_pin);
-                if (inputBuffer.length === storedBuffer.length) {
-                    pinValid = crypto.timingSafeEqual(inputBuffer, storedBuffer);
+                // Simple string comparison for legacy PINs
+                if (pin === admin.access_pin) {
+                    pinValid = true;
                 }
             }
 
@@ -395,7 +393,7 @@ export async function createProductSecure(data: z.infer<typeof CreateProductSche
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         const rawSku = (validated.data.sku || '').trim();
-        const sku = rawSku.length >= 3 ? rawSku : `AUTO-${randomUUID()}`;
+        const sku = rawSku.length >= 3 ? rawSku : `AUTO-${uuidv4()}`;
 
         // Check SKU uniqueness
         const existingRes = await client.query(
@@ -408,10 +406,11 @@ export async function createProductSecure(data: z.infer<typeof CreateProductSche
             return { success: false, error: 'SKU ya existe' };
         }
 
-        const productId = randomUUID();
+        const productId = uuidv4();
 
         await client.query(`
-            INSERT INTO products (\n                id, sku, name, dci, laboratory, isp_register, format,
+            INSERT INTO products (
+                id, sku, name, dci, laboratory, isp_register, format,
                 units_per_box, is_bioequivalent,
                 price, price_sell_box, price_sell_unit,
                 cost_net, cost_price, tax_percent,
@@ -440,7 +439,7 @@ export async function createProductSecure(data: z.infer<typeof CreateProductSche
             validated.data.price, // price_sell_unit
             validated.data.priceCost || 0, // cost_net
             validated.data.priceCost || 0, // cost_price
-            19, // tax_percent
+            validated.data.taxPercent !== undefined ? validated.data.taxPercent : 19, // tax_percent
             validated.data.minStock || 0, // stock_minimo_seguridad
             validated.data.initialStock || 0, // stock_total
             validated.data.initialStock || 0, // stock_actual
@@ -452,7 +451,7 @@ export async function createProductSecure(data: z.infer<typeof CreateProductSche
 
         // Create initial batch in inventory_batches if stock is provided
         if (validated.data.initialStock && validated.data.initialStock > 0) {
-            const batchId = randomUUID();
+            const batchId = uuidv4();
 
             await client.query(`
                 INSERT INTO inventory_batches (
@@ -891,7 +890,7 @@ export async function linkProductToSupplierSecure(
                 supplier_sku = EXCLUDED.supplier_sku,
                 delivery_days = EXCLUDED.delivery_days,
                 created_at = NOW()
-        `, [randomUUID(), productId, supplierId, cost, sku, deliveryDays]);
+        `, [uuidv4(), productId, supplierId, cost, sku, deliveryDays]);
 
         await insertProductAudit(client, {
             actionCode: 'PRODUCT_SUPPLIER_LINKED',
@@ -1135,7 +1134,7 @@ export async function quickCreateProductSecure(data: z.infer<typeof QuickCreateP
         isBioequivalent, requiresPrescription, isColdChain
     } = validated.data;
 
-    const productId = randomUUID();
+    const productId = uuidv4();
 
     const client = await pool.connect();
 

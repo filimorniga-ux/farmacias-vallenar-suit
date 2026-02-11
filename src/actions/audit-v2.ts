@@ -1,6 +1,6 @@
 'use server';
 
-import { query, pool } from '@/lib/db';
+import { query } from '@/lib/db';
 import { headers } from 'next/headers';
 
 /**
@@ -37,8 +37,8 @@ export interface AuditEventInput {
     resourceId?: string;
 
     // Datos del cambio
-    oldValues?: Record<string, any>;
-    newValues?: Record<string, any>;
+    oldValues?: Record<string, unknown>;
+    newValues?: Record<string, unknown>;
     deltaAmount?: number;
 
     // Flags
@@ -153,16 +153,17 @@ export async function logAuditEvent(input: AuditEventInput): Promise<{ success: 
             eventId: result.rows[0]?.event_id
         };
 
-    } catch (error: any) {
-        console.error('❌ [Audit-V2] Error logging event:', error.message);
+    } catch (error: unknown) {
+        const err = error as { code?: string; message: string };
+        console.error('❌ [Audit-V2] Error logging event:', err.message);
 
         // Fallback a tabla legacy si la nueva no existe
-        if (error.code === '42P01') { // relation does not exist
+        if (err.code === '42P01') { // relation does not exist
             console.warn('⚠️ [Audit-V2] New table not found, falling back to legacy audit_logs');
             return await fallbackToLegacyAudit(input);
         }
 
-        return { success: false, error: error.message };
+        return { success: false, error: err.message };
     }
 }
 
@@ -186,9 +187,10 @@ async function fallbackToLegacyAudit(input: AuditEventInput): Promise<{ success:
             input.ipAddress || 'UNKNOWN'
         ]);
         return { success: true };
-    } catch (error: any) {
-        console.error('❌ [Audit-V2] Legacy fallback also failed:', error.message);
-        return { success: false, error: error.message };
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        console.error('❌ [Audit-V2] Legacy fallback also failed:', message);
+        return { success: false, error: message };
     }
 }
 
@@ -217,7 +219,7 @@ export async function getAuditEvents(filters: {
 }): Promise<{ success: boolean; data?: AuditEvent[]; total?: number; error?: string }> {
     try {
         const conditions: string[] = ['1=1'];
-        const params: any[] = [];
+        const params: unknown[] = [];
         let paramIndex = 1;
 
         if (filters.userId && filters.userId !== '') {
@@ -302,20 +304,21 @@ export async function getAuditEvents(filters: {
 
         return {
             success: true,
-            data: dataRes.rows,
+            data: dataRes.rows as AuditEvent[],
             total
         };
 
-    } catch (error: any) {
-        console.error('❌ [Audit-V2] Error fetching events:', error.message);
-        return { success: false, error: error.message };
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        console.error('❌ [Audit-V2] Error fetching events:', message);
+        return { success: false, error: message };
     }
 }
 
 /**
  * Obtiene eventos pendientes de revisión para managers
  */
-export async function getPendingReviews(locationId?: string): Promise<{ success: boolean; data?: any[]; error?: string }> {
+export async function getPendingReviews(locationId?: string): Promise<{ success: boolean; data?: AuditEvent[]; error?: string }> {
     try {
         let whereClause = 'WHERE requires_manager_review = TRUE AND reviewed_at IS NULL';
         const params: any[] = [];
@@ -347,7 +350,7 @@ export async function getPendingReviews(locationId?: string): Promise<{ success:
             LIMIT 100
         `, params);
 
-        return { success: true, data: result.rows };
+        return { success: true, data: result.rows as AuditEvent[] };
 
     } catch (error: any) {
         return { success: false, error: error.message };

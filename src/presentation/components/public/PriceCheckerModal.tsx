@@ -677,12 +677,13 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                                                     </tbody>
                                                 </table>
                                             </div>
+                                            ```
                                             {/* LOAD MORE BUTTON */}
                                             {hasMore && (
                                                 <div className="p-4 bg-slate-50 border-t border-slate-200 text-center">
                                                     <button
                                                         onClick={handleLoadMore}
-                                                        className="px-6 py-3 bg-white border border-slate-300 rounded-full text-slate-600 font-bold hover:bg-cyan-50 hover:text-cyan-700 hover:border-cyan-300 transition-all flex items-center gap-2 mx-auto shadow-sm"
+                                                        className="w-full bg-slate-100 border-2 border-slate-200 rounded-2xl py-6 pl-16 pr-6 text-2xl font-bold focus:border-cyan-500 focus:bg-white transition-all outline-none text-base hover:border-cyan-300 flex items-center gap-2 mx-auto shadow-sm"
                                                     >
                                                         <ChevronRight className="rotate-90" size={16} />
                                                         Cargar más resultados
@@ -799,7 +800,7 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                 )}
                 {/* 3. BIO INVENTORY MATCHES OR ACTIVE INGREDIENT MATCHES */}
                 {(selectedBioequivalent || (mode === 'SEARCH_ACTIVE' && inventoryMatches.length > 0)) && !selectedProduct && (
-                    <div className="flex-1 flex flex-col bg-slate-50 overflow-hidden animate-in slide-in-from-right">
+                    <div className="fixed inset-0 bg-slate-100 z-50 flex flex-col h-dvh w-full overflow-hidden animate-in fade-in duration-300">
 
                         {/* HEADER CONTEXT */}
                         {mode === 'SEARCH_BIO' && selectedBioequivalent && (
