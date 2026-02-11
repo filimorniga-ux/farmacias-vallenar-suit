@@ -2,34 +2,41 @@
 
 import { useDraggable } from '@dnd-kit/core';
 import { cn } from '@/lib/utils';
-import { Clock, AlertTriangle, Moon, CheckCircle2 } from 'lucide-react';
-import { format } from 'date-fns';
+
+const TIMEZONE = 'America/Santiago';
+
+function formatTime(isoString: string): string {
+    return new Intl.DateTimeFormat('es-CL', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: TIMEZONE
+    }).format(new Date(isoString));
+}
 
 interface ShiftCardProps {
-    shift: any; // Type 'any' for now, replace with proper interface later
+    shift: any;
     isOverlay?: boolean;
     onClick?: () => void;
 }
 
 export function ShiftCard({ shift, isOverlay, onClick }: ShiftCardProps) {
     const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-        id: shift.id,
+        id: `shift-${shift.id}`,
         data: { type: 'SHIFT', shift },
-        disabled: false // Could be disabled if user lacks permission
+        disabled: isOverlay,
     });
 
-    const style = transform ? {
+    const style = transform && !isOverlay ? {
         transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
     } : undefined;
 
-    // Helper to format time
-    const formatTime = (isoString: string) => {
-        const date = new Date(isoString);
-        return format(date, 'HH:mm');
-    };
+    const startHour = parseInt(formatTime(shift.start_at).split(':')[0]);
+    const isNightShift = startHour >= 20 || startHour < 6;
+    const isDraft = shift.status === 'draft';
 
-    // Night shift detection (simple visual check)
-    const isNight = new Date(shift.start_at).getHours() >= 20 || new Date(shift.start_at).getHours() < 6;
+    // Calculate duration
+    const durationHours = (new Date(shift.end_at).getTime() - new Date(shift.start_at).getTime()) / (1000 * 60 * 60);
 
     return (
         <div
@@ -38,38 +45,53 @@ export function ShiftCard({ shift, isOverlay, onClick }: ShiftCardProps) {
             {...listeners}
             {...attributes}
             onClick={onClick}
+            title={`${formatTime(shift.start_at)} - ${formatTime(shift.end_at)} (${durationHours.toFixed(1)}h)${shift.notes ? '\n' + shift.notes : ''}`}
             className={cn(
-                "relative flex flex-col p-2 rounded-md border text-xs shadow-sm cursor-grab active:cursor-grabbing transition-all",
-                isNight ? "bg-slate-900 border-slate-700 text-slate-100" : "bg-white border-slate-200 text-slate-900",
-                shift.status === 'draft' && "border-dashed border-amber-400 bg-amber-50/50",
-                shift.is_overtime && "border-red-300 bg-red-50",
-                isDragging && "opacity-50 ring-2 ring-primary rotate-2 z-50",
-                isOverlay && "ring-2 ring-primary rotate-2 shadow-xl opacity-100 z-50",
-                "h-full min-h-[60px]"
+                "text-xs rounded-md cursor-grab active:cursor-grabbing transition-all",
+                "border shadow-sm hover:shadow-md hover:scale-[1.02]",
+                isDragging && !isOverlay && "opacity-30",
+                isOverlay && "shadow-xl ring-2 ring-primary",
+                // Color based on status
+                isDraft
+                    ? "bg-amber-50 border-amber-300 text-amber-900 border-dashed"
+                    : isNightShift
+                        ? "bg-indigo-100 border-indigo-300 text-indigo-900"
+                        : "bg-white border-slate-200 text-slate-800",
             )}
         >
-            <div className="flex justify-between items-center mb-1">
-                <div className="flex items-center gap-1 font-semibold">
-                    {isNight && <Moon className="h-3 w-3 text-indigo-400" />}
-                    <span>{formatTime(shift.start_at)} - {formatTime(shift.end_at)}</span>
+            {/* Color bar top */}
+            <div
+                className="h-1 rounded-t-md"
+                style={{ backgroundColor: shift.template_color || (isNightShift ? '#6366f1' : '#3b82f6') }}
+            />
+
+            <div className="px-1.5 py-1">
+                {/* Time */}
+                <div className="font-semibold leading-tight flex items-center gap-1">
+                    {formatTime(shift.start_at)} - {formatTime(shift.end_at)}
+                    {shift.is_overtime && (
+                        <span className="text-[9px] bg-red-100 text-red-600 px-0.5 rounded font-bold">+OT</span>
+                    )}
                 </div>
-                {shift.is_overtime && (
-                    <span title="Posible Hora Extra">
-                        <AlertTriangle className="h-3 w-3 text-red-500" />
-                    </span>
+
+                {/* Duration + Status */}
+                <div className="flex items-center gap-1 mt-0.5">
+                    <span className="text-[10px] text-muted-foreground">{durationHours.toFixed(1)}h</span>
+                    {isDraft && (
+                        <span className="text-[9px] bg-amber-200 text-amber-800 px-1 rounded font-medium">BORRADOR</span>
+                    )}
+                    {isNightShift && (
+                        <span className="text-[9px]">🌙</span>
+                    )}
+                </div>
+
+                {/* Notes */}
+                {shift.notes && (
+                    <div className="text-[10px] text-muted-foreground truncate mt-0.5 italic">
+                        {shift.notes}
+                    </div>
                 )}
             </div>
-
-            {shift.status === 'draft' && (
-                <div className="absolute top-0 right-0 p-0.5 bg-amber-200 rounded-bl text-[9px] font-bold text-amber-800">
-                    DRAFT
-                </div>
-            )}
-
-            {/* Optional: Show Location name if in multi-view */}
-            {/* <div className="text-[10px] text-muted-foreground truncate opacity-80">
-                {shift.notes || "Sin notas"}
-            </div> */}
         </div>
     );
 }

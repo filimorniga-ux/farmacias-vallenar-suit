@@ -3,57 +3,56 @@
 import {
     startOfMonth,
     endOfMonth,
-    eachDayOfInterval,
     format,
     isSameMonth,
-    isSameDay,
     isToday
 } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 
+const TIMEZONE = 'America/Santiago';
+
+function formatTimeSantiago(isoString: string): string {
+    return new Intl.DateTimeFormat('es-CL', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: TIMEZONE
+    }).format(new Date(isoString));
+}
+
 interface MonthlyGridProps {
-    currentDate: Date; // A date within the month
+    currentDate: Date;
     shifts: any[];
     timeOffs: any[];
 }
 
 export function MonthlyGrid({ currentDate, shifts, timeOffs }: MonthlyGridProps) {
     const monthStart = startOfMonth(currentDate);
-    const monthEnd = endOfMonth(currentDate);
 
-    // Fill up calendar grid (start from Monday)
-    const startDate = new Date(monthStart);
     // Adjust to previous Monday
-    const dayOfWeek = startDate.getDay(); // 0 is Sunday
+    const startDate = new Date(monthStart);
+    const dayOfWeek = startDate.getDay();
     const diff = startDate.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
     startDate.setDate(diff);
 
-    // End on Sunday
-    const endDate = new Date(monthEnd);
-    const endDayOfWeek = endDate.getDay();
-    const endDiff = endDate.getDate() + (7 - endDayOfWeek);
-    endDate.setDate(endDiff);
-
-    // If start > end due to math (rare edge cases with month bounds), safety
-    // Usually we just use eachDayOfInterval.
-
-    // Better strategy: Simple generate 35 or 42 cells starting from adjusted start.
-    const calendarDays = [];
+    // Generate 42 cells (6 weeks)
+    const calendarDays: Date[] = [];
     const iterDate = new Date(startDate);
-
-    // Generar 6 semanas fijo para grilla estable
     for (let i = 0; i < 42; i++) {
         calendarDays.push(new Date(iterDate));
         iterDate.setDate(iterDate.getDate() + 1);
     }
 
     const getDayContent = (day: Date) => {
-        const dateStr = day.toISOString().split('T')[0];
-        // Filter shifts for this day
-        const dayShifts = shifts.filter(s => s.start_at.startsWith(dateStr));
+        const dateStr = format(day, 'yyyy-MM-dd');
 
-        // Filter time offs
+        // Filter shifts safely (handle both Date objects and ISO strings)
+        const dayShifts = shifts.filter(s => {
+            const startAt = typeof s.start_at === 'string' ? s.start_at : new Date(s.start_at).toISOString();
+            return startAt.startsWith(dateStr);
+        });
+
         const dayTimeOffs = timeOffs.filter(t =>
             new Date(t.start_date) <= day && new Date(t.end_date) >= day
         );
@@ -96,16 +95,25 @@ export function MonthlyGrid({ currentDate, shifts, timeOffs }: MonthlyGridProps)
 
                             <div className="flex-1 space-y-1 overflow-y-auto custom-scrollbar">
                                 {/* Time Off Indicators */}
-                                {dayTimeOffs.map(t => (
-                                    <div key={t.id} title={t.notes} className="text-[10px] bg-red-100 text-red-700 px-1 rounded truncate border border-red-200">
-                                        🚫 {t.type}
+                                {dayTimeOffs.map((t: any) => (
+                                    <div key={t.id} title={t.notes || t.reason} className="text-[10px] bg-red-100 text-red-700 px-1 rounded truncate border border-red-200">
+                                        {t.type === 'VACATION' ? '🏖️' :
+                                            t.type === 'SICK_LEAVE' ? '🏥' : '🚫'} {t.user_name?.split(' ')[0]}
                                     </div>
                                 ))}
 
-                                {/* Shift Indicators (Compact) */}
-                                {dayShifts.map(s => (
-                                    <div key={s.id} className="text-[10px] bg-blue-100 text-blue-700 px-1 rounded truncate border border-blue-200">
-                                        {s.user_name?.split(' ')[0]} ({s.start_at.slice(11, 16)})
+                                {/* Shift Indicators */}
+                                {dayShifts.map((s: any) => (
+                                    <div
+                                        key={s.id}
+                                        className={cn(
+                                            "text-[10px] px-1 rounded truncate border",
+                                            s.status === 'draft'
+                                                ? "bg-amber-50 text-amber-700 border-amber-200 border-dashed"
+                                                : "bg-blue-100 text-blue-700 border-blue-200"
+                                        )}
+                                    >
+                                        {s.user_name?.split(' ')[0]} ({formatTimeSantiago(s.start_at)})
                                     </div>
                                 ))}
                             </div>
