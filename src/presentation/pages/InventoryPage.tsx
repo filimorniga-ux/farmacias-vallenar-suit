@@ -9,7 +9,7 @@ import {
 import { MobileScanner } from '../../components/shared/MobileScanner';
 import StockEntryModal from '../components/inventory/StockEntryModal';
 import StockTransferModal from '../components/inventory/StockTransferModal';
-import InventoryEditModal from '../components/inventory/InventoryEditModal';
+import ProductFormModal from '../components/inventory/ProductFormModal';
 import BulkImportModal from '../components/inventory/BulkImportModal';
 import InventoryExportModal from '../components/inventory/InventoryExportModal';
 import QuickStockModal from '../components/inventory/QuickStockModal';
@@ -43,6 +43,10 @@ interface InventoryListProps {
     fetchNextPage: () => void;
     hasNextPage: boolean;
     isFetchingNextPage: boolean;
+    refetch: () => void;
+    isLoading: boolean;
+    isError: boolean;
+    activeLocation: any;
 }
 
 const InventoryList: React.FC<InventoryListProps> = React.memo(({
@@ -61,7 +65,11 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
     onAddBatch,
     fetchNextPage,
     hasNextPage,
-    isFetchingNextPage
+    isFetchingNextPage,
+    refetch,
+    isLoading,
+    isError,
+    activeLocation
 }) => {
     const parentRef = useRef<HTMLDivElement>(null);
 
@@ -436,10 +444,23 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
                     })}
                 </div>
 
-                {items.length === 0 && (
+                {items.length === 0 && !isLoading && (
                     <div className="p-12 text-center text-slate-400">
                         <Package size={48} className="mx-auto mb-4 opacity-50" />
-                        <p>No se encontraron productos con los filtros actuales.</p>
+                        {!activeLocation ? (
+                            <div className="flex flex-col items-center gap-2">
+                                <p className="font-bold text-slate-600">Ninguna sucursal seleccionada</p>
+                                <p>Por favor selecciona una sucursal arriba para ver el inventario.</p>
+                            </div>
+                        ) : isError ? (
+                            <div className="flex flex-col items-center gap-2 text-red-500">
+                                <AlertTriangle size={24} />
+                                <p className="font-bold">Error al cargar inventario</p>
+                                <button onClick={() => refetch()} className="text-sm underline hover:text-red-700">Reintentar</button>
+                            </div>
+                        ) : (
+                            <p>No se encontraron productos con los filtros actuales.</p>
+                        )}
                     </div>
                 )}
             </div>
@@ -479,10 +500,22 @@ const InventoryPage: React.FC = () => {
     const { locations } = useLocationStore();
     const activeLocation = locations.find(l => l.id === currentLocationId);
 
+    // Auto-select location if none selected and locations available
+    useEffect(() => {
+        if (!currentLocationId && locations.length > 0) {
+            const defaultLoc = locations.find(l => l.is_active) || locations[0];
+            // setCurrentLocation: (id: string, warehouseId: string, name: string) => void
+            setCurrentLocation(defaultLoc.id, defaultLoc.default_warehouse_id || '', defaultLoc.name);
+            toast.info(`Sucursal seleccionada automáticamente: ${defaultLoc.name}`);
+        }
+    }, [currentLocationId, locations, setCurrentLocation]);
+
     // 3. New Infinite Query
     const {
         data: infiniteData,
         isLoading,
+        isError,
+        error,
         refetch,
         fetchNextPage,
         hasNextPage,
@@ -497,6 +530,13 @@ const InventoryPage: React.FC = () => {
             incomplete: filters.incomplete
         }
     );
+
+    useEffect(() => {
+        if (isError && error) {
+            console.error('Inventory Query Error:', error);
+            toast.error(`Error cargando inventario: ${error.message}`);
+        }
+    }, [isError, error]);
 
     // Flatten all pages into a single array
     const inventoryData = useMemo(() => {
@@ -691,9 +731,18 @@ const InventoryPage: React.FC = () => {
                                 </button>
                                 <button
                                     onClick={() => setIsEntryModalOpen(true)}
+                                    className="px-6 py-3 bg-white text-slate-700 font-bold rounded-full border border-slate-200 hover:bg-slate-50 transition flex items-center gap-2 whitespace-nowrap"
+                                >
+                                    <ScanBarcode size={18} /> Ingreso Rápido
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setEditingItem(null);
+                                        setIsEditModalOpen(true);
+                                    }}
                                     className="px-6 py-3 bg-cyan-600 text-white font-bold rounded-full hover:bg-cyan-700 transition shadow-lg shadow-cyan-200 flex items-center gap-2 whitespace-nowrap"
                                 >
-                                    <Plus size={18} /> Nuevo Producto
+                                    <Plus size={18} /> Crear Producto
                                 </button>
                                 {(user?.role === 'ADMIN' || user?.role === 'MANAGER' || user?.role === 'GERENTE_GENERAL') && (
                                     <button
@@ -796,6 +845,10 @@ const InventoryPage: React.FC = () => {
                 fetchNextPage={fetchNextPage}
                 hasNextPage={!!hasNextPage}
                 isFetchingNextPage={isFetchingNextPage}
+                refetch={refetch}
+                isLoading={isLoading}
+                isError={isError}
+                activeLocation={activeLocation}
             />
 
 
@@ -847,7 +900,19 @@ const InventoryPage: React.FC = () => {
                 onClose={() => { setIsEntryModalOpen(false); setEntryInitialProduct(null); }}
                 initialProduct={entryInitialProduct}
             /><StockTransferModal isOpen={isTransferModalOpen} onClose={() => setIsTransferModalOpen(false)} />
-            <InventoryEditModal isOpen={isEditModalOpen} onClose={() => { setIsEditModalOpen(false); setEditingItem(null); }} product={editingItem} />
+            {isEditModalOpen && (
+                <ProductFormModal
+                    product={editingItem}
+                    onClose={() => {
+                        setIsEditModalOpen(false);
+                        setEditingItem(null);
+                    }}
+                    onSuccess={() => {
+                        toast.success('Producto actualizado');
+                        refetch();
+                    }}
+                />
+            )}
             <BulkImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} />
 
             <InventoryExportModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} />

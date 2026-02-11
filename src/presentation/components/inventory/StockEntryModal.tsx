@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import CameraScanner from '../ui/CameraScanner';
 
 import { useQueryClient } from '@tanstack/react-query';
+import { calculateRecommendedPrice } from '../../../domain/logic/pricing-rules';
 
 
 interface StockEntryModalProps {
@@ -44,6 +45,12 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
     const [invoiceDate, setInvoiceDate] = useState('');
     const [supplierId, setSupplierId] = useState('');
 
+    // Batch Pricing State
+    const [entryCost, setEntryCost] = useState<number>(0);
+    const [entryPrice, setEntryPrice] = useState<number>(0);
+    const [entryMargin, setEntryMargin] = useState<number>(30);
+    const [entryApplyTax, setEntryApplyTax] = useState<boolean>(true);
+
     // New Product Fields - Comprehensive State
     const [newProductData, setNewProductData] = useState<Partial<InventoryBatch>>({
         condition: 'VD',
@@ -54,6 +61,9 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
         format: 'Comprimidos',
         unit_format_string: 'Unidad'
     });
+
+    const [applyTax, setApplyTax] = useState(true);
+    const [profitMargin, setProfitMargin] = useState(30);
 
     const [isScannerOpen, setIsScannerOpen] = useState(false);
 
@@ -105,6 +115,12 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
         setInvoiceNumber('');
         setInvoiceDate('');
         setSupplierId('');
+
+        // Reset Batch Pricing
+        setEntryCost(0);
+        setEntryPrice(0);
+        setEntryMargin(30);
+        setEntryApplyTax(true);
 
         setNewProductData({
             condition: 'VD',
@@ -172,8 +188,8 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                 quantity: parseInt(quantity),
                 expiryDate: expiryDate,
                 lotNumber: lot || undefined,
-                unitCost: selectedProduct.cost_net, // Maintain current cost/price
-                salePrice: selectedProduct.price_sell_box,
+                unitCost: entryCost > 0 ? entryCost : selectedProduct.cost_net,
+                salePrice: entryPrice > 0 ? entryPrice : selectedProduct.price_sell_box,
                 userId: user?.id || '00000000-0000-0000-0000-000000000000',
                 supplierId: supplierId || undefined,
                 invoiceNumber: invoiceNumber || undefined,
@@ -182,7 +198,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
 
             if (result.success) {
                 toast.success(`Ingresadas ${quantity} un. de ${selectedProduct.name}`);
-                await queryClient.invalidateQueries({ queryKey: ['inventory', currentLocationId] });
+                await queryClient.invalidateQueries({ queryKey: ['inventory'] });
                 resetFlow();
             } else {
                 toast.error('Error al ingresar stock: ' + result.error);
@@ -330,7 +346,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
             const result = await createProductSecure(payload as any);
             if (result.success) {
                 toast.success('Producto guardado correctamente');
-                await queryClient.invalidateQueries({ queryKey: ['inventory', currentLocationId] });
+                await queryClient.invalidateQueries({ queryKey: ['inventory'] });
                 resetFlow();
             } else {
                 toast.error('Error al guardar producto: ' + (result as any).error);
@@ -347,7 +363,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
 
     return (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl h-[90dvh] md:h-auto overflow-hidden flex flex-col">
                 {/* Header */}
                 <div className="bg-slate-900 p-6 flex justify-between items-center text-white">
                     <div className="flex items-center gap-3">
@@ -365,11 +381,15 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                     <button
                         onClick={() => {
                             setActiveTab('SCAN');
-                            if (step === 'NEW_PRODUCT') {
+                            // Only reset to SCAN if there's no selected product and we're in NEW_PRODUCT
+                            if (step === 'NEW_PRODUCT' && !selectedProduct) {
                                 setStep('SCAN');
                                 setScannedSku('');
                             }
-                            // If in DETAILS, stay in DETAILS
+                            // If there's a selected product, stay in DETAILS
+                            if (selectedProduct && step === 'NEW_PRODUCT') {
+                                setStep('DETAILS');
+                            }
                         }}
                         className={`flex-1 py-4 font-bold text-sm transition-colors ${activeTab === 'SCAN' ? 'text-cyan-600 border-b-2 border-cyan-600 bg-cyan-50' : 'text-slate-500 hover:bg-slate-50'}`}
                     >
@@ -405,7 +425,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                 <input
                                     ref={scanInputRef}
                                     type="text"
-                                    className="w-full pl-6 pr-12 py-4 text-xl font-mono bg-slate-50 border-2 border-slate-200 rounded-2xl focus:border-cyan-500 focus:outline-none transition-all text-center uppercase"
+                                    className="w-full pl-6 pr-12 py-4 text-xl font-mono bg-slate-50 border-2 border-slate-200 rounded-2xl focus:border-cyan-500 focus:outline-none transition-all text-center uppercase text-base"
                                     placeholder="EAN / SKU..."
                                     value={scannedSku}
                                     onChange={e => setScannedSku(e.target.value.toUpperCase())}
@@ -456,7 +476,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                             <Truck size={14} className="text-cyan-600" /> Proveedor
                                         </label>
                                         <select
-                                            className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white"
+                                            className="w-full p-2 border border-slate-200 rounded-lg text-base bg-white"
                                             value={supplierId}
                                             onChange={e => setSupplierId(e.target.value)}
                                         >
@@ -473,7 +493,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                         </label>
                                         <input
                                             type="text"
-                                            className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+                                            className="w-full p-2 border border-slate-200 rounded-lg text-base"
                                             value={invoiceNumber}
                                             onChange={e => setInvoiceNumber(e.target.value)}
                                             placeholder="Opcional"
@@ -486,7 +506,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                         </label>
                                         <input
                                             type="date"
-                                            className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+                                            className="w-full p-2 border border-slate-200 rounded-lg text-base"
                                             value={invoiceDate}
                                             onChange={e => setInvoiceDate(e.target.value)}
                                         />
@@ -497,7 +517,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                     <input
                                         ref={qtyInputRef}
                                         type="number"
-                                        className="w-full p-4 text-2xl font-bold text-center border-2 border-slate-200 rounded-xl focus:border-cyan-500 outline-none"
+                                        className="w-full p-4 text-2xl font-bold text-center border-2 border-slate-200 rounded-xl focus:border-cyan-500 outline-none text-base"
                                         value={quantity}
                                         onChange={e => setQuantity(e.target.value)}
                                         placeholder="0"
@@ -510,18 +530,19 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                     <input
                                         ref={lotInputRef}
                                         type="text"
-                                        className="w-full p-3 border border-slate-200 rounded-xl"
+                                        className="w-full p-3 border border-slate-200 rounded-xl text-base"
                                         value={lot}
                                         onChange={e => setLot(e.target.value)}
                                         placeholder="LOTE-001"
                                     />
                                 </div>
 
+
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Vencimiento (MM/AAAA)</label>
                                     <input
                                         type="text"
-                                        className="w-full p-3 border border-slate-200 rounded-xl font-mono"
+                                        className="w-full p-3 border border-slate-200 rounded-xl font-mono text-base"
                                         value={expiry}
                                         onChange={e => {
                                             let value = e.target.value.replace(/\D/g, '');
@@ -533,6 +554,87 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                         placeholder="08/2026"
                                         maxLength={7}
                                     />
+                                </div>
+
+                                {/* Pricing Calculator for Batch */}
+                                <div className="col-span-2 bg-slate-100 p-3 rounded-xl border border-slate-200 mt-2">
+                                    <h5 className="text-xs font-bold text-slate-500 mb-2 flex items-center gap-1">
+                                        <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
+                                        Actualizar Precios (Opcional)
+                                    </h5>
+                                    <div className="grid grid-cols-12 gap-3">
+                                        <div className="col-span-4">
+                                            <div className="flex justify-between items-center mb-1">
+                                                <label className="block text-[10px] font-bold text-slate-400">Nuevo Costo Neto</label>
+                                                <span className="text-xs font-bold font-mono text-cyan-700 bg-cyan-100 px-2 py-0.5 rounded border border-cyan-200 shadow-sm animate-pulse-subtle">
+                                                    Actual: ${selectedProduct.cost_net?.toLocaleString('es-CL') || 0}
+                                                </span>
+                                            </div>
+                                            <input
+                                                type="number"
+                                                className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white"
+                                                value={entryCost || ''}
+                                                onChange={e => {
+                                                    const val = parseInt(e.target.value) || 0;
+                                                    setEntryCost(val);
+                                                    if (entryMargin > 0) {
+                                                        const suggested = calculateRecommendedPrice(val, entryApplyTax, entryMargin);
+                                                        setEntryPrice(suggested);
+                                                    }
+                                                }}
+                                                placeholder={selectedProduct.cost_net?.toString()}
+                                            />
+                                        </div>
+                                        <div className="col-span-4 flex items-end gap-2 pb-1">
+                                            <div className="flex-1">
+                                                <label className="block text-[10px] font-bold text-slate-400 mb-1">Margen %</label>
+                                                <input
+                                                    type="number"
+                                                    className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white"
+                                                    value={entryMargin || ''}
+                                                    onChange={e => {
+                                                        const val = parseFloat(e.target.value) || 0;
+                                                        setEntryMargin(val);
+                                                        if (entryCost > 0) {
+                                                            const suggested = calculateRecommendedPrice(entryCost, entryApplyTax, val);
+                                                            setEntryPrice(suggested);
+                                                        }
+                                                    }}
+                                                    placeholder="30"
+                                                />
+                                            </div>
+                                            <label className="flex items-center gap-1 cursor-pointer mb-3">
+                                                <input
+                                                    type="checkbox"
+                                                    className="w-3 h-3"
+                                                    checked={entryApplyTax}
+                                                    onChange={e => {
+                                                        setEntryApplyTax(e.target.checked);
+                                                        if (entryCost > 0 && entryMargin > 0) {
+                                                            const suggested = calculateRecommendedPrice(entryCost, e.target.checked, entryMargin);
+                                                            setEntryPrice(suggested);
+                                                        }
+                                                    }}
+                                                />
+                                                <span className="text-[10px] font-bold text-slate-500">IVA</span>
+                                            </label>
+                                        </div>
+                                        <div className="col-span-4">
+                                            <div className="flex justify-between items-center mb-1">
+                                                <label className="block text-[10px] font-bold text-slate-400">Nuevo Precio Venta</label>
+                                                <span className="text-xs font-bold font-mono text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200 shadow-sm animate-pulse-subtle">
+                                                    Actual: ${selectedProduct.price_sell_box?.toLocaleString('es-CL') || 0}
+                                                </span>
+                                            </div>
+                                            <input
+                                                type="number"
+                                                className="w-full p-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-800 bg-white"
+                                                value={entryPrice || ''}
+                                                onChange={e => setEntryPrice(parseInt(e.target.value) || 0)}
+                                                placeholder={selectedProduct.price_sell_box?.toString()}
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <button
@@ -560,7 +662,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                         <div className="relative">
                                             <input
                                                 type="text"
-                                                className="w-full p-2 pl-8 border border-slate-200 rounded-lg font-mono text-sm uppercase focus:border-cyan-500 outline-none"
+                                                className="w-full p-2 pl-8 border border-slate-200 rounded-lg font-mono text-sm uppercase focus:border-cyan-500 outline-none text-base"
                                                 value={scannedSku || ''}
                                                 onChange={e => setScannedSku(e.target.value.toUpperCase())}
                                                 placeholder="Generar Automático"
@@ -573,7 +675,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                         <input
                                             type="text"
                                             required
-                                            className="w-full p-2 border border-slate-200 rounded-lg font-bold text-slate-700 focus:border-cyan-500 outline-none uppercase"
+                                            className="w-full p-2 border border-slate-200 rounded-lg font-bold text-slate-700 focus:border-cyan-500 outline-none uppercase text-base"
                                             value={newProductData.name || ''}
                                             onChange={e => setNewProductData({ ...newProductData, name: e.target.value.toUpperCase() })}
                                             placeholder="Ej: PARACETAMOL 500MG"
@@ -584,7 +686,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                         <input
                                             type="text"
                                             required
-                                            className="w-full p-2 border border-slate-200 rounded-lg font-mono text-sm uppercase"
+                                            className="w-full p-2 border border-slate-200 rounded-lg font-mono text-sm uppercase text-base"
                                             value={newProductData.isp_register || ''}
                                             onChange={e => setNewProductData({ ...newProductData, isp_register: e.target.value.toUpperCase() })}
                                             placeholder="F-1234/20"
@@ -595,7 +697,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                         <input
                                             type="text"
                                             required
-                                            className="w-full p-2 border border-slate-200 rounded-lg text-sm uppercase"
+                                            className="w-full p-2 border border-slate-200 rounded-lg text-sm uppercase text-base"
                                             value={newProductData.dci || ''}
                                             onChange={e => setNewProductData({ ...newProductData, dci: e.target.value.toUpperCase() })}
                                             placeholder="PARACETAMOL"
@@ -605,7 +707,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Laboratorio</label>
                                         <input
                                             type="text"
-                                            className="w-full p-2 border border-slate-200 rounded-lg text-sm uppercase"
+                                            className="w-full p-2 border border-slate-200 rounded-lg text-sm uppercase text-base"
                                             value={newProductData.laboratory || ''}
                                             onChange={e => setNewProductData({ ...newProductData, laboratory: e.target.value.toUpperCase() })}
                                             placeholder="MINTLAB"
@@ -614,7 +716,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                     <div className="col-span-4">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Formato</label>
                                         <select
-                                            className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white"
+                                            className="w-full p-2 border border-slate-200 rounded-lg text-base bg-white"
                                             value={newProductData.format || 'Comprimidos'}
                                             onChange={e => setNewProductData({ ...newProductData, format: e.target.value })}
                                         >
@@ -629,7 +731,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                     <div className="col-span-4">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Condición Venta</label>
                                         <select
-                                            className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white font-bold text-slate-700"
+                                            className="w-full p-2 border border-slate-200 rounded-lg text-base bg-white font-bold text-slate-700"
                                             value={newProductData.condition || 'VD'}
                                             onChange={e => setNewProductData({ ...newProductData, condition: e.target.value as any })}
                                         >
@@ -657,9 +759,10 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
                                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
                                     <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
-                                    B. Datos Financieros
+                                    B. Inteligencia de Precios
                                 </h4>
                                 <div className="grid grid-cols-12 gap-3">
+                                    {/* 1. Costo Neto */}
                                     <div className="col-span-4">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Costo Neto (Compra)</label>
                                         <div className="relative">
@@ -668,32 +771,100 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                                 type="number"
                                                 className="w-full pl-5 p-2 border border-slate-200 rounded-lg text-sm"
                                                 value={newProductData.cost_net || ''}
-                                                onChange={e => setNewProductData({ ...newProductData, cost_net: parseInt(e.target.value) || 0 })}
-                                                placeholder="0"
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="col-span-4">
-                                        <label className="block text-xs font-bold text-slate-500 mb-1">Precio Venta (Caja)</label>
-                                        <div className="relative">
-                                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span>
-                                            <input
-                                                type="number"
-                                                className="w-full pl-5 p-2 border border-slate-200 rounded-lg font-bold text-slate-800 text-sm"
-                                                value={newProductData.price_sell_box || ''}
                                                 onChange={e => {
-                                                    const price = parseInt(e.target.value) || 0;
-                                                    const units = newProductData.units_per_package || 1;
-                                                    setNewProductData({
-                                                        ...newProductData,
-                                                        price_sell_box: price,
-                                                        price_sell_unit: Math.round(price / units)
-                                                    });
+                                                    const cost = parseInt(e.target.value) || 0;
+                                                    setNewProductData(prev => ({ ...prev, cost_net: cost }));
+                                                    // Recalcular precio si hay margen
+                                                    if (profitMargin > 0) {
+                                                        const suggested = calculateRecommendedPrice(cost, applyTax, profitMargin);
+                                                        const units = newProductData.units_per_package || 1;
+                                                        setNewProductData(prev => ({
+                                                            ...prev,
+                                                            price_sell_box: suggested,
+                                                            price_sell_unit: Math.round(suggested / units)
+                                                        }));
+                                                    }
                                                 }}
                                                 placeholder="0"
                                             />
                                         </div>
                                     </div>
+
+                                    {/* 2. Configuración de Margen */}
+                                    <div className="col-span-4 flex flex-col justify-end pb-1">
+                                        <label className="flex items-center gap-2 cursor-pointer mb-2">
+                                            <input
+                                                type="checkbox"
+                                                className="w-4 h-4 rounded text-cyan-600 focus:ring-cyan-500"
+                                                checked={applyTax}
+                                                onChange={e => {
+                                                    setApplyTax(e.target.checked);
+                                                    if (newProductData.cost_net && profitMargin) {
+                                                        const suggested = calculateRecommendedPrice(newProductData.cost_net, e.target.checked, profitMargin);
+                                                        const units = newProductData.units_per_package || 1;
+                                                        setNewProductData(prev => ({
+                                                            ...prev,
+                                                            price_sell_box: suggested,
+                                                            price_sell_unit: Math.round(suggested / units)
+                                                        }));
+                                                    }
+                                                }}
+                                            />
+                                            <span className="text-xs font-bold text-slate-600">¿Aplicar IVA 19%?</span>
+                                        </label>
+                                        <div className="relative">
+                                            <input
+                                                type="number"
+                                                className="w-full p-2 pr-8 border border-slate-200 rounded-lg text-sm bg-emerald-50 text-emerald-800 font-bold"
+                                                value={profitMargin || ''}
+                                                onChange={e => {
+                                                    const margin = parseFloat(e.target.value) || 0;
+                                                    setProfitMargin(margin);
+                                                    if (newProductData.cost_net) {
+                                                        const suggested = calculateRecommendedPrice(newProductData.cost_net, applyTax, margin);
+                                                        const units = newProductData.units_per_package || 1;
+                                                        setNewProductData(prev => ({
+                                                            ...prev,
+                                                            price_sell_box: suggested,
+                                                            price_sell_unit: Math.round(suggested / units)
+                                                        }));
+                                                    }
+                                                }}
+                                                placeholder="30"
+                                            />
+                                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-emerald-600 text-xs font-bold">%</span>
+                                        </div>
+                                    </div>
+
+                                    {/* 3. Precio Sugerido (Resultado) */}
+                                    <div className="col-span-4">
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Precio Venta (Sugerido)</label>
+                                        <div className="relative">
+                                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span>
+                                            <input
+                                                type="number"
+                                                className="w-full pl-5 p-2 border border-slate-200 rounded-lg font-bold text-slate-800 text-sm focus:ring-2 focus:ring-emerald-500"
+                                                value={newProductData.price_sell_box || ''}
+                                                onChange={e => {
+                                                    const price = parseInt(e.target.value) || 0;
+                                                    const units = newProductData.units_per_package || 1;
+                                                    setNewProductData(prev => ({
+                                                        ...prev,
+                                                        price_sell_box: price,
+                                                        price_sell_unit: Math.round(price / units)
+                                                    }));
+                                                }}
+                                                placeholder="0"
+                                            />
+                                        </div>
+                                        <div className="text-right mt-1">
+                                            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">
+                                                Unitario: ${newProductData.price_sell_unit?.toLocaleString()}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Extra: Unidades por Caja */}
                                     <div className="col-span-4">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Unidades x Caja</label>
                                         <input
@@ -703,28 +874,14 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                             onChange={e => {
                                                 const units = parseInt(e.target.value) || 1;
                                                 const price = newProductData.price_sell_box || 0;
-                                                setNewProductData({
-                                                    ...newProductData,
+                                                setNewProductData(prev => ({
+                                                    ...prev,
                                                     units_per_package: units,
                                                     price_sell_unit: Math.round(price / units)
-                                                });
+                                                }));
                                             }}
                                             placeholder="1"
                                         />
-                                    </div>
-                                    <div className="col-span-12 flex gap-4 mt-2">
-                                        <div className="bg-white px-3 py-2 rounded-lg border border-slate-100 shadow-sm flex-1 flex justify-between items-center">
-                                            <span className="text-xs text-slate-400 font-medium">Costo Unitario</span>
-                                            <span className="text-sm font-mono font-bold text-slate-600">
-                                                ${(newProductData.price_sell_unit || 0).toLocaleString()}
-                                            </span>
-                                        </div>
-                                        <div className="bg-white px-3 py-2 rounded-lg border border-slate-100 shadow-sm flex-1 flex justify-between items-center">
-                                            <span className="text-xs text-slate-400 font-medium">Margen Est.</span>
-                                            <span className={`text-sm font-mono font-bold ${calculateMargin() >= 30 ? 'text-emerald-600' : 'text-amber-600'}`}>
-                                                {calculateMargin()}%
-                                            </span>
-                                        </div>
                                     </div>
                                 </div>
                             </div>
