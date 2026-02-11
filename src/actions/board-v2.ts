@@ -32,8 +32,9 @@ export async function postNote(data: z.infer<typeof NoteSchema>) {
         );
 
         return { success: true };
-    } catch (e: any) {
-        return { success: false, error: e.message };
+    } catch (e) {
+        const error = e instanceof Error ? e.message : 'Error desconocido';
+        return { success: false, error };
     } finally {
         client.release();
     }
@@ -70,8 +71,9 @@ export async function deleteNote(id: string, userId: string) {
 
         await client.query('DELETE FROM board_notes WHERE id = $1', [id]);
         return { success: true };
-    } catch (e: any) {
-        return { success: false, error: e.message };
+    } catch (e) {
+        const error = e instanceof Error ? e.message : 'Error desconocido';
+        return { success: false, error };
     } finally {
         client.release();
     }
