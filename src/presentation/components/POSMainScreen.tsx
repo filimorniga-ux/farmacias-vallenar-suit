@@ -594,37 +594,9 @@ const POSMainScreen: React.FC = () => {
         setIsQuickFractionModalOpen(true);
     };
 
-    const handleFractionConfirm = (quantity: number, price: number) => {
+    const handleFractionConfirm = (quantity: number) => {
         if (selectedProductForFraction) {
-            // Create a special fractional item
-            const fractionalItem: any = {
-                ...selectedProductForFraction,
-                id: `${selectedProductForFraction.id} -F`, // Unique ID for fractional
-                name: `🔵 ${selectedProductForFraction.name} (FRACCIONADO: ${quantity} un)`,
-                price: selectedProductForFraction.fractional_price || Math.ceil(selectedProductForFraction.price / (selectedProductForFraction.units_per_box || 1)),
-                quantity: quantity,
-                is_fractional: true,
-                original_name: selectedProductForFraction.name
-            };
-            // We add it as a manual item effectively, or modify addToCart to handle it.
-            // Since addToCart takes InventoryBatch, we might need to use addManualItem or a custom logic.
-            // Let's use addManualItem for now as it fits the "custom price/name" model, 
-            // BUT we need to ensure inventory tracking. 
-            // Ideally, we should update addToCart to support overrides, but for now let's construct a CartItem.
-
-            // Hack: We use addToCart but we need to pass the modified object. 
-            // However, addToCart looks up by ID usually. 
-            // Let's use addManualItem which simply adds to cart array.
-            addManualItem({
-                sku: selectedProductForFraction.sku, // Keep SKU for tracking
-                description: fractionalItem.name,
-                price: fractionalItem.price,
-                quantity: quantity,
-                active_ingredients: selectedProductForFraction.active_ingredients,
-                is_fractional: true,
-                original_name: selectedProductForFraction.name
-            });
-
+            addToCart(selectedProductForFraction, quantity, { is_fractional: true });
             toast.success('Fraccionamiento agregado', { icon: <Scissors size={16} /> });
         }
     };
@@ -1283,7 +1255,7 @@ const POSMainScreen: React.FC = () => {
             <TransactionHistoryModal
                 isOpen={isHistoryModalOpen}
                 onClose={() => setIsHistoryModalOpen(false)}
-                locationId={currentLocation?.id}
+                locationId={currentLocationId || currentLocation?.id}
             />
 
             <ShiftHandoverModal

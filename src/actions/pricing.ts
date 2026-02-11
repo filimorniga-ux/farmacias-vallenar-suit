@@ -46,7 +46,10 @@ export async function adjustPrices(payload: AdjustPricesPayload) {
             result = await query(`
                 UPDATE products 
                 SET 
-                    sale_price = CEIL((sale_price * $1) / 50.0) * 50,
+                    sale_price = CASE 
+                        WHEN $1 >= 1.0 THEN CEIL((sale_price * $1) / 50.0) * 50
+                        ELSE FLOOR((sale_price * $1) / 50.0) * 50
+                    END,
                     updated_at = NOW()
                 WHERE sale_price > 0
             `, [factor]);
@@ -55,7 +58,10 @@ export async function adjustPrices(payload: AdjustPricesPayload) {
             await query(`
                 UPDATE inventory_batches 
                 SET 
-                    sale_price = CEIL((sale_price * $1) / 50.0) * 50,
+                    sale_price = CASE 
+                        WHEN $1 >= 1.0 THEN CEIL((sale_price * $1) / 50.0) * 50
+                        ELSE FLOOR((sale_price * $1) / 50.0) * 50
+                    END,
                     updated_at = NOW()
                 WHERE sale_price > 0
             `, [factor]);
@@ -65,7 +71,10 @@ export async function adjustPrices(payload: AdjustPricesPayload) {
             result = await query(`
                 UPDATE products 
                 SET 
-                    sale_price = CEIL((sale_price * $1) / 50.0) * 50,
+                    sale_price = CASE 
+                        WHEN $1 >= 1.0 THEN CEIL((sale_price * $1) / 50.0) * 50
+                        ELSE FLOOR((sale_price * $1) / 50.0) * 50
+                    END,
                     updated_at = NOW()
                 WHERE sku = $2
             `, [factor, sku]);
@@ -74,7 +83,10 @@ export async function adjustPrices(payload: AdjustPricesPayload) {
             await query(`
                 UPDATE inventory_batches 
                 SET 
-                    sale_price = CEIL((sale_price * $1) / 50.0) * 50,
+                    sale_price = CASE 
+                        WHEN $1 >= 1.0 THEN CEIL((sale_price * $1) / 50.0) * 50
+                        ELSE FLOOR((sale_price * $1) / 50.0) * 50
+                    END,
                     updated_at = NOW()
                 WHERE sku = $2
             `, [factor, sku]);

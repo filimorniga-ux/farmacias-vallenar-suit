@@ -164,7 +164,8 @@ export const TigerDataService = {
             throw new Error(result.error || 'Failed to fetch paged inventory');
         } catch (error) {
             console.error('❌ [Tiger Data] Paged Fetch failed:', error);
-            return { data: [], meta: { total: 0, page: 1, totalPages: 1 } };
+            // Don't swallow error, let React Query handle it (it will show error state in UI)
+            throw new Error(error instanceof Error ? error.message : 'Failed to fetch inventory');
         }
     },
 

@@ -1089,17 +1089,32 @@ export async function getCashMovementHistory(
             paramIndex++;
         }
 
+
         if (startDate) {
-            moveFilters += ` AND cm.timestamp >= $${paramIndex}`;
-            saleFilters += ` AND s.timestamp >= $${paramIndex}`;
+            // Robust Date Filtering using Santiago Timezone
+            // We expect the input to be a Date object, but we'll cast to YYYY-MM-DD in Santiago time for the DB comparison
+            // Ideally, we passed strings, but if we pass Date:
+            // CAST input Date to text YYYY-MM-DD if needed, OR:
+            // Use the parameter as a generic date and compare with the timestamp converted to Santiago DATE.
+
+            // To be consistent with sales-v2.ts which takes STRINGS:
+            // But here `startDate` is likely a Date object from Zod?
+            // If it is a Date, we can compare directly if we trust the Date.
+            // BUT, to ENFORCE Santiago Day boundaries regardless of the input Date's specific time:
+
+            // Let's assume startDate param IS a Date object representing the boundary.
+            // Be careful: if we change logic to SQL `::date` comparison, we ignore the time part of the input Date.
+            // This is usually DESIRED for "Filter by Day".
+
+            moveFilters += ` AND (cm.timestamp AT TIME ZONE 'America/Santiago')::date >= $${paramIndex}::date`;
+            saleFilters += ` AND (s.timestamp AT TIME ZONE 'America/Santiago')::date >= $${paramIndex}::date`;
             params.push(startDate);
             paramIndex++;
         }
 
         if (endDate) {
-            // Use provided endDate directly (expecting frontend to handle EOD/Timezone)
-            moveFilters += ` AND cm.timestamp <= $${paramIndex}`;
-            saleFilters += ` AND s.timestamp <= $${paramIndex}`;
+            moveFilters += ` AND (cm.timestamp AT TIME ZONE 'America/Santiago')::date <= $${paramIndex}::date`;
+            saleFilters += ` AND (s.timestamp AT TIME ZONE 'America/Santiago')::date <= $${paramIndex}::date`;
             params.push(endDate);
             paramIndex++;
         }
@@ -1443,17 +1458,17 @@ export async function exportCashMovementHistory(
             paramIndex++;
         }
 
+
         if (startDate) {
-            moveFilters += ` AND cm.timestamp >= $${paramIndex}`;
-            saleFilters += ` AND s.timestamp >= $${paramIndex}`;
+            moveFilters += ` AND (cm.timestamp AT TIME ZONE 'America/Santiago')::date >= $${paramIndex}::date`;
+            saleFilters += ` AND (s.timestamp AT TIME ZONE 'America/Santiago')::date >= $${paramIndex}::date`;
             params.push(startDate);
             paramIndex++;
         }
 
         if (endDate) {
-            // Use provided endDate directly (expecting frontend to handle EOD/Timezone)
-            moveFilters += ` AND cm.timestamp <= $${paramIndex}`;
-            saleFilters += ` AND s.timestamp <= $${paramIndex}`;
+            moveFilters += ` AND (cm.timestamp AT TIME ZONE 'America/Santiago')::date <= $${paramIndex}::date`;
+            saleFilters += ` AND (s.timestamp AT TIME ZONE 'America/Santiago')::date <= $${paramIndex}::date`;
             params.push(endDate);
             paramIndex++;
         }

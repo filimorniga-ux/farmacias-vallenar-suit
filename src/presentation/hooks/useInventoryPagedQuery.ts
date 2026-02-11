@@ -41,7 +41,7 @@ export const useInventoryPagedQuery = (
             return page < totalPages ? page + 1 : undefined;
         },
         enabled: !!locationId,
-        staleTime: 1000 * 60 * 5, // 5 minutes stale time
+        staleTime: 1000 * 30, // 30 seconds stale time
     });
 
     const invalidateInventory = () => {

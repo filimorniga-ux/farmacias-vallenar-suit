@@ -327,7 +327,7 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
                 quantity, stock_before, stock_after, 
                 timestamp, user_id, notes, batch_id
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, $10, $11
+                $1, $2, $3, $4, $5, $6, $7, $8, NOW() AT TIME ZONE 'America/Santiago', $9, $10, $11
             )
         `, [
             randomUUID(),
@@ -669,12 +669,12 @@ export async function getStockHistorySecure(filters: {
         }
 
         if (filters.startDate) {
-            conditions.push(`timestamp >= $${paramIndex++}`);
+            conditions.push(`timestamp AT TIME ZONE 'America/Santiago' >= $${paramIndex++}`);
             params.push(filters.startDate);
         }
 
         if (filters.endDate) {
-            conditions.push(`timestamp <= $${paramIndex++}`);
+            conditions.push(`timestamp AT TIME ZONE 'America/Santiago' <= $${paramIndex++}`);
             params.push(filters.endDate);
         }
 
@@ -808,12 +808,12 @@ export async function getShipmentsSecure(filters?: z.infer<typeof GetShipmentsSc
         }
 
         if (startDate) {
-            conditions.push(`created_at >= $${paramIndex++}`);
+            conditions.push(`created_at AT TIME ZONE 'America/Santiago' >= $${paramIndex++}`);
             params.push(startDate);
         }
 
         if (endDate) {
-            conditions.push(`created_at <= $${paramIndex++}`);
+            conditions.push(`created_at AT TIME ZONE 'America/Santiago' <= $${paramIndex++}`);
             params.push(endDate);
         }
 
@@ -1327,12 +1327,12 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
         }
 
         if (startDate) {
-            conditions.push(`po.created_at >= $${paramIndex++}`);
+            conditions.push(`po.created_at AT TIME ZONE 'America/Santiago' >= $${paramIndex++}`);
             params.push(startDate);
         }
 
         if (endDate) {
-            conditions.push(`po.created_at <= $${paramIndex++}`);
+            conditions.push(`po.created_at AT TIME ZONE 'America/Santiago' <= $${paramIndex++}`);
             params.push(endDate);
         }
 

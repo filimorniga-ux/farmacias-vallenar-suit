@@ -671,6 +671,7 @@ export async function closeTerminalAtomic(
 
         revalidatePath('/pos');
         revalidatePath('/caja');
+        revalidatePath('/settings');
         revalidatePath('/finance/treasury');
 
         return { success: true };
@@ -831,6 +832,7 @@ export async function forceCloseTerminalSecure(
 
         revalidatePath('/pos');
         revalidatePath('/caja');
+        revalidatePath('/settings');
 
         return { success: true };
 

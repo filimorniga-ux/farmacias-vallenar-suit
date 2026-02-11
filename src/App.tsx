@@ -21,7 +21,8 @@ import ClientsPage from './presentation/pages/ClientsPage';
 import InventoryPage from './presentation/pages/InventoryPage';
 import ReportsPage from './presentation/pages/ReportsPage';
 import AttendanceKioskPage from './presentation/pages/AttendanceKioskPage';
-import { WarehouseOps } from './presentation/pages/WarehouseOps';
+// import { WarehouseOps } from './presentation/pages/WarehouseOps'; // Archived: replaced by WMSPage
+import { WMSPage } from './presentation/pages/WMSPage';
 import { SuppliersPage } from './presentation/pages/SuppliersPage';
 import { SupplierProfile } from './presentation/pages/SupplierProfile';
 import NetworkPage from './presentation/pages/NetworkPage';
@@ -77,7 +78,7 @@ function App({ forceContextSelection }: { forceContextSelection?: boolean }) {
                 <Route path="/pos" element={<ProtectedRoute><POSMainScreen /></ProtectedRoute>} />
                 <Route path="/inventory" element={<ProtectedRoute><InventoryPage /></ProtectedRoute>} />
                 <Route path="/inventory/maintenance" element={<ProtectedRoute><InventorySettings /></ProtectedRoute>} />
-                <Route path="/warehouse" element={<ProtectedRoute><WarehouseOps /></ProtectedRoute>} />
+                <Route path="/warehouse" element={<ProtectedRoute><WMSPage /></ProtectedRoute>} />
                 <Route path="/suppliers" element={<ProtectedRoute><SuppliersPage /></ProtectedRoute>} />
                 <Route path="/suppliers/:id" element={<ProtectedRoute><SupplierProfile /></ProtectedRoute>} />
                 <Route path="/reports" element={<ProtectedRoute><ReportsPage /></ProtectedRoute>} />

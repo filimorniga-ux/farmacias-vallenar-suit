@@ -23,7 +23,7 @@ import { pool } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
-import { randomUUID } from 'crypto';
+import { v4 as uuidv4 } from 'uuid';
 import { logger } from '@/lib/logger';
 import { Location } from '@/domain/types';
 
@@ -306,7 +306,7 @@ export async function createLocationSecure(
         }
 
         // Create location
-        const locationId = randomUUID();
+        const locationId = uuidv4();
         const { name, address, type, parentId, defaultWarehouseId, config } = validated.data;
 
         await client.query(`
@@ -647,7 +647,7 @@ export async function transferStockBetweenLocationsSecure(
             return { success: false, error: 'Una o ambas ubicaciones están inactivas' };
         }
 
-        const transferId = randomUUID();
+        const transferId = uuidv4();
         const transferredItems: any[] = [];
 
         // Process each item
@@ -693,7 +693,7 @@ export async function transferStockBetweenLocationsSecure(
                 `, [targetBatch.id, item.quantity]);
             } else {
                 // Create new batch
-                const newBatchId = randomUUID();
+                const newBatchId = uuidv4();
                 await client.query(`
                     INSERT INTO inventory_batches (
                         id, sku, name, product_id, location_id,
@@ -715,8 +715,8 @@ export async function transferStockBetweenLocationsSecure(
             }
 
             // Record movement
-            const outMovementId = randomUUID();
-            const inMovementId = randomUUID();
+            const outMovementId = uuidv4();
+            const inMovementId = uuidv4();
 
             await client.query(`
                 INSERT INTO stock_movements (
