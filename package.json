@@ -1,7 +1,7 @@
 {
   "name": "farmacias-vallenar-suit",
   "private": true,
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Sistema de gestión integral para Farmacias Vallenar",
   "repository": {
     "type": "git",
@@ -23,8 +23,9 @@
     "test:actions": "vitest run tests/actions",
     "test:actions:coverage": "vitest run tests/actions --coverage --coverage.include=\"src/actions/**\"",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
-    "build:desktop": "electron-builder",
-    "build:win": "electron-builder --win",
+    "build:desktop": "unset CSC_LINK CSC_KEY_PASSWORD && electron-builder",
+    "build:mac:arm64": "electron-builder --mac --arm64",
+    "build:win": "electron-builder --win --x64",
     "build:mobile": "npm run build && npx cap sync",
     "clean:desktop": "rm -rf dist-desktop",
     "checkpoint": "git add . && git commit -m \"Auto Checkpoint $(date)\" && git push",
@@ -41,6 +42,7 @@
   "build": {
     "appId": "com.farmaciasvallenar.erp",
     "productName": "Farmacias Vallenar Suit",
+    "npmRebuild": false,
     "publish": [
       "github"
     ],
@@ -49,14 +51,18 @@
       "target": [
         {
           "target": "dmg",
-          "arch": "universal"
+          "arch": [
+            "arm64",
+            "x64"
+          ]
         },
         {
           "target": "zip",
           "arch": [
             "x64",
             "arm64"
-          ]
+          ],
+          "artifactName": "FarmaciasVallenar-Mac-${arch}.zip"
         }
       ],
       "icon": "public/icon.icns",
@@ -64,8 +70,9 @@
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
-      "identity": "Miguel Perdomo Serrato (XY5KRY6FXK)"
+      "identity": "Miguel Alfonso Perdomo serrato (XY5KRY6FXK)"
     },
+    "afterSign": "build/notarize.cjs",
     "dmg": {
       "artifactName": "FarmaciasVallenar-Mac-Universal.dmg"
     },
@@ -170,6 +177,7 @@
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
+    "@electron/notarize": "^3.1.1",
     "@eslint/js": "^9.39.1",
     "@playwright/test": "^1.57.0",
     "@tailwindcss/postcss": "^4.1.17",
