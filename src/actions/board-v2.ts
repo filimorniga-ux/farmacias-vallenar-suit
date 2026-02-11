@@ -45,8 +45,9 @@ export async function getNotes() {
             `SELECT * FROM board_notes ORDER BY created_at DESC LIMIT 50`
         );
         return { success: true, data: res.rows };
-    } catch (e: any) {
-        return { success: false, error: e.message };
+    } catch (e) {
+        const error = e instanceof Error ? e.message : 'Error desconocido';
+        return { success: false, error };
     }
 }
 

@@ -14,7 +14,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
+import React from 'react';
 import { renderHook, act, cleanup } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useCheckout, PaymentMethod } from '@/presentation/hooks/useCheckout';
 import { mockCartItems, mockShift, mockUser } from '../__mocks__/stores';
 
@@ -43,9 +45,9 @@ const localStorageMock = {
 };
 
 // Set up global mocks
-Object.defineProperty(global, 'localStorage', { 
-    value: localStorageMock, 
-    writable: true 
+Object.defineProperty(global, 'localStorage', {
+    value: localStorageMock,
+    writable: true
 });
 
 // Mock toast
@@ -92,13 +94,26 @@ vi.mock('@/presentation/store/useLocationStore', () => ({
         },
     }),
 }));
-
 vi.mock('@/presentation/store/useSettingsStore', () => ({
     useSettingsStore: () => ({
         enable_sii_integration: false,
         hardware: { printer_type: 'thermal' },
     }),
 }));
+
+const queryClient = new QueryClient({
+    defaultOptions: {
+        queries: {
+            retry: false,
+        },
+    },
+});
+
+const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={queryClient} >
+        {children}
+    </QueryClientProvider>
+);
 
 // =====================================================
 // TESTS
@@ -123,7 +138,7 @@ describe('useCheckout Hook', () => {
     // -------------------------------------------------
     describe('Initial State', () => {
         it('should initialize with default values', () => {
-            const { result } = renderHook(() => useCheckout());
+            const { result } = renderHook(() => useCheckout(), { wrapper });
 
             expect(result.current.isProcessing).toBe(false);
             expect(result.current.paymentMethod).toBe('CASH');
@@ -134,9 +149,9 @@ describe('useCheckout Hook', () => {
 
         it('should read autoPrint false from localStorage', () => {
             localStorageStore['pos_auto_print'] = 'false';
-            
-            const { result } = renderHook(() => useCheckout());
-            
+
+            const { result } = renderHook(() => useCheckout(), { wrapper });
+
             expect(result.current.autoPrint).toBe(false);
         });
     });
@@ -146,14 +161,14 @@ describe('useCheckout Hook', () => {
     // -------------------------------------------------
     describe('Cart Calculations', () => {
         it('should calculate cart total correctly', () => {
-            const { result } = renderHook(() => useCheckout());
+            const { result } = renderHook(() => useCheckout(), { wrapper });
 
             // Cart: 2x1500 + 1x2500 = 5500
             expect(result.current.cartTotal).toBe(5500);
         });
 
         it('should calculate points discount correctly', () => {
-            const { result } = renderHook(() => useCheckout());
+            const { result } = renderHook(() => useCheckout(), { wrapper });
 
             act(() => {
                 result.current.setPointsToRedeem(100);
@@ -164,7 +179,7 @@ describe('useCheckout Hook', () => {
         });
 
         it('should calculate final total after discount', () => {
-            const { result } = renderHook(() => useCheckout());
+            const { result } = renderHook(() => useCheckout(), { wrapper });
 
             act(() => {
                 result.current.setPointsToRedeem(100);
@@ -175,7 +190,7 @@ describe('useCheckout Hook', () => {
         });
 
         it('should not allow negative final total', () => {
-            const { result } = renderHook(() => useCheckout());
+            const { result } = renderHook(() => useCheckout(), { wrapper });
 
             // Set a huge discount
             mockCalculateDiscountValue.mockReturnValue(10000);
@@ -193,7 +208,7 @@ describe('useCheckout Hook', () => {
     // -------------------------------------------------
     describe('Payment Method', () => {
         it('should change payment method', () => {
-            const { result } = renderHook(() => useCheckout());
+            const { result } = renderHook(() => useCheckout(), { wrapper });
 
             act(() => {
                 result.current.setPaymentMethod('DEBIT');
@@ -203,7 +218,7 @@ describe('useCheckout Hook', () => {
         });
 
         it('should support all payment methods', () => {
-            const { result } = renderHook(() => useCheckout());
+            const { result } = renderHook(() => useCheckout(), { wrapper });
             const methods: PaymentMethod[] = ['CASH', 'DEBIT', 'CREDIT', 'TRANSFER'];
 
             methods.forEach(method => {
@@ -215,7 +230,7 @@ describe('useCheckout Hook', () => {
         });
 
         it('should update transfer ID for TRANSFER method', () => {
-            const { result } = renderHook(() => useCheckout());
+            const { result } = renderHook(() => useCheckout(), { wrapper });
 
             act(() => {
                 result.current.setPaymentMethod('TRANSFER');
@@ -231,7 +246,7 @@ describe('useCheckout Hook', () => {
     // -------------------------------------------------
     describe('Checkout Validation', () => {
         it('should allow checkout with valid cart and shift', () => {
-            const { result } = renderHook(() => useCheckout());
+            const { result } = renderHook(() => useCheckout(), { wrapper });
 
             expect(result.current.canCheckout).toBe(true);
         });
@@ -244,7 +259,7 @@ describe('useCheckout Hook', () => {
         it('should process sale successfully', async () => {
             mockProcessSale.mockResolvedValue(true);
             const onSuccess = vi.fn();
-            const { result } = renderHook(() => useCheckout({ onSuccess }));
+            const { result } = renderHook(() => useCheckout({ onSuccess }), { wrapper });
 
             let checkoutResult: any;
             await act(async () => {
@@ -260,7 +275,7 @@ describe('useCheckout Hook', () => {
         it('should handle sale processing error', async () => {
             mockProcessSale.mockResolvedValue(false);
             const onError = vi.fn();
-            const { result } = renderHook(() => useCheckout({ onError }));
+            const { result } = renderHook(() => useCheckout({ onError }), { wrapper });
 
             let checkoutResult: any;
             await act(async () => {
@@ -274,7 +289,7 @@ describe('useCheckout Hook', () => {
 
         it('should reset state after successful checkout', async () => {
             mockProcessSale.mockResolvedValue(true);
-            const { result } = renderHook(() => useCheckout());
+            const { result } = renderHook(() => useCheckout(), { wrapper });
 
             // Set non-default values
             act(() => {
@@ -295,7 +310,7 @@ describe('useCheckout Hook', () => {
 
         it('should set isProcessing during checkout', async () => {
             mockProcessSale.mockResolvedValue(true);
-            const { result } = renderHook(() => useCheckout());
+            const { result } = renderHook(() => useCheckout(), { wrapper });
 
             // After checkout completes, isProcessing should be false
             await act(async () => {
@@ -311,7 +326,7 @@ describe('useCheckout Hook', () => {
     // -------------------------------------------------
     describe('Auto-Print', () => {
         it('should persist autoPrint preference to localStorage', () => {
-            const { result } = renderHook(() => useCheckout());
+            const { result } = renderHook(() => useCheckout(), { wrapper });
 
             act(() => {
                 result.current.setAutoPrint(false);
@@ -321,7 +336,7 @@ describe('useCheckout Hook', () => {
         });
 
         it('should toggle autoPrint setting', () => {
-            const { result } = renderHook(() => useCheckout());
+            const { result } = renderHook(() => useCheckout(), { wrapper });
 
             expect(result.current.autoPrint).toBe(true);
 
@@ -338,7 +353,7 @@ describe('useCheckout Hook', () => {
     // -------------------------------------------------
     describe('Reset', () => {
         it('should reset all checkout state', () => {
-            const { result } = renderHook(() => useCheckout());
+            const { result } = renderHook(() => useCheckout(), { wrapper });
 
             // Set non-default values
             act(() => {
