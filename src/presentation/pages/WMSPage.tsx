@@ -1,0 +1,206 @@
+/**
+ * WMSPage - Página principal del módulo WMS
+ * 
+ * Layout adaptativo:
+ * - Móvil: Header sticky + Bottom Tab Bar + scroll independiente
+ * - Desktop: Header normal + tabs horizontales arriba
+ * 
+ * Usa usePlatform() para detectar la plataforma (Capacitor/Electron/Web).
+ * Skills: estilo-marca, modo-produccion, arquitecto-offline
+ */
+import React, { useState } from 'react';
+import {
+    Warehouse, Truck, PackageCheck, ArrowLeftRight,
+    PackagePlus, MapPin, RefreshCw
+} from 'lucide-react';
+import { usePharmaStore } from '@/presentation/store/useStore';
+import { useQueryClient } from '@tanstack/react-query';
+import { usePlatform } from '@/hooks/usePlatform';
+import { WMSDespachoTab } from '@/presentation/components/wms/tabs/WMSDespachoTab';
+import { WMSRecepcionTab } from '@/presentation/components/wms/tabs/WMSRecepcionTab';
+import { WMSTransferenciaTab } from '@/presentation/components/wms/tabs/WMSTransferenciaTab';
+import { WMSPedidosTab } from '@/presentation/components/wms/tabs/WMSPedidosTab';
+import { WMSBottomTabBar } from '@/presentation/components/wms/WMSBottomTabBar';
+
+export type WMSTab = 'despacho' | 'recepcion' | 'transferencia' | 'pedidos';
+
+const DESKTOP_TABS: { key: WMSTab; label: string; icon: React.ReactNode; color: string }[] = [
+    { key: 'despacho', label: 'Despacho', icon: <Truck size={18} />, color: 'sky' },
+    { key: 'recepcion', label: 'Recepción', icon: <PackageCheck size={18} />, color: 'emerald' },
+    { key: 'transferencia', label: 'Transferencia', icon: <ArrowLeftRight size={18} />, color: 'purple' },
+    { key: 'pedidos', label: 'Recep. Pedidos', icon: <PackagePlus size={18} />, color: 'amber' },
+];
+
+const TAB_COLORS: Record<string, { active: string; ring: string }> = {
+    sky: { active: 'bg-sky-500 text-white shadow-sky-500/30', ring: 'ring-sky-200' },
+    emerald: { active: 'bg-emerald-500 text-white shadow-emerald-500/30', ring: 'ring-emerald-200' },
+    purple: { active: 'bg-purple-500 text-white shadow-purple-500/30', ring: 'ring-purple-200' },
+    amber: { active: 'bg-amber-500 text-white shadow-amber-500/30', ring: 'ring-amber-200' },
+};
+
+const TAB_CONTENT: Record<WMSTab, React.ReactNode> = {
+    despacho: <WMSDespachoTab />,
+    recepcion: <WMSRecepcionTab />,
+    transferencia: <WMSTransferenciaTab />,
+    pedidos: <WMSPedidosTab />,
+};
+
+export const WMSPage: React.FC = () => {
+    const [activeTab, setActiveTab] = useState<WMSTab>('despacho');
+    const { isMobile } = usePlatform();
+    const queryClient = useQueryClient();
+    const { currentLocationId } = usePharmaStore();
+
+    const currentLocationName = usePharmaStore(s => {
+        const loc = s.locations?.find(l => l.id === s.currentLocationId);
+        return loc?.name || 'Sin ubicación';
+    });
+    const currentLocationType = usePharmaStore(s => {
+        const loc = s.locations?.find(l => l.id === s.currentLocationId);
+        return loc?.type || 'STORE';
+    });
+
+    const handleRefresh = () => {
+        queryClient.invalidateQueries({ queryKey: ['inventory'] });
+        if ('vibrate' in navigator) navigator.vibrate(10);
+    };
+
+    const handleTabChange = (tab: WMSTab) => {
+        setActiveTab(tab);
+    };
+
+    // ─────────────────────────────────────────────
+    // MOBILE LAYOUT — Native app feel
+    // ─────────────────────────────────────────────
+    if (isMobile) {
+        return (
+            <div className="h-dvh flex flex-col bg-slate-50 no-select">
+                {/* Sticky Header with Safe Area */}
+                <header className="shrink-0 bg-white/90 backdrop-blur-lg border-b border-slate-200/60
+                                 shadow-sm sticky top-0 z-40 pt-safe">
+                    <div className="px-4 py-3">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-500 to-sky-600 
+                                              flex items-center justify-center shadow-lg shadow-sky-500/20">
+                                    <Warehouse size={18} className="text-white" />
+                                </div>
+                                <div>
+                                    <h1 className="text-base font-bold text-slate-900 leading-tight">
+                                        WMS
+                                    </h1>
+                                    <div className="flex items-center gap-1">
+                                        <MapPin size={10} className="text-sky-500" />
+                                        <span className="text-[11px] text-slate-500 font-medium truncate max-w-[180px]">
+                                            {currentLocationName}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={handleRefresh}
+                                className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 
+                                         text-slate-600 transition-colors flex items-center justify-center
+                                         active:scale-95"
+                                title="Actualizar"
+                            >
+                                <RefreshCw size={16} />
+                            </button>
+                        </div>
+                    </div>
+                </header>
+
+                {/* Scrollable Content — fills space between header and bottom bar */}
+                <main className="flex-1 overflow-y-auto wms-content-scroll px-4 py-4 pb-36">
+                    <div className="animate-in fade-in duration-200">
+                        {TAB_CONTENT[activeTab]}
+                    </div>
+                </main>
+
+                {/* Bottom Tab Bar — native style */}
+                <WMSBottomTabBar
+                    activeTab={activeTab}
+                    onTabChange={handleTabChange}
+                />
+            </div>
+        );
+    }
+
+    // ─────────────────────────────────────────────
+    // DESKTOP LAYOUT — Windows / Mac
+    // ─────────────────────────────────────────────
+    return (
+        <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100">
+            {/* Header */}
+            <div className="bg-white border-b border-slate-200 shadow-sm">
+                <div className="max-w-5xl mx-auto px-4 py-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-sky-600 flex items-center justify-center shadow-lg shadow-sky-500/20">
+                                <Warehouse size={20} className="text-white" />
+                            </div>
+                            <div>
+                                <h1 className="text-lg font-bold text-slate-900">
+                                    Gestión de Bodega
+                                </h1>
+                                <p className="text-xs text-slate-500">
+                                    Sistema de Gestión de Almacenes
+                                </p>
+                            </div>
+                        </div>
+
+                        <button onClick={handleRefresh}
+                            className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+                            title="Actualizar inventario">
+                            <RefreshCw size={18} />
+                        </button>
+                    </div>
+
+                    {/* Banner de ubicación */}
+                    <div className="mt-3 flex items-center gap-2 px-3 py-2 bg-sky-50 border border-sky-200 rounded-xl">
+                        <MapPin size={14} className="text-sky-600 shrink-0" />
+                        <span className="text-sm font-semibold text-sky-800">
+                            {currentLocationName}
+                        </span>
+                        <span className="text-xs px-2 py-0.5 bg-sky-100 text-sky-600 rounded-full font-medium">
+                            {currentLocationType === 'STORE' ? 'Sucursal' : currentLocationType === 'WAREHOUSE' ? 'Bodega' : 'Central'}
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            {/* Desktop Tabs */}
+            <div className="bg-white border-b border-slate-200">
+                <div className="max-w-5xl mx-auto px-4">
+                    <div className="flex gap-1.5 py-2 overflow-x-auto">
+                        {DESKTOP_TABS.map(tab => {
+                            const isActive = activeTab === tab.key;
+                            const colors = TAB_COLORS[tab.color];
+                            return (
+                                <button key={tab.key} onClick={() => handleTabChange(tab.key)}
+                                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm whitespace-nowrap transition-all duration-200
+                                        ${isActive
+                                            ? `${colors.active} shadow-lg`
+                                            : 'text-slate-600 hover:bg-slate-100'
+                                        }`}>
+                                    {tab.icon}
+                                    {tab.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            </div>
+
+            {/* Desktop Content */}
+            <div className="max-w-5xl mx-auto px-4 py-6">
+                <div className="animate-in fade-in duration-200">
+                    {TAB_CONTENT[activeTab]}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default WMSPage;

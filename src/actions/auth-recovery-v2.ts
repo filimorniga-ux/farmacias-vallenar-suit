@@ -81,7 +81,7 @@ function checkEmailRateLimit(email: string): { allowed: boolean; retryAfter?: nu
     return { allowed: true };
 }
 
-async function auditRecoveryAction(userId: string | null, action: string, details: Record<string, any>): Promise<void> {
+async function auditRecoveryAction(userId: string | null, action: string, details: Record<string, unknown>): Promise<void> {
     try {
         await query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, new_values, created_at)
@@ -167,7 +167,7 @@ export async function forgotPasswordSecure(
 
         return { success: true, message: genericMessage };
 
-    } catch (error: any) {
+    } catch (error) {
         logger.error({ error }, '[AuthRecovery] Forgot password error');
         return { success: false, message: 'Error procesando solicitud' };
     }
@@ -257,7 +257,7 @@ export async function resetPasswordSecure(
         logger.info({ userId, email }, '🔑 [AuthRecovery] Password reset successful');
         return { success: true, message: 'Contraseña actualizada correctamente' };
 
-    } catch (error: any) {
+    } catch (error) {
         await client.query('ROLLBACK');
         logger.error({ error }, '[AuthRecovery] Reset password error');
         return { success: false, message: 'Error actualizando contraseña' };
@@ -390,7 +390,7 @@ export async function revokeAllTokensSecure(
         logger.info({ userId, adminId: validAdmin.id }, '🚫 [AuthRecovery] All tokens revoked');
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error) {
         await client.query('ROLLBACK');
         logger.error({ error }, '[AuthRecovery] Revoke tokens error');
         return { success: false, error: 'Error revocando tokens' };
