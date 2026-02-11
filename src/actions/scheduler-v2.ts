@@ -20,12 +20,16 @@ import { revalidatePath } from 'next/cache';
 
 const ShiftSchema = z.object({
     id: z.string().uuid().optional(),
-    userId: z.string().uuid(),
+    userId: z.string(),
     locationId: z.string().uuid(),
     startAt: z.string().datetime(), // ISO String
     endAt: z.string().datetime(),   // ISO String
-    assignedBy: z.string().uuid().optional(), // Inferred from session if not provided
+    assignedBy: z.string().uuid().optional(),
     notes: z.string().optional(),
+    breakStartAt: z.string().datetime().optional().nullable(),
+    breakEndAt: z.string().datetime().optional().nullable(),
+    breakMinutes: z.number().int().min(0).max(120).optional(),
+    shiftTemplateId: z.string().uuid().optional().nullable(),
 });
 
 const GenerateSchema = z.object({
@@ -162,7 +166,7 @@ export async function upsertTimeOffRequest(data: z.infer<typeof TimeOffSchema>) 
 /**
  * Crear o Actualizar un Turno (Control Manual)
  * - Calcula is_overtime automáticamente
- * - NO bloquea si hay solapamiento o vacaciones (solo advertencias visuales en UI)
+ * - Guarda datos de colación (break)
  */
 export async function upsertShiftV2(data: z.infer<typeof ShiftSchema>) {
     const parsed = ShiftSchema.safeParse(data);
@@ -170,35 +174,41 @@ export async function upsertShiftV2(data: z.infer<typeof ShiftSchema>) {
         return { success: false, error: parsed.error.issues[0].message };
     }
 
-    const { id, userId, locationId, startAt, endAt, assignedBy, notes } = parsed.data;
+    const { id, userId, locationId, startAt, endAt, assignedBy, notes, breakStartAt, breakEndAt, breakMinutes, shiftTemplateId } = parsed.data;
 
-    // Calcular duración en horas
+    // Calcular duración en horas (descontando colación)
     const start = new Date(startAt);
     const end = new Date(endAt);
-    const durationHours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+    const grossHours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+    const breakHours = (breakMinutes || 0) / 60;
+    const netHours = grossHours - breakHours;
 
-    // Obtener contrato para flag de overtime (Lógica simplificada por ahora: > 9h diarias es overtime visual)
-    // En el futuro, esto debería sumar las horas de la semana.
-    // Consulta rápida de contrato (si no existe, por defecto 45h semanales / 9h diarias)
+    // Obtener contrato para flag de overtime
     const contractRes = await query('SELECT weekly_hours FROM staff_contracts WHERE user_id = $1', [userId]);
     const weeklyInfo = contractRes.rows[0]?.weekly_hours || 45;
-    const isOvertime = durationHours > (weeklyInfo / 5); // Heurística simple: si dura más que el promedio diario
+    const isOvertime = netHours > (weeklyInfo / 5);
 
     try {
         if (id) {
-            // Update
             await query(`
                 UPDATE employee_shifts 
                 SET start_at = $1, end_at = $2, location_id = $3, user_id = $4, 
-                    is_overtime = $5, notes = $6, updated_at = NOW(), status = 'published'
-                WHERE id = $7
-            `, [startAt, endAt, locationId, userId, isOvertime, notes, id]);
+                    is_overtime = $5, notes = $6, 
+                    break_start_at = $7, break_end_at = $8, break_minutes = $9,
+                    shift_template_id = $10,
+                    updated_at = NOW(), status = 'published'
+                WHERE id = $11
+            `, [startAt, endAt, locationId, userId, isOvertime, notes || null,
+                breakStartAt || null, breakEndAt || null, breakMinutes || 0,
+                shiftTemplateId || null, id]);
         } else {
-            // Insert
             await query(`
-                INSERT INTO employee_shifts (user_id, location_id, start_at, end_at, assigned_by, status, is_overtime, notes)
-                VALUES ($1, $2, $3, $4, $5, 'published', $6, $7)
-            `, [userId, locationId, startAt, endAt, assignedBy, isOvertime, notes]);
+                INSERT INTO employee_shifts 
+                    (user_id, location_id, start_at, end_at, assigned_by, status, is_overtime, notes, 
+                     break_start_at, break_end_at, break_minutes, shift_template_id)
+                VALUES ($1, $2, $3, $4, $5, 'published', $6, $7, $8, $9, $10, $11)
+            `, [userId, locationId, startAt, endAt, assignedBy || null, isOvertime, notes || null,
+                breakStartAt || null, breakEndAt || null, breakMinutes || 0, shiftTemplateId || null]);
         }
 
         revalidatePath('/rrhh/horarios');
