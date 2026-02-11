@@ -249,14 +249,15 @@ export async function generateDraftScheduleV2(data: z.infer<typeof GenerateSchem
     const availableStaffRes = await query(`
         SELECT u.id, u.name, u.role 
         FROM users u 
-        WHERE u.status = 'ACTIVE' 
+        WHERE u.is_active = true 
+        AND (u.assigned_location_id = $3 OR u.assigned_location_id IS NULL)
         AND NOT EXISTS (
             SELECT 1 FROM time_off_requests t 
             WHERE t.user_id = u.id 
             AND t.status = 'APPROVED'
             AND (t.start_date <= $2 AND t.end_date >= $1)
         )
-    `, [weekStart, weekEndObj.toISOString().split('T')[0]]);
+    `, [weekStart, weekEndObj.toISOString().split('T')[0], locationId]);
     const staff = availableStaffRes.rows;
 
     if (staff.length === 0) return { success: false, error: 'No staff available' };
@@ -376,8 +377,155 @@ export async function getScheduleData(locationId: string, weekStart: string, wee
 }
 
 export async function getStaff(locationId: string) {
-    // Validar si locationId es necesario o traemos todos. Por ahora traemos todos los activos.
-    // Filtrar por location si existiera users.location_id
-    const res = await query("SELECT id, name, role FROM users WHERE status = 'ACTIVE' ORDER BY role, name");
+    const res = await query(
+        `SELECT id, name, role, assigned_location_id 
+         FROM users 
+         WHERE is_active = true 
+         AND (assigned_location_id = $1 OR assigned_location_id IS NULL)
+         ORDER BY role, name`,
+        [locationId]
+    );
     return res.rows;
+}
+
+/**
+ * Publicar todos los turnos draft de una semana
+ */
+export async function publishScheduleV2(locationId: string, weekStart: string) {
+    try {
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekEnd.getDate() + 7);
+        const weekEndStr = weekEnd.toISOString().split('T')[0];
+
+        const result = await query(`
+            UPDATE employee_shifts 
+            SET status = 'published', updated_at = NOW()
+            WHERE location_id = $1 
+            AND start_at >= $2 AND start_at < $3
+            AND status = 'draft'
+        `, [locationId, weekStart, weekEndStr]);
+
+        revalidatePath('/rrhh/horarios');
+        return { success: true, count: result.rowCount || 0 };
+    } catch (error) {
+        console.error('Error publishing schedule:', error);
+        return { success: false, error: 'Error al publicar horario' };
+    }
+}
+
+/**
+ * Eliminar una solicitud de time-off
+ */
+export async function deleteTimeOff(id: string) {
+    try {
+        await query('DELETE FROM time_off_requests WHERE id = $1', [id]);
+        revalidatePath('/rrhh/horarios');
+        return { success: true };
+    } catch (error) {
+        console.error('Error deleting time off:', error);
+        return { success: false, error: 'Error al eliminar ausencia' };
+    }
+}
+
+/**
+ * Resumen de horas semanales por empleado
+ */
+export async function getWeeklyHoursSummary(locationId: string, weekStart: string) {
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+    const weekEndStr = weekEnd.toISOString().split('T')[0];
+
+    const res = await query(`
+        SELECT 
+            s.user_id,
+            u.name as user_name,
+            COALESCE(SUM(EXTRACT(EPOCH FROM (s.end_at - s.start_at)) / 3600), 0) as total_hours,
+            COUNT(s.id) as shift_count,
+            sc.weekly_hours as contract_hours
+        FROM employee_shifts s
+        JOIN users u ON s.user_id = u.id
+        LEFT JOIN staff_contracts sc ON sc.user_id = s.user_id
+        WHERE s.location_id = $1 
+        AND s.start_at >= $2 AND s.start_at < $3
+        GROUP BY s.user_id, u.name, sc.weekly_hours
+        ORDER BY u.name
+    `, [locationId, weekStart, weekEndStr]);
+
+    return res.rows.map((r: any) => ({
+        userId: r.user_id,
+        userName: r.user_name,
+        totalHours: parseFloat(r.total_hours),
+        shiftCount: parseInt(r.shift_count),
+        contractHours: r.contract_hours || 45,
+        isOvertime: parseFloat(r.total_hours) > (r.contract_hours || 45)
+    }));
+}
+
+/**
+ * Copiar horario de la semana anterior
+ */
+export async function copyPreviousWeek(locationId: string, targetWeekStart: string) {
+    try {
+        const targetStart = new Date(targetWeekStart);
+        const prevStart = new Date(targetStart);
+        prevStart.setDate(prevStart.getDate() - 7);
+        const prevStartStr = prevStart.toISOString().split('T')[0];
+        const prevEnd = new Date(prevStart);
+        prevEnd.setDate(prevEnd.getDate() + 7);
+        const prevEndStr = prevEnd.toISOString().split('T')[0];
+
+        // Obtener turnos de la semana anterior
+        const prevShifts = await query(`
+            SELECT user_id, location_id, 
+                   start_at, end_at, 
+                   shift_template_id, notes, is_overtime
+            FROM employee_shifts 
+            WHERE location_id = $1 
+            AND start_at >= $2 AND start_at < $3
+            AND status = 'published'
+        `, [locationId, prevStartStr, prevEndStr]);
+
+        if (prevShifts.rows.length === 0) {
+            return { success: false, error: 'No hay turnos en la semana anterior' };
+        }
+
+        // Desplazar cada turno +7 días
+        const newShifts = prevShifts.rows.map((s: any) => {
+            const newStart = new Date(s.start_at);
+            newStart.setDate(newStart.getDate() + 7);
+            const newEnd = new Date(s.end_at);
+            newEnd.setDate(newEnd.getDate() + 7);
+            return {
+                user_id: s.user_id,
+                location_id: s.location_id,
+                start_at: newStart.toISOString(),
+                end_at: newEnd.toISOString(),
+                status: 'draft',
+                shift_template_id: s.shift_template_id,
+                is_overtime: s.is_overtime || false
+            };
+        });
+
+        await query(`
+            INSERT INTO employee_shifts (user_id, location_id, start_at, end_at, status, shift_template_id, is_overtime)
+            SELECT 
+                x.user_id, x.location_id, (x.start_at)::timestamptz, (x.end_at)::timestamptz, 
+                x.status, x.shift_template_id, x.is_overtime
+            FROM json_to_recordset($1) AS x(
+                user_id text, location_id uuid, start_at text, end_at text, 
+                status text, shift_template_id uuid, is_overtime boolean
+            )
+            WHERE NOT EXISTS (
+                SELECT 1 FROM employee_shifts existing 
+                WHERE existing.user_id = x.user_id 
+                AND existing.start_at = (x.start_at)::timestamptz
+            )
+        `, [JSON.stringify(newShifts)]);
+
+        revalidatePath('/rrhh/horarios');
+        return { success: true, count: newShifts.length };
+    } catch (error) {
+        console.error('Error copying previous week:', error);
+        return { success: false, error: 'Error al copiar semana anterior' };
+    }
 }

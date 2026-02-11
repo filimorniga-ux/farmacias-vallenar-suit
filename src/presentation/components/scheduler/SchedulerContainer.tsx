@@ -22,15 +22,28 @@ import { TimeOffModal } from './TimeOffModal';
 import { TemplateManagerModal } from './TemplateManagerModal';
 import { ScheduleNavigator } from './ScheduleNavigator';
 import { ShiftCard } from './ShiftCard';
-import { Settings2 } from 'lucide-react';
+import { Settings2, Copy, Send, Wand2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { upsertShiftV2, generateDraftScheduleV2 } from '@/actions/scheduler-v2';
+import { upsertShiftV2, generateDraftScheduleV2, publishScheduleV2, copyPreviousWeek } from '@/actions/scheduler-v2';
+
+// Timezone helper
+const TIMEZONE = 'America/Santiago';
+
+function toSantiagoISO(day: string, time: string): string {
+    // Construct a proper ISO string for Chile timezone
+    // day = 'YYYY-MM-DD', time = 'HH:MM' or 'HH:MM:SS'
+    const timeStr = time.length === 5 ? `${time}:00` : time;
+    // Create date in Santiago context then convert to ISO
+    const dt = new Date(`${day}T${timeStr}`);
+    return dt.toISOString();
+}
 
 interface SchedulerContainerProps {
     initialShifts: any[];
     templates: any[];
     staff: any[];
     timeOffs: any[];
+    hoursSummary: any[];
     locationId: string;
     weekStart: Date;
 }
@@ -40,6 +53,7 @@ export function SchedulerContainer({
     templates,
     staff,
     timeOffs,
+    hoursSummary,
     locationId,
     weekStart
 }: SchedulerContainerProps) {
@@ -58,7 +72,7 @@ export function SchedulerContainer({
     const sensors = useSensors(
         useSensor(PointerSensor, {
             activationConstraint: {
-                distance: 8, // Avoid accidental drags
+                distance: 8,
             },
         })
     );
@@ -68,6 +82,9 @@ export function SchedulerContainer({
     useEffect(() => {
         setIsMounted(true);
     }, []);
+
+    // Count draft shifts for publish button
+    const draftCount = initialShifts.filter(s => s.status === 'draft').length;
 
     const handleDragStart = (event: DragStartEvent) => {
         const { active } = event;
@@ -85,31 +102,30 @@ export function SchedulerContainer({
 
         if (!over) return;
 
-        // Dropped on a Grid Cell
         if (over.data.current?.type === 'CELL') {
-            const { day, userId } = over.data.current; // Target Cell Info
-            const draggedData = active.data.current; // Source Item Info
+            const { day, userId } = over.data.current;
+            const draggedData = active.data.current;
 
             if (!draggedData) return;
 
             if (draggedData.type === 'TEMPLATE') {
-                // Creating new shift from Template
                 const template = draggedData.template;
 
-                // Construct timestamps
-                const startDate = new Date(`${day}T${template.start_time}`);
-                const endDate = new Date(`${day}T${template.end_time}`);
+                const startISO = toSantiagoISO(day, template.start_time.slice(0, 5));
+                let endISO = toSantiagoISO(day, template.end_time.slice(0, 5));
 
-                // Handle overnight crossing roughly for MVP
-                if (endDate <= startDate) {
-                    endDate.setDate(endDate.getDate() + 1);
+                // Handle overnight crossing
+                if (new Date(endISO) <= new Date(startISO)) {
+                    const nextDay = new Date(day);
+                    nextDay.setDate(nextDay.getDate() + 1);
+                    endISO = toSantiagoISO(format(nextDay, 'yyyy-MM-dd'), template.end_time.slice(0, 5));
                 }
 
                 toast.promise(upsertShiftV2({
                     userId,
                     locationId,
-                    startAt: startDate.toISOString(),
-                    endAt: endDate.toISOString(),
+                    startAt: startISO,
+                    endAt: endISO,
                     assignedBy: undefined,
                     notes: `Asignado desde ${template.name}`
                 }), {
@@ -119,15 +135,21 @@ export function SchedulerContainer({
                 });
 
             } else if (draggedData.type === 'SHIFT') {
-                // Moving existing shift
                 const shift = draggedData.shift;
                 const originalStart = new Date(shift.start_at);
                 const originalEnd = new Date(shift.end_at);
                 const duration = originalEnd.getTime() - originalStart.getTime();
 
-                // New Start Date (Target Day) + Original Time
-                const newStart = new Date(`${day}T${originalStart.toLocaleTimeString('es-CL', { hour12: false })}`);
-                const newEnd = new Date(newStart.getTime() + duration);
+                // Format original time in Santiago timezone
+                const originalTime = new Intl.DateTimeFormat('es-CL', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false,
+                    timeZone: TIMEZONE
+                }).format(originalStart);
+
+                const newStartISO = toSantiagoISO(day, originalTime);
+                const newEnd = new Date(new Date(newStartISO).getTime() + duration);
 
                 if (shift.user_id === userId && shift.start_at.startsWith(day)) {
                     return;
@@ -137,7 +159,7 @@ export function SchedulerContainer({
                     id: shift.id,
                     userId,
                     locationId,
-                    startAt: newStart.toISOString(),
+                    startAt: newStartISO,
                     endAt: newEnd.toISOString()
                 }), {
                     loading: 'Moviendo turno...',
@@ -159,6 +181,28 @@ export function SchedulerContainer({
         });
     };
 
+    const handlePublish = async () => {
+        if (draftCount === 0) {
+            toast.info('No hay borradores para publicar');
+            return;
+        }
+        if (!confirm(`¿Publicar ${draftCount} turno(s) en borrador?`)) return;
+
+        toast.promise(publishScheduleV2(locationId, format(weekStart, 'yyyy-MM-dd')), {
+            loading: 'Publicando horario...',
+            success: (data) => `${data.count} turno(s) publicado(s)`,
+            error: 'Error al publicar'
+        });
+    };
+
+    const handleCopyPrevWeek = async () => {
+        toast.promise(copyPreviousWeek(locationId, format(weekStart, 'yyyy-MM-dd')), {
+            loading: 'Copiando semana anterior...',
+            success: (data) => `${data.count} turnos copiados como borrador`,
+            error: (err) => err?.message || 'Error al copiar'
+        });
+    };
+
     const handleDateChange = (newDate: Date) => {
         const dateStr = format(newDate, 'yyyy-MM-dd');
         const params = new URLSearchParams(window.location.search);
@@ -166,7 +210,7 @@ export function SchedulerContainer({
         router.push(`?${params.toString()}`);
     };
 
-    if (!isMounted) return null; // Prevent hydration mismatch
+    if (!isMounted) return null;
 
     return (
         <DndContext
@@ -177,7 +221,7 @@ export function SchedulerContainer({
         >
             <div className="flex flex-col h-[calc(100vh-64px)]">
                 {/* Toolbar */}
-                <div className="flex items-center justify-between p-4 border-b bg-white gap-4">
+                <div className="flex items-center justify-between p-3 border-b bg-white gap-3 flex-wrap">
                     <ScheduleNavigator
                         currentDate={weekStart}
                         viewMode={viewMode}
@@ -185,17 +229,53 @@ export function SchedulerContainer({
                         onDateChange={handleDateChange}
                     />
 
+                    {/* KPI Strip */}
+                    {hoursSummary.length > 0 && viewMode === 'WEEK' && (
+                        <div className="flex items-center gap-3 text-xs">
+                            <div className="flex items-center gap-1.5 px-2 py-1 bg-blue-50 border border-blue-200 rounded-md">
+                                <span className="font-medium text-blue-700">{initialShifts.length}</span>
+                                <span className="text-blue-600">turnos</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 px-2 py-1 bg-green-50 border border-green-200 rounded-md">
+                                <span className="font-medium text-green-700">{staff.length}</span>
+                                <span className="text-green-600">personas</span>
+                            </div>
+                            {draftCount > 0 && (
+                                <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-50 border border-amber-200 rounded-md animate-pulse">
+                                    <span className="font-medium text-amber-700">{draftCount}</span>
+                                    <span className="text-amber-600">borradores</span>
+                                </div>
+                            )}
+                            {hoursSummary.some(h => h.isOvertime) && (
+                                <div className="flex items-center gap-1.5 px-2 py-1 bg-red-50 border border-red-200 rounded-md">
+                                    <span className="font-medium text-red-700">⚠️</span>
+                                    <span className="text-red-600">Horas extra detectadas</span>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     <div className="flex gap-2 ml-auto">
-                        <Button variant="outline" onClick={() => setIsTemplateManagerOpen(true)}>
-                            <Settings2 className="mr-2 h-4 w-4" /> Plantillas
+                        <Button variant="outline" size="sm" onClick={() => setIsTemplateManagerOpen(true)}>
+                            <Settings2 className="mr-1.5 h-3.5 w-3.5" /> Plantillas
                         </Button>
-                        <Button variant="outline" onClick={() => setIsTimeOffOpen(true)} className="border-red-200 hover:bg-red-50 text-red-700">
+                        <Button variant="outline" size="sm" onClick={() => setIsTimeOffOpen(true)} className="border-red-200 hover:bg-red-50 text-red-700">
                             📅 Ausencia
                         </Button>
-                        <Button variant="outline" onClick={handleGenerateDraft}>
-                            🪄 Autocompletar
+                        <Button variant="outline" size="sm" onClick={handleCopyPrevWeek}>
+                            <Copy className="mr-1.5 h-3.5 w-3.5" /> Copiar Semana
                         </Button>
-                        <Button>Publicar</Button>
+                        <Button variant="outline" size="sm" onClick={handleGenerateDraft}>
+                            <Wand2 className="mr-1.5 h-3.5 w-3.5" /> Autocompletar
+                        </Button>
+                        <Button
+                            size="sm"
+                            onClick={handlePublish}
+                            disabled={draftCount === 0}
+                            className={draftCount > 0 ? 'bg-green-600 hover:bg-green-700' : ''}
+                        >
+                            <Send className="mr-1.5 h-3.5 w-3.5" /> Publicar{draftCount > 0 ? ` (${draftCount})` : ''}
+                        </Button>
                     </div>
                 </div>
 
@@ -209,6 +289,7 @@ export function SchedulerContainer({
                             staff={staff}
                             shifts={initialShifts}
                             timeOffs={timeOffs}
+                            hoursSummary={hoursSummary}
                             onShiftClick={setEditingShift}
                         />
                     ) : (

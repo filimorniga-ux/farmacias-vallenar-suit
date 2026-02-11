@@ -1,28 +1,30 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { startOfWeek } from 'date-fns';
+import { startOfWeek, format } from 'date-fns';
 import { Loader2 } from 'lucide-react';
-import { getScheduleData, getStaff } from '@/actions/scheduler-v2';
+import { getScheduleData, getStaff, getWeeklyHoursSummary } from '@/actions/scheduler-v2';
 import { SchedulerContainer } from '@/presentation/components/scheduler/SchedulerContainer';
+import { usePharmaStore } from '@/presentation/store/useStore';
 
 export default function SchedulerPage() {
-    // State for data
+    const currentLocationId = usePharmaStore(s => s.currentLocationId);
+    const locations = usePharmaStore(s => s.locations);
+    const currentLocationName = locations.find(l => l.id === currentLocationId)?.name || 'Todas las sucursales';
+
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState<{
         shifts: any[];
         templates: any[];
         timeOffs: any[];
         staff: any[];
+        hoursSummary: any[];
     } | null>(null);
 
-    // State for filters (lifted up or just initial)
-    // Default to current week
     const now = new Date();
-    // Monday start
     const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(now, { weekStartsOn: 1 }));
-    // Default location (could come from store)
-    const [locationId, setLocationId] = useState('00000000-0000-0000-0000-000000000000'); // Fallback
+
+    const locationId = currentLocationId || '00000000-0000-0000-0000-000000000000';
 
     useEffect(() => {
         let isMounted = true;
@@ -30,15 +32,15 @@ export default function SchedulerPage() {
         async function fetchData() {
             setLoading(true);
             try {
-                const weekStartStr = currentWeekStart.toISOString().split('T')[0];
+                const weekStartStr = format(currentWeekStart, 'yyyy-MM-dd');
                 const weekEnd = new Date(currentWeekStart);
                 weekEnd.setDate(weekEnd.getDate() + 7);
-                const weekEndStr = weekEnd.toISOString().split('T')[0];
+                const weekEndStr = format(weekEnd, 'yyyy-MM-dd');
 
-                // Parallel fetch
-                const [scheduleData, staffData] = await Promise.all([
+                const [scheduleData, staffData, hoursSummary] = await Promise.all([
                     getScheduleData(locationId, weekStartStr, weekEndStr),
-                    getStaff(locationId)
+                    getStaff(locationId),
+                    getWeeklyHoursSummary(locationId, weekStartStr)
                 ]);
 
                 if (isMounted) {
@@ -46,7 +48,8 @@ export default function SchedulerPage() {
                         shifts: scheduleData.shifts,
                         templates: scheduleData.templates,
                         timeOffs: scheduleData.timeOffs,
-                        staff: staffData
+                        staff: staffData,
+                        hoursSummary
                     });
                 }
             } catch (error) {
@@ -73,7 +76,9 @@ export default function SchedulerPage() {
         <div className="h-dvh bg-slate-50 flex flex-col pb-safe">
             <div className="flex-none p-4 pb-0">
                 <h1 className="text-2xl font-bold text-slate-800">Gestor de Horarios</h1>
-                <p className="text-sm text-slate-500">Planificación semanal de turnos</p>
+                <p className="text-sm text-slate-500">
+                    Planificación semanal de turnos — {currentLocationName}
+                </p>
             </div>
 
             <div className="flex-1 overflow-hidden">
@@ -82,6 +87,7 @@ export default function SchedulerPage() {
                     templates={data.templates}
                     timeOffs={data.timeOffs}
                     staff={data.staff}
+                    hoursSummary={data.hoursSummary}
                     locationId={locationId}
                     weekStart={currentWeekStart}
                 />

@@ -1,99 +1,110 @@
 'use client';
 
-import { useState, useTransition } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { useState, useEffect, useTransition } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea'; // Need to check if exists, otherwise Input
+import { Textarea } from '@/components/ui/textarea';
 import { upsertShiftV2, deleteShiftV2 } from '@/actions/scheduler-v2';
 import { toast } from 'sonner';
-import { Loader2, Trash2 } from 'lucide-react';
+import { Loader2, Trash2, Clock, FileText } from 'lucide-react';
+
+const TIMEZONE = 'America/Santiago';
+
+function formatTimeForInput(isoString: string): string {
+    return new Intl.DateTimeFormat('es-CL', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: TIMEZONE
+    }).format(new Date(isoString));
+}
+
+function formatDateForDisplay(isoString: string): string {
+    return new Intl.DateTimeFormat('es-CL', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        timeZone: TIMEZONE
+    }).format(new Date(isoString));
+}
 
 interface ShiftEditDialogProps {
-    shift: any; // Type needs refinement but using any for expediency with existing patterns
+    shift: any;
     isOpen: boolean;
     onClose: () => void;
 }
 
 export function ShiftEditDialog({ shift, isOpen, onClose }: ShiftEditDialogProps) {
     const [isPending, startTransition] = useTransition();
+    const [startTime, setStartTime] = useState('');
+    const [endTime, setEndTime] = useState('');
+    const [notes, setNotes] = useState('');
 
-    // Helper robusto para formatear HH:MM requeridos por input type="time"
-    const formatTimeForInput = (isoString?: string) => {
-        if (!isoString) return '';
-        try {
-            const date = new Date(isoString);
-            const hh = date.getHours().toString().padStart(2, '0');
-            const mm = date.getMinutes().toString().padStart(2, '0');
-            return `${hh}:${mm}`;
-        } catch (e) {
-            return '';
+    useEffect(() => {
+        if (shift) {
+            setStartTime(formatTimeForInput(shift.start_at));
+            setEndTime(formatTimeForInput(shift.end_at));
+            setNotes(shift.notes || '');
         }
-    };
+    }, [shift]);
 
-    const [start, setStart] = useState(formatTimeForInput(shift?.start_at));
-    const [end, setEnd] = useState(formatTimeForInput(shift?.end_at));
-    const [notes, setNotes] = useState(shift?.notes || '');
+    if (!shift) return null;
+
+    const durationHours = (new Date(shift.end_at).getTime() - new Date(shift.start_at).getTime()) / (1000 * 60 * 60);
+    const isDraft = shift.status === 'draft';
 
     const handleSave = () => {
-        if (!start || !end) {
-            toast.error('Debe ingresar hora de inicio y término');
-            return;
+        if (!startTime || !endTime) {
+            return toast.error('Hora de inicio y término son obligatorias');
+        }
+
+        const timeRegex = /^\d{2}:\d{2}$/;
+        if (!timeRegex.test(startTime) || !timeRegex.test(endTime)) {
+            return toast.error('Formato de hora inválido (HH:MM)');
+        }
+
+        // Reconstruct the date portion from the original shift's start_at, using Santiago timezone
+        const originalDate = new Intl.DateTimeFormat('en-CA', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            timeZone: TIMEZONE
+        }).format(new Date(shift.start_at));
+
+        const newStartISO = new Date(`${originalDate}T${startTime}:00`).toISOString();
+        let newEndISO = new Date(`${originalDate}T${endTime}:00`).toISOString();
+
+        // Handle overnight
+        if (new Date(newEndISO) <= new Date(newStartISO)) {
+            const nextDay = new Date(`${originalDate}T${endTime}:00`);
+            nextDay.setDate(nextDay.getDate() + 1);
+            newEndISO = nextDay.toISOString();
         }
 
         startTransition(async () => {
-            try {
-                // Use the original START date as the anchor for both times
-                // This prevents issues where the original end date was +1 day but the new shift shouldn't be
-                const baseDate = new Date(shift.start_at);
+            const res = await upsertShiftV2({
+                id: shift.id,
+                userId: shift.user_id,
+                locationId: shift.location_id,
+                startAt: newStartISO,
+                endAt: newEndISO,
+                notes: notes || undefined
+            });
 
-                // Helper to construct date from base + time string
-                const createDateFromTime = (base: Date, timeStr: string) => {
-                    const [hh, mm] = timeStr.split(':').map(Number);
-                    if (isNaN(hh) || isNaN(mm)) throw new Error('Hora inválida');
-                    const d = new Date(base);
-                    d.setHours(hh, mm, 0, 0);
-                    return d;
-                };
-
-                const newStartAt = createDateFromTime(baseDate, start);
-                const newEndAt = createDateFromTime(baseDate, end);
-
-                // Handle overnight: if end time is earlier than start time, it must be next day
-                if (newEndAt <= newStartAt) {
-                    newEndAt.setDate(newEndAt.getDate() + 1);
-                }
-
-                // Check for validity
-                if (isNaN(newStartAt.getTime()) || isNaN(newEndAt.getTime())) {
-                    throw new Error('Fecha generada inválida');
-                }
-
-                const res = await upsertShiftV2({
-                    id: shift.id,
-                    userId: shift.user_id,
-                    locationId: shift.location_id,
-                    startAt: newStartAt.toISOString(),
-                    endAt: newEndAt.toISOString(),
-                    notes
-                });
-
-                if (res.success) {
-                    toast.success('Turno actualizado');
-                    onClose();
-                } else {
-                    toast.error(res.error || 'Error al actualizar');
-                }
-            } catch (err) {
-                console.error(err);
-                toast.error('Error procesando las fechas');
+            if (res.success) {
+                toast.success('Turno actualizado');
+                onClose();
+            } else {
+                toast.error(res.error || 'Error al guardar');
             }
         });
     };
 
     const handleDelete = () => {
         if (!confirm('¿Eliminar este turno?')) return;
+
         startTransition(async () => {
             const res = await deleteShiftV2(shift.id);
             if (res.success) {
@@ -105,42 +116,93 @@ export function ShiftEditDialog({ shift, isOpen, onClose }: ShiftEditDialogProps
         });
     };
 
-    if (!shift) return null;
-
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogContent className="sm:max-w-[420px]">
                 <DialogHeader>
-                    <DialogTitle>Editar Turno</DialogTitle>
+                    <DialogTitle className="flex items-center gap-2">
+                        <Clock className="h-5 w-5" />
+                        Editar Turno
+                        {isDraft && (
+                            <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
+                                BORRADOR
+                            </span>
+                        )}
+                    </DialogTitle>
                     <DialogDescription>
-                        {shift.user_name}
+                        {shift.user_name && <span className="font-medium">{shift.user_name}</span>}
+                        {' — '}
+                        {formatDateForDisplay(shift.start_at)}
                     </DialogDescription>
                 </DialogHeader>
+
                 <div className="grid gap-4 py-4">
+                    {/* Duration display */}
+                    <div className="text-center p-3 bg-slate-50 rounded-lg border">
+                        <div className="text-2xl font-bold text-slate-800">
+                            {durationHours.toFixed(1)}h
+                        </div>
+                        <div className="text-xs text-muted-foreground">Duración actual</div>
+                    </div>
+
+                    {/* Time inputs */}
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                            <Label htmlFor="start">Inicio</Label>
-                            <Input id="start" type="time" value={start} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setStart(e.target.value)} />
+                            <Label className="text-xs font-semibold">Inicio</Label>
+                            <Input
+                                type="time"
+                                value={startTime}
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setStartTime(e.target.value)}
+                                className="text-center font-mono text-lg"
+                            />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="end">Término</Label>
-                            <Input id="end" type="time" value={end} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEnd(e.target.value)} />
+                            <Label className="text-xs font-semibold">Término</Label>
+                            <Input
+                                type="time"
+                                value={endTime}
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEndTime(e.target.value)}
+                                className="text-center font-mono text-lg"
+                            />
                         </div>
                     </div>
+
+                    {/* Notes */}
                     <div className="space-y-2">
-                        <Label htmlFor="notes">Notas</Label>
-                        <Input id="notes" value={notes} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNotes(e.target.value)} placeholder="Ej: Cubre colación" />
+                        <Label className="text-xs font-semibold flex items-center gap-1">
+                            <FileText className="h-3 w-3" /> Notas
+                        </Label>
+                        <Textarea
+                            value={notes}
+                            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNotes(e.target.value)}
+                            placeholder="Ej: Reemplazo por licencia de..."
+                            rows={2}
+                            className="text-sm"
+                        />
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex gap-2">
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={handleDelete}
+                            disabled={isPending}
+                            className="gap-1"
+                        >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Eliminar
+                        </Button>
+                        <div className="flex-1" />
+                        <Button variant="outline" size="sm" onClick={onClose}>
+                            Cancelar
+                        </Button>
+                        <Button size="sm" onClick={handleSave} disabled={isPending} className="gap-1">
+                            {isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                            Guardar
+                        </Button>
                     </div>
                 </div>
-                <DialogFooter className="flex justify-between sm:justify-between">
-                    <Button variant="destructive" size="icon" onClick={handleDelete} disabled={isPending}>
-                        <Trash2 className="h-4 w-4" />
-                    </Button>
-                    <Button onClick={handleSave} disabled={isPending}>
-                        {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Guardar Cambios
-                    </Button>
-                </DialogFooter>
             </DialogContent>
         </Dialog>
     );
