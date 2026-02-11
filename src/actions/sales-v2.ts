@@ -34,6 +34,7 @@ const SaleItemSchema = z.object({
     quantity: z.number().int().positive({ message: "Cantidad debe ser positiva" }),
     price: z.number().positive({ message: "Precio debe ser positivo" }),
     discount: z.number().min(0).default(0),
+    is_fractional: z.boolean().optional().default(false),
 });
 
 const CreateSaleSchema = z.object({
@@ -219,6 +220,7 @@ export async function createSaleSecure(params: {
         quantity: number;
         price: number;
         discount?: number;
+        is_fractional?: boolean;
     }>;
     paymentMethod: 'CASH' | 'DEBIT' | 'CREDIT' | 'TRANSFER' | 'MIXED';
     customerRut?: string;
@@ -542,12 +544,17 @@ export async function createSaleSecure(params: {
 
             // Decrementar stock SOLO si es un producto de inventario (no manual)
             if (!isManualItem) {
+                const stockColumn = item.is_fractional ? 'units_stock_actual' : 'quantity_real';
+
                 await client.query(`
                     UPDATE inventory_batches 
-                    SET quantity_real = quantity_real - $1,
+                    SET ${stockColumn} = ${stockColumn} - $1,
                         updated_at = NOW()
                     WHERE id = $2
                 `, [item.quantity, item.batch_id]);
+
+                // Debug log
+                console.log(`📉 [createSaleSecure] Stock updated: ${stockColumn} - ${item.quantity} for batch ${item.batch_id}`);
             }
         }
 
@@ -1046,13 +1053,13 @@ export async function getSalesHistorySecure(params: {
         // (Logic unchanged)
         let dateCondition = '';
         if (startDate) {
-            dateCondition += `(s.timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Santiago')::date >= $${paramIndex}::date`;
+            dateCondition += `(s.timestamp AT TIME ZONE 'America/Santiago')::date >= $${paramIndex}::date`;
             queryParams.push(startDate);
             paramIndex++;
         }
         if (endDate) {
             if (dateCondition) dateCondition += ' AND ';
-            dateCondition += `(s.timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Santiago')::date <= $${paramIndex}::date`;
+            dateCondition += `(s.timestamp AT TIME ZONE 'America/Santiago')::date <= $${paramIndex}::date`;
             queryParams.push(endDate);
             paramIndex++;
         }

@@ -7,7 +7,7 @@ interface QuickFractionModalProps {
     isOpen: boolean;
     onClose: () => void;
     product: InventoryBatch | null;
-    onConfirm: (quantity: number, price: number) => void;
+    onConfirm: (quantity: number) => void;
 }
 
 const QuickFractionModal: React.FC<QuickFractionModalProps> = ({ isOpen, onClose, product, onConfirm }) => {
@@ -33,7 +33,7 @@ const QuickFractionModal: React.FC<QuickFractionModalProps> = ({ isOpen, onClose
     const handleConfirm = (e: React.FormEvent) => {
         e.preventDefault();
         if (qty > 0) {
-            onConfirm(qty, totalPrice);
+            onConfirm(qty);
             onClose();
         }
     };
@@ -62,8 +62,19 @@ const QuickFractionModal: React.FC<QuickFractionModalProps> = ({ isOpen, onClose
                     <div className="mb-8 text-center">
                         <h4 className="text-lg font-bold text-slate-800 mb-1">{product.name}</h4>
                         <p className="text-slate-500 text-sm mb-4">{product.dci} - {product.laboratory}</p>
-                        <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 rounded-full font-bold text-sm">
-                            <span>Precio Unitario: ${unitPrice.toLocaleString()}</span>
+
+                        <div className="flex flex-col gap-2 items-center">
+                            <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 rounded-xl font-bold text-sm border border-blue-100">
+                                <span>Precio Unitario: ${unitPrice.toLocaleString()} / un</span>
+                            </div>
+                            <div className="flex gap-4">
+                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+                                    Cajas: {product.stock_actual}
+                                </div>
+                                <div className="text-[10px] font-bold text-blue-500 uppercase tracking-tighter">
+                                    Unidades Sueltas: {product.units_stock_actual || 0}
+                                </div>
+                            </div>
                         </div>
                     </div>
 

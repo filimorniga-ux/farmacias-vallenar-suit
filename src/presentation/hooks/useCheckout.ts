@@ -8,6 +8,7 @@
  */
 
 import { useState, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
@@ -39,6 +40,7 @@ export interface UseCheckoutOptions {
 }
 
 export function useCheckout(options: UseCheckoutOptions = {}) {
+    const queryClient = useQueryClient();
     const {
         cart,
         currentShift,
@@ -154,6 +156,9 @@ export function useCheckout(options: UseCheckoutOptions = {}) {
                 options.onError?.(error);
                 return { success: false, error };
             }
+
+            // [FIX] Invalidate inventory cache immediately after sale
+            queryClient.invalidateQueries({ queryKey: ['inventory'] });
 
             // Auto-print if enabled
             if (autoPrint) {

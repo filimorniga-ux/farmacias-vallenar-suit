@@ -52,6 +52,8 @@ interface PharmaState {
 
     // Data Sync
     isLoading: boolean;
+    isLoadingLocations: boolean; // Tracking for locations specifically
+    isFetchingTerminals: boolean; // Tracking for terminals specifically
     isInitialized: boolean;
     syncData: (options?: { force?: boolean }) => Promise<void>;
 
@@ -82,7 +84,7 @@ interface PharmaState {
     cart: CartItem[];
     currentCustomer: Customer | null;
     setCustomer: (customer: Customer | null) => void;
-    addToCart: (batch: InventoryBatch, quantity: number) => void;
+    addToCart: (batch: InventoryBatch, quantity: number, options?: { is_fractional?: boolean; price?: number; name?: string }) => void;
     updateCartItemQuantity: (sku: string, quantity: number) => void;
     addManualItem: (item: { description: string, price: number, quantity: number, sku?: string, is_fractional?: boolean, original_name?: string, active_ingredients?: string[] }) => void;
     removeFromCart: (sku: string) => void;
@@ -538,7 +540,7 @@ export const usePharmaStore = create<PharmaState>()(
                                 expenses: get().expenses
                             });
 
-                            set({ isInitialized: true });
+                            set({ isInitialized: true, isLoadingLocations: false });
                             console.log('✅ Background Sync Complete');
 
                         } catch (bgError) {
@@ -557,6 +559,8 @@ export const usePharmaStore = create<PharmaState>()(
 
 
             // --- Inventory ---
+            isLoadingLocations: false,
+            isFetchingTerminals: false,
             locations: [], // Initialize locations
             inventory: [],
             setInventory: (inventory) => set({ inventory }),
@@ -870,24 +874,30 @@ export const usePharmaStore = create<PharmaState>()(
                     .filter(batch => batch.sku === sku && batch.location_id === locationId)
                     .reduce((sum, batch) => sum + batch.stock_actual, 0);
             },
-            addToCart: (item, quantity = 1) => set((state) => {
-                const existingItem = state.cart.find(i => i.id === item.id);
+            addToCart: (item, quantity = 1, options) => set((state) => {
+                const isFractional = options?.is_fractional ?? false;
+                const itemId = isFractional ? `${item.id}-F` : item.id;
+
+                const existingItem = state.cart.find(i => i.id === itemId);
                 if (existingItem) {
                     return {
                         cart: state.cart.map(i =>
-                            i.id === item.id ? { ...i, quantity: i.quantity + quantity } : i
+                            i.id === itemId ? { ...i, quantity: i.quantity + quantity } : i
                         )
                     };
                 }
                 const newItem: CartItem = {
-                    id: item.id,
+                    id: itemId,
+                    batch_id: item.id, // Referencia al lote real
                     sku: item.sku,
-                    name: item.name,
-                    price: item.price,
+                    name: options?.name ?? (isFractional ? `🔵 ${item.name} (u)` : item.name),
+                    price: options?.price ?? (isFractional ? (item.fractional_price || Math.ceil(item.price / (item.units_per_box || 1))) : item.price),
                     quantity: quantity,
                     allows_commission: item.allows_commission,
                     active_ingredients: item.active_ingredients,
-                    cost_price: item.cost_price || 0
+                    cost_price: item.cost_price || 0,
+                    is_fractional: isFractional,
+                    original_name: item.name
                 };
                 return { cart: [...state.cart, newItem] };
             }),
@@ -1417,6 +1427,7 @@ export const usePharmaStore = create<PharmaState>()(
             currentShift: null,
             dailyShifts: [],
             fetchLocations: async () => {
+                set({ isLoadingLocations: true });
                 try {
                     const { getLocationsSecure } = await import('../../actions/locations-v2');
                     const result = await getLocationsSecure();
@@ -1425,12 +1436,14 @@ export const usePharmaStore = create<PharmaState>()(
                     }
                 } catch (error) {
                     console.error('Failed to fetch locations', error);
+                } finally {
+                    set({ isLoadingLocations: false });
                 }
             },
 
             terminals: [],
             fetchTerminals: async (locationId) => {
-                set({ isLoading: true });
+                set({ isFetchingTerminals: true });
                 try {
                     // Logic to fetch terminals for a specific location
                     // Can reuse action or direct API
@@ -1446,7 +1459,7 @@ export const usePharmaStore = create<PharmaState>()(
                 } catch (e) {
                     console.error('Failed to fetch terminals', e);
                 } finally {
-                    set({ isLoading: false });
+                    set({ isFetchingTerminals: false });
                 }
             },
 
@@ -1524,14 +1537,21 @@ export const usePharmaStore = create<PharmaState>()(
 
                     if (!res.success) {
                         import('sonner').then(({ toast }) => toast.error('Error al forzar cierre: ' + res.error));
-                        // Re-fetch to sync true state
-                        get().fetchTerminals(get().currentLocationId || get().terminals.find(t => t.id === id)?.location_id || '');
+                        // Re-fetch to sync true state (Rollback optimistic)
+                        const locId = get().currentLocationId || get().terminals.find(t => t.id === id)?.location_id;
+                        if (locId) await get().fetchTerminals(locId);
                     } else {
                         import('sonner').then(({ toast }) => toast.success('Caja cerrada forzosamente'));
+                        // CRITICAL SYNC: Ensure store is perfectly synced with DB after explicit action
+                        const locId = get().currentLocationId || get().terminals.find(t => t.id === id)?.location_id;
+                        if (locId) await get().fetchTerminals(locId);
                     }
                 } catch (error) {
                     console.error(error);
                     import('sonner').then(({ toast }) => toast.error('Error de conexión'));
+                    // Re-fetch to sync true state (Rollback optimistic)
+                    const locId = get().currentLocationId || get().terminals.find(t => t.id === id)?.location_id;
+                    if (locId) await get().fetchTerminals(locId);
                 }
             },
             updateTerminal: async (id, updates, adminPin) => {
@@ -1550,14 +1570,21 @@ export const usePharmaStore = create<PharmaState>()(
                     }, adminPin);
 
                     if (!res.success) {
-                        // Rollback (requires fetching previous state, or just alerting)
+                        // Rollback optimistic update
                         import('sonner').then(({ toast }) => toast.error('Error al actualizar caja: ' + res.error));
-                        // Ideally revert optimistic update here
+                        const locId = get().currentLocationId || get().terminals.find(t => t.id === id)?.location_id;
+                        if (locId) await get().fetchTerminals(locId);
                     } else {
                         import('sonner').then(({ toast }) => toast.success('Caja actualizada'));
+                        // CRITICAL SYNC: Ensure store is perfectly synced with DB after explicit action
+                        const locId = get().currentLocationId || get().terminals.find(t => t.id === id)?.location_id;
+                        if (locId) await get().fetchTerminals(locId);
                     }
                 } catch (error) {
                     console.error(error);
+                    // Re-fetch to sync true state (Rollback optimistic)
+                    const locId = get().currentLocationId || get().terminals.find(t => t.id === id)?.location_id;
+                    if (locId) await get().fetchTerminals(locId);
                 }
             },
             cashMovements: [],

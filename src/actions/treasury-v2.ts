@@ -202,7 +202,7 @@ async function getFullSessionSecure() {
  * Valida PIN de un usuario autorizado usando bcrypt
  */
 async function validateAuthorizationPin(
-    client: any,
+    client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, any>[] }> },
     pin: string,
     requiredRoles: readonly string[] = AUTHORIZED_ROLES
 ): Promise<{ valid: boolean; authorizedBy?: { id: string; name: string; role: string }; error?: string }> {
@@ -264,7 +264,7 @@ async function validateAuthorizationPin(
         }
 
         return { valid: false, error: 'PIN de autorización inválido' };
-    } catch (error) {
+    } catch (error: unknown) {
         logger.error({ error }, 'Error validating authorization PIN');
         return { valid: false, error: 'Error validando PIN' };
     }
@@ -274,7 +274,7 @@ async function validateAuthorizationPin(
  * Inserta registro de auditoría para operaciones financieras
  */
 async function insertFinancialAudit(
-    client: any,
+    client: { query: (sql: string, params?: unknown[]) => Promise<any> },
     params: {
         userId: string;
         authorizedById?: string;
@@ -283,8 +283,8 @@ async function insertFinancialAudit(
         entityType: string;
         entityId: string;
         amount: number;
-        oldValues?: Record<string, any>;
-        newValues?: Record<string, any>;
+        oldValues?: Record<string, unknown>;
+        newValues?: Record<string, unknown>;
         description?: string;
     }
 ) {
@@ -313,7 +313,7 @@ async function insertFinancialAudit(
             }),
             params.description || null
         ]);
-    } catch (auditError: any) {
+    } catch (auditError: unknown) {
         // Log pero no fallar la transacción principal
         logger.warn({ err: auditError }, 'Financial audit log insertion failed (non-critical)');
     }
@@ -489,21 +489,23 @@ export async function transferFundsSecure(params: {
 
         return { success: true, transferId };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
 
-        if (error.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
+        const err = error as { code?: string; message?: string };
+
+        if (err.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
             logger.warn({ fromAccountId }, '⏳ [Treasury v2] Account locked by another process');
             return { success: false, error: ERROR_MESSAGES.ACCOUNT_LOCKED };
         }
 
-        if (error.code === ERROR_CODES.SERIALIZATION_FAILURE) {
+        if (err.code === ERROR_CODES.SERIALIZATION_FAILURE) {
             logger.warn({ fromAccountId }, '🔄 [Treasury v2] Serialization conflict');
             return { success: false, error: ERROR_MESSAGES.SERIALIZATION_ERROR };
         }
 
         logger.error({ err: error }, '❌ [Treasury v2] Transfer failed');
-        return { success: false, error: error.message || 'Error procesando transferencia' };
+        return { success: false, error: err.message || 'Error procesando transferencia' };
 
     } finally {
         client.release();
@@ -644,15 +646,17 @@ export async function depositToBankSecure(params: {
 
         return { success: true, depositId };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
 
-        if (error.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
+        const err = error as { code?: string; message?: string };
+
+        if (err.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
             return { success: false, error: ERROR_MESSAGES.ACCOUNT_LOCKED };
         }
 
         logger.error({ err: error }, '❌ [Treasury v2] Bank deposit failed');
-        return { success: false, error: error.message || 'Error procesando depósito' };
+        return { success: false, error: err.message || 'Error procesando depósito' };
 
     } finally {
         client.release();
@@ -781,15 +785,17 @@ export async function confirmRemittanceSecure(params: {
 
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
 
-        if (error.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
+        const err = error as { code?: string; message?: string };
+
+        if (err.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
             return { success: false, error: 'Remesa bloqueada por otro proceso. Intente en unos segundos.' };
         }
 
         logger.error({ err: error }, '❌ [Treasury v2] Remittance confirmation failed');
-        return { success: false, error: error.message || 'Error confirmando remesa' };
+        return { success: false, error: err.message || 'Error confirmando remesa' };
 
     } finally {
         client.release();
@@ -915,15 +921,17 @@ export async function createCashMovementSecure(params: {
 
         return { success: true, movementId };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
 
-        if (error.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
+        const err = error as { code?: string; message?: string };
+
+        if (err.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
             return { success: false, error: 'Sesión bloqueada por otro proceso. Intente en unos segundos.' };
         }
 
         logger.error({ err: error }, '❌ [Treasury v2] Cash movement creation failed');
-        return { success: false, error: error.message || 'Error creando movimiento de caja' };
+        return { success: false, error: err.message || 'Error creando movimiento de caja' };
 
     } finally {
         client.release();
@@ -940,7 +948,7 @@ export async function createCashMovementSecure(params: {
 export async function getTransactionHistory(
     accountId: string,
     options: { limit?: number; offset?: number; startDate?: Date; endDate?: Date } = {}
-): Promise<{ success: boolean; data?: any[]; total?: number; error?: string }> {
+): Promise<{ success: boolean; data?: TreasuryTransaction[]; total?: number; error?: string }> {
 
     if (!z.string().uuid().safeParse(accountId).success) {
         return { success: false, error: 'ID de cuenta inválido' };
@@ -950,7 +958,7 @@ export async function getTransactionHistory(
 
     try {
         let whereClause = 'WHERE account_id = $1';
-        const params: any[] = [accountId];
+        const params: unknown[] = [accountId];
 
         if (startDate) {
             params.push(startDate);
@@ -982,9 +990,9 @@ export async function getTransactionHistory(
             LIMIT $${params.length - 1} OFFSET $${params.length}
         `, params);
 
-        return { success: true, data: dataRes.rows, total };
+        return { success: true, data: dataRes.rows as TreasuryTransaction[], total };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ err: error, accountId }, 'Error fetching transaction history');
         return { success: false, error: 'Error obteniendo historial de transacciones' };
     }
@@ -996,7 +1004,7 @@ export async function getTransactionHistory(
 export async function getFinancialSummary(locationId: string): Promise<{
     success: boolean;
     data?: {
-        accounts: any[];
+        accounts: FinancialAccount[];
         pendingRemittances: number;
         todayMovements: number;
         monthlyTotal: number;
@@ -1040,14 +1048,14 @@ export async function getFinancialSummary(locationId: string): Promise<{
         return {
             success: true,
             data: {
-                accounts: accountsRes.rows,
+                accounts: accountsRes.rows as FinancialAccount[],
                 pendingRemittances: parseInt(remittancesRes.rows[0].count, 10),
                 todayMovements: Number(todayRes.rows[0].today_total),
                 monthlyTotal: Number(monthRes.rows[0].monthly_total)
             }
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ err: error, locationId }, 'Error fetching financial summary');
         return { success: false, error: 'Error obteniendo resumen financiero' };
     }
@@ -1110,7 +1118,7 @@ export async function getRemittanceHistorySecure(
             LEFT JOIN users rec ON r.received_by = rec.id
             WHERE 1=1
         `;
-        const sqlParams: any[] = [];
+        const sqlParams: unknown[] = [];
 
         if (params?.locationId) {
             sqlParams.push(params.locationId);
@@ -1139,7 +1147,7 @@ export async function getRemittanceHistorySecure(
 
         return { success: true, data: result.rows };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Treasury] getRemittanceHistorySecure error');
         return { success: false, error: 'Error obteniendo historial de remesas' };
     }
@@ -1154,7 +1162,7 @@ export async function getRemittanceHistorySecure(
  */
 export async function getFinancialAccountsSecure(
     locationId: string
-): Promise<{ success: boolean; data?: any[]; error?: string }> {
+): Promise<{ success: boolean; data?: FinancialAccount[]; error?: string }> {
     try {
         // Validación de sesión
         const session = await getSession();
@@ -1164,7 +1172,7 @@ export async function getFinancialAccountsSecure(
 
         // RBAC: Solo gerentes pueden ver todas las ubicaciones
         // Cajeros/vendedores solo ven su ubicación
-        const effectiveLocationId = MANAGER_ROLES.includes(session.role as any)
+        const effectiveLocationId = MANAGER_ROLES.includes(session.role as typeof MANAGER_ROLES[number])
             ? locationId
             : session.locationId || locationId;
 
@@ -1177,7 +1185,7 @@ export async function getFinancialAccountsSecure(
         );
 
         logger.info({ locationId: effectiveLocationId, count: res.rows.length }, '[Treasury] getFinancialAccountsSecure');
-        return { success: true, data: res.rows };
+        return { success: true, data: res.rows as FinancialAccount[] };
 
     } catch (error) {
         logger.error({ error }, '[Treasury] getFinancialAccountsSecure error');
@@ -1191,7 +1199,7 @@ export async function getFinancialAccountsSecure(
 export async function getTreasuryTransactionsSecure(
     accountId: string,
     limit: number = 50
-): Promise<{ success: boolean; data?: any[]; error?: string }> {
+): Promise<{ success: boolean; data?: TreasuryTransaction[]; error?: string }> {
     try {
         // Validación de sesión
         const session = await getSession();
@@ -1218,7 +1226,7 @@ export async function getTreasuryTransactionsSecure(
         );
 
         logger.info({ accountId, count: res.rows.length }, '[Treasury] getTreasuryTransactionsSecure');
-        return { success: true, data: res.rows };
+        return { success: true, data: res.rows as TreasuryTransaction[] };
 
     } catch (error) {
         logger.error({ error }, '[Treasury] getTreasuryTransactionsSecure error');
@@ -1231,7 +1239,7 @@ export async function getTreasuryTransactionsSecure(
  */
 export async function getPendingRemittancesSecure(
     locationId: string
-): Promise<{ success: boolean; data?: any[]; error?: string }> {
+): Promise<{ success: boolean; data?: Remittance[]; error?: string }> {
     try {
         // Validación de sesión
         const session = await getSession();
@@ -1240,7 +1248,7 @@ export async function getPendingRemittancesSecure(
         }
 
         // RBAC: Solo gerentes pueden ver todas las ubicaciones
-        const effectiveLocationId = MANAGER_ROLES.includes(session.role as any)
+        const effectiveLocationId = MANAGER_ROLES.includes(session.role as typeof MANAGER_ROLES[number])
             ? locationId
             : session.locationId || locationId;
 
@@ -1253,7 +1261,7 @@ export async function getPendingRemittancesSecure(
         );
 
         logger.info({ locationId: effectiveLocationId, count: res.rows.length }, '[Treasury] getPendingRemittancesSecure');
-        return { success: true, data: res.rows };
+        return { success: true, data: res.rows as Remittance[] };
 
     } catch (error) {
         logger.error({ error }, '[Treasury] getPendingRemittancesSecure error');
@@ -1338,7 +1346,7 @@ export interface AccountPayablePayment {
 export async function createAccountPayableSecure(
     data: z.infer<typeof CreateAccountPayableSchema>
 ): Promise<{ success: boolean; accountPayableId?: string; error?: string }> {
-    
+
     const validated = CreateAccountPayableSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message || 'Datos inválidos' };
@@ -1356,7 +1364,7 @@ export async function createAccountPayableSecure(
             'SELECT id, business_name FROM suppliers WHERE id = $1',
             [supplierId]
         );
-        
+
         if (supplierRes.rows.length === 0) {
             return { success: false, error: 'Proveedor no encontrado' };
         }
@@ -1366,7 +1374,7 @@ export async function createAccountPayableSecure(
             'SELECT id FROM accounts_payable WHERE supplier_id = $1 AND invoice_number = $2 AND status != $3',
             [supplierId, invoiceNumber, 'CANCELLED']
         );
-        
+
         if (duplicateRes.rows.length > 0) {
             return { success: false, error: 'Ya existe una factura con este número para este proveedor' };
         }
@@ -1400,15 +1408,15 @@ export async function createAccountPayableSecure(
         })]);
 
         logger.info({ accountPayableId, supplierId, invoiceNumber }, '✅ Cuenta por pagar creada');
-        
+
         revalidatePath('/finance/treasury');
         revalidatePath('/finanzas');
-        
+
         return { success: true, accountPayableId };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error, data: validated.data }, '❌ Error creando cuenta por pagar');
-        return { success: false, error: error.message || 'Error creando cuenta por pagar' };
+        return { success: false, error: error instanceof Error ? error.message : 'Error creando cuenta por pagar' };
     }
 }
 
@@ -1418,7 +1426,7 @@ export async function createAccountPayableSecure(
 export async function registerAccountPayablePaymentSecure(
     data: z.infer<typeof RegisterPaymentSchema>
 ): Promise<{ success: boolean; paymentId?: string; newBalance?: number; error?: string }> {
-    
+
     const validated = RegisterPaymentSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message || 'Datos inválidos' };
@@ -1435,7 +1443,7 @@ export async function registerAccountPayablePaymentSecure(
             'SELECT * FROM accounts_payable WHERE id = $1',
             [accountPayableId]
         );
-        
+
         if (apRes.rows.length === 0) {
             return { success: false, error: 'Cuenta por pagar no encontrada' };
         }
@@ -1446,7 +1454,7 @@ export async function registerAccountPayablePaymentSecure(
         if (ap.status === 'CANCELLED') {
             return { success: false, error: 'No se puede pagar una cuenta anulada' };
         }
-        
+
         if (ap.status === 'PAID') {
             return { success: false, error: 'Esta cuenta ya está pagada completamente' };
         }
@@ -1498,15 +1506,15 @@ export async function registerAccountPayablePaymentSecure(
         })]);
 
         logger.info({ paymentId, accountPayableId, amount, newBalance }, '✅ Pago registrado');
-        
+
         revalidatePath('/finance/treasury');
         revalidatePath('/finanzas');
-        
+
         return { success: true, paymentId, newBalance };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error, data: validated.data }, '❌ Error registrando pago');
-        return { success: false, error: error.message || 'Error registrando pago' };
+        return { success: false, error: error instanceof Error ? error.message : 'Error registrando pago' };
     }
 }
 
@@ -1524,7 +1532,7 @@ export async function getAccountsPayableSecure(
         offset?: number;
     }
 ): Promise<{ success: boolean; data?: AccountPayable[]; total?: number; error?: string }> {
-    
+
     try {
         const session = await getSession();
         if (!session) {
@@ -1532,12 +1540,12 @@ export async function getAccountsPayableSecure(
         }
 
         // Solo gerentes pueden ver todas las cuentas
-        if (!MANAGER_ROLES.includes(session.role as any)) {
+        if (!MANAGER_ROLES.includes(session.role as typeof MANAGER_ROLES[number])) {
             return { success: false, error: 'Acceso denegado' };
         }
 
         let whereClause = 'WHERE 1=1';
-        const sqlParams: any[] = [];
+        const sqlParams: unknown[] = [];
 
         if (params?.supplierId) {
             sqlParams.push(params.supplierId);
@@ -1602,10 +1610,10 @@ export async function getAccountsPayableSecure(
         `, sqlParams);
 
         logger.info({ count: dataRes.rows.length, total }, '[Treasury] getAccountsPayableSecure');
-        
-        return { success: true, data: dataRes.rows, total };
 
-    } catch (error: any) {
+        return { success: true, data: dataRes.rows as AccountPayable[], total };
+
+    } catch (error: unknown) {
         logger.error({ error }, '❌ Error obteniendo cuentas por pagar');
         return { success: false, error: 'Error obteniendo cuentas por pagar' };
     }
@@ -1707,7 +1715,7 @@ export async function getAccountsPayableSummarySecure(
             }
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '❌ Error obteniendo resumen de cuentas por pagar');
         return { success: false, error: 'Error obteniendo resumen' };
     }
@@ -1721,7 +1729,7 @@ export async function cancelAccountPayableSecure(
     reason: string,
     userId: string
 ): Promise<{ success: boolean; error?: string }> {
-    
+
     if (!z.string().uuid().safeParse(accountPayableId).success) {
         return { success: false, error: 'ID inválido' };
     }
@@ -1765,13 +1773,13 @@ export async function cancelAccountPayableSecure(
         `, [userId, accountPayableId, JSON.stringify(ap), JSON.stringify({ reason })]);
 
         logger.info({ accountPayableId, reason }, '✅ Cuenta por pagar anulada');
-        
+
         revalidatePath('/finance/treasury');
         revalidatePath('/finanzas');
-        
+
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '❌ Error anulando cuenta por pagar');
         return { success: false, error: 'Error anulando cuenta por pagar' };
     }
@@ -1783,7 +1791,7 @@ export async function cancelAccountPayableSecure(
 export async function getAccountPayablePaymentsSecure(
     accountPayableId: string
 ): Promise<{ success: boolean; data?: AccountPayablePayment[]; error?: string }> {
-    
+
     if (!z.string().uuid().safeParse(accountPayableId).success) {
         return { success: false, error: 'ID inválido' };
     }
@@ -1801,9 +1809,9 @@ export async function getAccountPayablePaymentsSecure(
             ORDER BY p.payment_date DESC, p.created_at DESC
         `, [accountPayableId]);
 
-        return { success: true, data: res.rows };
+        return { success: true, data: res.rows as AccountPayablePayment[] };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '❌ Error obteniendo pagos');
         return { success: false, error: 'Error obteniendo historial de pagos' };
     }

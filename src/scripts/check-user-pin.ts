@@ -11,48 +11,64 @@ const pool = new Pool({
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined
 });
 
-async function checkUserHelper() {
+const DEV_PIN = '1213';
+
+async function resetAllPinsToDev() {
     try {
-        console.log('Connecting to DB...');
+        console.log('🔌 Connecting to DB...');
         const client = await pool.connect();
         try {
-            console.log('🔎 Searching for "Gerente General 1" or similar...');
-
-            const result = await client.query(`
-                SELECT id, name, role, access_pin, is_active 
+            // 1. Show current state
+            const before = await client.query(`
+                SELECT id, name, role, access_pin, 
+                       access_pin_hash IS NOT NULL as has_hash, 
+                       is_active 
                 FROM users 
-                WHERE name ILIKE '%Gerente General%' 
-                OR role = 'GERENTE_GENERAL'
-                OR role = 'MANAGER'
+                ORDER BY role, name
             `);
 
-            console.log(`Found ${result.rowCount} users:`);
-            console.table(result.rows);
+            console.log(`\n📋 Found ${before.rowCount} users in the database:`);
+            console.table(before.rows);
 
-            // Check specifically for universal PIN
-            const invalidUsers = result.rows.filter(u => u.access_pin !== '1213');
-            if (invalidUsers.length > 0) {
-                console.log('⚠️ WARNING: The following users do NOT have PIN 1213:');
-                console.table(invalidUsers);
+            // 2. Update ALL users: set plaintext PIN and CLEAR hash
+            const updateResult = await client.query(`
+                UPDATE users 
+                SET access_pin = $1, 
+                    access_pin_hash = NULL 
+                WHERE access_pin != $1 
+                   OR access_pin_hash IS NOT NULL 
+                   OR access_pin IS NULL
+            `, [DEV_PIN]);
 
-                // FORCE UPDATE
-                console.log('🔄 Forcing update for these users...');
-                for (const u of invalidUsers) {
-                    await client.query('UPDATE users SET access_pin = $1 WHERE id = $2', ['1213', u.id]);
-                    console.log(`✅ Updated ${u.name} (${u.id}) to PIN 1213`);
-                }
+            console.log(`\n✅ Updated ${updateResult.rowCount} users to PIN '${DEV_PIN}'`);
+            console.log('🧹 Cleared all bcrypt hashes (access_pin_hash = NULL)');
+
+            // 3. Verify
+            const after = await client.query(`
+                SELECT id, name, role, access_pin, 
+                       access_pin_hash IS NOT NULL as has_hash
+                FROM users 
+                ORDER BY role, name
+            `);
+
+            console.log('\n📋 Final state:');
+            console.table(after.rows);
+
+            const allGood = after.rows.every(u => u.access_pin === DEV_PIN && !u.has_hash);
+            if (allGood) {
+                console.log(`\n🎉 All ${after.rowCount} users now have PIN '${DEV_PIN}' (no hash blocking)`);
             } else {
-                console.log('✅ All matched users have PIN 1213.');
+                console.log('\n⚠️ WARNING: Some users may still have issues');
             }
 
         } finally {
             client.release();
         }
     } catch (e) {
-        console.error('Error:', e);
+        console.error('❌ Error:', e);
     } finally {
         await pool.end();
     }
 }
 
-checkUserHelper();
+resetAllPinsToDev();

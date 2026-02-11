@@ -22,7 +22,7 @@ interface CashManagementModalProps {
 }
 
 const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClose, mode }) => {
-    const { currentShift, closeShift, registerCashMovement, getShiftMetrics, user } = usePharmaStore();
+    const { currentShift, closeShift, registerCashMovement, getShiftMetrics, user, currentLocationId } = usePharmaStore();
 
     // Security State
     const [isSupervisorModalOpen, setIsSupervisorModalOpen] = useState(false);
@@ -486,6 +486,7 @@ const CashManagementModal: React.FC<CashManagementModalProps> = ({ isOpen, onClo
                 onClose={() => setHistoryModalConfig({ isOpen: false })}
                 initialPaymentMethod={historyModalConfig.paymentMethod}
                 sessionId={currentShift?.id} // Pass current session for data isolation
+                locationId={(currentLocationId || user?.assigned_location_id) || undefined}
             />
 
             <AnimatePresence>

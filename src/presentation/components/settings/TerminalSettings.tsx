@@ -13,7 +13,9 @@ export const TerminalSettings: React.FC = () => {
         updateTerminal,
         fetchLocations,
         fetchTerminals,
-        isLoading
+        isLoading,
+        isLoadingLocations,
+        isFetchingTerminals
     } = usePharmaStore();
 
     const activeLocations = locations.filter(l => l.is_active !== false);
@@ -24,7 +26,10 @@ export const TerminalSettings: React.FC = () => {
     // Filter/View State
     // Initialize from localStorage to persist selection across reloads
     const [selectedViewLocationId, setSelectedViewLocationId] = useState<string>(() => {
-        return localStorage.getItem('settings_view_location_id') || '';
+        if (typeof window !== 'undefined') {
+            return localStorage.getItem('settings_view_location_id') || '';
+        }
+        return '';
     });
 
     // Form State
@@ -34,42 +39,31 @@ export const TerminalSettings: React.FC = () => {
     const [allowedUsers, setAllowedUsers] = useState<string[]>([]); // Array of IDs
     const [adminPin, setAdminPin] = useState('');
 
-    // Initial Load
+    // Initial Load: Just fetch locations once
     useEffect(() => {
-        const load = async () => {
-            await fetchLocations();
-        };
-        load();
-    }, []);
+        fetchLocations();
+    }, [fetchLocations]);
 
-    // Set default view location and fetch terminals when locations load
+    // Consolidate charging: fetch terminals ONLY if location changes OR if we haven't loaded yet
     useEffect(() => {
-        if (locations.length > 0) {
-            if (!selectedViewLocationId) {
-                // If nothing in localstorage, default to first active
+        if (!isLoadingLocations && locations.length > 0) {
+            let targetLoc = selectedViewLocationId;
+
+            if (!targetLoc) {
                 const defaultLoc = activeLocations[0]?.id;
-                // Only set if we actually found one
                 if (defaultLoc) {
+                    targetLoc = defaultLoc;
                     setSelectedViewLocationId(defaultLoc);
+                    localStorage.setItem('settings_view_location_id', defaultLoc);
                 }
-            } else {
-                // FORCE: If stored location is already valid, force FETCH now.
-                // The previous logic relied on the 'persistence' effect, but that only triggers if 'selectedViewLocationId' *changes* or on mount.
-                // If it's the same as default state, it might not fire. Or if hydration is tricky.
-                console.log('🔄 Initial Load: Fetching terminals for', selectedViewLocationId);
-                fetchTerminals(selectedViewLocationId);
+            }
+
+            if (targetLoc) {
+                console.log('🔄 TerminalSettings - Effect: Fetching terminals for:', targetLoc);
+                fetchTerminals(targetLoc);
             }
         }
-    }, [locations]); // Run when locations load
-
-    // Persist to LocalStorage and Fetch whenever it changes
-    useEffect(() => {
-        if (selectedViewLocationId) {
-            localStorage.setItem('settings_view_location_id', selectedViewLocationId);
-            console.log('🔄 View Location Changed: Fetching terminals for', selectedViewLocationId);
-            fetchTerminals(selectedViewLocationId);
-        }
-    }, [selectedViewLocationId]);
+    }, [isLoadingLocations, locations.length, selectedViewLocationId]); // Fetch only when these change
 
     const openCreateModal = () => {
         setEditingTerminal(null);
@@ -128,12 +122,6 @@ export const TerminalSettings: React.FC = () => {
         );
     };
 
-    // 🕵️‍♂️ DEBUG: Frontend Rendering Check
-    console.log('--- DEBUG RENDER ---');
-    console.log('Selected Location:', selectedViewLocationId);
-    console.log('Terminals in State:', terminals);
-    console.log('Is Loading:', isLoading);
-
     return (
         <div className="bg-white rounded-b-3xl shadow-sm border border-t-0 border-slate-200 overflow-hidden max-w-7xl p-8">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
@@ -152,7 +140,7 @@ export const TerminalSettings: React.FC = () => {
                         className="p-2 hover:bg-slate-100 rounded-full text-slate-500 hover:text-blue-600 transition-colors"
                         title="Refrescar lista"
                     >
-                        <RefreshCw size={20} className={isLoading ? 'animate-spin' : ''} />
+                        <RefreshCw size={20} className={isFetchingTerminals ? 'animate-spin' : ''} />
                     </button>
                 </div>
 
@@ -183,7 +171,7 @@ export const TerminalSettings: React.FC = () => {
             </div>
 
             {/* Empty State */}
-            {!isLoading && terminals.length === 0 && (
+            {!isFetchingTerminals && terminals.length === 0 && (
                 <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
                     <Monitor size={48} className="mx-auto text-slate-300 mb-4" />
                     <h3 className="text-lg font-bold text-slate-600">No hay cajas en esta sucursal</h3>
@@ -191,7 +179,7 @@ export const TerminalSettings: React.FC = () => {
                 </div>
             )}
 
-            {isLoading && terminals.length === 0 && (
+            {isFetchingTerminals && terminals.length === 0 && (
                 <div className="text-center py-12">
                     <RefreshCw className="animate-spin mx-auto text-blue-500 mb-2" size={32} />
                     <p className="text-slate-500">Cargando cajas...</p>

@@ -449,6 +449,7 @@ export async function createTerminalSecure(
 
         logger.info({ terminalId, name, locationId }, '💻 [Network] Terminal created');
         revalidatePath('/settings/organization');
+        revalidatePath('/settings');
         return { success: true, terminalId };
 
     } catch (error: any) {
@@ -523,6 +524,7 @@ export async function updateTerminalSecure(
 
         logger.info({ terminalId }, '💻 [Network] Terminal updated');
         revalidatePath('/settings/organization');
+        revalidatePath('/settings');
         return { success: true };
 
     } catch (error: any) {
@@ -581,6 +583,7 @@ export async function deleteTerminalSecure(
 
         logger.info({ terminalId }, '🗑️ [Network] Terminal deleted');
         revalidatePath('/settings/organization');
+        revalidatePath('/settings');
         return { success: true };
 
     } catch (error: any) {

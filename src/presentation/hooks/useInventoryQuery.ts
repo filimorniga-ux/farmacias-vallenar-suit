@@ -14,7 +14,7 @@ export const useInventoryQuery = (locationId?: string) => {
             return await TigerDataService.fetchInventory(locationId);
         },
         enabled: !!locationId, // Sólo ejecutar si hay locationId
-        staleTime: 1000 * 60 * 5, // 5 minutos de "frescura"
+        staleTime: 1000 * 30, // 30 seconds de "frescura"
         gcTime: 1000 * 60 * 60 * 24, // 24 horas de persistencia en disco
         refetchOnWindowFocus: false,
     });

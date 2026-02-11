@@ -6,9 +6,12 @@ import { formatSku } from '../../../lib/utils/inventory-utils';
 import ProductFormModal from './ProductFormModal';
 import ProductDeleteConfirm from './ProductDeleteConfirm';
 import PriceAdjustmentModal from './PriceAdjustmentModal';
+import { fractionateBatchSecure } from '../../../actions/inventory-v2';
+import { toast } from 'sonner';
+import { Scissors } from 'lucide-react';
 
 const ProductListPage: React.FC = () => {
-    const { inventory } = usePharmaStore();
+    const { inventory, user, syncData } = usePharmaStore();
 
     const [searchTerm, setSearchTerm] = useState('');
     const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
@@ -21,6 +24,7 @@ const ProductListPage: React.FC = () => {
     // Selection states
     const [editingBatch, setEditingBatch] = useState<InventoryBatch | undefined>();
     const [deletingBatch, setDeletingBatch] = useState<InventoryBatch | undefined>();
+    const [isFractionating, setIsFractionating] = useState(false);
 
     // Price Adjustment State
     const [priceAdjState, setPriceAdjState] = useState<{
@@ -292,36 +296,79 @@ const ProductListPage: React.FC = () => {
                                                                     </thead>
                                                                     <tbody>
                                                                         {group.batches.map(batch => (
-                                                                            <tr key={batch.id} className="hover:bg-slate-50">
-                                                                                <td className="py-3 pl-2 font-mono text-slate-600">{batch.lot_number || '---'}</td>
-                                                                                <td className="py-3 text-slate-600">
-                                                                                    {batch.expiry_date
-                                                                                        ? new Date(batch.expiry_date).toLocaleDateString()
-                                                                                        : '---'}
-                                                                                </td>
-                                                                                <td className="py-3 text-center font-bold text-slate-700">{batch.stock_actual}</td>
-                                                                                <td className="py-3 text-center text-slate-500">{batch.aisle || 'Bodega'}</td>
-                                                                                <td className="py-3 text-right pr-2">
-                                                                                    <div className="flex justify-end gap-2">
-                                                                                        <button
-                                                                                            onClick={() => {
-                                                                                                setEditingBatch(batch);
-                                                                                                setIsFormOpen(true);
-                                                                                            }}
-                                                                                            className="p-1 px-2 text-cyan-600 hover:bg-cyan-50 rounded border border-cyan-200 text-xs"
-                                                                                        >
-                                                                                            Editar
-                                                                                        </button>
-                                                                                        <button
-                                                                                            onClick={() => setDeletingBatch(batch)}
-                                                                                            className="p-1 px-2 text-red-600 hover:bg-red-50 rounded border border-red-200 text-xs"
-                                                                                        >
-                                                                                            Eliminar
-                                                                                        </button>
-                                                                                    </div>
-                                                                                </td>
-                                                                            </tr>
-                                                                        ))}
+                                                                            <React.Fragment key={batch.id}>
+                                                                                <tr className="hover:bg-slate-50">
+                                                                                    <td className="py-3 pl-2 font-mono text-slate-600">{batch.lot_number || '---'}</td>
+                                                                                    <td className="py-3 text-slate-600">
+                                                                                        {batch.expiry_date
+                                                                                            ? new Date(batch.expiry_date).toLocaleDateString()
+                                                                                            : '---'}
+                                                                                    </td>
+                                                                                    <td className="py-3 text-center font-bold text-slate-700">{batch.stock_actual}</td>
+                                                                                    <td className="py-3 text-center text-slate-500">{batch.aisle || 'Bodega'}</td>
+                                                                                    <td className="py-3 text-right pr-2">
+                                                                                        <div className="flex justify-end gap-2">
+                                                                                            {batch.units_per_box && batch.units_per_box > 1 && (
+                                                                                                <button
+                                                                                                    onClick={async () => {
+                                                                                                        if (!user?.id) return toast.error('Usuario no autenticado');
+                                                                                                        if (isFractionating) return;
+
+                                                                                                        if (!confirm(`¿Está seguro de abrir una caja de ${batch.name}? Se descontará 1 caja y se sumarán ${batch.units_per_box} unidades al stock suelto.`)) return;
+
+                                                                                                        setIsFractionating(true);
+                                                                                                        const res = await fractionateBatchSecure({ batchId: batch.id, userId: user.id });
+                                                                                                        setIsFractionating(false);
+
+                                                                                                        if (res.success) {
+                                                                                                            toast.success('Caja abierta correctamente');
+                                                                                                            syncData({ force: true });
+                                                                                                        } else {
+                                                                                                            toast.error(res.error || 'Error al fraccionar');
+                                                                                                        }
+                                                                                                    }}
+                                                                                                    disabled={isFractionating || batch.stock_actual <= 0}
+                                                                                                    className="p-1 px-2 text-indigo-600 hover:bg-indigo-50 rounded border border-indigo-200 text-xs flex items-center gap-1"
+                                                                                                    title="Fraccionar (Abrir Caja)"
+                                                                                                >
+                                                                                                    <Scissors size={12} />
+                                                                                                    Fraccionar
+                                                                                                </button>
+                                                                                            )}
+                                                                                            <button
+                                                                                                onClick={() => {
+                                                                                                    setEditingBatch(batch);
+                                                                                                    setIsFormOpen(true);
+                                                                                                }}
+                                                                                                className="p-1 px-2 text-cyan-600 hover:bg-cyan-50 rounded border border-cyan-200 text-xs"
+                                                                                            >
+                                                                                                Editar
+                                                                                            </button>
+                                                                                            <button
+                                                                                                onClick={() => setDeletingBatch(batch)}
+                                                                                                className="p-1 px-2 text-red-600 hover:bg-red-50 rounded border border-red-200 text-xs"
+                                                                                            >
+                                                                                                Eliminar
+                                                                                            </button>
+                                                                                        </div>
+                                                                                    </td>
+                                                                                </tr>
+                                                                                {batch.units_stock_actual && batch.units_stock_actual > 0 ? (
+                                                                                    <tr className="bg-blue-50/50 border-l-4 border-l-blue-400">
+                                                                                        <td className="py-2 pl-4 text-xs font-bold text-blue-600">
+                                                                                            STOCK FRACCIONADO (UNIDADES)
+                                                                                        </td>
+                                                                                        <td colSpan={2}></td>
+                                                                                        <td className="py-2 text-center text-xs text-slate-500">
+                                                                                            1 Caja = {batch.units_per_box} unid.
+                                                                                        </td>
+                                                                                        <td className="py-2 text-center font-bold text-blue-700">
+                                                                                            {batch.units_stock_actual} unid.
+                                                                                        </td>
+                                                                                        <td colSpan={2}></td>
+                                                                                    </tr>
+                                                                                ) : null}
+                                                                            </React.Fragment>))}
                                                                     </tbody>
                                                                 </table>
                                                             </div>

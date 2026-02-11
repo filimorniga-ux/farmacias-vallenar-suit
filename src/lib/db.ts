@@ -17,12 +17,14 @@ if (!process.env.DATABASE_URL) {
 }
 
 // Configuración robusta
+const isCloudDB = process.env.DATABASE_URL?.includes('tsdb.cloud.timescale.com');
+
 const connectionConfig = {
     connectionString: process.env.DATABASE_URL,
-    ssl: isProduction ? { rejectUnauthorized: false } : undefined, // Disable SSL for local Docker
-    max: 20, // Increased from 5 to 20
-    connectionTimeoutMillis: 60000,
-    idleTimeoutMillis: 30000,
+    ssl: (isProduction || isCloudDB) ? { rejectUnauthorized: false } : undefined,
+    max: 10, // Reduced from 20 to 10 to avoid connection limits in cloud tiers
+    connectionTimeoutMillis: 30000, // Reduced to 30s to fail faster and retry
+    idleTimeoutMillis: 10000, // Reduced to 10s to release clients faster
     keepAlive: true,
 };
 
@@ -46,16 +48,6 @@ if (isProduction) {
     pool.on('error', (err) => {
         console.error('🔥 [DB] Unexpected pool error in production:', err.message);
     });
-
-    // Test inicial de conexión en producción
-    pool.connect()
-        .then(client => {
-            console.log('✅ [DB] Production connection successful');
-            client.release();
-        })
-        .catch(err => {
-            console.error('❌ [DB] Production connection FAILED:', err.message);
-        });
 } else {
     if (!global.postgresPool) {
         console.log('🔌 Initializing PostgreSQL Pool (Dev)...');
@@ -67,11 +59,11 @@ if (isProduction) {
 
             // Test connection immediately
             global.postgresPool.on('error', (err) => {
-                console.error('🔥 Unexpected error on idle client', err);
+                console.error('🔥 Unexpected error on idle client', err.message);
             });
 
             global.postgresPool.connect().then(client => {
-                console.log('✅ Database connected successfully to:', connectionConfig.connectionString?.split('@')[1]);
+                console.log('✅ Database connected successfully');
                 client.release();
             }).catch(err => {
                 console.error('❌ FATAL: Could not connect to database:', err.message);
@@ -89,28 +81,60 @@ declare global {
     var postgresPool: Pool | undefined;
 }
 
-// Función Query Exportada
+// Función Query Exportada con Reintentos
 export async function query(text: string, params?: any[]) {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 1500;
     const start = Date.now();
-    try {
-        // AQUI ESTABA EL ERROR: Usamos 'pool!' para asegurar que no es null
-        const res = await pool.query(text, params);
-        const duration = Date.now() - start;
 
-        if (!isProduction) {
-            console.log('Ejecutando query', { text, duration, rows: res.rowCount });
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            const res = await pool.query(text, params);
+            const duration = Date.now() - start;
+
+            if (!isProduction && duration > 1000) {
+                console.log('⚠️ Query Lenta:', { duration, rows: res.rowCount, text: text.substring(0, 100) + '...' });
+            }
+            return res;
+        } catch (error: any) {
+            const duration = Date.now() - start;
+            const isLastAttempt = attempt === MAX_RETRIES;
+            const isTransientError = [
+                'ECONNREFUSED',
+                'ECONNRESET',
+                'ETIMEDOUT',
+                '57P01', // admin_shutdown
+                '57P02', // crash_shutdown
+                '57P03', // cannot_connect_now
+                '08001', // sql_client_unable_to_establish_sql_connection
+                '08003', // connection_does_not_exist
+                '08006', // connection_failure
+            ].includes(error.code) || error.message?.includes('aborted');
+
+            if (isLastAttempt || !isTransientError) {
+                console.error(`❌ [DB] Error Fatal (Intento ${attempt}/${MAX_RETRIES}):`, {
+                    message: error.message,
+                    code: error.code,
+                    pool: {
+                        total: pool.totalCount,
+                        idle: pool.idleCount,
+                        waiting: pool.waitingCount
+                    }
+                });
+                throw error;
+            }
+
+            console.warn(`⚠️ [DB] Reintentando query por error transitorio "${error.code || 'aborted'}" (Intento ${attempt}/${MAX_RETRIES}) en ${RETRY_DELAY}ms...`);
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempt)); // Exponential backoff light
         }
-        return res;
-    } catch (error) {
-        console.error('❌ Error Base de Datos:', error);
-        throw error;
     }
+    throw new Error('Explosión en query tras reintentos');
 }
 
 // Función Helper para obtener un cliente de la pool (para transacciones)
 export async function getClient() {
     const MAX_RETRIES = 3;
-    const RETRY_DELAY = 1000; // 1 segundo
+    const RETRY_DELAY = 1500;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
@@ -118,15 +142,15 @@ export async function getClient() {
             return client;
         } catch (error: any) {
             const isLastAttempt = attempt === MAX_RETRIES;
-            const isConnectionError = error.code === 'ECONNRESET' || error.message?.includes('ECONNRESET') || error.code === '57P03';
+            const isTransient = error.code === 'ECONNRESET' || error.code === 'ECONNREFUSED' || error.message?.includes('aborted');
 
-            if (isLastAttempt || !isConnectionError) {
+            if (isLastAttempt || !isTransient) {
                 console.error(`❌ [DB] Error obteniendo cliente (Intento ${attempt}/${MAX_RETRIES}):`, error.message);
                 throw error;
             }
 
-            console.warn(`⚠️ [DB] Fallo conexión (Intento ${attempt}/${MAX_RETRIES}). Reintentando en ${RETRY_DELAY}ms...`, error.message);
-            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+            console.warn(`⚠️ [DB] Reintentando conexión (Intento ${attempt}/${MAX_RETRIES})...`);
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempt));
         }
     }
     throw new Error('No se pudo obtener cliente de DB tras reintentos');

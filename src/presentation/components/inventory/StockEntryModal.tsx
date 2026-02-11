@@ -94,6 +94,9 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
         const product = inventory.find(p => p.sku === decodedText);
         if (product) {
             setSelectedProduct(product);
+            const initialPrice = product.price_sell_box || product.price || 0;
+            setEntryPrice(initialPrice);
+            setEntryCost(product.cost_net || 0);
             setStep('DETAILS');
             setTimeout(() => lotInputRef.current?.focus(), 100);
             toast.success('Producto Identificado');
@@ -144,6 +147,9 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
         const product = inventory.find(p => p.sku === scannedSku);
         if (product) {
             setSelectedProduct(product);
+            const initialPrice = product.price_sell_box || product.price || 0;
+            setEntryPrice(initialPrice);
+            setEntryCost(product.cost_net || 0);
             setStep('DETAILS');
             setTimeout(() => lotInputRef.current?.focus(), 100);
             toast.success('Producto Identificado');
@@ -189,7 +195,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                 expiryDate: expiryDate,
                 lotNumber: lot || undefined,
                 unitCost: entryCost > 0 ? entryCost : selectedProduct.cost_net,
-                salePrice: entryPrice > 0 ? entryPrice : selectedProduct.price_sell_box,
+                salePrice: entryPrice > 0 ? entryPrice : (selectedProduct.price_sell_box || selectedProduct.price || 0),
                 userId: user?.id || '00000000-0000-0000-0000-000000000000',
                 supplierId: supplierId || undefined,
                 invoiceNumber: invoiceNumber || undefined,
@@ -623,7 +629,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                             <div className="flex justify-between items-center mb-1">
                                                 <label className="block text-[10px] font-bold text-slate-400">Nuevo Precio Venta</label>
                                                 <span className="text-xs font-bold font-mono text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200 shadow-sm animate-pulse-subtle">
-                                                    Actual: ${selectedProduct.price_sell_box?.toLocaleString('es-CL') || 0}
+                                                    Actual: ${(selectedProduct.price_sell_box || selectedProduct.price || 0).toLocaleString('es-CL')}
                                                 </span>
                                             </div>
                                             <input
@@ -631,7 +637,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                                 className="w-full p-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-800 bg-white"
                                                 value={entryPrice || ''}
                                                 onChange={e => setEntryPrice(parseInt(e.target.value) || 0)}
-                                                placeholder={selectedProduct.price_sell_box?.toString()}
+                                                placeholder={(selectedProduct.price_sell_box || selectedProduct.price || 0).toString()}
                                             />
                                         </div>
                                     </div>

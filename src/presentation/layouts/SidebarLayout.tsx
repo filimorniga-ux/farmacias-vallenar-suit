@@ -3,9 +3,10 @@ import { useLocation, Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
     LayoutDashboard, ShoppingCart, Users, Settings, LogOut, X, Menu,
-    Package, BarChart3, Truck, UserCircle, Clock, Building2, MapPin, Wrench, RotateCcw, Landmark, FileSpreadsheet, Sparkles, MessageSquare
+    Package, BarChart3, Truck, UserCircle, Clock, Building2, MapPin, Wrench, RotateCcw, Landmark, FileSpreadsheet, Sparkles, MessageSquare, Calculator
 } from 'lucide-react';
 import ContextBadge from '../components/layout/ContextBadge';
+import ChileClock from '../components/layout/ChileClock';
 import { usePharmaStore } from '../store/useStore';
 import LocationSwitcher from '../components/layout/LocationSwitcher';
 import NotificationBell from '../components/notifications/NotificationBell';
@@ -15,6 +16,8 @@ import AppIcon, { AppThemeColor } from '../components/ui/AppIcon';
 import SyncStatusIndicator from '../components/ui/SyncStatusIndicator';
 import NotificationCenter from '../components/notifications/NotificationCenter';
 import { useNotificationStore } from '../store/useNotificationStore';
+import FloatingCalculator from '../components/util/FloatingCalculator';
+import { useCalculatorStore } from '../hooks/useCalculator';
 
 const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
     const { user, logout } = usePharmaStore();
@@ -23,6 +26,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [isLandscape, setIsLandscape] = useState(false);
     const { isCenterOpen, setCenterOpen } = useNotificationStore();
+    const openCalculator = useCalculatorStore(s => s.open);
 
     useEffect(() => {
         const checkOrientation = () => {
@@ -190,7 +194,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
             <main className="flex-1 flex flex-col h-full overflow-hidden relative pb-20 md:pb-0 bg-slate-50/50">
                 {/* Mobile Header */}
                 <header className="lg:hidden bg-white p-4 shadow-sm flex justify-between items-center z-40 border-b border-slate-100 sticky top-0">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                         <button
                             onClick={() => setIsMobileMenuOpen(true)}
                             className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg hidden md:block lg:hidden"
@@ -198,7 +202,6 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                             <Menu size={24} />
                         </button>
                         <img src="/logo-horizontal.png" alt="Farmacia Vallenar" className="h-8 object-contain" />
-                        {/* <span className="font-bold text-slate-800">Farmacias Vallenar</span> */}
                         <NotificationBell userRole={user?.role || 'ALL'} />
                         <button
                             onClick={handleRefresh}
@@ -206,6 +209,14 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                             title="Recargar Aplicación"
                         >
                             <RotateCcw size={20} />
+                        </button>
+                        <ChileClock variant="compact" />
+                        <button
+                            onClick={openCalculator}
+                            className="p-2 text-slate-500 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors"
+                            title="Calculadora"
+                        >
+                            <Calculator size={18} />
                         </button>
                     </div>
                     <div className="flex items-center gap-2 flex-1 justify-end min-w-0">
@@ -224,6 +235,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                 <header className="hidden lg:flex bg-white/80 backdrop-blur-md px-8 py-4 border-b border-slate-100 justify-between items-center z-40 gap-4">
                     {/* Portal Targets for Page-Specific Content (e.g. POS Search) */}
                     <div className="flex-1 flex items-center gap-4 min-w-0 mr-4">
+                        <ChileClock variant="full" />
                         <div id="header-search-portal" className="flex-1 max-w-xl" />
                         <div id="header-actions-portal" className="flex items-center gap-2" />
                     </div>
@@ -240,6 +252,13 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                         <SyncStatusIndicator />
                         <ContextBadge />
                         <NotificationBell userRole={user?.role || 'ALL'} />
+                        <button
+                            onClick={openCalculator}
+                            className="p-2 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-full transition-all duration-200"
+                            title="Calculadora"
+                        >
+                            <Calculator size={20} />
+                        </button>
                         <LocationSwitcher />
                     </div>
                 </header>
@@ -270,6 +289,9 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                     />
                 )}
             </main>
+
+            {/* Floating Calculator — available for all users */}
+            <FloatingCalculator />
         </div>
     );
 };

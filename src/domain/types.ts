@@ -121,6 +121,7 @@ export interface InventoryBatch {
     // Fractionation
     is_fractionable?: boolean;
     fractional_price?: number;
+    units_stock_actual?: number; // Stock de unidades sueltas
 
     // Sanitary Compliance
     unit_format_string?: string;

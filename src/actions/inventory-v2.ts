@@ -65,6 +65,11 @@ const TransferStockSchema = z.object({
     reason: z.string().min(3, { message: "Motivo requerido" }).max(500),
 });
 
+const FractionateBatchSchema = z.object({
+    batchId: UUIDSchema,
+    userId: z.string().min(1, { message: "ID de usuario requerido" }),
+});
+
 const ClearInventorySchema = z.object({
     locationId: UUIDSchema,
     userId: z.string().min(1, { message: "ID de usuario requerido" }),
@@ -791,6 +796,120 @@ export async function transferStockSecure(params: {
 }
 
 /**
+ * ✂️ Fracciona un lote: Abre una caja para venta por unidades
+ */
+export async function fractionateBatchSecure(params: {
+    batchId: string;
+    userId: string;
+}): Promise<{ success: boolean; error?: string }> {
+
+    const validation = FractionateBatchSchema.safeParse(params);
+    if (!validation.success) {
+        return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
+    }
+
+    const { batchId, userId } = validation.data;
+    const { pool } = await import('@/lib/db');
+    const { v4: uuidv4 } = await import('uuid');
+    const client = await pool.connect();
+
+    try {
+        logger.info({ batchId }, '✂️ [Inventory v2] Fractionating batch (opening box)');
+
+        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        // 1. Obtener y bloquear lote
+        const batchRes = await client.query(`
+            SELECT id, sku, name, quantity_real, units_stock_actual, units_per_box, location_id, warehouse_id
+            FROM inventory_batches 
+            WHERE id = $1
+            FOR UPDATE NOWAIT
+        `, [batchId]);
+
+        if (batchRes.rows.length === 0) {
+            throw new Error(ERROR_MESSAGES.BATCH_NOT_FOUND);
+        }
+
+        const batch = batchRes.rows[0];
+        const boxes = Number(batch.quantity_real);
+        const unitsPerBox = Number(batch.units_per_box || 1);
+
+        if (boxes < 1) {
+            throw new Error('No hay cajas suficientes para fraccionar');
+        }
+
+        if (unitsPerBox <= 1) {
+            throw new Error('Este producto no es fraccionable (unidades por caja <= 1)');
+        }
+
+        // 2. Realizar fraccionamiento
+        const newBoxes = boxes - 1;
+        const newUnits = Number(batch.units_stock_actual || 0) + unitsPerBox;
+
+        await client.query(`
+            UPDATE inventory_batches 
+            SET quantity_real = $1, 
+                units_stock_actual = $2,
+                updated_at = NOW() 
+            WHERE id = $3
+        `, [newBoxes, newUnits, batchId]);
+
+        // 3. Registrar movimiento
+        const movementId = uuidv4();
+        await client.query(`
+            INSERT INTO stock_movements (
+                id, sku, product_name, location_id, movement_type, 
+                quantity, stock_before, stock_after, 
+                timestamp, user_id, notes, batch_id, reference_type
+            ) VALUES (
+                $1::uuid, $2, $3, $4::uuid, 'ADJUSTMENT', 
+                -1, $5, $6, 
+                NOW(), $7::uuid, $8, $9::uuid, 'FRACTIONATION'
+            )
+        `, [
+            movementId,
+            batch.sku,
+            batch.name,
+            batch.warehouse_id || batch.location_id,
+            boxes,
+            newBoxes,
+            userId,
+            `Fraccionamiento: Se abrió una caja de ${unitsPerBox} unidades.`,
+            batchId
+        ]);
+
+        // 4. Auditoría
+        await insertInventoryAudit(client, {
+            userId,
+            locationId: batch.location_id,
+            actionCode: 'BATCH_FRACTIONATED',
+            entityType: 'INVENTORY_BATCH',
+            entityId: batchId,
+            quantity: 1,
+            oldValues: { boxes, units: batch.units_stock_actual },
+            newValues: { boxes: newBoxes, units: newUnits },
+            description: `Se abrió una caja para venta por detalle (${unitsPerBox} unidades)`
+        });
+
+        await client.query('COMMIT');
+
+        logger.info({ batchId, newBoxes, newUnits }, '✅ [Inventory v2] Batch fractionated successfully');
+        revalidatePath('/inventory');
+
+        return { success: true };
+
+    } catch (error: any) {
+        await client.query('ROLLBACK');
+        logger.error({ err: error }, '❌ [Inventory v2] Fractionation failed');
+        return { success: false, error: error.message || 'Error fraccionando lote' };
+
+    } finally {
+        client.release();
+    }
+}
+
+
+/**
  * ☢️ NUCLEAR DELETE: Elimina TODO el inventario de una sucursal
  * Requiere PIN de administrador y código de confirmación
  */
@@ -1017,6 +1136,9 @@ export async function getInventorySecure(
                     ib.quantity_real as stock_actual,
                     COALESCE(ib.stock_min, p.stock_minimo_seguridad, 5) as stock_min,
                     COALESCE(ib.sale_price, ib.price_sell_box, p.price) as price,
+                    COALESCE(ib.cost_net, p.cost_net, 0) as cost_net,
+                    COALESCE(ib.price_sell_box, p.price_sell_box, p.price) as price_sell_box,
+                    COALESCE(p.price_sell_unit, p.price) as price_sell_unit,
                     ib.expiry_date,
                     ib.lot_number,
                     ib.location_id,
@@ -1045,6 +1167,9 @@ export async function getInventorySecure(
                     0 as stock_actual,
                     COALESCE(p.stock_minimo_seguridad, 5) as stock_min,
                     p.price,
+                    COALESCE(p.cost_net, 0) as cost_net,
+                    COALESCE(p.price_sell_box, p.price) as price_sell_box,
+                    COALESCE(p.price_sell_unit, p.price) as price_sell_unit,
                     NULL as expiry_date,
                     NULL as lot_number,
                     NULL as location_id,
@@ -1075,6 +1200,9 @@ export async function getInventorySecure(
                     MAX(stock_min) as stock_min,
                     MAX(price) as price_max,
                     MIN(price) as price_min,
+                    MAX(cost_net) as cost_net_max,
+                    MAX(price_sell_box) as price_sell_box_max,
+                    MAX(price_sell_unit) as price_sell_unit_max,
                     MAX(source_system) as source_system,
                     MAX(created_at) as last_entry,
                     
@@ -1124,6 +1252,9 @@ export async function getInventorySecure(
             stock_min: Number(row.stock_min),
             price: Number(row.price_max), // Show Max Price or Range in UI
             price_min: Number(row.price_min),
+            cost_net: Number(row.cost_net_max),
+            price_sell_box: Number(row.price_sell_box_max),
+            price_sell_unit: Number(row.price_sell_unit_max),
             condition: row.condition || 'VD',
             is_express_entry: false,
             source_system: row.source_system,

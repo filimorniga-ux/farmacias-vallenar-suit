@@ -43,12 +43,15 @@ body {
 .pt-safe {
   padding-top: env(safe-area-inset-top);
 }
+
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom);
 }
+
 .pl-safe {
   padding-left: env(safe-area-inset-left);
 }
+
 .pr-safe {
   padding-right: env(safe-area-inset-right);
 }
@@ -57,8 +60,50 @@ body {
 .h-dvh {
   height: 100dvh;
 }
+
 .min-h-dvh {
   min-height: 100dvh;
+}
+
+/* WMS Native-feel utilities */
+.wms-content-scroll {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+/* Prevent text selection on interactive elements (native feel) */
+.no-select {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Sticky action bar for mobile */
+.wms-sticky-action {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  background: rgba(255, 255, 255, 0.85);
+  padding-bottom: env(safe-area-inset-bottom);
+  border-top: 1px solid rgba(226, 232, 240, 0.6);
+}
+
+/* Touch target enforcement — minimum 48px */
+.touch-target {
+  min-width: 48px;
+  min-height: 48px;
+}
+
+/* Native-like active press effect */
+.press-effect {
+  transition: transform 0.1s ease;
+}
+
+.press-effect:active {
+  transform: scale(0.96);
 }
 
 @layer base {
