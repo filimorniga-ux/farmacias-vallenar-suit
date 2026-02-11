@@ -489,7 +489,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                                                 <div className="text-right">
                                                     <span className="text-[10px] text-slate-500">Margen Actual</span>
                                                     <span className="block text-sm font-bold text-slate-400">
-                                                        {calculateMargin(product?.price || 0, product?.cost_net || product?.price_cost || 0, true)}%
+                                                        {calculateMargin(product?.price || 0, product?.cost_net || 0, true)}%
                                                     </span>
                                                 </div>
                                             </div>

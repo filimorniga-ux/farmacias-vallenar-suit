@@ -132,7 +132,7 @@ const UnifiedReception: React.FC<UnifiedReceptionProps> = ({ isOpen, onClose, sh
 
     return (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-dvh max-h-[90vh] flex flex-col">
                 {/* Header */}
                 <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-2xl">
                     <div>
@@ -238,7 +238,7 @@ const UnifiedReception: React.FC<UnifiedReceptionProps> = ({ isOpen, onClose, sh
                                                                 type="number"
                                                                 value={received.quantity}
                                                                 onChange={(e) => handleQuantityChange(item.id, parseInt(e.target.value) || 0)}
-                                                                className={`w-16 text-center font-bold border rounded py-1 focus:ring-2 outline-none ${received.quantity !== item.quantity
+                                                                className={`w-16 text-center font-bold border rounded py-1 focus:ring-2 outline-none text-base ${received.quantity !== item.quantity
                                                                     ? 'border-amber-300 text-amber-700 focus:ring-amber-200'
                                                                     : 'border-gray-200 text-gray-800 focus:ring-blue-200'
                                                                     }`}
@@ -339,8 +339,8 @@ const UnifiedReception: React.FC<UnifiedReceptionProps> = ({ isOpen, onClose, sh
                                         <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'PHOTO')} />
                                     </label>
                                     {photos.map((url, idx) => (
-                                        <div key={idx} className="flex-shrink-0 w-32 h-32 rounded-xl border border-gray-200 overflow-hidden relative group">
-                                            <img src={url} alt="Evidence" className="w-full h-full object-cover" />
+                                        <div key={idx} className="flex-shrink-0 w-32 h-32 md:w-40 md:h-40 rounded-xl border border-gray-200 overflow-hidden relative group">
+                                            <img src={url} alt="Evidence" className="w-full h-full object-cover max-h-full" />
                                             <button
                                                 onClick={() => setPhotos(photos.filter((_, i) => i !== idx))}
                                                 className="absolute top-2 right-2 bg-red-500 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"

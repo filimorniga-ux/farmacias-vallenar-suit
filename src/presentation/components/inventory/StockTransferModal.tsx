@@ -108,7 +108,7 @@ const StockTransferModal: React.FC<StockTransferModalProps> = ({ isOpen, onClose
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col h-dvh max-h-[90vh]">
 
                 {/* Header */}
                 <div className="bg-slate-900 p-4 flex justify-between items-center text-white shrink-0">
@@ -155,7 +155,7 @@ const StockTransferModal: React.FC<StockTransferModalProps> = ({ isOpen, onClose
                                 <input
                                     type="text"
                                     placeholder="Nombre o SKU..."
-                                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-base"
                                     value={searchTerm}
                                     onChange={e => setSearchTerm(e.target.value)}
                                     autoFocus

@@ -44,7 +44,7 @@ const ShipmentReceptionModal: React.FC<ShipmentReceptionModalProps> = ({ isOpen,
 
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl h-dvh max-h-[90vh] overflow-hidden flex flex-col">
                 <div className="p-6 border-b border-slate-100 flex justify-between items-center">
                     <div>
                         <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
@@ -78,7 +78,7 @@ const ShipmentReceptionModal: React.FC<ShipmentReceptionModalProps> = ({ isOpen,
                                     <td className="px-4 py-3 text-center">
                                         <input
                                             type="number"
-                                            className="w-16 p-1 border rounded text-center font-bold"
+                                            className="w-16 p-1 border rounded text-center font-bold text-base"
                                             value={item.receivedQty}
                                             onChange={(e) => {
                                                 const newItems = [...receivedItems];
