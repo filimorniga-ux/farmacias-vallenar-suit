@@ -135,18 +135,26 @@ export default function CajaPage() {
                             setSearchResults(res.data);
                             return; // Success
                         }
+                        // Log server-side errors for debugging
+                        if (!res.success) {
+                            console.warn('⚠️ [Caja] Búsqueda falló:', res.error, '| locationId:', effectiveLocationId);
+                        }
                     }
 
-                    // Fallback to Local Search (if offline or API failed/returned empty but we have local data?)
-                    // Actually, if online returns empty, it usually means no results. But if offline, we MUST use local.
+                    // Fallback to Local Search (offline or API failed)
                     if (!isOnline) {
                         const localInventory = usePharmaStore.getState().inventory;
                         const localResults = searchProductsLocal(searchTerm, localInventory);
                         setSearchResults(localResults);
                     } else {
-                        // If online and no results (and no error caught), keeps empty from previous step or clears
-                        // If here, means res.success false or no data.
-                        setSearchResults([]);
+                        // Online but server action failed - try local fallback too
+                        const localInventory = usePharmaStore.getState().inventory;
+                        if (localInventory.length > 0) {
+                            const localResults = searchProductsLocal(searchTerm, localInventory);
+                            setSearchResults(localResults);
+                        } else {
+                            setSearchResults([]);
+                        }
                     }
                 } catch (err) {
                     console.error('Search error, trying local:', err);
@@ -158,12 +166,15 @@ export default function CajaPage() {
                     setIsSearching(false);
                 }
             } else {
+                if (searchTerm.trim().length >= 2 && !effectiveLocationId) {
+                    console.warn('⚠️ [Caja] Búsqueda omitida: sin locationId. Store:', currentLocationId, '| Local:', localLocationId);
+                }
                 setSearchResults([]);
             }
         }, 500);
 
         return () => clearTimeout(timer);
-    }, [searchTerm, currentLocationId, isOnline]);
+    }, [searchTerm, currentLocationId, localLocationId, isOnline]);
 
 
     // 3. Agregar al Carrito (Resolviendo Batch con Fallback)

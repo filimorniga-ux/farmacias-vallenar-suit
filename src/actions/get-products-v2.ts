@@ -71,22 +71,23 @@ export async function getProductsSecure(
     try {
         const canSeeStock = MANAGER_ROLES.includes(session.role);
 
+        // Robust query: uses COALESCE for columns that may not exist in all environments
+        // Avoids referencing ib.barcode and p.is_active directly to prevent schema mismatch errors
         const sql = `
-            SELECT 
+            SELECT
                 p.id, p.sku, p.name, '' as description,
                 COALESCE(p.format, 'Unidad') as format, l.name as location_name,
                 ${canSeeStock ? 'COALESCE(SUM(ib.quantity_real), 0) as stock,' : ''}
-                COALESCE(MAX(ib.sale_price), MAX(p.price_sell_box), 0) as price
+                COALESCE(MAX(ib.sale_price), MAX(p.price), 0) as price
             FROM products p
             LEFT JOIN inventory_batches ib ON p.id::text = ib.product_id::text AND ib.location_id::text = $2
             LEFT JOIN locations l ON l.id::text = $2
-            WHERE (p.name ILIKE $1 OR p.sku ILIKE $1 OR ib.barcode = $3)
-            AND p.is_active = true
+            WHERE (p.name ILIKE $1 OR p.sku ILIKE $1)
             GROUP BY p.id, p.sku, p.name, l.name, p.format
             LIMIT 20
         `;
 
-        const result = await query(sql, [`%${sanitizedTerm}%`, locationId, term]);
+        const result = await query(sql, [`%${sanitizedTerm}%`, locationId]);
 
         const data: ProductResult[] = result.rows.map((row: any) => ({
             id: row.id,
@@ -102,7 +103,7 @@ export async function getProductsSecure(
         return { success: true, data };
 
     } catch (error: any) {
-        logger.error({ error }, '[Products] Search error');
-        return { success: false, error: 'Error en búsqueda' };
+        logger.error({ error: error.message, stack: error.stack }, '[Products] Search error');
+        return { success: false, error: `Error en búsqueda: ${error.message}` };
     }
 }
