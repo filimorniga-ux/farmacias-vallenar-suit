@@ -1155,9 +1155,9 @@ export async function getInventorySecure(
                 UNION ALL
                 
                 -- 2. Products not in batches (Zero Stock)
-                SELECT 
+                SELECT
                     NULL as batch_id, -- No batch
-                    p.id as product_id,
+                    p.id::text as product_id,
                     p.sku,
                     p.name,
                     p.dci,
@@ -1187,7 +1187,7 @@ export async function getInventorySecure(
                 )
             ),
             grouped_inventory AS (
-                SELECT 
+                SELECT
                     COALESCE(product_id, sku, name) as group_key,
                     MAX(product_id) as product_id,
                     MAX(sku) as sku,
