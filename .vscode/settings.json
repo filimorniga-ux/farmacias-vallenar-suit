@@ -1,0 +1,54 @@
+{
+    "mcpServers": {
+        "github": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-github"
+            ],
+            "env": {
+                "GITHUB_PERSONAL_ACCESS_TOKEN": "${env:GITHUB_TOKEN}"
+            }
+        },
+        "timescale": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-postgres",
+                "postgres://tsdbadmin:sx0c226s5wbwh8ry@o1fxkrx8c7.m1xugm0lj9.tsdb.cloud.timescale.com:35413/tsdb?sslmode=require"
+            ]
+        },
+        "vercel": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "vercel-mcp",
+                "${env:VERCEL_API_KEY}"
+            ]
+        }
+    },
+    "java.enabled": false,
+    "java.errors.incompleteClasspath.severity": "ignore",
+    "java.project.resourceFilters": [
+        "node_modules",
+        ".git"
+    ],
+    "files.exclude": {
+        "**/.DS_Store": true,
+        "**/node_modules/@capacitor/android": true,
+        "**/android/capacitor-cordova-android-plugins": true
+    },
+    "yaml.schemas": {
+        "https://json.schemastore.org/github-workflow.json": ".github/workflows/*.yml"
+    },
+    "files.watcherExclude": {
+        "**/node_modules/**": true,
+        "**/android/**": true,
+        "**/ios/**": true
+    },
+    "java.import.exclusions": [
+        "**/node_modules/**",
+        "**/android/**"
+    ],
+    "css.lint.unknownAtRules": "ignore"
+}
