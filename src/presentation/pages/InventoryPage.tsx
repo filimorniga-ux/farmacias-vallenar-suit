@@ -579,14 +579,22 @@ const InventoryPage: React.FC = () => {
     const canDelete = user?.role === 'MANAGER' || user?.role === 'ADMIN';
     const canQuickAdjust = user?.role === 'MANAGER' || user?.role === 'ADMIN' || user?.role === 'GERENTE_GENERAL';
 
-    // Mobile Detection
-    const [isMobile, setIsMobile] = useState(false);
+    // Mobile Detection — mobile-first (true por defecto para evitar flash de vista desktop en Android)
+    // En landscape ancho (≥768px) → vista desktop; en portrait siempre → vista mobile
+    const [isMobile, setIsMobile] = useState(true);
 
     useEffect(() => {
-        const checkMobile = () => setIsMobile(window.innerWidth < 768);
+        const checkMobile = () => {
+            const isLandscape = window.innerWidth > window.innerHeight;
+            setIsMobile(!isLandscape || window.innerWidth < 768);
+        };
         checkMobile();
         window.addEventListener('resize', checkMobile);
-        return () => window.removeEventListener('resize', checkMobile);
+        window.addEventListener('orientationchange', checkMobile);
+        return () => {
+            window.removeEventListener('resize', checkMobile);
+            window.removeEventListener('orientationchange', checkMobile);
+        };
     }, []);
 
     const handleScan = (code: string) => {
@@ -830,6 +838,7 @@ const InventoryPage: React.FC = () => {
 
             {/* Data Grid (Desktop) & Cards (Mobile) */}
             <InventoryList
+                key={isMobile ? 'mobile' : 'desktop'}
                 items={inventoryData}
                 isMobile={isMobile}
                 user={user}
