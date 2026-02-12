@@ -255,24 +255,24 @@ export function SchedulerContainer({
                         </div>
                     )}
 
-                    <div className="flex gap-2 ml-auto">
-                        <Button variant="outline" size="sm" onClick={() => setIsTemplateManagerOpen(true)}>
+                    <div className="flex gap-2 ml-auto overflow-x-auto scrollbar-hide">
+                        <Button variant="outline" size="sm" onClick={() => setIsTemplateManagerOpen(true)} className="shrink-0">
                             <Settings2 className="mr-1.5 h-3.5 w-3.5" /> Plantillas
                         </Button>
-                        <Button variant="outline" size="sm" onClick={() => setIsTimeOffOpen(true)} className="border-red-200 hover:bg-red-50 text-red-700">
+                        <Button variant="outline" size="sm" onClick={() => setIsTimeOffOpen(true)} className="border-red-200 hover:bg-red-50 text-red-700 shrink-0">
                             📅 Ausencia
                         </Button>
-                        <Button variant="outline" size="sm" onClick={handleCopyPrevWeek}>
+                        <Button variant="outline" size="sm" onClick={handleCopyPrevWeek} className="shrink-0">
                             <Copy className="mr-1.5 h-3.5 w-3.5" /> Copiar Semana
                         </Button>
-                        <Button variant="outline" size="sm" onClick={handleGenerateDraft}>
+                        <Button variant="outline" size="sm" onClick={handleGenerateDraft} className="shrink-0">
                             <Wand2 className="mr-1.5 h-3.5 w-3.5" /> Autocompletar
                         </Button>
                         <Button
                             size="sm"
                             onClick={handlePublish}
                             disabled={draftCount === 0}
-                            className={draftCount > 0 ? 'bg-green-600 hover:bg-green-700' : ''}
+                            className={`shrink-0 ${draftCount > 0 ? 'bg-green-600 hover:bg-green-700' : ''}`}
                         >
                             <Send className="mr-1.5 h-3.5 w-3.5" /> Publicar{draftCount > 0 ? ` (${draftCount})` : ''}
                         </Button>
@@ -280,7 +280,7 @@ export function SchedulerContainer({
                 </div>
 
                 {/* Content */}
-                <div className="flex flex-1 overflow-hidden">
+                <div className="flex flex-1 overflow-hidden relative">
                     {viewMode === 'WEEK' && <ShiftTemplatePalette templates={templates} />}
 
                     {viewMode === 'WEEK' ? (

@@ -46,10 +46,6 @@ Al invocar este skill, **DEBES** leer y aplicar inmediatamente las reglas conten
     - *Regla*: America/Santiago para todo. Prohibido `new Date()` sin procesar.
     - [Referencia](.agent/skills/timezone-santiago/SKILL.md)
 
-9. **Remotion**: `remotion-best-practices`
-    - *Regla*: Animaciones fluidas, composiciones atómicas y alto rendimiento.
-    - [Referencia](.agent/skills/remotion-best-practices/SKILL.md)
-
 ## Workflow de Razonamiento Unificado
 
 Cada vez que recibas una instrucción bajo este modo, tu proceso mental debe ser:
@@ -62,7 +58,6 @@ Cada vez que recibas una instrucción bajo este modo, tu proceso mental debe ser
 6. **Filtro de UX**: "¿Los inputs numéricos y RUTs funcionan fluido?"
 7. **Filtro de Tiempo**: "¿Estoy usando la hora de Chile (Santiago)?"
 8. **Filtro de Marca**: "¿Los colores y textos coinciden con Farmacias Vallenar?"
-9. **Filtro de Video**: "¿Estoy optimizando el rendimiento de Remotion y usando composiciones atómicas?"
 
 ## Output Esperado
 

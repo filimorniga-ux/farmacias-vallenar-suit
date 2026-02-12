@@ -7,7 +7,7 @@
                 "@modelcontextprotocol/server-github"
             ],
             "env": {
-                "GITHUB_PERSONAL_ACCESS_TOKEN": "${env:GITHUB_TOKEN}"
+                "GITHUB_PERSONAL_ACCESS_TOKEN": "REPLACE_WITH_YOUR_PAT"
             }
         },
         "timescale": {
@@ -15,16 +15,18 @@
             "args": [
                 "-y",
                 "@modelcontextprotocol/server-postgres",
-                "postgres://tsdbadmin:sx0c226s5wbwh8ry@o1fxkrx8c7.m1xugm0lj9.tsdb.cloud.timescale.com:35413/tsdb?sslmode=require"
+                "postgres://tsdbadmin:PASSWORD@HOST:PORT/tsdb?sslmode=require"
             ]
         },
         "vercel": {
             "command": "npx",
             "args": [
                 "-y",
-                "vercel-mcp",
-                "${env:VERCEL_API_KEY}"
-            ]
+                "@modelcontextprotocol/server-vercel"
+            ],
+            "env": {
+                "VERCEL_API_TOKEN": "REPLACE_WITH_YOUR_VERCEL_TOKEN"
+            }
         }
     },
     "java.enabled": false,
