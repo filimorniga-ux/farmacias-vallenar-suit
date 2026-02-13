@@ -132,6 +132,14 @@ export async function scanProductSecure(
             FROM inventory_batches
             WHERE location_id = $1 
               AND (UPPER(sku) = $2 OR UPPER(barcode) = $2)
+            ORDER BY
+              CASE
+                WHEN COALESCE(stock_actual, 0) > 0 AND COALESCE(is_retail_lot, false) = false THEN 0
+                WHEN COALESCE(stock_actual, 0) > 0 AND COALESCE(is_retail_lot, false) = true THEN 1
+                WHEN COALESCE(is_retail_lot, false) = false THEN 2
+                ELSE 3
+              END,
+              expiry_date ASC NULLS LAST
             LIMIT 1
         `, [locationId, cleanCode]);
 

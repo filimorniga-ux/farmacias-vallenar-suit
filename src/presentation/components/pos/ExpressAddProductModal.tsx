@@ -24,6 +24,8 @@ export const ExpressAddProductModal: React.FC<ExpressAddProductModalProps> = ({
     const { user } = usePharmaStore();
     const [name, setName] = useState('');
     const [price, setPrice] = useState('');
+    const [unitsPerBox, setUnitsPerBox] = useState('1');
+    const [laboratory, setLaboratory] = useState('');
     const [isLoading, setIsLoading] = useState(false);
 
     // Reset when opening
@@ -31,6 +33,8 @@ export const ExpressAddProductModal: React.FC<ExpressAddProductModalProps> = ({
         if (isOpen) {
             setName('');
             setPrice('');
+            setUnitsPerBox('1');
+            setLaboratory('');
         }
     }, [isOpen, scannedBarcode]);
 
@@ -51,8 +55,10 @@ export const ExpressAddProductModal: React.FC<ExpressAddProductModalProps> = ({
         try {
             const result = await createProductExpressSecure({
                 barcode: scannedBarcode,
-                name: name.trim().toUpperCase(), // Standardization
+                name: name.trim().toUpperCase(),
                 price: parseFloat(price),
+                units_per_box: parseInt(unitsPerBox) || 1,
+                laboratory: laboratory.trim().toUpperCase() || undefined,
                 userId: user.id
             });
 
@@ -68,6 +74,8 @@ export const ExpressAddProductModal: React.FC<ExpressAddProductModalProps> = ({
                     sku: scannedBarcode,
                     name: name.trim().toUpperCase(),
                     price: parseFloat(price),
+                    units_per_box: parseInt(unitsPerBox) || 1,
+                    laboratory: laboratory.trim().toUpperCase() || undefined,
                     stock_actual: 100, // Matching dummy stock
                     is_new: true
                 };
@@ -129,17 +137,49 @@ export const ExpressAddProductModal: React.FC<ExpressAddProductModalProps> = ({
                         </div>
                     </div>
 
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="price">Precio Venta <span className="text-red-500">*</span></Label>
+                            <div className="relative">
+                                <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    id="price"
+                                    type="number"
+                                    min="0"
+                                    value={price}
+                                    onChange={(e) => setPrice(e.target.value)}
+                                    placeholder="0"
+                                    className="pl-9"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="unitsPerBox">Unidades x Caja</Label>
+                            <div className="relative">
+                                <Tag className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    id="unitsPerBox"
+                                    type="number"
+                                    min="1"
+                                    value={unitsPerBox}
+                                    onChange={(e) => setUnitsPerBox(e.target.value)}
+                                    placeholder="1"
+                                    className="pl-9"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
                     <div className="space-y-2">
-                        <Label htmlFor="price">Precio Venta <span className="text-red-500">*</span></Label>
+                        <Label htmlFor="laboratory">Laboratorio (Opcional)</Label>
                         <div className="relative">
-                            <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                            <Tag className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                             <Input
-                                id="price"
-                                type="number"
-                                min="0"
-                                value={price}
-                                onChange={(e) => setPrice(e.target.value)}
-                                placeholder="0"
+                                id="laboratory"
+                                value={laboratory}
+                                onChange={(e) => setLaboratory(e.target.value)}
+                                placeholder="Ej: LABORATORIO CHILE"
                                 className="pl-9"
                             />
                         </div>

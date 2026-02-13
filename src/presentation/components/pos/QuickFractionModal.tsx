@@ -2,38 +2,50 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, Scissors, Calculator } from 'lucide-react';
 import { InventoryBatch, Customer } from '../../../domain/types';
 import { usePharmaStore } from '../../store/useStore';
+import { calculatePricePerUnit } from '../../../domain/logic/productDisplay';
 
 interface QuickFractionModalProps {
     isOpen: boolean;
     onClose: () => void;
     product: InventoryBatch | null;
-    onConfirm: (quantity: number) => void;
+    onConfirm: (data: { quantity: number; unitPrice: number; unitsPerBox: number }) => void;
 }
 
 const QuickFractionModal: React.FC<QuickFractionModalProps> = ({ isOpen, onClose, product, onConfirm }) => {
     const [quantity, setQuantity] = useState<string>('');
+    const [userUnitsPerBox, setUserUnitsPerBox] = useState<string>('');
     const inputRef = useRef<HTMLInputElement>(null);
     const { currentCustomer } = usePharmaStore();
 
     useEffect(() => {
-        if (isOpen) {
+        if (isOpen && product) {
             setQuantity('');
+            // Inicializar con lo que diga el producto, pero permitir cambiarlo
+            setUserUnitsPerBox((product.units_per_box || product.unit_count || 1).toString());
             setTimeout(() => {
                 inputRef.current?.focus();
             }, 100);
         }
-    }, [isOpen]);
+    }, [isOpen, product]);
 
     if (!isOpen || !product) return null;
 
     const qty = parseInt(quantity) || 0;
-    const unitPrice = product.fractional_price || Math.ceil(product.price / (product.units_per_box || 1));
-    const totalPrice = qty * unitPrice;
+    const divisor = parseInt(userUnitsPerBox) || 1;
+    const boxPrice = product.price || 0;
+
+    // Cálculo Dinámico Basado en lo que el usuario ponga
+    const dynamicUnitPrice = Math.round(boxPrice / divisor);
+    const totalPrice = qty * dynamicUnitPrice;
 
     const handleConfirm = (e: React.FormEvent) => {
         e.preventDefault();
         if (qty > 0) {
-            onConfirm(qty);
+            onConfirm({
+                quantity: qty,
+                unitPrice: dynamicUnitPrice,
+                unitsPerBox: divisor
+            });
             onClose();
         }
     };
@@ -59,52 +71,63 @@ const QuickFractionModal: React.FC<QuickFractionModalProps> = ({ isOpen, onClose
 
                 <div className="p-8">
                     {/* Product Info */}
-                    <div className="mb-8 text-center">
+                    <div className="mb-6 text-center">
                         <h4 className="text-lg font-bold text-slate-800 mb-1">{product.name}</h4>
-                        <p className="text-slate-500 text-sm mb-4">{product.dci} - {product.laboratory}</p>
-
-                        <div className="flex flex-col gap-2 items-center">
-                            <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 rounded-xl font-bold text-sm border border-blue-100">
-                                <span>Precio Unitario: ${unitPrice.toLocaleString()} / un</span>
-                            </div>
-                            <div className="flex gap-4">
-                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
-                                    Cajas: {product.stock_actual}
-                                </div>
-                                <div className="text-[10px] font-bold text-blue-500 uppercase tracking-tighter">
-                                    Unidades Sueltas: {product.units_stock_actual || 0}
-                                </div>
-                            </div>
-                        </div>
+                        <p className="text-slate-500 text-sm">{product.dci} - {product.laboratory}</p>
                     </div>
 
                     <form onSubmit={handleConfirm}>
-                        <div className="mb-8">
-                            <label className="block text-center text-sm font-bold text-slate-500 mb-3 uppercase tracking-wider">
-                                ¿Cuántas unidades?
-                            </label>
-                            <div className="relative max-w-[200px] mx-auto">
-                                <input
-                                    ref={inputRef}
-                                    type="number"
-                                    min="1"
-                                    className="w-full text-center text-5xl font-black text-slate-800 border-b-4 border-blue-500 focus:outline-none focus:border-cyan-400 py-2 bg-transparent placeholder-slate-200"
-                                    placeholder="0"
-                                    value={quantity}
-                                    onChange={(e) => setQuantity(e.target.value)}
-                                />
+                        <div className="flex flex-col gap-6 mb-8">
+                            {/* NEW: Dynamic Divisor Input */}
+                            <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl">
+                                <label className="block text-center text-[10px] font-black text-amber-600 mb-1 uppercase tracking-tighter">
+                                    ¿En cuántas unidades se divide la caja?
+                                </label>
+                                <div className="flex items-center justify-center gap-2">
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        className="w-24 text-center text-2xl font-black text-amber-700 bg-transparent border-b-2 border-amber-300 focus:outline-none focus:border-amber-500"
+                                        value={userUnitsPerBox}
+                                        onChange={(e) => setUserUnitsPerBox(e.target.value)}
+                                    />
+                                    <span className="text-amber-400 font-bold">unidades</span>
+                                </div>
+                                <div className="text-center mt-1">
+                                    <span className="text-[10px] font-bold text-amber-400">
+                                        Precio Caja: ${(product.price || 0).toLocaleString()} ➔ Unidad: ${dynamicUnitPrice.toLocaleString()}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Quantity to Sell */}
+                            <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl">
+                                <label className="block text-center text-[10px] font-black text-blue-600 mb-1 uppercase tracking-tighter">
+                                    ¿Cuántas unidades vendes hoy?
+                                </label>
+                                <div className="relative max-w-[120px] mx-auto">
+                                    <input
+                                        ref={inputRef}
+                                        type="number"
+                                        min="1"
+                                        className="w-full text-center text-4xl font-black text-blue-800 border-b-2 border-blue-400 focus:outline-none focus:border-blue-600 bg-transparent placeholder-blue-200"
+                                        placeholder="0"
+                                        value={quantity}
+                                        onChange={(e) => setQuantity(e.target.value)}
+                                    />
+                                </div>
                             </div>
                         </div>
 
                         {/* Calculation Preview */}
-                        <div className="bg-slate-50 rounded-2xl p-6 mb-8 flex items-center justify-between border border-slate-100">
+                        <div className="bg-slate-900 text-white rounded-2xl p-6 mb-8 flex items-center justify-between shadow-xl shadow-slate-200 border-b-4 border-blue-500">
                             <div className="flex items-center gap-3 text-slate-400">
-                                <Calculator size={20} />
-                                <span className="font-medium text-lg">{qty} x ${unitPrice.toLocaleString()}</span>
+                                <Calculator size={20} className="text-cyan-400" />
+                                <span className="font-medium text-lg">{qty} x ${dynamicUnitPrice.toLocaleString()}</span>
                             </div>
                             <div className="text-right">
-                                <p className="text-xs font-bold text-slate-400 uppercase mb-1">Total a Cobrar</p>
-                                <p className="text-3xl font-black text-slate-900">${totalPrice.toLocaleString()}</p>
+                                <p className="text-xs font-bold text-cyan-400 uppercase mb-1">Total a Cobrar</p>
+                                <p className="text-3xl font-black text-white">${totalPrice.toLocaleString()}</p>
                             </div>
                         </div>
 

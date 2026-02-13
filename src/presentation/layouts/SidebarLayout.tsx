@@ -236,7 +236,6 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                     {/* Portal Targets for Page-Specific Content (e.g. POS Search) */}
                     <div className="flex-1 flex items-center gap-4 min-w-0 mr-4">
                         <ChileClock variant="full" />
-                        <div id="header-search-portal" className="flex-1 max-w-xl" />
                         <div id="header-actions-portal" className="flex items-center gap-2" />
                     </div>
 

@@ -4,7 +4,7 @@ import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
 import {
     Filter, AlertTriangle, Search, Plus, FileSpreadsheet,
-    ChevronDown, ChevronUp, MoreHorizontal, History, RefreshCcw, Package, ScanBarcode, ArrowRightLeft, Edit, Trash2, Zap, Sparkles, Percent
+    ChevronDown, ChevronUp, MoreHorizontal, History, RefreshCcw, Package, ScanBarcode, ArrowRightLeft, Edit, Trash2, Zap, Sparkles, Percent, Scissors
 } from 'lucide-react';
 import { MobileScanner } from '../../components/shared/MobileScanner';
 import StockEntryModal from '../components/inventory/StockEntryModal';
@@ -94,6 +94,11 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
         overscan: 5,
     });
 
+    // Recalcula alturas al expandir/cerrar filas para evitar cortes de scroll al final.
+    useEffect(() => {
+        rowVirtualizer.measure();
+    }, [expandedGroups, rowVirtualizer]);
+
     useEffect(() => {
         const [lastItem] = [...rowVirtualizer.getVirtualItems()].reverse();
         if (!lastItem) return;
@@ -117,14 +122,14 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
     return (
         <div
             ref={parentRef}
-            className="flex-1 overflow-y-auto px-4 md:px-6 pb-safe touch-pan-y overscroll-contain"
+            className="flex-1 min-h-0 overflow-y-auto px-4 md:px-6 pb-24 md:pb-8 touch-pan-y overscroll-contain"
         >
             <div className="bg-transparent md:bg-white md:rounded-3xl md:shadow-sm md:border border-slate-200 overflow-hidden min-h-full relative">
 
                 {/* Unified Virtualizer Container */}
                 <div
                     style={{
-                        height: `${rowVirtualizer.getTotalSize()}px`,
+                        height: `${rowVirtualizer.getTotalSize() + (!isMobile ? 48 : 0)}px`,
                         width: '100%',
                         position: 'relative',
                     }}
@@ -189,11 +194,21 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
                             >
                                 {isMobile ? (
                                     // MOBILE CARD VIEW (Grouped)
-                                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col gap-3 h-full">
+                                    <div
+                                        className={`p-4 rounded-2xl shadow-sm border flex flex-col gap-3 h-full ${item.is_retail_lot
+                                            ? 'bg-amber-50/60 border-amber-200'
+                                            : 'bg-white border-slate-100'
+                                            }`}
+                                    >
                                         {/* Header */}
                                         <div className="flex justify-between items-start">
                                             <div onClick={() => toggleGroup(item.id)} className="flex-1">
                                                 <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
+                                                    {item.is_retail_lot && (
+                                                        <span className="bg-amber-100 text-amber-800 text-[10px] px-2 py-0.5 rounded-full font-extrabold border border-amber-200">
+                                                            AL DETAL
+                                                        </span>
+                                                    )}
                                                     {item.name || 'Sin Nombre'}
                                                     {hasBatches && (
                                                         <span className="bg-slate-100 text-slate-500 text-[10px] px-2 py-0.5 rounded-full">
@@ -295,7 +310,12 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
                                     </div>
                                 ) : (
                                     // DESKTOP ROW VIEW (Grouped)
-                                    <div className={`transition-colors ${isExpanded ? 'bg-slate-50' : 'hover:bg-slate-50'}`}>
+                                    <div
+                                        className={`transition-colors ${item.is_retail_lot
+                                            ? (isExpanded ? 'bg-amber-50/80' : 'hover:bg-amber-50/70')
+                                            : (isExpanded ? 'bg-slate-50' : 'hover:bg-slate-50')
+                                            }`}
+                                    >
                                         {/* Master Row */}
                                         <div
                                             className="flex items-center w-full cursor-pointer"
@@ -307,7 +327,14 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
                                                 </div>
                                             </div>
                                             <div className="px-4 w-[25%] py-4">
-                                                <div className="font-bold text-slate-800 text-base">{item.name || 'Sin Nombre'}</div>
+                                                <div className="font-bold text-slate-800 text-base flex items-center gap-2">
+                                                    {item.is_retail_lot && (
+                                                        <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-[10px] font-extrabold border border-amber-200">
+                                                            <Scissors size={10} /> AL DETAL
+                                                        </span>
+                                                    )}
+                                                    {item.name || 'Sin Nombre'}
+                                                </div>
                                                 <div className="text-xs text-slate-500 font-mono mt-0.5 flex gap-2">
                                                     <span>{formatSku(item.sku)}</span>
                                                     {item.is_bioequivalent && <span className="text-emerald-600 font-bold bg-emerald-50 px-1 rounded">BIO</span>}
@@ -387,7 +414,7 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
 
                                         {/* Expanded Batch List */}
                                         {isExpanded && hasBatches && (
-                                            <div className="bg-slate-50/50 border-t border-slate-100 pl-[5%] pr-4 py-2 animate-in slide-in-from-top-1">
+                                            <div className={`${item.is_retail_lot ? 'bg-amber-50/50 border-amber-100' : 'bg-slate-50/50 border-slate-100'} border-t pl-[5%] pr-4 py-2 animate-in slide-in-from-top-1`}>
                                                 <div className="flex justify-end mb-2">
                                                     {canManageInventory && (
                                                         <button
@@ -411,10 +438,17 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
                                                     <tbody className="divide-y divide-slate-100">
                                                         {item.batches.map((batch: any) => (
                                                             <tr key={batch.id} className="hover:bg-indigo-50/30 transition-colors">
-                                                                <td className="py-2 pl-2 font-mono text-slate-600">{batch.lot_number || 'S/N'}</td>
+                                                                <td className="py-2 pl-2 font-mono text-slate-600 flex items-center gap-1.5">
+                                                                    {batch.is_retail_lot && (
+                                                                        <span className="flex items-center gap-1 bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded text-[10px] font-bold border border-indigo-100 uppercase tracking-tighter">
+                                                                            <Scissors size={10} /> DETAL
+                                                                        </span>
+                                                                    )}
+                                                                    {batch.lot_number || 'S/N'}
+                                                                </td>
                                                                 <td className="py-2">
                                                                     {batch.expiry_date ? (
-                                                                        <span className={`${new Date(batch.expiry_date) < new Date() ? 'text-red-600 font-bold' : 'text-slate-600'}`}>
+                                                                        <span className={`${new Date(batch.expiry_date) < new Date() ? 'text-red-600 font-bold' : 'text-slate-600'} `}>
                                                                             {new Date(batch.expiry_date).toLocaleDateString()}
                                                                         </span>
                                                                     ) : '---'}
@@ -488,7 +522,7 @@ const InventoryPage: React.FC = () => {
         return () => clearTimeout(timer);
     }, [searchTerm]);
 
-    const [activeTab, setActiveTab] = useState<'ALL' | 'MEDS' | 'RETAIL' | 'CONTROLLED'>('ALL');
+    const [activeTab, setActiveTab] = useState<'ALL' | 'MEDS' | 'RETAIL' | 'DETAIL' | 'CONTROLLED'>('ALL');
     const [filters, setFilters] = useState({
         coldChain: false,
         expiring: false,
@@ -506,7 +540,7 @@ const InventoryPage: React.FC = () => {
             const defaultLoc = locations.find(l => l.is_active) || locations[0];
             // setCurrentLocation: (id: string, warehouseId: string, name: string) => void
             setCurrentLocation(defaultLoc.id, defaultLoc.default_warehouse_id || '', defaultLoc.name);
-            toast.info(`Sucursal seleccionada automáticamente: ${defaultLoc.name}`);
+            toast.info(`Sucursal seleccionada automáticamente: ${defaultLoc.name} `);
         }
     }, [currentLocationId, locations, setCurrentLocation]);
 
@@ -534,7 +568,7 @@ const InventoryPage: React.FC = () => {
     useEffect(() => {
         if (isError && error) {
             console.error('Inventory Query Error:', error);
-            toast.error(`Error cargando inventario: ${error.message}`);
+            toast.error(`Error cargando inventario: ${error.message} `);
         }
     }, [isError, error]);
 
@@ -625,7 +659,7 @@ const InventoryPage: React.FC = () => {
 
     // ...
 
-    if (isLoading) {
+    if (isLoading && !infiniteData) {
         return <InventorySkeleton />;
     }
 
@@ -666,7 +700,7 @@ const InventoryPage: React.FC = () => {
     };
 
     return (
-        <div className="h-dvh flex flex-col bg-slate-50 overflow-hidden">
+        <div className="h-dvh min-h-0 flex flex-col bg-slate-50 overflow-hidden">
             <div className="p-4 md:p-6 pb-0 shrink-0 pt-safe">
                 {/* Header */}
                 <header className="mb-6 flex flex-col md:flex-row md:justify-between md:items-end gap-4">
@@ -768,25 +802,31 @@ const InventoryPage: React.FC = () => {
                 <div className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide border-b border-slate-200 mb-6 pb-1">
                     <button
                         onClick={() => setActiveTab('ALL')}
-                        className={`flex-none min-w-[30%] md:min-w-0 md:flex-1 snap-center py-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-4 ${activeTab === 'ALL' ? 'border-indigo-500 text-indigo-700 bg-indigo-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                        className={`flex-none min-w-[32%] md:min-w-0 md:flex-1 snap-center py-3 text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-4 ${activeTab === 'ALL' ? 'border-indigo-500 text-indigo-700 bg-indigo-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
                         🌎 TODOS
                     </button>
                     <button
                         onClick={() => setActiveTab('MEDS')}
-                        className={`flex-none min-w-[45%] md:min-w-0 md:flex-1 snap-center py-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-4 ${activeTab === 'MEDS' ? 'border-cyan-500 text-cyan-700 bg-cyan-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                        className={`flex-none min-w-[45%] md:min-w-0 md:flex-1 snap-center py-3 text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-4 ${activeTab === 'MEDS' ? 'border-cyan-500 text-cyan-700 bg-cyan-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
                         💊 MEDICAMENTOS
                     </button>
                     <button
                         onClick={() => setActiveTab('RETAIL')}
-                        className={`flex-none min-w-[45%] md:min-w-0 md:flex-1 snap-center py-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-4 ${activeTab === 'RETAIL' ? 'border-pink-500 text-pink-700 bg-pink-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                        className={`flex-none min-w-[45%] md:min-w-0 md:flex-1 snap-center py-3 text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-4 ${activeTab === 'RETAIL' ? 'border-pink-500 text-pink-700 bg-pink-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
                         🛍️ RETAIL
                     </button>
                     <button
+                        onClick={() => setActiveTab('DETAIL')}
+                        className={`flex-none min-w-[42%] md:min-w-0 md:flex-1 snap-center py-3 text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-4 ${activeTab === 'DETAIL' ? 'border-amber-500 text-amber-700 bg-amber-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                    >
+                        ✂️ AL DETAL
+                    </button>
+                    <button
                         onClick={() => setActiveTab('CONTROLLED')}
-                        className={`flex-none min-w-[45%] md:min-w-0 md:flex-1 snap-center py-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-4 ${activeTab === 'CONTROLLED' ? 'border-purple-500 text-purple-700 bg-purple-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                        className={`flex-none min-w-[45%] md:min-w-0 md:flex-1 snap-center py-3 text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-4 ${activeTab === 'CONTROLLED' ? 'border-purple-500 text-purple-700 bg-purple-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
                         🔒 CONTROLADOS
                     </button>

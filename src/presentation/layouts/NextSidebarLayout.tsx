@@ -209,7 +209,6 @@ const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
                 <header className="hidden lg:flex bg-white/80 backdrop-blur-md px-8 py-4 border-b border-slate-100 justify-between items-center z-40 gap-4">
                     {/* Portal Targets for Page-Specific Content (e.g. POS Search) */}
                     <div className="flex-1 flex items-center gap-4 min-w-0 mr-4">
-                        <div id="header-search-portal" className="flex-1 max-w-xl min-w-[300px]" />
                         <div id="header-actions-portal" className="flex items-center gap-2 flex-shrink-0" />
                     </div>
 

@@ -70,6 +70,12 @@ const FractionateBatchSchema = z.object({
     userId: z.string().min(1, { message: "ID de usuario requerido" }),
 });
 
+const FractionateBatchDetailedSchema = z.object({
+    batchId: UUIDSchema,
+    userId: z.string().min(1, { message: "ID de usuario requerido" }),
+    unitsInBox: z.number().int().positive({ message: "Unidades por caja deben ser positivas" }),
+});
+
 const ClearInventorySchema = z.object({
     locationId: UUIDSchema,
     userId: z.string().min(1, { message: "ID de usuario requerido" }),
@@ -801,7 +807,7 @@ export async function transferStockSecure(params: {
 export async function fractionateBatchSecure(params: {
     batchId: string;
     userId: string;
-}): Promise<{ success: boolean; error?: string }> {
+}): Promise<{ success: boolean; error?: string; newBatchId?: string }> {
 
     const validation = FractionateBatchSchema.safeParse(params);
     if (!validation.success) {
@@ -809,19 +815,62 @@ export async function fractionateBatchSecure(params: {
     }
 
     const { batchId, userId } = validation.data;
-    const { pool } = await import('@/lib/db');
-    const { v4: uuidv4 } = await import('uuid');
-    const client = await pool.connect();
 
     try {
-        logger.info({ batchId }, '✂️ [Inventory v2] Fractionating batch (opening box)');
+        const batchRes = await query(`
+            SELECT COALESCE(units_per_box, 1) as units_per_box
+            FROM inventory_batches
+            WHERE id = $1::uuid
+            LIMIT 1
+        `, [batchId]);
+
+        if (batchRes.rows.length === 0) {
+            return { success: false, error: ERROR_MESSAGES.BATCH_NOT_FOUND };
+        }
+
+        const unitsInBox = Number(batchRes.rows[0].units_per_box || 1);
+        if (!Number.isFinite(unitsInBox) || unitsInBox <= 1) {
+            return { success: false, error: 'El lote no es fraccionable (units_per_box <= 1)' };
+        }
+
+        return fractionateBatchSecureDetailed({
+            batchId,
+            userId,
+            unitsInBox
+        });
+    } catch (error: any) {
+        logger.error({ error: error.message, batchId }, '❌ [inventory-v2] Error in fractionateBatchSecure');
+        return { success: false, error: error.message || 'Error al fraccionar lote' };
+    }
+}
+
+/**
+ * ✂️ Fracciona un lote: Abre una caja para venta por unidades (Persistente)
+ */
+export async function fractionateBatchSecureDetailed(params: {
+    batchId: string;
+    userId: string;
+    unitsInBox: number;
+}): Promise<{ success: boolean; error?: string; newBatchId?: string }> {
+
+    const validation = FractionateBatchDetailedSchema.safeParse(params);
+    if (!validation.success) {
+        return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
+    }
+
+    const { batchId, userId, unitsInBox } = validation.data;
+    const { getClient } = await import('@/lib/db');
+    const { v4: uuidv4 } = await import('uuid');
+    const client = await getClient();
+
+    try {
+        logger.info({ batchId, unitsInBox }, '✂️ [Inventory v2] Fractionating batch (Persistent)');
 
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-        // 1. Obtener y bloquear lote
+        // 1. Obtener y bloquear lote original
         const batchRes = await client.query(`
-            SELECT id, sku, name, quantity_real, units_stock_actual, units_per_box, location_id, warehouse_id
-            FROM inventory_batches 
+            SELECT * FROM inventory_batches 
             WHERE id = $1
             FOR UPDATE NOWAIT
         `, [batchId]);
@@ -830,32 +879,94 @@ export async function fractionateBatchSecure(params: {
             throw new Error(ERROR_MESSAGES.BATCH_NOT_FOUND);
         }
 
-        const batch = batchRes.rows[0];
-        const boxes = Number(batch.quantity_real);
-        const unitsPerBox = Number(batch.units_per_box || 1);
+        const sourceBatch = batchRes.rows[0];
+        const currentBoxes = Number(sourceBatch.quantity_real || 0);
 
-        if (boxes < 1) {
+        if (currentBoxes < 1) {
             throw new Error('No hay cajas suficientes para fraccionar');
         }
 
-        if (unitsPerBox <= 1) {
-            throw new Error('Este producto no es fraccionable (unidades por caja <= 1)');
-        }
-
-        // 2. Realizar fraccionamiento
-        const newBoxes = boxes - 1;
-        const newUnits = Number(batch.units_stock_actual || 0) + unitsPerBox;
-
+        // 2. Descontar una caja del lote original
         await client.query(`
             UPDATE inventory_batches 
-            SET quantity_real = $1, 
-                units_stock_actual = $2,
-                updated_at = NOW() 
-            WHERE id = $3
-        `, [newBoxes, newUnits, batchId]);
+            SET quantity_real = quantity_real - 1,
+                updated_at = NOW()
+            WHERE id = $1
+        `, [batchId]);
 
-        // 3. Registrar movimiento
-        const movementId = uuidv4();
+        // 3. Crear o actualizar lote al detal
+        const existingRetailRes = await client.query(`
+            SELECT id, quantity_real
+            FROM inventory_batches 
+            WHERE original_batch_id = $1::uuid
+              AND location_id = $2::uuid
+              AND is_retail_lot = TRUE
+            ORDER BY updated_at DESC NULLS LAST, id ASC
+            LIMIT 1
+            FOR UPDATE
+        `, [batchId, sourceBatch.location_id]);
+
+        let retailLotId = '';
+        let retailStockBefore = 0;
+
+        if (existingRetailRes.rows.length > 0) {
+            retailLotId = existingRetailRes.rows[0].id;
+            retailStockBefore = Number(existingRetailRes.rows[0].quantity_real || 0);
+
+            await client.query(`
+                UPDATE inventory_batches 
+                SET quantity_real = quantity_real + $1,
+                    is_retail_lot = TRUE,
+                    original_batch_id = COALESCE(original_batch_id, $2::uuid),
+                    updated_at = NOW()
+                WHERE id = $3::uuid
+            `, [unitsInBox, batchId, retailLotId]);
+        } else {
+            retailLotId = uuidv4();
+            const sourceName = String(sourceBatch.name || 'Producto')
+                .replace(/^\[AL DETAL\]\s*/i, '')
+                .trim();
+            const boxPrice = Number(sourceBatch.sale_price ?? sourceBatch.price_sell_box ?? 0);
+            const sourceUnitPrice = Number(sourceBatch.price_sell_unit ?? 0);
+            const unitPrice = sourceUnitPrice > 0
+                ? sourceUnitPrice
+                : (boxPrice > 0 ? Math.ceil(boxPrice / unitsInBox) : 0);
+
+            await client.query(`
+                INSERT INTO inventory_batches (
+                    id, product_id, sku, name, location_id, warehouse_id,
+                    quantity_real, stock_min, sale_price, cost_net,
+                    expiry_date, lot_number,
+                    is_fractionable, units_per_box,
+                    is_retail_lot, original_batch_id
+                ) VALUES (
+                    $1::uuid, $2::uuid, $3, $4, $5::uuid, $6::uuid,
+                    $7, $8, $9, $10,
+                    $11, $12, $13, $14,
+                    $15, $16::uuid
+                )
+            `, [
+                retailLotId,
+                sourceBatch.product_id || null,
+                sourceBatch.sku,
+                `[AL DETAL] ${sourceName}`,
+                sourceBatch.location_id,
+                sourceBatch.warehouse_id || null,
+                unitsInBox,
+                0,
+                unitPrice,
+                sourceBatch.cost_net,
+                sourceBatch.expiry_date,
+                sourceBatch.lot_number,
+                false,
+                1,
+                true,
+                batchId
+            ]);
+        }
+
+        // 4. Registrar movimientos de stock (Apertura de caja)
+        const sourceMovementId = uuidv4();
         await client.query(`
             INSERT INTO stock_movements (
                 id, sku, product_name, location_id, movement_type, 
@@ -867,42 +978,50 @@ export async function fractionateBatchSecure(params: {
                 NOW(), $7::uuid, $8, $9::uuid, 'FRACTIONATION'
             )
         `, [
-            movementId,
-            batch.sku,
-            batch.name,
-            batch.warehouse_id || batch.location_id,
-            boxes,
-            newBoxes,
+            sourceMovementId,
+            sourceBatch.sku,
+            sourceBatch.name,
+            sourceBatch.location_id,
+            currentBoxes,
+            currentBoxes - 1,
             userId,
-            `Fraccionamiento: Se abrió una caja de ${unitsPerBox} unidades.`,
+            `Fraccionamiento: Se abrió una caja (${unitsInBox} unidades)`,
             batchId
         ]);
 
-        // 4. Auditoría
-        await insertInventoryAudit(client, {
+        const retailMovementId = uuidv4();
+        await client.query(`
+            INSERT INTO stock_movements (
+                id, sku, product_name, location_id, movement_type, 
+                quantity, stock_before, stock_after, 
+                timestamp, user_id, notes, batch_id, reference_type
+            ) VALUES (
+                $1::uuid, $2, $3, $4::uuid, 'ADJUSTMENT', 
+                $5, $6, $7, 
+                NOW(), $8::uuid, $9, $10::uuid, 'FRACTIONATION'
+            )
+        `, [
+            retailMovementId,
+            sourceBatch.sku,
+            `[AL DETAL] ${String(sourceBatch.name || 'Producto').replace(/^\[AL DETAL\]\s*/i, '').trim()}`,
+            sourceBatch.location_id,
+            unitsInBox,
+            retailStockBefore,
+            retailStockBefore + unitsInBox,
             userId,
-            locationId: batch.location_id,
-            actionCode: 'BATCH_FRACTIONATED',
-            entityType: 'INVENTORY_BATCH',
-            entityId: batchId,
-            quantity: 1,
-            oldValues: { boxes, units: batch.units_stock_actual },
-            newValues: { boxes: newBoxes, units: newUnits },
-            description: `Se abrió una caja para venta por detalle (${unitsPerBox} unidades)`
-        });
+            `Fraccionamiento: ingreso de ${unitsInBox} unidades al lote al detal`,
+            retailLotId
+        ]);
 
         await client.query('COMMIT');
 
-        logger.info({ batchId, newBoxes, newUnits }, '✅ [Inventory v2] Batch fractionated successfully');
         revalidatePath('/inventory');
-
-        return { success: true };
+        return { success: true, newBatchId: retailLotId };
 
     } catch (error: any) {
         await client.query('ROLLBACK');
-        logger.error({ err: error }, '❌ [Inventory v2] Fractionation failed');
-        return { success: false, error: error.message || 'Error fraccionando lote' };
-
+        logger.error({ error: error.message, batchId }, '❌ [inventory-v2] Error in fractionateBatchSecureDetailed');
+        return { success: false, error: error.message };
     } finally {
         client.release();
     }
@@ -1025,7 +1144,7 @@ export async function getInventorySecure(
         page?: number;
         limit?: number;
         search?: string;
-        category?: string;
+        category?: 'ALL' | 'MEDS' | 'RETAIL' | 'DETAIL' | 'CONTROLLED';
         stockStatus?: 'CRITICAL' | 'EXPIRING' | 'NORMAL' | 'ALL';
         incomplete?: boolean;
         pagination?: boolean; // New flag to control pagination mode
@@ -1038,6 +1157,7 @@ export async function getInventorySecure(
 }> {
     console.log('🔍 [getInventorySecure] Params:', { locationId, ...params });
     if (!z.string().uuid().safeParse(locationId).success) {
+        console.warn('⚠️ [getInventorySecure] Invalid UUID format received:', locationId);
         return { success: false, error: 'ID de ubicación inválido', data: [] };
     }
 
@@ -1093,6 +1213,10 @@ export async function getInventorySecure(
                     ib.category ILIKE '%ACCESORIOS%' OR
                     ib.category ILIKE '%ASEO%'
                 )`);
+            } else if (params.category === 'DETAIL') {
+                // AL DETAL = Solo lotes fraccionados con stock disponible
+                whereConditions.push(`COALESCE(ib.is_retail_lot, false) = true`);
+                whereConditions.push(`COALESCE(ib.stock_actual, 0) > 0`);
             } else if (params.category === 'CONTROLLED') {
                 whereConditions.push(`ib.condition IN ('R', 'RR', 'RCH')`);
             }
@@ -1141,8 +1265,13 @@ export async function getInventorySecure(
                     COALESCE(p.price_sell_unit, p.price) as price_sell_unit,
                     ib.expiry_date,
                     ib.lot_number,
+                    COALESCE(ib.units_per_box, p.units_per_box, 1) as units_per_box,
+                    COALESCE(ib.is_fractionable, true) as is_fractionable,
+                    COALESCE(ib.units_stock_actual, 0) as units_stock_actual,
                     ib.location_id,
                     ib.warehouse_id,
+                    COALESCE(ib.is_retail_lot, false) as is_retail_lot,
+                    ib.original_batch_id::text as original_batch_id,
 
                     false as is_express_entry, -- Fallback since column missing in DB
                     ib.source_system,
@@ -1172,8 +1301,13 @@ export async function getInventorySecure(
                     COALESCE(p.price_sell_unit, p.price) as price_sell_unit,
                     NULL as expiry_date,
                     NULL as lot_number,
+                    COALESCE(p.units_per_box, 1) as units_per_box,
+                    true as is_fractionable,
+                    0 as units_stock_actual,
                     NULL as location_id,
                     NULL as warehouse_id,
+                    false as is_retail_lot,
+                    NULL as original_batch_id,
 
                     false as is_express_entry, -- Fallback since column missing in DB
                     p.source_system,
@@ -1188,7 +1322,8 @@ export async function getInventorySecure(
             ),
             grouped_inventory AS (
                 SELECT
-                    COALESCE(product_id, sku, name) as group_key,
+                    COALESCE(product_id, sku, name) ||
+                        CASE WHEN COALESCE(is_retail_lot, false) THEN '::DETAIL' ELSE '::BOX' END as group_key,
                     MAX(product_id) as product_id,
                     MAX(sku) as sku,
                     MAX(name) as name,
@@ -1203,6 +1338,13 @@ export async function getInventorySecure(
                     MAX(cost_net) as cost_net_max,
                     MAX(price_sell_box) as price_sell_box_max,
                     MAX(price_sell_unit) as price_sell_unit_max,
+                    MAX(units_per_box) as units_per_box_max,
+                    BOOL_OR(is_fractionable) as is_fractionable_group,
+                    SUM(units_stock_actual) as units_stock_actual_total,
+                    BOOL_OR(is_retail_lot) as is_retail_lot_group,
+                    MAX(original_batch_id) as original_batch_id_group,
+                    MAX(location_id::text) as location_id_group,
+                    MAX(warehouse_id::text) as warehouse_id_group,
                     MAX(source_system) as source_system,
                     MAX(created_at) as last_entry,
                     
@@ -1210,17 +1352,26 @@ export async function getInventorySecure(
                     jsonb_agg(
                         jsonb_build_object(
                             'id', batch_id,
+                            'name', name,
+                            'sku', sku,
                             'stock_actual', stock_actual,
                             'lot_number', lot_number,
                             'expiry_date', expiry_date,
-                            'price', price
+                            'price', price,
+                            'units_per_box', units_per_box,
+                            'is_fractionable', is_fractionable,
+                            'units_stock_actual', units_stock_actual,
+                            'is_retail_lot', is_retail_lot,
+                            'original_batch_id', original_batch_id
                         ) 
                     ) FILTER (WHERE batch_id IS NOT NULL) as batches,
                     
                     COUNT(*) OVER() as total_count 
                 FROM combined_inventory ib
                 WHERE 1=1 ${whereClause}
-                GROUP BY COALESCE(product_id, sku, name)
+                GROUP BY
+                    COALESCE(product_id, sku, name),
+                    COALESCE(is_retail_lot, false)
                 
                 -- Having clause for Stock Status Filter if needed
                 ${params.stockStatus === 'CRITICAL' ? 'HAVING SUM(stock_actual) <= MAX(COALESCE(stock_min, 5))' : ''}
@@ -1240,28 +1391,117 @@ export async function getInventorySecure(
         const total = res.rows.length > 0 ? Number(res.rows[0].total_groups) : 0;
         const totalPages = isPaged ? Math.ceil(total / limit) : 1;
 
-        const inventory = res.rows.map(row => ({
-            id: row.group_key, // Use group key as ID
-            product_id: row.product_id,
-            sku: row.sku,
-            name: row.name,
-            dci: row.dci,
-            laboratory: row.laboratory,
-            category: row.category,
-            stock_actual: Number(row.total_stock), // Total Stock
-            stock_min: Number(row.stock_min),
-            price: Number(row.price_max), // Show Max Price or Range in UI
-            price_min: Number(row.price_min),
-            cost_net: Number(row.cost_net_max),
-            price_sell_box: Number(row.price_sell_box_max),
-            price_sell_unit: Number(row.price_sell_unit_max),
-            condition: row.condition || 'VD',
-            is_express_entry: false,
-            source_system: row.source_system,
+        const inventory = isPaged
+            ? res.rows.map(row => ({
+                id: row.group_key, // Product/group identifier for management views
+                product_id: row.product_id,
+                sku: row.sku,
+                name: row.name,
+                dci: row.dci,
+                laboratory: row.laboratory,
+                category: row.category,
+                stock_actual: Number(row.total_stock),
+                stock_min: Number(row.stock_min),
+                price: Number(row.price_max),
+                price_min: Number(row.price_min),
+                cost_net: Number(row.cost_net_max),
+                price_sell_box: Number(row.price_sell_box_max),
+                price_sell_unit: Number(row.price_sell_unit_max),
+                units_per_box: Number(row.units_per_box_max || 1),
+                is_fractionable: Boolean(row.is_fractionable_group),
+                units_stock_actual: Number(row.units_stock_actual_total || 0),
+                is_retail_lot: Boolean(row.is_retail_lot_group),
+                original_batch_id: row.original_batch_id_group || undefined,
+                condition: row.condition || 'VD',
+                location_id: row.location_id_group || locationId,
+                warehouse_id: row.warehouse_id_group || undefined,
+                is_express_entry: false,
+                source_system: row.source_system,
+                batches: row.batches || []
+            }))
+            : res.rows.flatMap((row) => {
+                const batches = Array.isArray(row.batches) ? row.batches : [];
 
-            // Batches Array
-            batches: row.batches || []
-        }));
+                if (batches.length > 0) {
+                    const typedBatches = batches as Array<{
+                        id: string;
+                        name?: string;
+                        sku?: string;
+                        stock_actual?: number;
+                        lot_number?: string;
+                        expiry_date?: string | number | null;
+                        price?: number;
+                        units_per_box?: number;
+                        is_fractionable?: boolean;
+                        units_stock_actual?: number;
+                        is_retail_lot?: boolean;
+                        original_batch_id?: string;
+                    }>;
+
+                    return typedBatches.map((batch) => {
+                        const batchPrice = Number(batch.price ?? row.price_max ?? 0);
+                        const batchIsRetail = Boolean(batch.is_retail_lot);
+                        return {
+                            id: batch.id,
+                            product_id: row.product_id,
+                            sku: batch.sku || row.sku,
+                            name: batch.name || row.name,
+                            dci: row.dci,
+                            laboratory: row.laboratory,
+                            category: row.category,
+                            condition: row.condition || 'VD',
+                            location_id: row.location_id_group || locationId,
+                            warehouse_id: row.warehouse_id_group || undefined,
+                            stock_actual: Number(batch.stock_actual || 0),
+                            stock_min: Number(row.stock_min || 0),
+                            price: batchPrice,
+                            price_sell_box: Number(row.price_sell_box_max || 0),
+                            price_sell_unit: batchIsRetail
+                                ? batchPrice
+                                : Number(row.price_sell_unit_max || 0),
+                            cost_net: Number(row.cost_net_max || 0),
+                            expiry_date: batch.expiry_date ? new Date(batch.expiry_date).getTime() : 0,
+                            lot_number: batch.lot_number || undefined,
+                            units_per_box: Number(batch.units_per_box || 1),
+                            is_fractionable: Boolean(batch.is_fractionable),
+                            units_stock_actual: Number(batch.units_stock_actual || 0),
+                            is_retail_lot: batchIsRetail,
+                            original_batch_id: batch.original_batch_id || undefined,
+                            is_express_entry: false,
+                            source_system: row.source_system
+                        };
+                    });
+                }
+
+                // Fallback product without batches (catalog only / zero stock)
+                return [{
+                    id: row.product_id || row.group_key,
+                    product_id: row.product_id,
+                    sku: row.sku,
+                    name: row.name,
+                    dci: row.dci,
+                    laboratory: row.laboratory,
+                    category: row.category,
+                    condition: row.condition || 'VD',
+                    location_id: locationId,
+                    warehouse_id: undefined,
+                    stock_actual: 0,
+                    stock_min: Number(row.stock_min || 0),
+                    price: Number(row.price_max || 0),
+                    price_sell_box: Number(row.price_sell_box_max || 0),
+                    price_sell_unit: Number(row.price_sell_unit_max || 0),
+                    cost_net: Number(row.cost_net_max || 0),
+                    expiry_date: 0,
+                    lot_number: undefined,
+                    units_per_box: Number(row.units_per_box_max || 1),
+                    is_fractionable: Boolean(row.is_fractionable_group),
+                    units_stock_actual: 0,
+                    is_retail_lot: false,
+                    original_batch_id: undefined,
+                    is_express_entry: false,
+                    source_system: row.source_system
+                }];
+            });
 
         return {
             success: true,

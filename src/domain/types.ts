@@ -99,6 +99,10 @@ export interface InventoryBatch {
     price_sell_box: number; // Precio Venta Caja
     price_sell_unit: number; // Precio Venta Unitario (Calculado)
     margin_percentage?: number; // NEW: Margen calculado
+    discount?: number;
+    description_extended?: string;
+    is_retail_lot?: boolean; // NEW: Mark as personal detail lot
+    original_batch_id?: string; // NEW: Track source UUID for retail lots
 
     // Deprecated (Mapped for compatibility)
     price: number;
@@ -462,6 +466,7 @@ export interface CartItem {
     is_fractional?: boolean;
     original_name?: string;
     cost_price?: number; // Added for financial reporting
+    original_batch_id?: string; // NEW: Track source UUID
 }
 
 export interface PurchaseOrderItem {

@@ -31,6 +31,7 @@ import { TigerDataService } from '../../domain/services/TigerDataService';
 import { IntelligentOrderingService } from '../services/intelligentOrderingService';
 import { forceCloseTerminalShift } from '../../actions/terminals-v2';
 import { createTerminalSecure, deleteTerminalSecure, updateTerminalSecure } from '../../actions/network-v2';
+import { toast } from 'sonner';
 // Mocks removed
 // Mocks removed
 
@@ -85,9 +86,9 @@ interface PharmaState {
     currentCustomer: Customer | null;
     setCustomer: (customer: Customer | null) => void;
     addToCart: (batch: InventoryBatch, quantity: number, options?: { is_fractional?: boolean; price?: number; name?: string }) => void;
-    updateCartItemQuantity: (sku: string, quantity: number) => void;
+    updateCartItemQuantity: (itemId: string, quantity: number) => void;
     addManualItem: (item: { description: string, price: number, quantity: number, sku?: string, is_fractional?: boolean, original_name?: string, active_ingredients?: string[] }) => void;
-    removeFromCart: (sku: string) => void;
+    removeFromCart: (itemId: string) => void;
     clearCart: () => void;
     processSale: (paymentMethod: string, customer?: Customer) => Promise<boolean>;
 
@@ -140,6 +141,9 @@ interface PharmaState {
     deleteTerminal: (id: string, adminPin: string) => Promise<void>;
     forceCloseTerminal: (id: string) => Promise<void>;
     cashMovements: CashMovement[];
+
+    // Fractionation Persistent Lots
+    splitBox: (batchId: string, unitsInBox: number) => Promise<{ success: boolean; error?: string; newBatchId?: string }>;
 
     openShift: (amount: number, cashierId: string, authorizedBy: string, terminalId: string, locationId: string, sessionId?: string) => void;
     resumeShift: (shift: Shift) => void;
@@ -822,15 +826,39 @@ export const usePharmaStore = create<PharmaState>()(
             updateBatchDetails: (productId, batchId, data) => {
                 set((state) => ({
                     inventory: state.inventory.map((item) => {
-                        // In this simplified model, items ARE batches.
-                        // So we just find the item by ID (which acts as batch ID here) and update it.
-                        // In a more complex model with Product -> Batches relation, we would drill down.
                         if (item.id === batchId) {
                             return { ...item, ...data };
                         }
                         return item;
                     })
                 }));
+            },
+
+            splitBox: async (batchId, unitsInBox) => {
+                const state = get();
+                const userId = state.user?.id || 'SYSTEM';
+
+                console.log('✂️ [Store] Requesting persistent fractionation for batch:', batchId);
+
+                try {
+                    const result = await TigerDataService.fractionateBatch({
+                        batchId,
+                        userId,
+                        unitsInBox
+                    });
+
+                    if (result.success) {
+                        toast.success(`Caja abierta: ${unitsInBox} unidades disponibles al detal`);
+                    } else {
+                        toast.error('Error al fraccionar: ' + (result.error || 'Desconocido'));
+                    }
+
+                    return result;
+                } catch (error: any) {
+                    console.error('❌ [Store] Fractionation exception:', error);
+                    toast.error('Error de conexión al fraccionar lote');
+                    return { success: false, error: error.message };
+                }
             },
 
             registerStockMovement: (batchId, quantity, type) => {
@@ -888,23 +916,28 @@ export const usePharmaStore = create<PharmaState>()(
                 }
                 const newItem: CartItem = {
                     id: itemId,
-                    batch_id: item.id, // Referencia al lote real
+                    batch_id: item.original_batch_id || item.id, // ✅ Prioriza UUID real sobre ID de frontend
                     sku: item.sku,
-                    name: options?.name ?? (isFractional ? `🔵 ${item.name} (u)` : item.name),
-                    price: options?.price ?? (isFractional ? (item.fractional_price || Math.ceil(item.price / (item.units_per_box || 1))) : item.price),
+                    name: options?.name ?? ((isFractional || item.is_retail_lot) ? `🔵 ${item.name}` : item.name),
+                    price: options?.price ?? (
+                        (isFractional || item.is_retail_lot)
+                            ? (item.price_sell_unit || item.fractional_price || Math.ceil(item.price / (item.units_per_box || 1)))
+                            : item.price
+                    ),
                     quantity: quantity,
                     allows_commission: item.allows_commission,
                     active_ingredients: item.active_ingredients,
                     cost_price: item.cost_price || 0,
-                    is_fractional: isFractional,
-                    original_name: item.name
+                    is_fractional: isFractional || item.is_retail_lot || false,
+                    original_name: item.name,
+                    original_batch_id: item.original_batch_id || item.id // ✅ Persiste para auditoría
                 };
                 return { cart: [...state.cart, newItem] };
             }),
-            updateCartItemQuantity: (sku, quantity) => set((state) => ({
-                cart: state.cart.map(i =>
-                    i.sku === sku ? { ...i, quantity: Math.max(1, quantity) } : i
-                )
+            updateCartItemQuantity: (itemId, quantity) => set((state) => ({
+                cart: quantity <= 0
+                    ? state.cart.filter(i => i.id !== itemId)
+                    : state.cart.map(i => i.id === itemId ? { ...i, quantity } : i)
             })),
             // --- Importación Masiva ---
             importInventory: (items: InventoryBatch[]) => {
@@ -952,8 +985,8 @@ export const usePharmaStore = create<PharmaState>()(
                     original_name: item.original_name
                 }]
             })),
-            removeFromCart: (sku) => set((state) => ({
-                cart: state.cart.filter(i => i.sku !== sku)
+            removeFromCart: (itemId) => set((state) => ({
+                cart: state.cart.filter(i => i.id !== itemId)
             })),
             clearCart: () => set({ cart: [] }),
             processSale: async (paymentMethod, customer) => {
@@ -1005,7 +1038,7 @@ export const usePharmaStore = create<PharmaState>()(
                         status: 'COMPLETED',
                         timestamp: Date.now(),
                         items: state.cart.map(item => ({
-                            batch_id: item.batch_id || item.id, // CartItem uses 'id' as batch reference
+                            batch_id: item.original_batch_id || item.batch_id || item.id, // ✅ Asegura UUID válido
                             sku: item.sku,
                             name: item.name,
                             price: item.price,
@@ -2440,6 +2473,18 @@ export const usePharmaStore = create<PharmaState>()(
         {
             name: 'pharma-storage', // unique name
             storage: createJSONStorage(() => indexedDBWithLocalStorageFallback),
+            onRehydrateStorage: (state) => {
+                return (state, error) => {
+                    if (!error && state) {
+                        const isUUID = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+                        if (state.currentLocationId && !isUUID(state.currentLocationId)) {
+                            console.warn('⚠️ [Store Sanitizer] Invalid locationId detected:', state.currentLocationId);
+                            // We don't use set() here because we are in the rehydration callback directly on the state
+                            state.currentLocationId = '';
+                        }
+                    }
+                };
+            },
             // Persist settings + offline cache needed to survive refresh without internet.
             partialize: (state) => ({
                 // Persistir sesión del usuario para evitar re-login

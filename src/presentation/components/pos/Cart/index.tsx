@@ -10,7 +10,7 @@
 'use client';
 
 import React from 'react';
-import { Minus, Plus, Trash2, Tag } from 'lucide-react';
+import { Minus, Plus, Trash2, Tag, Scissors } from 'lucide-react';
 import { CartItem, InventoryBatch } from '../../../../domain/types';
 import { usePharmaStore } from '../../../store/useStore';
 import { formatProductLabel } from '../../../../domain/logic/productDisplay';
@@ -18,10 +18,11 @@ import { formatProductLabel } from '../../../../domain/logic/productDisplay';
 interface CartProps {
     items: CartItem[];
     inventory: InventoryBatch[];
+    onFractionate: (item: CartItem) => void;
     className?: string;
 }
 
-export function Cart({ items, inventory, className = '' }: CartProps) {
+export function Cart({ items, inventory, onFractionate, className = '' }: CartProps) {
     const { updateCartItemQuantity, removeFromCart } = usePharmaStore();
 
     if (items.length === 0) {
@@ -36,6 +37,7 @@ export function Cart({ items, inventory, className = '' }: CartProps) {
                 inventory={inventory}
                 onQuantityChange={updateCartItemQuantity}
                 onRemove={removeFromCart}
+                onFractionate={onFractionate}
             />
 
             {/* Mobile List View */}
@@ -44,6 +46,7 @@ export function Cart({ items, inventory, className = '' }: CartProps) {
                 inventory={inventory}
                 onQuantityChange={updateCartItemQuantity}
                 onRemove={removeFromCart}
+                onFractionate={onFractionate}
             />
         </div>
     );
@@ -53,11 +56,11 @@ export function Cart({ items, inventory, className = '' }: CartProps) {
 interface CartTableProps {
     items: CartItem[];
     inventory: InventoryBatch[];
-    onQuantityChange: (sku: string, quantity: number) => void;
-    onRemove: (sku: string) => void;
+    onQuantityChange: (itemId: string, quantity: number) => void;
+    onRemove: (itemId: string) => void;
 }
 
-function DesktopCartTable({ items, inventory, onQuantityChange, onRemove }: CartTableProps) {
+function DesktopCartTable({ items, inventory, onQuantityChange, onRemove, onFractionate }: CartTableProps & { onFractionate: (item: CartItem) => void }) {
     return (
         <div className="hidden md:block overflow-hidden rounded-xl border border-slate-200">
             <table className="w-full text-left border-collapse">
@@ -71,18 +74,16 @@ function DesktopCartTable({ items, inventory, onQuantityChange, onRemove }: Cart
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
-                    {items.map((item) => {
-                        const fullItem = inventory.find(i => i.id === item.id);
-                        return (
-                            <CartTableRow
-                                key={item.id}
-                                item={item}
-                                fullItem={fullItem}
-                                onQuantityChange={onQuantityChange}
-                                onRemove={onRemove}
-                            />
-                        );
-                    })}
+                    {items.map((item) => (
+                        <CartTableRow
+                            key={item.id}
+                            item={item}
+                            fullItem={inventory.find(i => i.id === item.batch_id || i.id === item.id)}
+                            onQuantityChange={onQuantityChange}
+                            onRemove={onRemove}
+                            onFractionate={onFractionate}
+                        />
+                    ))}
                 </tbody>
             </table>
         </div>
@@ -93,11 +94,11 @@ function DesktopCartTable({ items, inventory, onQuantityChange, onRemove }: Cart
 interface CartTableRowProps {
     item: CartItem;
     fullItem?: InventoryBatch;
-    onQuantityChange: (sku: string, quantity: number) => void;
-    onRemove: (sku: string) => void;
+    onQuantityChange: (itemId: string, quantity: number) => void;
+    onRemove: (itemId: string) => void;
 }
 
-function CartTableRow({ item, fullItem, onQuantityChange, onRemove }: CartTableRowProps) {
+function CartTableRow({ item, fullItem, onQuantityChange, onRemove, onFractionate }: CartTableRowProps & { onFractionate: (item: CartItem) => void }) {
     const hasDiscount = !!(item as any).discount;
     const discount = (item as any).discount;
 
@@ -105,9 +106,20 @@ function CartTableRow({ item, fullItem, onQuantityChange, onRemove }: CartTableR
         <tr className="hover:bg-slate-50 transition-colors group">
             <td className="py-1 px-3">
                 <div className="flex flex-col">
-                    <span className="font-bold text-slate-800 text-sm leading-tight line-clamp-2">
-                        {fullItem ? formatProductLabel(fullItem) : item.name}
-                    </span>
+                    <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-800 text-sm leading-tight line-clamp-2">
+                            {fullItem ? formatProductLabel(fullItem) : item.name}
+                        </span>
+                        {!item.is_fractional && (
+                            <button
+                                onClick={() => onFractionate(item)}
+                                className="p-1 text-blue-500 hover:bg-blue-50 rounded transition-colors"
+                                title="Fraccionar este producto"
+                            >
+                                <Scissors size={14} />
+                            </button>
+                        )}
+                    </div>
                     {hasDiscount && (
                         <span className="bg-purple-100 text-purple-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full w-fit mt-0.5 flex items-center gap-1">
                             <Tag size={10} /> OFERTA
@@ -118,7 +130,7 @@ function CartTableRow({ item, fullItem, onQuantityChange, onRemove }: CartTableR
             <td className="py-1 px-3">
                 <QuantityControl
                     quantity={item.quantity}
-                    onChange={(qty) => onQuantityChange(item.sku, qty)}
+                    onChange={(qty) => onQuantityChange(item.id, qty)}
                 />
             </td>
             <td className="py-1 px-3 text-right">
@@ -147,7 +159,7 @@ function CartTableRow({ item, fullItem, onQuantityChange, onRemove }: CartTableR
             </td>
             <td className="py-1 px-3 text-center">
                 <button
-                    onClick={() => onRemove(item.sku)}
+                    onClick={() => onRemove(item.id)}
                     className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                     title="Eliminar"
                     aria-label={`Eliminar ${item.name}`}
@@ -160,27 +172,25 @@ function CartTableRow({ item, fullItem, onQuantityChange, onRemove }: CartTableR
 }
 
 // Mobile List View
-function MobileCartList({ items, inventory, onQuantityChange, onRemove }: CartTableProps) {
+function MobileCartList({ items, inventory, onQuantityChange, onRemove, onFractionate }: CartTableProps & { onFractionate: (item: CartItem) => void }) {
     return (
         <div className="md:hidden space-y-3">
-            {items.map((item) => {
-                const fullItem = inventory.find(i => i.id === item.id);
-                return (
-                    <MobileCartItem
-                        key={item.id}
-                        item={item}
-                        fullItem={fullItem}
-                        onQuantityChange={onQuantityChange}
-                        onRemove={onRemove}
-                    />
-                );
-            })}
+            {items.map((item) => (
+                <MobileCartItem
+                    key={item.id}
+                    item={item}
+                    fullItem={inventory.find(i => i.id === item.batch_id || i.id === item.id)}
+                    onQuantityChange={onQuantityChange}
+                    onRemove={onRemove}
+                    onFractionate={onFractionate}
+                />
+            ))}
         </div>
     );
 }
 
 // Mobile Item
-function MobileCartItem({ item, fullItem, onQuantityChange, onRemove }: CartTableRowProps) {
+function MobileCartItem({ item, fullItem, onQuantityChange, onRemove, onFractionate }: CartTableRowProps & { onFractionate: (item: CartItem) => void }) {
     const hasDiscount = !!(item as any).discount;
     const discount = (item as any).discount;
     const finalPrice = hasDiscount ? discount.finalPrice : item.price || 0;
@@ -192,6 +202,14 @@ function MobileCartItem({ item, fullItem, onQuantityChange, onRemove }: CartTabl
                     <h3 className="font-bold text-slate-800 text-sm line-clamp-1">
                         {fullItem ? formatProductLabel(fullItem) : item.name}
                     </h3>
+                    {!item.is_fractional && (
+                        <button
+                            onClick={() => onFractionate(item)}
+                            className="p-1 text-blue-500 hover:bg-blue-50 rounded transition-colors"
+                        >
+                            <Scissors size={14} />
+                        </button>
+                    )}
                     {hasDiscount && (
                         <span className="bg-purple-100 text-purple-700 text-[9px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-1">
                             <Tag size={9} /> OFERTA

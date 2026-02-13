@@ -6,7 +6,7 @@ import { TigerDataService } from '../../domain/services/TigerDataService';
 
 export interface InventoryFilters {
     search?: string;
-    category?: string;
+    category?: 'ALL' | 'MEDS' | 'RETAIL' | 'DETAIL' | 'CONTROLLED';
     stockStatus?: 'CRITICAL' | 'EXPIRING' | 'NORMAL' | 'ALL';
     incomplete?: boolean;
 }
@@ -26,6 +26,7 @@ export const useInventoryPagedQuery = (
     const query = useInfiniteQuery({
         queryKey: ['inventory', 'infinite', locationId, pagination.limit, filters],
         initialPageParam: 1,
+        placeholderData: (previousData) => previousData,
         queryFn: async ({ pageParam = 1 }) => {
             if (!locationId) return { data: [], meta: { total: 0, page: 1, totalPages: 1 } };
 
@@ -55,4 +56,3 @@ export const useInventoryPagedQuery = (
         invalidateInventory
     };
 };
-

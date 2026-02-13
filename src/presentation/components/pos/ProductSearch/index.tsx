@@ -11,7 +11,7 @@
 
 import React, { useRef } from 'react';
 import { useVirtualizer, VirtualItem } from '@tanstack/react-virtual';
-import { Search, ScanBarcode, Scissors, CornerDownLeft } from 'lucide-react';
+import { Search, ScanBarcode, CornerDownLeft } from 'lucide-react';
 import { InventoryBatch } from '../../../../domain/types';
 import { useProductSearch } from '../../../hooks/useProductSearch';
 
@@ -183,19 +183,6 @@ function ProductSearchItem({
                             <span className="flex items-center gap-1 text-[10px] font-bold text-cyan-600 animate-pulse bg-cyan-100 px-2 py-0.5 rounded-full">
                                 <CornerDownLeft size={12} /> ENTER
                             </span>
-                        )}
-                        {item.is_fractionable && onFractionClick && (
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onFractionClick();
-                                }}
-                                className="p-1.5 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors"
-                                title="Venta Fraccionada"
-                                aria-label="Venta Fraccionada"
-                            >
-                                <Scissors size={16} />
-                            </button>
                         )}
                         <span className={`text-[10px] px-1.5 py-0.5 rounded ${item.stock_actual > 0
                             ? 'bg-emerald-100 text-emerald-700'

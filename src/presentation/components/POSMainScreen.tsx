@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useVirtualizer, VirtualItem } from '@tanstack/react-virtual';
 import { createPortal } from 'react-dom';
 import { usePOSKeyboard } from '../../hooks/usePOSKeyboard'; // Hook "God Mode"
@@ -37,6 +37,7 @@ import { toast } from 'sonner';
 // shouldGenerateDTE moved to useCheckout hook
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { formatProductLabel } from '../../domain/logic/productDisplay';
+import { buildPOSCatalog, filterInventoryForPOS, selectRetailLotCandidate, sortInventoryForPOS } from '../../domain/logic/posSearch';
 // useSettingsStore moved to useCheckout hook
 // useSettingsStore moved to useCheckout hook
 import { applyPromotions } from '../../domain/logic/promotionEngine';
@@ -115,7 +116,7 @@ const POSMainScreen: React.FC = () => {
         inventory, cart, addToCart, addManualItem, removeFromCart, clearCart,
         currentCustomer, getShiftMetrics, updateOpeningAmount,
         setCustomer, promotions, createQuote, retrieveQuote, updateCartItemQuantity,
-        setInventory
+        setInventory, splitBox
         // NOTE: processSale, redeemPoints, calculateDiscountValue, loyaltyConfig, employees, printerConfig
         // are now accessed via useCheckout hook in PaymentModal
     } = usePharmaStore();
@@ -136,10 +137,17 @@ const POSMainScreen: React.FC = () => {
     const { currentLocation } = useLocationStore();
     console.log('🔍 [POSMainScreen] Current Location (Store):', currentLocation?.id, 'Current Location (Pharma):', currentLocationId);
 
-    // 🚀 Load inventory via React Query
-    const { data: inventoryData } = useInventoryQuery(currentLocationId);
+    // 🚀 Load inventory via React Query (Prefer LocationStore ID as it's more reactive in UI)
+    const isUUID = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+    const activeLocationId = isUUID(currentLocation?.id || '')
+        ? (currentLocation?.id as string)
+        : isUUID(currentLocationId)
+            ? currentLocationId
+            : undefined;
 
-    // Sync React Query data to Zustand Store for compatibility
+    const { data: inventoryData, invalidateInventory } = useInventoryQuery(activeLocationId);
+
+    // Sync React Query data to Zustand Store for compatibility with other components
     useEffect(() => {
         if (inventoryData) {
             console.log('🔄 [POS] Syncing Inventory Query -> Zustand');
@@ -258,6 +266,15 @@ const POSMainScreen: React.FC = () => {
     const total = finalTotal;
 
     const [searchTerm, setSearchTerm] = useState('');
+    const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+
+    // Debounce search term to improve performance
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearchTerm(searchTerm);
+        }, 80);
+        return () => clearTimeout(timer);
+    }, [searchTerm]);
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [isPrescriptionModalOpen, setIsPrescriptionModalOpen] = useState(false);
     const [isManualItemModalOpen, setIsManualItemModalOpen] = useState(false);
@@ -295,14 +312,19 @@ const POSMainScreen: React.FC = () => {
         const matches = inventory.filter(p => p.sku === code || p.id === code || p.barcode === code);
         if (matches.length === 0) return undefined;
 
-        // Sort by Expiry Date (Ascending) -> First Expiring First
-        // Filter out 0 stock if possible, but if all are 0, return one.
-        // Usually we want to sell available stock.
-        const availableMatches = matches.filter(m => m.stock_actual > 0);
+        const getPriority = (item: InventoryBatch): number => {
+            const hasStock = (item.stock_actual || 0) > 0;
+            if (hasStock && !item.is_retail_lot) return 0;
+            if (hasStock && item.is_retail_lot) return 1;
+            if (!item.is_retail_lot) return 2;
+            return 3;
+        };
 
-        const candidatePool = availableMatches.length > 0 ? availableMatches : matches;
-
-        return candidatePool.sort((a, b) => a.expiry_date - b.expiry_date)[0];
+        return [...matches].sort((a, b) => {
+            const byPriority = getPriority(a) - getPriority(b);
+            if (byPriority !== 0) return byPriority;
+            return (a.expiry_date || 0) - (b.expiry_date || 0);
+        })[0];
     };
 
     const handleScan = async (decodedText: string) => {
@@ -384,22 +406,20 @@ const POSMainScreen: React.FC = () => {
 
     // --- GOD MODE OPTIMIZATIONS ---
 
-    // 1. Pre-sort Inventory (FEFO) - Only resorts when inventory changes
+    // 1. Pre-sort Inventory (FEFO) - Uses React Query data directly if synced
     const sortedInventory = useMemo(() => {
-        return [...inventory].sort((a, b) => (a.expiry_date || 0) - (b.expiry_date || 0));
-    }, [inventory]);
+        const source = (inventoryData && inventoryData.length > 0) ? inventoryData : inventory;
+        return sortInventoryForPOS(source);
+    }, [inventory, inventoryData]);
 
-    // 2. High-Speed Filter
+    const posCatalog = useMemo(() => {
+        return buildPOSCatalog(sortedInventory);
+    }, [sortedInventory]);
+
+    // 2. High-Speed Filter (Using debounced search term for performance)
     const filteredInventory = useMemo(() => {
-        if (!searchTerm) return [];
-        const lowerTerm = searchTerm.toLowerCase();
-
-        return sortedInventory.filter(item =>
-            (item.name || '').toLowerCase().includes(lowerTerm) ||
-            (item.sku || '').toLowerCase().includes(lowerTerm) ||
-            (item.dci || '').toLowerCase().includes(lowerTerm)
-        );
-    }, [sortedInventory, searchTerm]);
+        return filterInventoryForPOS(posCatalog, debouncedSearchTerm);
+    }, [posCatalog, debouncedSearchTerm]);
 
     // 3. Keyboard Hook Integration
     const searchInputRef = useRef<HTMLInputElement>(null);
@@ -418,12 +438,17 @@ const POSMainScreen: React.FC = () => {
         overscan: 5,
     });
 
-    // 4. Sync Scroll with Keyboard Selection
+    // 4. Async Scroll Sync with Keyboard Selection (Prevents flushSync error)
     useEffect(() => {
         if (filteredInventory.length > 0 && rowVirtualizer) {
-            try {
-                rowVirtualizer.scrollToIndex(selectedIndex, { align: 'auto' });
-            } catch (e) { console.warn('Scroll sync warned', e); }
+            const timeoutId = setTimeout(() => {
+                try {
+                    rowVirtualizer.scrollToIndex(selectedIndex, { align: 'auto' });
+                } catch (e) {
+                    console.warn('Scroll sync warned', e);
+                }
+            }, 0);
+            return () => clearTimeout(timeoutId);
         }
     }, [selectedIndex, filteredInventory, rowVirtualizer]);
 
@@ -584,9 +609,11 @@ const POSMainScreen: React.FC = () => {
             }
         } catch (error) {
             console.error('Error validating supervisor PIN:', error);
-            setEditBaseError('Error de validación');
         }
     };
+
+
+    // ... (rest of the component logic)
 
     const openFractionModal = (e: React.MouseEvent, product: InventoryBatch) => {
         e.stopPropagation();
@@ -594,12 +621,80 @@ const POSMainScreen: React.FC = () => {
         setIsQuickFractionModalOpen(true);
     };
 
-    const handleFractionConfirm = (quantity: number) => {
+    const handleFractionConfirm = async (data: { quantity: number; unitPrice: number; unitsPerBox: number }) => {
         if (selectedProductForFraction) {
-            addToCart(selectedProductForFraction, quantity, { is_fractional: true });
-            toast.success('Fraccionamiento agregado', { icon: <Scissors size={16} /> });
+            const { quantity, unitPrice, unitsPerBox } = data;
+
+            let lotToUse = selectedProductForFraction;
+
+            // Si el lote que estamos fraccionando NO es ya un lote al detal, 
+            // creamos/actualizamos el lote detal mediante splitBox
+            if (!selectedProductForFraction.is_retail_lot) {
+                const result = await splitBox(selectedProductForFraction.id, unitsPerBox);
+
+                if (result.success && result.newBatchId) {
+                    // Invalidamos para que React Query refresque
+                    invalidateInventory();
+
+                    // Buscamos el lote recién creado/actualizado en el store local (sincronizado)
+                    // Nota: Como invalidamos, el store se actualizará pronto, pero para el addToCart inmediato
+                    // podemos intentar buscarlo o construir el objeto.
+                    const updatedItem = usePharmaStore.getState().inventory.find(i => i.id === result.newBatchId);
+                    if (updatedItem) {
+                        lotToUse = updatedItem;
+                    } else {
+                        // Fallback: Si aún no se sincroniza, construimos un objeto temporal
+                        lotToUse = {
+                            ...selectedProductForFraction,
+                            id: result.newBatchId,
+                            is_retail_lot: true,
+                            stock_actual: unitsPerBox,
+                            name: `[AL DETAL] ${selectedProductForFraction.name}`,
+                            original_batch_id: selectedProductForFraction.id
+                        };
+                    }
+                } else {
+                    return; // Error ya manejado por el store (toast)
+                }
+            }
+
+            // Agregamos al carrito con el precio dinámico
+            addToCart(lotToUse, quantity, {
+                is_fractional: true,
+                price: unitPrice,
+                name: `🔵 ${lotToUse.name} x1`
+            });
+
+            toast.success(`Caja abierta: ${quantity} unidades agregadas`);
+            setIsQuickFractionModalOpen(false);
         }
     };
+
+    const getRetailAlternative = useCallback((fullItem?: InventoryBatch | null): InventoryBatch | undefined => {
+        if (!fullItem) return undefined;
+        return selectRetailLotCandidate(inventory, fullItem);
+    }, [inventory]);
+
+    const switchCartItemToRetailLot = useCallback((cartItem: CartItem, fullItem?: InventoryBatch | null) => {
+        const retailLot = getRetailAlternative(fullItem);
+        if (!retailLot) {
+            toast.info('No hay lote al detal disponible para este producto');
+            return;
+        }
+
+        const requestedQty = Number(cartItem.quantity || 1);
+        const availableQty = Number(retailLot.stock_actual || 0);
+        const nextQty = Math.max(1, Math.min(requestedQty, availableQty));
+
+        removeFromCart(cartItem.id);
+        addToCart(retailLot, nextQty);
+
+        if (nextQty < requestedQty) {
+            toast.warning(`Detalle limitado a ${nextQty} unidad(es) por stock disponible`);
+        } else {
+            toast.success('Producto cambiado a lote al detal');
+        }
+    }, [addToCart, getRetailAlternative, removeFromCart]);
 
     // --- MISSING LOCATION STATE RENDER ---
     if (!currentLocationId) {
@@ -665,60 +760,50 @@ const POSMainScreen: React.FC = () => {
 
 
                 <div className="bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col h-full overflow-hidden">
-                    {/* Search Bar Portal Logic */}
-                    {mounted && document.getElementById('header-search-portal') && createPortal(
-                        <div className="w-full relative group">
+                    {/* Barra de Búsqueda de vuelta a la Izquierda */}
+                    <div className="p-4 border-b border-slate-100 bg-slate-50/50">
+                        <div className="relative group">
                             <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400 group-focus-within:text-cyan-600 transition-colors" size={20} />
                             <input
                                 type="text"
                                 ref={searchInputRef}
-                                placeholder="Buscar o Escanear (COT-...)"
-                                className="w-full pl-11 pr-12 py-3 bg-slate-100/50 hover:bg-slate-100 focus:bg-white rounded-xl border border-transparent focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 outline-none transition-all text-lg font-medium"
+                                placeholder="Buscar productos... (F2)"
+                                className="w-full pl-11 pr-12 py-3 bg-white hover:bg-slate-50 focus:bg-white rounded-2xl border border-slate-200 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 outline-none transition-all text-lg font-bold"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                                 onKeyDown={handleKeyDownInput}
+                                autoFocus
                             />
                             <button
                                 onClick={() => setSearchTerm('')}
-                                className={`absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-all ${searchTerm ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                                className={`absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-all ${searchTerm ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
                             >
-                                <X size={14} />
+                                <X size={16} />
                             </button>
-                        </div>,
-                        document.getElementById('header-search-portal')!
-                    )}
-
-                    {/* Mobile Search - Visible only on mobile since Portal is desktop only target */}
-                    <div className="p-4 md:hidden border-b border-slate-100">
-                        <div className="relative flex items-center gap-2">
-                            <div className="relative flex-1">
-                                <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400" size={24} />
-                                <input
-                                    type="text"
-                                    placeholder="Buscar o Escanear"
-                                    className="w-full pl-12 pr-4 py-3 bg-white rounded-2xl border border-slate-200 outline-none"
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                />
-                            </div>
                         </div>
                     </div>
 
-                    {/* List Header (Desktop Only now that search is gone) */}
+                    {/* List Header (Desktop Only) */}
                     <div className="hidden md:flex p-3 bg-slate-50/50 border-b border-slate-100 justify-between items-center">
                         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                            {filteredInventory.length} Productos
+                            {searchTerm.trim()
+                                ? `${filteredInventory.length} encontrados`
+                                : `${filteredInventory.length} en catálogo`}
                         </span>
-                        <div className="flex gap-2">
-                            {/* Optional: Filters could go here */}
-                        </div>
                     </div>
 
                     <div
                         ref={parentRef}
                         className="flex-1 overflow-y-auto p-4 pb-24 md:pb-4 touch-pan-y overscroll-contain"
                     >
-                        {searchTerm ? (
+                        {filteredInventory.length === 0 ? (
+                            <div className="h-full flex flex-col items-center justify-center text-slate-300 opacity-50">
+                                <Search size={48} className="mb-4" />
+                                <p className="text-sm font-bold">
+                                    {searchTerm.trim() ? 'Sin resultados para esta búsqueda' : 'Sin productos disponibles'}
+                                </p>
+                            </div>
+                        ) : (
                             <div
                                 style={{
                                     height: `${rowVirtualizer.getTotalSize()}px`,
@@ -746,52 +831,75 @@ const POSMainScreen: React.FC = () => {
                                             style={{
                                                 transform: `translateY(${virtualRow.start}px)`,
                                             }}
-                                            onClick={() => {
-                                                addToCart(item, 1);
-                                                setSearchTerm('');
-                                            }}
                                         >
                                             <div
-                                                className={`p-3 rounded-xl border transition-all group h-full cursor-pointer relative ${isSelected
-                                                    ? 'bg-cyan-50 border-cyan-500 shadow-md ring-2 ring-cyan-200 z-10 scale-[1.02]'
-                                                    : item.stock_actual <= 0
-                                                        ? 'bg-red-50 border-red-300 hover:bg-red-100 hover:border-red-400'
-                                                        : 'bg-white border-slate-100 hover:border-cyan-200'
+                                                onClick={() => addToCart(item, 1)} // Original behavior for click
+                                                onDoubleClick={() => addToCart(item, 1)} // Assuming double click also adds to cart
+                                                className={`group relative p-4 mb-3 rounded-2xl border transition-all cursor-pointer select-none overflow-hidden ${item.is_retail_lot
+                                                    ? (isSelected
+                                                        ? 'bg-gradient-to-r from-amber-500 to-orange-500 border-amber-500 shadow-lg shadow-amber-200 -translate-y-0.5'
+                                                        : 'bg-amber-50/80 border-amber-200 hover:bg-amber-100 shadow-sm')
+                                                    : (isSelected
+                                                        ? 'bg-cyan-600 border-cyan-500 shadow-lg shadow-cyan-100 -translate-y-0.5'
+                                                        : 'bg-white border-slate-200 hover:border-cyan-300 hover:shadow-md')
                                                     }`}
                                             >
-                                                <h3 className={`font-bold text-sm leading-tight mb-1 group-hover:text-cyan-600 ${item.stock_actual <= 0 ? 'text-red-700' : 'text-slate-800'}`}>
-                                                    {item.name}
-                                                </h3>
-                                                <p className="text-[10px] text-slate-500 font-mono mb-1">{item.dci}</p>
-                                                <div className="flex justify-between items-center">
-                                                    <span className="font-bold text-slate-900">${(item.price || 0).toLocaleString()}</span>
-                                                    <div className="flex items-center gap-2">
-                                                        {virtualRow.index === selectedIndex && (
-                                                            <span className="flex items-center gap-1 text-[10px] font-bold text-cyan-600 animate-pulse bg-cyan-100 px-2 py-0.5 rounded-full">
-                                                                <CornerDownLeft size={12} /> ENTER
+                                                {/* Badge de Detalle */}
+                                                {item.is_retail_lot && !isSelected && (
+                                                    <div className="absolute top-0 right-0 bg-amber-500 text-white text-[9px] font-black px-3 py-1 rounded-bl-xl uppercase tracking-tighter">
+                                                        Caja Abierta
+                                                    </div>
+                                                )}
+
+                                                <div className="flex justify-between items-start gap-3">
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                            <h5 className={`font-bold truncate ${isSelected ? 'text-white' : 'text-slate-800'}`}>
+                                                                {item.name}
+                                                            </h5>
+                                                            {item.is_retail_lot && (
+                                                                <span className={`flex-shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-md border ${isSelected
+                                                                    ? 'bg-white/25 text-white border-white/40'
+                                                                    : 'bg-amber-100 text-amber-700 border-amber-200'
+                                                                    }`}>
+                                                                    DETAL
+                                                                </span>
+                                                            )}
+                                                            {item.bioequivalent && (
+                                                                <span className="flex-shrink-0 bg-yellow-400 text-yellow-900 text-[9px] font-black px-1.5 py-0.5 rounded-md">BE</span>
+                                                            )}
+                                                        </div>
+                                                        <p className={`text-xs truncate ${isSelected ? 'text-cyan-100' : 'text-slate-400'}`}>
+                                                            {item.sku} • {item.laboratory}
+                                                        </p>
+                                                    </div>
+                                                    <div className="text-right flex-shrink-0">
+                                                        <p className={`text-lg font-black ${isSelected ? 'text-white' : 'text-slate-900'}`}>
+                                                            ${(item.is_retail_lot ? (item.price_sell_unit || Math.round(item.price / (item.units_per_box || 1))) : item.price).toLocaleString()}
+                                                        </p>
+                                                        <div className="flex items-center justify-end gap-1 mt-1">
+                                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isSelected
+                                                                ? 'bg-white/20 text-white'
+                                                                : item.stock_actual <= item.stock_min
+                                                                    ? 'bg-red-100 text-red-600'
+                                                                    : item.is_retail_lot
+                                                                        ? 'bg-amber-200 text-amber-800'
+                                                                        : 'bg-slate-100 text-slate-600'
+                                                                }`}>
+                                                                {item.stock_actual} {item.is_retail_lot ? 'unidades' : 'cajas'}
                                                             </span>
-                                                        )}
-                                                        {item.is_fractionable && (
-                                                            <button
-                                                                onClick={(e) => openFractionModal(e, item)}
-                                                                className="p-1.5 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors"
-                                                                title="Venta Fraccionada"
-                                                            >
-                                                                <Scissors size={16} />
-                                                            </button>
-                                                        )}
-                                                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${item.stock_actual > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700 font-bold border border-red-200'}`}>Stock: {item.stock_actual}</span>
+                                                        </div>
                                                     </div>
                                                 </div>
+                                                {virtualRow.index === selectedIndex && (
+                                                    <span className="absolute bottom-3 left-4 flex items-center gap-1 text-[10px] font-bold text-cyan-100 animate-pulse bg-white/20 px-2 py-0.5 rounded-full">
+                                                        <CornerDownLeft size={12} /> ENTER
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
                                     );
                                 })}
-                            </div>
-                        ) : (
-                            <div className="h-full flex flex-col items-center justify-center text-slate-300 opacity-50">
-                                <Search size={48} className="mb-4" />
-                                <p className="text-sm font-bold">Escriba para buscar</p>
                             </div>
                         )}
                     </div>
@@ -820,7 +928,7 @@ const POSMainScreen: React.FC = () => {
 
                 <div className={`flex-1 rounded-3xl shadow-xl border border-slate-200 overflow-hidden flex flex-col h-full transition-colors ${isQuoteMode ? 'bg-amber-50 border-amber-200' : 'bg-white'} `}>
                     {/* Header */}
-                    <div className="p-4 md:p-6 border-b border-slate-100 flex flex-col md:flex-row md:justify-between md:items-center bg-slate-50/50 gap-4">
+                    <div className="p-4 md:p-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center bg-slate-50/50 gap-4">
                         <div className="flex items-center gap-4 justify-between md:justify-start w-full md:w-auto">
                             <div className="flex items-center gap-4">
                                 {/* Mobile Back Button */}
@@ -845,7 +953,18 @@ const POSMainScreen: React.FC = () => {
                                     )}
                                 </div>
                             </div>
+                        </div>
 
+                        {/* DESKTOP STATUS (Replacing search bar in header) */}
+                        <div className="flex-1 max-w-2xl mx-4 hidden md:flex items-center gap-4">
+                            <div className="h-10 w-px bg-slate-200 mx-2" />
+                            <div className="flex flex-col">
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-tight">Terminal Activo</span>
+                                <span className="text-sm font-bold text-slate-600">{currentLocation?.name} - {user?.name}</span>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-4">
                             {/* UNIFIED HEADER ACTIONS (Teleported to Header) */}
                             {mounted && document.getElementById('header-actions-portal') && createPortal(
                                 <div className="flex items-center gap-3">
@@ -916,7 +1035,7 @@ const POSMainScreen: React.FC = () => {
                             )}
 
                             {/* Fallback for Mobile (Render inline if no portal target or is mobile) */}
-                            <div className="lg:hidden">
+                            <div className="lg:hidden text-slate-400">
                                 <POSHeaderActions
                                     shiftStatus={currentShift?.status}
                                     shiftId={currentShift?.id}
@@ -963,14 +1082,41 @@ const POSMainScreen: React.FC = () => {
                                         </thead>
                                         <tbody className="divide-y divide-slate-100 bg-white">
                                             {cartWithDiscounts.map((item, index) => {
-                                                const fullItem = inventory.find(i => i.id === item.id);
+                                                const fullItem = inventory.find(i => i.id === item.id || i.id === item.batch_id);
+                                                const retailAlternative = getRetailAlternative(fullItem);
                                                 return (
                                                     <tr key={item.id || item.sku || `item-${index}`} className="hover:bg-slate-50 transition-colors group">
                                                         <td className="p-4">
                                                             <div className="flex flex-col">
-                                                                <span className="font-bold text-slate-800 text-lg leading-tight">
-                                                                    {fullItem ? formatProductLabel(fullItem) : item.name}
-                                                                </span>
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="font-bold text-slate-800 text-lg leading-tight">
+                                                                        {fullItem ? formatProductLabel(fullItem) : item.name}
+                                                                    </span>
+                                                                    {!item.is_fractional && (
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                if (fullItem) openFractionModal(e, fullItem);
+                                                                            }}
+                                                                            className="p-1 text-blue-500 hover:bg-blue-50 rounded transition-colors"
+                                                                            title="Fraccionar caja"
+                                                                        >
+                                                                            <Scissors size={14} />
+                                                                        </button>
+                                                                    )}
+                                                                    {!item.is_fractional && retailAlternative && (
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                switchCartItemToRetailLot(item, fullItem);
+                                                                            }}
+                                                                            className="px-2 py-1 text-[11px] font-bold text-amber-700 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-md transition-colors"
+                                                                            title="Cambiar a lote al detal"
+                                                                        >
+                                                                            Cambiar a Detal
+                                                                        </button>
+                                                                    )}
+                                                                </div>
                                                                 {item.discount && (
                                                                     <span className="bg-purple-100 text-purple-700 text-xs font-bold px-2 py-0.5 rounded-full w-fit mt-1 flex items-center gap-1">
                                                                         <Tag size={12} /> OFERTA
@@ -981,7 +1127,7 @@ const POSMainScreen: React.FC = () => {
                                                         <td className="p-4">
                                                             <div className="flex items-center gap-1 w-fit mx-auto">
                                                                 <button
-                                                                    onClick={() => updateCartItemQuantity(item.sku, item.quantity - 1)}
+                                                                    onClick={() => updateCartItemQuantity(item.id, item.quantity - 1)}
                                                                     className="w-8 h-8 flex items-center justify-center bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 disabled:opacity-50 border border-slate-200"
                                                                     disabled={item.quantity <= 1}
                                                                 >
@@ -989,10 +1135,10 @@ const POSMainScreen: React.FC = () => {
                                                                 </button>
                                                                 <QuantityInput
                                                                     value={item.quantity}
-                                                                    onChange={(val) => updateCartItemQuantity(item.sku, val)}
+                                                                    onChange={(val) => updateCartItemQuantity(item.id, val)}
                                                                 />
                                                                 <button
-                                                                    onClick={() => updateCartItemQuantity(item.sku, item.quantity + 1)}
+                                                                    onClick={() => updateCartItemQuantity(item.id, item.quantity + 1)}
                                                                     className="w-8 h-8 flex items-center justify-center bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 border border-slate-200"
                                                                 >
                                                                     <Plus size={16} />
@@ -1025,7 +1171,7 @@ const POSMainScreen: React.FC = () => {
                                                         </td>
                                                         <td className="p-4 text-center">
                                                             <button
-                                                                onClick={() => removeFromCart(item.sku)}
+                                                                onClick={() => removeFromCart(item.id)}
                                                                 className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
                                                                 title="Eliminar"
                                                             >
@@ -1042,12 +1188,32 @@ const POSMainScreen: React.FC = () => {
                                 {/* Mobile List View (Hidden on Desktop) */}
                                 <div className="md:hidden space-y-3">
                                     {cartWithDiscounts.map((item, index) => {
-                                        const fullItem = inventory.find(i => i.id === item.id);
+                                        const fullItem = inventory.find(i => i.id === item.id || i.id === item.batch_id);
+                                        const retailAlternative = getRetailAlternative(fullItem);
                                         return (
                                             <div key={item.id || item.sku || `item-${index}`} className="flex justify-between items-center p-3 bg-white rounded-xl border border-slate-100 shadow-sm">
                                                 <div className="flex-1">
                                                     <div className="flex items-center gap-2 mb-1">
                                                         <h3 className="font-bold text-slate-800 text-base">{fullItem ? formatProductLabel(fullItem) : item.name}</h3>
+                                                        {!item.is_fractional && (
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    if (fullItem) openFractionModal(e, fullItem);
+                                                                }}
+                                                                className="p-1 text-blue-500 hover:bg-blue-50 rounded transition-colors"
+                                                            >
+                                                                <Scissors size={14} />
+                                                            </button>
+                                                        )}
+                                                        {!item.is_fractional && retailAlternative && (
+                                                            <button
+                                                                onClick={() => switchCartItemToRetailLot(item, fullItem)}
+                                                                className="px-2 py-0.5 text-[10px] font-bold text-amber-700 bg-amber-100 border border-amber-300 rounded-md"
+                                                            >
+                                                                Detal
+                                                            </button>
+                                                        )}
                                                         {item.discount && (
                                                             <span className="bg-purple-100 text-purple-700 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
                                                                 <Tag size={10} /> OFERTA
@@ -1057,19 +1223,19 @@ const POSMainScreen: React.FC = () => {
                                                     <div className="text-xs text-slate-500 flex items-center gap-2 mt-1">
                                                         <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200">
                                                             <button
-                                                                onClick={() => updateCartItemQuantity(item.sku, item.quantity - 1)}
-                                                                className="p-1 hover:bg-slate-200 rounded-l-lg text-slate-600 disabled:opacity-50"
-                                                                disabled={item.quantity <= 1}
+                                                                onClick={() => updateCartItemQuantity(item.id, item.quantity - 1)}
+                                                                className="p-1 hover:bg-slate-200 rounded-l-lg text-slate-600 border-r border-slate-200"
                                                             >
                                                                 <Minus size={14} />
                                                             </button>
-                                                            <QuantityInput
+                                                            <input
+                                                                type="number"
+                                                                className="w-12 text-center bg-transparent font-medium focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                                 value={item.quantity}
-                                                                onChange={(val) => updateCartItemQuantity(item.sku, val)}
-                                                                className="w-10 text-center bg-transparent font-mono font-bold text-slate-800 outline-none text-sm appearance-none m-0"
+                                                                onChange={(e) => updateCartItemQuantity(item.id, parseInt(e.target.value) || 1)}
                                                             />
                                                             <button
-                                                                onClick={() => updateCartItemQuantity(item.sku, item.quantity + 1)}
+                                                                onClick={() => updateCartItemQuantity(item.id, item.quantity + 1)}
                                                                 className="p-1 hover:bg-slate-200 rounded-r-lg text-slate-600"
                                                             >
                                                                 <Plus size={14} />
@@ -1083,7 +1249,7 @@ const POSMainScreen: React.FC = () => {
                                                     <p className="font-bold text-slate-800 text-xl">${((item.discount?.finalPrice || item.price || 0) * item.quantity).toLocaleString()}</p>
                                                 </div>
                                                 <button
-                                                    onClick={() => removeFromCart(item.sku)}
+                                                    onClick={() => removeFromCart(item.id)}
                                                     className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                                 >
                                                     <Trash2 size={20} />
@@ -1148,13 +1314,15 @@ const POSMainScreen: React.FC = () => {
             />
 
             {/* Modular Cash Management Modal */}
-            {cashModalMode && (
-                <CashManagementModal // Note: Ensure this is imported correctly as CashManagementModal, not CashControlModal
-                    isOpen={!!cashModalMode}
-                    onClose={() => setCashModalMode(null)}
-                    mode={cashModalMode}
-                />
-            )}
+            {
+                cashModalMode && (
+                    <CashManagementModal // Note: Ensure this is imported correctly as CashManagementModal, not CashControlModal
+                        isOpen={!!cashModalMode}
+                        onClose={() => setCashModalMode(null)}
+                        mode={cashModalMode}
+                    />
+                )
+            }
 
             <CashOutModal
                 isOpen={isCashOutModalOpen}
@@ -1174,67 +1342,69 @@ const POSMainScreen: React.FC = () => {
             />
 
             {/* Edit Base Modal */}
-            {isEditBaseModalOpen && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 animate-in fade-in zoom-in duration-200">
-                        <h3 className="text-xl font-bold text-slate-800 mb-4">Ajustar Base Inicial</h3>
+            {
+                isEditBaseModalOpen && (
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 animate-in fade-in zoom-in duration-200">
+                            <h3 className="text-xl font-bold text-slate-800 mb-4">Ajustar Base Inicial</h3>
 
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-bold text-slate-600 mb-1">Nuevo Monto Base (Efectivo Sencillo)</label>
-                                <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold text-lg"
-                                    value={newBaseAmount}
-                                    onChange={(e) => {
-                                        const formatted = formatWithThousands(e.target.value);
-                                        setNewBaseAmount(formatted);
-                                    }}
-                                    placeholder="$100.000"
-                                />
-                                {newBaseAmount && (
-                                    <p className="text-xs text-slate-500 mt-1 text-right">
-                                        Valor: ${formatWithThousands(newBaseAmount)} CLP
-                                    </p>
-                                )}
-                            </div>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-600 mb-1">Nuevo Monto Base (Efectivo Sencillo)</label>
+                                    <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold text-lg"
+                                        value={newBaseAmount}
+                                        onChange={(e) => {
+                                            const formatted = formatWithThousands(e.target.value);
+                                            setNewBaseAmount(formatted);
+                                        }}
+                                        placeholder="$100.000"
+                                    />
+                                    {newBaseAmount && (
+                                        <p className="text-xs text-slate-500 mt-1 text-right">
+                                            Valor: ${formatWithThousands(newBaseAmount)} CLP
+                                        </p>
+                                    )}
+                                </div>
 
-                            <div>
-                                <label className="block text-sm font-bold text-slate-600 mb-1">PIN Supervisor (Manager)</label>
-                                <input
-                                    type="password"
-                                    maxLength={4}
-                                    className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold text-lg tracking-widest text-center"
-                                    value={supervisorPin}
-                                    onChange={(e) => {
-                                        setSupervisorPin(e.target.value);
-                                        setEditBaseError('');
-                                    }}
-                                    placeholder="••••"
-                                />
-                            </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-600 mb-1">PIN Supervisor (Manager)</label>
+                                    <input
+                                        type="password"
+                                        maxLength={4}
+                                        className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold text-lg tracking-widest text-center"
+                                        value={supervisorPin}
+                                        onChange={(e) => {
+                                            setSupervisorPin(e.target.value);
+                                            setEditBaseError('');
+                                        }}
+                                        placeholder="••••"
+                                    />
+                                </div>
 
-                            {editBaseError && <p className="text-red-500 text-sm font-bold text-center">{editBaseError}</p>}
+                                {editBaseError && <p className="text-red-500 text-sm font-bold text-center">{editBaseError}</p>}
 
-                            <div className="grid grid-cols-2 gap-3 mt-6">
-                                <button
-                                    onClick={() => setIsEditBaseModalOpen(false)}
-                                    className="py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100"
-                                >
-                                    Cancelar
-                                </button>
-                                <button
-                                    onClick={handleUpdateBase}
-                                    className="py-3 rounded-xl font-bold bg-cyan-600 text-white hover:bg-cyan-700"
-                                >
-                                    Confirmar
-                                </button>
+                                <div className="grid grid-cols-2 gap-3 mt-6">
+                                    <button
+                                        onClick={() => setIsEditBaseModalOpen(false)}
+                                        className="py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        onClick={handleUpdateBase}
+                                        className="py-3 rounded-xl font-bold bg-cyan-600 text-white hover:bg-cyan-700"
+                                    >
+                                        Confirmar
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Payment Modal - Now using modular component */}
             <PaymentModal
@@ -1245,12 +1415,14 @@ const POSMainScreen: React.FC = () => {
                     console.log('[POS] Sale completed successfully');
                 }}
             />
-            {isScannerOpen && (
-                <CameraScanner
-                    onScan={handleScan}
-                    onClose={() => setIsScannerOpen(false)}
-                />
-            )}
+            {
+                isScannerOpen && (
+                    <CameraScanner
+                        onScan={handleScan}
+                        onClose={() => setIsScannerOpen(false)}
+                    />
+                )
+            }
 
             <TransactionHistoryModal
                 isOpen={isHistoryModalOpen}
@@ -1271,13 +1443,15 @@ const POSMainScreen: React.FC = () => {
 
 
             {/* Mobile Scanner Overlay */}
-            {isScannerOpen && (
-                <MobileScanner
-                    onScan={handleScan}
-                    onClose={() => setIsScannerOpen(false)}
-                    continuous={true} // Allow multiple scans
-                />
-            )}
+            {
+                isScannerOpen && (
+                    <MobileScanner
+                        onScan={handleScan}
+                        onClose={() => setIsScannerOpen(false)}
+                        continuous={true} // Allow multiple scans
+                    />
+                )
+            }
 
             {/* FAB for Mobile Scan */}
             <div className="md:hidden fixed bottom-24 right-4 z-40">
@@ -1304,7 +1478,7 @@ const POSMainScreen: React.FC = () => {
                     addToCart(newProduct as any, 1);
                 }}
             />
-        </div>
+        </div >
     );
 };
 

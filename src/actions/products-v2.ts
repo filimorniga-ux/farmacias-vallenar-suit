@@ -57,11 +57,11 @@ const CreateProductSchema = z.object({
     name: z.string().min(2, 'Nombre mínimo 2 caracteres').max(200),
     dci: z.string().max(150).optional(),
     laboratory: z.string().max(100).optional(),
-    isp_register: z.string().max(50).optional(),
+    ispRegister: z.string().max(50).optional(),
     format: z.string().max(50).optional(),
-    units_per_box: z.number().int().min(1).optional(),
-    is_bioequivalent: z.boolean().optional(),
-    condicion_venta: z.enum(['VD', 'R', 'RR', 'RCH']).optional(),
+    unitsPerBox: z.number().int().min(1).optional(),
+    isBioequivalent: z.boolean().optional(),
+    condition: z.enum(['VD', 'R', 'RR', 'RCH']).optional(),
     description: z.string().max(1000).optional(),
     categoryId: UUIDSchema.optional(),
     brandId: UUIDSchema.optional(),
@@ -135,6 +135,8 @@ const CreateExpressProductSchema = z.object({
     barcode: z.string().min(1, 'Código requerido'),
     name: z.string().min(2, 'Nombre requerido'),
     price: z.number().min(0, 'Precio inválido'),
+    units_per_box: z.number().int().min(1).optional(),
+    laboratory: z.string().optional(),
     userId: UUIDSchema,
 });
 
@@ -151,7 +153,7 @@ export async function createProductExpressSecure(data: z.infer<typeof CreateExpr
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { barcode, name, price, userId } = validated.data;
+    const { barcode, name, price, userId, units_per_box, laboratory } = validated.data;
     const client = await pool.connect();
 
     try {
@@ -177,15 +179,17 @@ export async function createProductExpressSecure(data: z.infer<typeof CreateExpr
                 cost_net, cost_price, tax_percent,
                 stock_minimo_seguridad, stock_total, stock_actual,
                 registration_source, is_express_entry,
+                units_per_box, laboratory,
                 condicion_venta, created_at, updated_at, is_active
             ) VALUES (
                 $1, $2, $3, $4, $4, $4,
                 0, 0, 19,
                 0, 100, 100, -- Dummy Stock to allow immediate sale
                 'POS_EXPRESS', true,
+                $5, $6,
                 'VD', NOW(), NOW(), true
             )
-        `, [productId, barcode, name, price]);
+        `, [productId, barcode, name, price, units_per_box || 1, laboratory || null]);
 
         // 2. Insert Batch (For inventory management)
         await client.query(`
@@ -194,15 +198,17 @@ export async function createProductExpressSecure(data: z.infer<typeof CreateExpr
                 price_sell_box, sale_price,
                 stock_actual, quantity_real,
                 cost_net, unit_cost,
+                units_per_box, laboratory,
                 expiry_date, created_at, updated_at
             ) VALUES (
                 $1, $2, $3, $4,
                 $5, $5,
                 100, 100, -- Dummy Stock
                 0, 0,
+                $6, $7,
                 NULL, NOW(), NOW()
             )
-        `, [batchId, productId, barcode, name, price]);
+        `, [batchId, productId, barcode, name, price, units_per_box || 1, laboratory || null]);
 
         // 3. Audit
         await insertProductAudit(client, {
@@ -430,10 +436,10 @@ export async function createProductSecure(data: z.infer<typeof CreateProductSche
             validated.data.name,
             validated.data.dci || null,
             validated.data.laboratory || null,
-            validated.data.isp_register || null,
+            validated.data.ispRegister || null,
             validated.data.format || null,
-            validated.data.units_per_box || 1,
-            validated.data.is_bioequivalent || false,
+            validated.data.unitsPerBox || 1,
+            validated.data.isBioequivalent || false,
             validated.data.price,
             validated.data.price, // price_sell_box
             validated.data.price, // price_sell_unit
@@ -446,7 +452,7 @@ export async function createProductSecure(data: z.infer<typeof CreateProductSche
             validated.data.initialLocation || null, // location_id
             validated.data.isColdChain || false, // es_frio
             false, // comisionable
-            validated.data.condicion_venta || 'VD'
+            validated.data.condition || 'VD'
         ]);
 
         // Create initial batch in inventory_batches if stock is provided
