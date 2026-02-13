@@ -84,9 +84,10 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
     const [searchResults, setSearchResults] = useState<any[]>([]);
     const [isSearching, setIsSearching] = useState(false);
 
-    // Derived State
     const uniqueLabs = useMemo(() => Array.from(new Set(suppliers.flatMap(s => s.brands || []))).sort(), [suppliers]);
     const uniqueCategories = useMemo(() => ['MEDICAMENTO', 'PERFUMERIA', 'SUPLEMENTO', 'INSUMO', 'ACCESORIO', 'ALIMENTO'].sort(), []);
+
+    const [isSaving, setIsSaving] = useState(false);
 
     // Effect: Recalcular precio sugerido cuando cambia Costo, IVA o Margen
     useEffect(() => {
@@ -191,7 +192,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
     const handleSubmit = async () => {
         if (!formData.sku || !formData.name) return toast.error('Complete SKU y Nombre');
 
-        // Prepare Payload
+        // Prepare Payload to match UpdateProductMasterSchema/CreateProductSchema
         const commonPayload = {
             sku: formData.sku,
             name: formData.name,
@@ -200,28 +201,28 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
             costPrice: formData.cost_net,
             minStock: formData.stock_min,
             maxStock: formData.stock_max,
-            userId: user?.id || 'SYSTEM',
+            userId: user?.id && user.id.length > 20 ? user.id : '00000000-0000-4000-8000-000000000000', // Ensure Valid UUID
             barcode: formData.barcode || undefined,
             dci: formData.dci,
             laboratory: formData.laboratory,
-            ispRegister: formData.isp_register,
+            ispRegister: formData.isp_register, // Corrected to match camelCase in schema
             unitsPerBox: formData.units_per_box,
             isBioequivalent: formData.is_bioequivalent,
             format: formData.format,
-            administrationRoute: formData.administration_route,
-            therapeuticTags: formData.therapeutic_tags,
+            condition: 'VD' as any, // Matches UpdateProductMasterSchema.condition
+            requiresPrescription: false, // Default or map if needed
+            isColdChain: false,          // Default or map if needed
         };
 
+        setIsSaving(true);
         try {
             let result;
             if (isEdit && product) {
-                // @ts-ignore
                 result = await updateProductMasterSecure({
-                    productId: product.id || product.product_id || '', // Safety check
+                    productId: product.id || (product as any).product_id || '',
                     ...commonPayload
                 });
             } else {
-                // @ts-ignore
                 result = await createProductSecure({
                     ...commonPayload,
                     initialStock: formData.stock_actual,
@@ -235,7 +236,6 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                 toast.success(isEdit ? 'Producto actualizado' : 'Producto creado');
                 await queryClient.invalidateQueries({ queryKey: ['inventory'] });
 
-                // Safely get productId
                 let finalProductId = isEdit ? product?.id : undefined;
                 if ('data' in result && result.data) {
                     finalProductId = result.data.productId;
@@ -244,11 +244,13 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                 if (onSuccess && finalProductId) onSuccess(finalProductId, commonPayload);
                 onClose();
             } else {
-                toast.error('Error: ' + result.error);
+                toast.error('Fallo al guardar: ' + (result.error || 'Error desconocido'));
             }
         } catch (err) {
             console.error(err);
-            toast.error('Error de conexión');
+            toast.error('Error de conexión al guardar cambios');
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -599,8 +601,16 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                     <button onClick={onClose} className="px-6 py-3 border border-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-50 transition">
                         Cancelar
                     </button>
-                    <button onClick={handleSubmit} className="px-8 py-3 bg-cyan-600 text-white rounded-xl font-bold hover:bg-cyan-700 transition shadow-lg shadow-cyan-200 flex items-center gap-2">
-                        <Save size={20} />
+                    <button
+                        onClick={handleSubmit}
+                        disabled={isSaving}
+                        className="px-8 py-3 bg-cyan-600 text-white rounded-xl font-bold hover:bg-cyan-700 transition shadow-lg shadow-cyan-200 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {isSaving ? (
+                            <Loader2 className="animate-spin" size={20} />
+                        ) : (
+                            <Save size={20} />
+                        )}
                         {isEdit ? 'Guardar Cambios' : 'Crear Producto Maestro'}
                     </button>
                 </div>

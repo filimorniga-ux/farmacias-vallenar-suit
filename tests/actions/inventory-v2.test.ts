@@ -16,6 +16,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 // =====================================================
 
 const mockQuery = vi.fn();
+const mockDirectQuery = vi.fn();
 const mockRelease = vi.fn();
 const mockConnect = vi.fn();
 const mockBcryptCompare = vi.fn();
@@ -31,7 +32,14 @@ vi.mock('@/lib/db', () => ({
             });
         },
     },
-    query: vi.fn(),
+    getClient: () => {
+        mockConnect();
+        return Promise.resolve({
+            query: mockQuery,
+            release: mockRelease,
+        });
+    },
+    query: (...args: unknown[]) => mockDirectQuery(...args),
 }));
 
 // Mock uuid
@@ -63,6 +71,8 @@ import {
     createBatchSecure,
     adjustStockSecure,
     transferStockSecure,
+    fractionateBatchSecure,
+    fractionateBatchSecureDetailed,
     clearLocationInventorySecure,
     getInventorySecure,
 } from '@/actions/inventory-v2';
@@ -92,6 +102,7 @@ describe('createBatchSecure', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockQuery.mockResolvedValue({ rows: [] });
+        mockDirectQuery.mockResolvedValue({ rows: [] });
     });
 
     afterEach(() => {
@@ -204,6 +215,7 @@ describe('adjustStockSecure', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockQuery.mockResolvedValue({ rows: [] });
+        mockDirectQuery.mockResolvedValue({ rows: [] });
         mockBcryptCompare.mockResolvedValue(true);
     });
 
@@ -369,6 +381,7 @@ describe('transferStockSecure', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockQuery.mockResolvedValue({ rows: [] });
+        mockDirectQuery.mockResolvedValue({ rows: [] });
     });
 
     it('should transfer stock to new location batch', async () => {
@@ -464,6 +477,7 @@ describe('clearLocationInventorySecure', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockQuery.mockResolvedValue({ rows: [] });
+        mockDirectQuery.mockResolvedValue({ rows: [] });
         mockBcryptCompare.mockResolvedValue(true);
     });
 
@@ -573,6 +587,7 @@ describe('clearLocationInventorySecure', () => {
 describe('getInventorySecure', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mockDirectQuery.mockResolvedValue({ rows: [] });
     });
 
     it('should reject invalid location ID', async () => {
@@ -580,5 +595,338 @@ describe('getInventorySecure', () => {
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('inválido');
+    });
+
+    it('should flatten retail batches when pagination is disabled', async () => {
+        const retailBatchId = '123e4567-e89b-12d3-a456-426614174555';
+        mockDirectQuery.mockResolvedValueOnce({
+            rows: [{
+                group_key: 'product-group-1',
+                product_id: '123e4567-e89b-12d3-a456-426614174099',
+                sku: 'MED-001',
+                name: 'Paracetamol 500mg',
+                dci: 'Paracetamol',
+                laboratory: 'LabX',
+                category: 'MEDICAMENTOS',
+                condition: 'VD',
+                total_stock: 12,
+                stock_min: 2,
+                price_max: 1000,
+                price_min: 1000,
+                cost_net_max: 500,
+                price_sell_box_max: 12000,
+                price_sell_unit_max: 1000,
+                units_per_box_max: 1,
+                is_fractionable_group: false,
+                units_stock_actual_total: 0,
+                is_retail_lot_group: true,
+                original_batch_id_group: VALID_BATCH_ID,
+                location_id_group: VALID_LOCATION_ID,
+                warehouse_id_group: VALID_WAREHOUSE_ID,
+                source_system: 'MANUAL',
+                batches: [{
+                    id: retailBatchId,
+                    name: '[AL DETAL] Paracetamol 500mg',
+                    sku: 'MED-001',
+                    stock_actual: 12,
+                    lot_number: 'LOT-001',
+                    expiry_date: null,
+                    price: 1000,
+                    units_per_box: 1,
+                    is_fractionable: false,
+                    units_stock_actual: 0,
+                    is_retail_lot: true,
+                    original_batch_id: VALID_BATCH_ID,
+                }],
+                total_groups: 1,
+            }],
+        });
+
+        const result = await getInventorySecure(VALID_LOCATION_ID, { pagination: false });
+
+        expect(result.success).toBe(true);
+        expect(result.data.length).toBe(1);
+        expect(result.data[0].id).toBe(retailBatchId);
+        expect(result.data[0].is_retail_lot).toBe(true);
+        expect(result.data[0].original_batch_id).toBe(VALID_BATCH_ID);
+        expect(result.data[0].stock_actual).toBe(12);
+    });
+
+    it('should apply DETAIL category filter for retail lots with stock', async () => {
+        let capturedSql = '';
+        mockDirectQuery.mockImplementationOnce((sql: unknown) => {
+            capturedSql = String(sql);
+            return Promise.resolve({
+                rows: [{
+                    group_key: 'detail-1',
+                    product_id: '123e4567-e89b-12d3-a456-426614174101',
+                    sku: 'DET-001',
+                    name: '[AL DETAL] Producto',
+                    dci: 'Detalle',
+                    laboratory: 'Lab',
+                    category: 'MEDICAMENTOS',
+                    condition: 'VD',
+                    total_stock: 8,
+                    stock_min: 1,
+                    price_max: 500,
+                    price_min: 500,
+                    cost_net_max: 100,
+                    price_sell_box_max: 500,
+                    price_sell_unit_max: 500,
+                    units_per_box_max: 1,
+                    is_fractionable_group: false,
+                    units_stock_actual_total: 8,
+                    is_retail_lot_group: true,
+                    original_batch_id_group: VALID_BATCH_ID,
+                    location_id_group: VALID_LOCATION_ID,
+                    warehouse_id_group: VALID_WAREHOUSE_ID,
+                    source_system: 'MANUAL',
+                    batches: [],
+                    total_groups: 1,
+                }],
+            });
+        });
+
+        const result = await getInventorySecure(VALID_LOCATION_ID, { category: 'DETAIL' });
+
+        expect(result.success).toBe(true);
+        expect(capturedSql).toContain('COALESCE(ib.is_retail_lot, false) = true');
+        expect(capturedSql).toContain('COALESCE(ib.stock_actual, 0) > 0');
+    });
+
+    it('should keep box and retail lots separated in paged inventory grouping', async () => {
+        mockDirectQuery.mockResolvedValueOnce({
+            rows: [
+                {
+                    group_key: 'prod-1::BOX',
+                    product_id: 'prod-1',
+                    sku: 'SKU-DET-1',
+                    name: 'Producto Caja',
+                    dci: 'DCI',
+                    laboratory: 'LAB',
+                    category: 'MEDICAMENTOS',
+                    condition: 'VD',
+                    total_stock: 87,
+                    stock_min: 5,
+                    price_max: 7524,
+                    price_min: 7524,
+                    cost_net_max: 1000,
+                    price_sell_box_max: 7524,
+                    price_sell_unit_max: 377,
+                    units_per_box_max: 20,
+                    is_fractionable_group: true,
+                    units_stock_actual_total: 0,
+                    is_retail_lot_group: false,
+                    original_batch_id_group: null,
+                    location_id_group: VALID_LOCATION_ID,
+                    warehouse_id_group: VALID_WAREHOUSE_ID,
+                    source_system: 'MANUAL',
+                    batches: [],
+                    total_groups: 2,
+                },
+                {
+                    group_key: 'prod-1::DETAIL',
+                    product_id: 'prod-1',
+                    sku: 'SKU-DET-1',
+                    name: '[AL DETAL] Producto Caja',
+                    dci: 'DCI',
+                    laboratory: 'LAB',
+                    category: 'MEDICAMENTOS',
+                    condition: 'VD',
+                    total_stock: 20,
+                    stock_min: 1,
+                    price_max: 377,
+                    price_min: 377,
+                    cost_net_max: 1000,
+                    price_sell_box_max: 7524,
+                    price_sell_unit_max: 377,
+                    units_per_box_max: 1,
+                    is_fractionable_group: false,
+                    units_stock_actual_total: 20,
+                    is_retail_lot_group: true,
+                    original_batch_id_group: VALID_BATCH_ID,
+                    location_id_group: VALID_LOCATION_ID,
+                    warehouse_id_group: VALID_WAREHOUSE_ID,
+                    source_system: 'MANUAL',
+                    batches: [],
+                    total_groups: 2,
+                }
+            ],
+        });
+
+        const result = await getInventorySecure(VALID_LOCATION_ID, { pagination: true });
+
+        expect(result.success).toBe(true);
+        expect(result.data).toHaveLength(2);
+        expect(result.data[0].stock_actual).toBe(87);
+        expect(result.data[0].is_retail_lot).toBe(false);
+        expect(result.data[1].stock_actual).toBe(20);
+        expect(result.data[1].is_retail_lot).toBe(true);
+    });
+});
+
+// =====================================================
+// TESTS: fractionateBatchSecure / fractionateBatchSecureDetailed
+// =====================================================
+
+describe('fractionateBatchSecure', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockQuery.mockResolvedValue({ rows: [] });
+        mockDirectQuery.mockResolvedValue({ rows: [] });
+    });
+
+    it('should fractionate successfully by auto-resolving units_per_box', async () => {
+        mockDirectQuery.mockResolvedValueOnce({
+            rows: [{ units_per_box: 12 }],
+        });
+
+        let callIndex = 0;
+        const responses = [
+            { rows: [] }, // BEGIN
+            {
+                rows: [{
+                    id: VALID_BATCH_ID,
+                    product_id: '123e4567-e89b-12d3-a456-426614174099',
+                    sku: 'MED-001',
+                    name: 'Paracetamol 500mg',
+                    location_id: VALID_LOCATION_ID,
+                    warehouse_id: VALID_WAREHOUSE_ID,
+                    quantity_real: 5,
+                    sale_price: 12000,
+                    cost_net: 5000,
+                    price_sell_box: 12000,
+                    price_sell_unit: 1000,
+                    expiry_date: null,
+                    lot_number: 'LOT-001',
+                }]
+            }, // Source batch lock
+            { rows: [] }, // Update source (-1 box)
+            { rows: [] }, // Existing retail search
+            { rows: [] }, // Insert retail lot
+            { rows: [] }, // Source movement
+            { rows: [] }, // Retail movement
+            { rows: [] }, // COMMIT
+        ];
+
+        mockQuery.mockImplementation(() => {
+            const response = responses[callIndex] || { rows: [] };
+            callIndex++;
+            return Promise.resolve(response);
+        });
+
+        const result = await fractionateBatchSecure({
+            batchId: VALID_BATCH_ID,
+            userId: VALID_USER_ID,
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.newBatchId).toBe('mock-uuid-1234');
+    });
+
+    it('should fail when units_per_box is not fractionable', async () => {
+        mockDirectQuery.mockResolvedValueOnce({
+            rows: [{ units_per_box: 1 }],
+        });
+
+        const result = await fractionateBatchSecure({
+            batchId: VALID_BATCH_ID,
+            userId: VALID_USER_ID,
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('no es fraccionable');
+        expect(mockConnect).not.toHaveBeenCalled();
+    });
+});
+
+describe('fractionateBatchSecureDetailed', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockQuery.mockResolvedValue({ rows: [] });
+        mockDirectQuery.mockResolvedValue({ rows: [] });
+    });
+
+    it('should append units to existing retail lot', async () => {
+        const existingRetailLotId = '123e4567-e89b-12d3-a456-426614174777';
+        let callIndex = 0;
+        const responses = [
+            { rows: [] }, // BEGIN
+            {
+                rows: [{
+                    id: VALID_BATCH_ID,
+                    product_id: '123e4567-e89b-12d3-a456-426614174099',
+                    sku: 'MED-002',
+                    name: 'Ibuprofeno 400mg',
+                    location_id: VALID_LOCATION_ID,
+                    warehouse_id: VALID_WAREHOUSE_ID,
+                    quantity_real: 3,
+                    sale_price: 9000,
+                    cost_net: 3000,
+                    price_sell_box: 9000,
+                    price_sell_unit: 750,
+                    expiry_date: null,
+                    lot_number: 'LOT-002',
+                }]
+            }, // Source batch lock
+            { rows: [] }, // Update source
+            { rows: [{ id: existingRetailLotId, quantity_real: 7 }] }, // Existing retail lot
+            { rows: [] }, // Update retail lot
+            { rows: [] }, // Source movement
+            { rows: [] }, // Retail movement
+            { rows: [] }, // COMMIT
+        ];
+
+        mockQuery.mockImplementation(() => {
+            const response = responses[callIndex] || { rows: [] };
+            callIndex++;
+            return Promise.resolve(response);
+        });
+
+        const result = await fractionateBatchSecureDetailed({
+            batchId: VALID_BATCH_ID,
+            userId: VALID_USER_ID,
+            unitsInBox: 12,
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.newBatchId).toBe(existingRetailLotId);
+        expect(
+            mockQuery.mock.calls.some((call) =>
+                typeof call[0] === 'string' && call[0].includes('INSERT INTO inventory_batches')
+            )
+        ).toBe(false);
+    });
+
+    it('should fail when source lot has no boxes left', async () => {
+        let callIndex = 0;
+        const responses = [
+            { rows: [] }, // BEGIN
+            {
+                rows: [{
+                    id: VALID_BATCH_ID,
+                    sku: 'MED-003',
+                    name: 'Amoxicilina',
+                    location_id: VALID_LOCATION_ID,
+                    quantity_real: 0,
+                }]
+            }, // Source batch lock with zero stock
+        ];
+
+        mockQuery.mockImplementation((sql: string) => {
+            if (sql === 'ROLLBACK') return Promise.resolve({ rows: [] });
+            const response = responses[callIndex] || { rows: [] };
+            callIndex++;
+            return Promise.resolve(response);
+        });
+
+        const result = await fractionateBatchSecureDetailed({
+            batchId: VALID_BATCH_ID,
+            userId: VALID_USER_ID,
+            unitsInBox: 8,
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('cajas suficientes');
     });
 });

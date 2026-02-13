@@ -144,7 +144,7 @@ export const TigerDataService = {
             page?: number;
             limit?: number;
             search?: string;
-            category?: string;
+            category?: 'ALL' | 'MEDS' | 'RETAIL' | 'DETAIL' | 'CONTROLLED';
             stockStatus?: 'CRITICAL' | 'EXPIRING' | 'NORMAL' | 'ALL';
             incomplete?: boolean;
         }
@@ -416,6 +416,28 @@ export const TigerDataService = {
 
             return { success: true };
         }, 'updateInventoryStock');
+    },
+
+    /**
+     * 7b. Fractionate Batch (Persistent)
+     */
+    fractionateBatch: async (params: {
+        batchId: string;
+        userId: string;
+        unitsInBox: number;
+    }): Promise<{ success: boolean; error?: string; newBatchId?: string }> => {
+        console.log('🐯 [Tiger Data] Fractionating batch:', params.batchId);
+        try {
+            const { fractionateBatchSecureDetailed } = await import('../../actions/inventory-v2');
+            const result = await fractionateBatchSecureDetailed(params);
+            return result;
+        } catch (error) {
+            console.error('❌ [Tiger Data] Fractionation failed:', error);
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : 'Error al fraccionar lote'
+            };
+        }
     },
 
     /**
