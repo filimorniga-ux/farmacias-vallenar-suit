@@ -1,34 +1,4 @@
 {
-    "mcpServers": {
-        "github": {
-            "command": "npx",
-            "args": [
-                "-y",
-                "@modelcontextprotocol/server-github"
-            ],
-            "env": {
-                "GITHUB_PERSONAL_ACCESS_TOKEN": "REPLACE_WITH_YOUR_PAT"
-            }
-        },
-        "timescale": {
-            "command": "npx",
-            "args": [
-                "-y",
-                "@modelcontextprotocol/server-postgres",
-                "postgres://tsdbadmin:PASSWORD@HOST:PORT/tsdb?sslmode=require"
-            ]
-        },
-        "vercel": {
-            "command": "npx",
-            "args": [
-                "-y",
-                "@modelcontextprotocol/server-vercel"
-            ],
-            "env": {
-                "VERCEL_API_TOKEN": "REPLACE_WITH_YOUR_VERCEL_TOKEN"
-            }
-        }
-    },
     "java.enabled": false,
     "java.errors.incompleteClasspath.severity": "ignore",
     "java.project.resourceFilters": [
