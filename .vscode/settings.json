@@ -1,5 +1,7 @@
 {
     "java.enabled": false,
+    "gradle.autoDetect": "off",
+    "java.gradle.buildServer.enabled": "off",
     "java.errors.incompleteClasspath.severity": "ignore",
     "java.project.resourceFilters": [
         "node_modules",

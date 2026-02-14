@@ -60,6 +60,34 @@ export function getChileISOString(): string {
 }
 
 /**
+ * Format date ONLY (DD/MM/YYYY) in Chile Timezone
+ */
+export function formatChileDateOnly(date: Date | string): string {
+  if (!date) return '-';
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return d.toLocaleDateString('es-CL', {
+    timeZone: 'America/Santiago',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  });
+}
+
+/**
+ * Format time ONLY (HH:mm) in Chile Timezone
+ */
+export function formatChileTimeOnly(date: Date | string, withSeconds = false): string {
+  if (!date) return '-';
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return d.toLocaleTimeString('es-CL', {
+    timeZone: 'America/Santiago',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: withSeconds ? '2-digit' : undefined
+  });
+}
+
+/**
  * Retry a function with exponential backoff
  */
 export async function retryWithBackoff<T>(

@@ -38,9 +38,11 @@ export async function logActionSecure(
         try {
             await query(`
                 INSERT INTO audit_log (user_id, action_code, entity_type, new_values, created_at)
-                VALUES ($1, $2, $3, $4::jsonb, NOW())
+            ) VALUES ($1, $2, $3, $4::jsonb, NOW())
             `, [session.userId, action, entityType || 'USER_ACTION', JSON.stringify({ detail })]);
-        } catch { }
+        } catch (err: any) {
+            logger.warn({ err: err.message, actionCode: action }, 'Audit log insertion failed in logActionSecure (possibly missing action code)');
+        }
     }
 
     return { success: true };

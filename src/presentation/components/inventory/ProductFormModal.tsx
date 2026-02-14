@@ -192,51 +192,72 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
     const handleSubmit = async () => {
         if (!formData.sku || !formData.name) return toast.error('Complete SKU y Nombre');
 
-        // Prepare Payload to match UpdateProductMasterSchema/CreateProductSchema
+        // Robust Product ID Extraction
+        // Prioritize product_id (Master) over id (Batch) if available
+        const targetProductId = isEdit && product
+            ? ((product as any).product_id || product.id)
+            : undefined;
+
+        // Validation for Edit Mode
+        if (isEdit && (!targetProductId || targetProductId.length < 20)) {
+            console.error('Invalid Product ID:', product);
+            return toast.error('Error Crítico: ID de producto inválido o no encontrado. Contacte soporte.');
+        }
+
+        // Validate User ID
+        const validUserId = user?.id && user.id.length > 20
+            ? user.id
+            : '00000000-0000-4000-8000-000000000000';
+
+        // Prepare Payload
         const commonPayload = {
             sku: formData.sku,
             name: formData.name,
             description: '',
-            price: formData.price,
-            costPrice: formData.cost_net,
-            minStock: formData.stock_min,
-            maxStock: formData.stock_max,
-            userId: user?.id && user.id.length > 20 ? user.id : '00000000-0000-4000-8000-000000000000', // Ensure Valid UUID
-            barcode: formData.barcode || undefined,
-            dci: formData.dci,
-            laboratory: formData.laboratory,
-            ispRegister: formData.isp_register, // Corrected to match camelCase in schema
-            unitsPerBox: formData.units_per_box,
+            price: Number(formData.price) || 0,
+            costPrice: Number(formData.cost_net) || 0,
+            minStock: Number(formData.stock_min) || 0,
+            maxStock: Number(formData.stock_max) || 0,
+            userId: validUserId,
+            approverPin: undefined, // Optional, can be added if UI supports it
+            barcode: formData.barcode || undefined, // Send undefined if empty string
+            dci: formData.dci || undefined,
+            laboratory: formData.laboratory || undefined,
+            ispRegister: formData.isp_register || undefined,
+            unitsPerBox: Number(formData.units_per_box) || 1,
             isBioequivalent: formData.is_bioequivalent,
-            format: formData.format,
-            condition: 'VD' as any, // Matches UpdateProductMasterSchema.condition
-            requiresPrescription: false, // Default or map if needed
-            isColdChain: false,          // Default or map if needed
+            format: formData.format || undefined,
+            condition: 'VD' as any,
+            requiresPrescription: false,
+            isColdChain: false,
         };
 
         setIsSaving(true);
         try {
             let result;
-            if (isEdit && product) {
+            if (isEdit && targetProductId) {
                 result = await updateProductMasterSecure({
-                    productId: product.id || (product as any).product_id || '',
+                    productId: targetProductId,
                     ...commonPayload
                 });
             } else {
                 result = await createProductSecure({
                     ...commonPayload,
-                    initialStock: formData.stock_actual,
-                    initialLot: formData.initialLot,
+                    initialStock: Number(formData.stock_actual) || 0,
+                    initialLot: formData.initialLot || undefined,
                     initialExpiry: formData.initialExpiry ? new Date(formData.initialExpiry.split('/').reverse().join('-')) : undefined,
-                    initialLocation: formData.location_id
+                    initialLocation: formData.location_id || undefined
                 });
             }
 
             if (result.success) {
-                toast.success(isEdit ? 'Producto actualizado' : 'Producto creado');
-                await queryClient.invalidateQueries({ queryKey: ['inventory'] });
+                toast.success(isEdit ? 'Producto actualizado correctamente' : 'Producto creado correctamente');
 
-                let finalProductId = isEdit ? product?.id : undefined;
+                // Aggressively invalidate queries to refresh UI
+                await queryClient.invalidateQueries({ queryKey: ['inventory'] });
+                await queryClient.invalidateQueries({ queryKey: ['products'] });
+
+                let finalProductId = isEdit ? targetProductId : undefined;
                 if ('data' in result && result.data) {
                     finalProductId = result.data.productId;
                 }
@@ -244,11 +265,12 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                 if (onSuccess && finalProductId) onSuccess(finalProductId, commonPayload);
                 onClose();
             } else {
-                toast.error('Fallo al guardar: ' + (result.error || 'Error desconocido'));
+                console.error('Save Error:', result.error);
+                toast.error('Error al guardar: ' + (result.error || 'Verifique los datos'));
             }
-        } catch (err) {
-            console.error(err);
-            toast.error('Error de conexión al guardar cambios');
+        } catch (err: any) {
+            console.error('Submission Error:', err);
+            toast.error('Error de conexión: ' + (err.message || 'Intente nuevamente'));
         } finally {
             setIsSaving(false);
         }
@@ -441,7 +463,22 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                                 <div className="space-y-4 relative z-10">
                                     {/* Costo */}
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-400 mb-1">1. Costo Neto Unitario</label>
+                                        <div className="flex justify-between items-center mb-1">
+                                            <label className="block text-xs font-bold text-slate-400">1. Costo Neto Unitario</label>
+                                            {formData.units_per_box > 1 && (
+                                                <button
+                                                    onClick={() => {
+                                                        const newCost = Math.round(formData.cost_net / formData.units_per_box);
+                                                        setFormData({ ...formData, cost_net: newCost });
+                                                        toast.success(`Costo ajustado: $${formatCLP(newCost)} (Dividido por ${formData.units_per_box})`);
+                                                    }}
+                                                    className="text-[10px] text-orange-400 hover:text-orange-300 underline decoration-dotted cursor-pointer flex items-center gap-1"
+                                                    title={`Dividir el costo actual (${formatCLP(formData.cost_net)}) por la cantidad de unidades (${formData.units_per_box})`}
+                                                >
+                                                    <Percent size={10} /> Dividir por {formData.units_per_box} (U/Caja)
+                                                </button>
+                                            )}
+                                        </div>
                                         <div className="relative">
                                             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">$</span>
                                             <input
@@ -498,21 +535,52 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                                         </div>
                                     )}
 
-                                    {/* Resultado Sugerido */}
-                                    <div className="p-4 bg-cyan-900/30 border border-cyan-500/30 rounded-xl flex justify-between items-center group cursor-pointer hover:bg-cyan-900/50 transition" onClick={handleApplySuggestedPrice}>
-                                        <div>
-                                            <span className="block text-xs text-cyan-400 uppercase font-bold">Precio Sugerido</span>
-                                            <span className="text-[10px] text-cyan-300/70">Redondeo 50/100 aplicado</span>
+                                    {/* Resultado Sugerido (Editable con Recálculo Inverso) */}
+                                    <div className="p-4 bg-cyan-900/30 border border-cyan-500/30 rounded-xl space-y-2">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <div>
+                                                <span className="block text-xs text-cyan-400 uppercase font-bold">Precio Sugerido (Editable)</span>
+                                                <span className="text-[10px] text-cyan-300/70">Ajusta también el margen</span>
+                                            </div>
+                                            <button
+                                                onClick={handleApplySuggestedPrice}
+                                                className="text-[10px] text-white bg-cyan-600 hover:bg-cyan-500 px-3 py-1 rounded-full font-bold transition-colors shadow-sm"
+                                            >
+                                                Aplicar a Venta
+                                            </button>
                                         </div>
-                                        <div className="text-right">
-                                            <span className="block text-2xl font-bold text-cyan-400">${formatCLP(calculator.calculatedPrice)}</span>
-                                            <span className="text-[10px] text-white bg-cyan-600 px-2 py-0.5 rounded-full">Clic para aplicar</span>
+
+                                        <div className="relative group">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-cyan-500 font-bold">$</span>
+                                            <input
+                                                className="w-full pl-8 p-3 bg-cyan-950/50 border border-cyan-700 rounded-xl text-cyan-300 font-bold text-2xl focus:border-cyan-400 focus:outline-none transition-colors"
+                                                value={formatCLP(calculator.calculatedPrice)}
+                                                onChange={(e) => {
+                                                    const val = parseInt(e.target.value.replace(/\./g, '').replace(/[^0-9]/g, '')) || 0;
+
+                                                    // Reverse Calculation of Margin
+                                                    // Price = Cost * 1.19 * (1 + Margin/100)
+                                                    // Margin% = ((Price / (Cost * 1.19)) - 1) * 100
+
+                                                    const costBase = calculator.applyTax ? (formData.cost_net * 1.19) : formData.cost_net;
+                                                    let newMargin = 0;
+                                                    if (costBase > 0) {
+                                                        newMargin = ((val / costBase) - 1) * 100;
+                                                    }
+
+                                                    setCalculator({
+                                                        ...calculator,
+                                                        calculatedPrice: val,
+                                                        targetMargin: parseFloat(newMargin.toFixed(2))
+                                                    });
+                                                }}
+                                            />
                                         </div>
                                     </div>
 
-                                    {/* Precio Final (Editable) */}
+                                    {/* Precio Final (Editable) - Highlighted */}
                                     <div className="pt-4 border-t border-slate-700">
-                                        <label className="block text-xs font-bold text-emerald-400 mb-1">Precio Venta Final</label>
+                                        <label className="block text-xs font-bold text-emerald-400 mb-1">Precio Venta Final (Manual)</label>
                                         <div className="relative">
                                             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500">$</span>
                                             <input

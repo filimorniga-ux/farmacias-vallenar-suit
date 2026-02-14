@@ -955,7 +955,7 @@ export async function fractionateBatchSecureDetailed(params: {
                 unitsInBox,
                 0,
                 unitPrice,
-                sourceBatch.cost_net,
+                unitsInBox > 1 ? Math.round(sourceBatch.cost_net / unitsInBox) : sourceBatch.cost_net,
                 sourceBatch.expiry_date,
                 sourceBatch.lot_number,
                 false,
@@ -1013,7 +1013,28 @@ export async function fractionateBatchSecureDetailed(params: {
             retailLotId
         ]);
 
+        // 5. Auditoría de Fraccionamiento
+        await insertInventoryAudit(client, {
+            userId,
+            locationId: sourceBatch.location_id,
+            actionCode: 'INVENTORY_FRACTIONATED',
+            entityType: 'BATCH',
+            entityId: batchId,
+            quantity: 1,
+            oldValues: {
+                boxes_before: currentBoxes,
+                units_per_box: unitsInBox
+            },
+            newValues: {
+                boxes_after: currentBoxes - 1,
+                retail_lot_id: retailLotId,
+                units_added: unitsInBox
+            },
+            description: `Fraccionamiento: se abrió una caja para generar ${unitsInBox} unidades al detal.`
+        });
+
         await client.query('COMMIT');
+
 
         revalidatePath('/inventory');
         return { success: true, newBatchId: retailLotId };

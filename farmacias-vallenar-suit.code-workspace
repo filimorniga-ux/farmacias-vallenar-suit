@@ -8,6 +8,6 @@
         "github-actions.workflows.pinned.workflows": [
             ".github/workflows/release.yml"
         ],
-        "vercelVSCode.accessToken": "noLhTeaMXrANzJZtkkOUd25b"
+        "vercelVSCode.accessToken": ""
     }
 }

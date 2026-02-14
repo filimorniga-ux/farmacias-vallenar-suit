@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { usePharmaStore } from '../store/useStore';
 import { AutoOrderSuggestion } from '../../domain/types';
-import { Package, Truck, CheckCircle, AlertCircle, Plus, Calendar, TrendingUp, RefreshCw, AlertTriangle, Zap, DollarSign, Trash2 } from 'lucide-react';
+import { Package, Truck, CheckCircle, AlertCircle, Plus, Calendar, TrendingUp, RefreshCw, AlertTriangle, Zap, DollarSign, Trash2, Filter, Calculator, MapPin } from 'lucide-react';
 import { PurchaseOrderReceivingModal } from '../components/scm/PurchaseOrderReceivingModal';
 import ManualOrderModal from '../components/supply/ManualOrderModal';
 import { useNotificationStore } from '../store/useNotificationStore';
@@ -10,23 +10,39 @@ import { generateRestockSuggestionSecure } from '../../actions/procurement-v2';
 import { deletePurchaseOrderSecure } from '../../actions/supply-v2';
 
 const SupplyChainPage: React.FC = () => {
-    const { inventory, suppliers, purchaseOrders, addPurchaseOrder, receivePurchaseOrder, generateSuggestedPOs } = usePharmaStore();
+    const { inventory, suppliers, purchaseOrders, addPurchaseOrder, receivePurchaseOrder, generateSuggestedPOs, locations, fetchLocations, currentLocationId } = usePharmaStore();
 
 
     const [isReceptionModalOpen, setIsReceptionModalOpen] = useState(false);
     const [isManualOrderModalOpen, setIsManualOrderModalOpen] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState<any>(null);
+    const [selectedSupplier, setSelectedSupplier] = useState<string>('');
+    const [selectedLocation, setSelectedLocation] = useState<string>(''); // New Location State
 
     // Intelligent Ordering State
     const [suggestions, setSuggestions] = useState<AutoOrderSuggestion[]>([]);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
 
+    // New Filters & Settings
+    const [analysisWindow, setAnalysisWindow] = useState(30);
+    const [daysToCover, setDaysToCover] = useState(15);
+    const [stockFilter, setStockFilter] = useState<number | null>(null); // null = Todos
+    const [selectedSkus, setSelectedSkus] = useState<Set<string>>(new Set());
+
     // Initial Analysis & Alert
     // Run analysis on mount
+    // Load locations on mount
     useEffect(() => {
         usePharmaStore.getState().syncData();
-        runIntelligentAnalysis();
+        fetchLocations();
     }, []);
+
+    // Load initial location if available
+    useEffect(() => {
+        if (currentLocationId && !selectedLocation) {
+            setSelectedLocation(currentLocationId);
+        }
+    }, [currentLocationId]);
 
     const runIntelligentAnalysis = async () => {
         setIsAnalyzing(true);
@@ -34,9 +50,13 @@ const SupplyChainPage: React.FC = () => {
 
         try {
             // Using Secure Server Action for Robust Analysis
-            // undefined supplierId = Analyze ALL products
-            // Location ID: Farmacia Vallenar santiago (bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6)
-            const result = await generateRestockSuggestionSecure(undefined, 15, 30, 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6');
+            const result = await generateRestockSuggestionSecure(
+                selectedSupplier || undefined,
+                daysToCover,
+                analysisWindow,
+                selectedLocation || undefined,
+                stockFilter || undefined
+            );
 
             if (!result.success || !result.data) {
                 toast.error(result.error || 'Error al analizar demanda');
@@ -44,38 +64,18 @@ const SupplyChainPage: React.FC = () => {
                 return;
             }
 
-            // Map server response to AutoOrderSuggestion
-            const newSuggestions: AutoOrderSuggestion[] = result.data
-                .filter((item: any) => item.suggested_quantity > 0)
-                .map((item: any) => {
-                    let urgency: 'HIGH' | 'MEDIUM' | 'LOW' = 'LOW';
-                    if (item.days_until_stockout <= 5) urgency = 'HIGH';
-                    else if (item.days_until_stockout <= 15) urgency = 'MEDIUM';
+            setSuggestions(result.data);
 
-                    return {
-                        sku: item.sku,
-                        product_name: item.product_name,
-                        location_id: 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6',
-                        current_stock: item.current_stock,
-                        min_stock: item.safety_stock,
-                        max_stock: item.safety_stock * 3, // Estimated
-                        daily_avg_sales: item.daily_velocity,
-                        forecast_demand_14d: Math.ceil(item.daily_velocity * 14),
-                        days_until_stockout: Math.floor(item.days_until_stockout > 999 ? 999 : item.days_until_stockout),
-                        suggested_order_qty: item.suggested_quantity,
-                        urgency,
-                        reason: item.reason,
-                        supplier_id: item.supplier_id,
-                        unit_cost: Number(item.last_cost || 0),
-                        estimated_cost: item.total_estimated
-                    };
-                });
+            // Auto-select ALL by default
+            const allSkus = new Set(result.data.map((s: any) => s.sku));
+            setSelectedSkus(allSkus);
 
-            setSuggestions(newSuggestions);
+            toast.success(`Análisis completado. ${result.data.length} sugerencias encontradas.`);
 
             // Notify if critical
-            const criticalCount = newSuggestions.filter(s => s.urgency === 'HIGH').length;
+            const criticalCount = result.data.filter((s: any) => s.urgency === 'HIGH').length;
             if (criticalCount > 0) {
+
                 // Server Action Notification
                 const { createNotificationSecure } = await import('../../actions/notifications-v2');
                 await createNotificationSecure({
@@ -83,7 +83,7 @@ const SupplyChainPage: React.FC = () => {
                     severity: 'CRITICAL',
                     title: 'Stock Crítico Detectado',
                     message: `${criticalCount} producto(s) requieren atención urgente`,
-                    metadata: { roleTarget: 'MANAGER', locationId: 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6' }
+                    metadata: { roleTarget: 'MANAGER', locationId: selectedLocation || 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6' }
                 });
             }
 
@@ -111,8 +111,16 @@ const SupplyChainPage: React.FC = () => {
             return;
         }
 
+        // Filter only selected items
+        const selectedItems = suggestions.filter(s => selectedSkus.has(s.sku));
+
+        if (selectedItems.length === 0) {
+            toast.error('Seleccione al menos un producto');
+            return;
+        }
+
         // Use intelligent ordering service to generate POs
-        const pos = generateSuggestedPOs(suggestions);
+        const pos = generateSuggestedPOs(selectedItems);
 
         // Add all generated POs to store
         pos.forEach(po => addPurchaseOrder(po));
@@ -231,26 +239,95 @@ const SupplyChainPage: React.FC = () => {
             <div className="flex-1 flex flex-col lg:flex-row gap-6 overflow-hidden">
                 {/* Left: Predictive Analysis */}
                 <div className="flex-[2] bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col overflow-hidden">
-                    <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 bg-purple-100 text-purple-600 rounded-lg">
-                                <TrendingUp size={24} />
+                    <div className="p-6 border-b border-slate-100 flex flex-col gap-4">
+                        <div className="flex justify-between items-center">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-purple-100 text-purple-600 rounded-lg">
+                                    <TrendingUp size={24} />
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-bold text-slate-800">Predicción de Demanda</h2>
+                                    <p className="text-xs text-slate-500">IA basada en historial de ventas</p>
+                                </div>
                             </div>
-                            <div>
-                                <h2 className="text-xl font-bold text-slate-800">Predicción de Demanda</h2>
-                                <p className="text-xs text-slate-500">IA basada en historial de ventas</p>
-                            </div>
+
+                            <button
+                                data-testid="analyze-stock-btn"
+                                onClick={runIntelligentAnalysis}
+                                disabled={isAnalyzing}
+                                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl font-bold hover:from-purple-700 hover:to-indigo-700 transition disabled:opacity-50 shadow-lg shadow-purple-200"
+                            >
+                                <Zap size={20} />
+                                {isAnalyzing ? 'Analizando...' : '⚡ Analizar Stock (IA)'}
+                            </button>
                         </div>
 
-                        <button
-                            data-testid="analyze-stock-btn"
-                            onClick={runIntelligentAnalysis}
-                            disabled={isAnalyzing}
-                            className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl font-bold hover:from-purple-700 hover:to-indigo-700 transition disabled:opacity-50 shadow-lg shadow-purple-200"
-                        >
-                            <Zap size={20} />
-                            ⚡ Analizar Stock (IA)
-                        </button>
+                        {/* Filters Bar */}
+                        <div className="flex flex-wrap items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+
+                            {/* Analysis Window */}
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-bold text-slate-500 flex items-center gap-1">
+                                    <Calendar size={12} /> Historia (Ventas)
+                                </label>
+                                <select
+                                    className="p-2 rounded-lg border border-slate-300 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    value={analysisWindow}
+                                    onChange={(e) => setAnalysisWindow(Number(e.target.value))}
+                                >
+                                    <option value={7}>Última Semana</option>
+                                    <option value={15}>Últimos 15 Días</option>
+                                    <option value={30}>Último Mes</option>
+                                    <option value={90}>Último Trimestre</option>
+                                    <option value={180}>Último Semestre</option>
+                                    <option value={365}>Último Año</option>
+                                </select>
+                            </div>
+
+                            {/* Days To Cover */}
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-bold text-slate-500 flex items-center gap-1">
+                                    <Calculator size={12} /> Proyectar Para
+                                </label>
+                                <select
+                                    className="p-2 rounded-lg border border-slate-300 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    value={daysToCover}
+                                    onChange={(e) => setDaysToCover(Number(e.target.value))}
+                                >
+                                    <option value={7}>1 Semana</option>
+                                    <option value={15}>15 Días</option>
+                                    <option value={30}>1 Mes</option>
+                                    <option value={45}>45 Días</option>
+                                    <option value={60}>2 Meses</option>
+                                    <option value={90}>3 Meses</option>
+                                </select>
+                            </div>
+
+                            {/* Stock Filter Level */}
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-bold text-slate-500 flex items-center gap-1">
+                                    <Filter size={12} /> Nivel de Stock Base
+                                </label>
+                                <select
+                                    className="p-2 rounded-lg border border-slate-300 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    value={stockFilter === null ? 'ALL' : stockFilter}
+                                    onChange={(e) => setStockFilter(e.target.value === 'ALL' ? null : Number(e.target.value))}
+                                >
+                                    <option value="ALL">Mostrar Todos</option>
+                                    <option value={10}>Menos del 10%</option>
+                                    <option value={20}>Menos del 20%</option>
+                                    <option value={30}>Menos del 30%</option>
+                                    <option value={40}>Menos del 40%</option>
+                                    <option value={50}>Menos del 50%</option>
+                                    <option value={60}>Menos del 60%</option>
+                                    <option value={70}>Menos del 70%</option>
+                                    <option value={80}>Menos del 80%</option>
+                                    <option value={90}>Menos del 90%</option>
+                                    <option value={100}>Menos del 100% (Todo)</option>
+                                </select>
+                            </div>
+
+                        </div>
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-0 touch-pan-y overscroll-contain">
@@ -269,65 +346,110 @@ const SupplyChainPage: React.FC = () => {
                                 <table className="w-full text-left">
                                     <thead className="bg-slate-50 text-slate-500 font-bold text-xs uppercase sticky top-0 z-10">
                                         <tr>
+                                            <th className="p-4 w-10">
+                                                <input
+                                                    type="checkbox"
+                                                    className="w-5 h-5 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                                                    checked={suggestions.length > 0 && selectedSkus.size === suggestions.length}
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            setSelectedSkus(new Set(suggestions.map(s => s.sku)));
+                                                        } else {
+                                                            setSelectedSkus(new Set());
+                                                        }
+                                                    }}
+                                                />
+                                            </th>
                                             <th className="p-4">Producto</th>
                                             <th className="p-4">Stock</th>
-                                            <th className="p-4">Venta (30d)</th>
+                                            <th className="p-4">Nivel %</th>
+                                            <th className="p-4">Venta ({analysisWindow}d)</th>
                                             <th className="p-4">Cobertura</th>
                                             <th className="p-4">Sugerencia</th>
                                             <th className="p-4 text-center">Acción</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 text-sm">
-                                        {suggestions.map((item, idx) => (
-                                            <tr key={`${item.sku}-${idx}`} className="hover:bg-slate-50 transition">
-                                                <td className="p-4">
-                                                    <div className="font-bold text-slate-800">{item.product_name}</div>
-                                                    <div className="text-xs text-slate-400 font-mono">{item.sku}</div>
-                                                </td>
-                                                <td className="p-4">
-                                                    <div className="font-bold text-slate-800">{item.current_stock} un.</div>
-                                                </td>
-                                                <td className="p-4 text-slate-500">
-                                                    {Math.round(item.daily_avg_sales * 30)} un/mes
-                                                </td>
-                                                <td className="p-4">
-                                                    <div className="flex items-center gap-2">
-                                                        {item.days_until_stockout <= 5 ? (
-                                                            <span className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg font-bold text-xs flex items-center gap-1.5">
-                                                                🔴 {item.days_until_stockout} días
-                                                            </span>
-                                                        ) : item.days_until_stockout <= 15 ? (
-                                                            <span className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg font-bold text-xs flex items-center gap-1.5">
-                                                                🟡 {item.days_until_stockout} días
-                                                            </span>
-                                                        ) : (
-                                                            <span className="px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-lg font-bold text-xs flex items-center gap-1.5">
-                                                                🟢 {item.days_until_stockout > 900 ? '∞' : item.days_until_stockout} días
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </td>
-                                                <td className="p-4">
-                                                    <div className="flex items-center gap-2">
+                                        {suggestions
+                                            .filter(item => stockFilter === null || (item.stock_level_percent ?? 0) <= stockFilter)
+                                            .map((item, idx) => (
+                                                <tr key={`${item.sku}-${idx}`} className={`hover:bg-slate-50 transition border-l-4 ${selectedSkus.has(item.sku) ? 'border-l-purple-500 bg-purple-50/30' : 'border-l-transparent'}`}>
+                                                    <td className="p-4">
                                                         <input
-                                                            type="number"
-                                                            className={`w-20 p-2 border rounded-lg font-bold text-center focus:outline-none border-purple-300 bg-purple-50 text-purple-700`}
-                                                            value={item.suggested_order_qty}
-                                                            onChange={(e) => updateSuggestion(item.sku, 'suggested_order_qty', parseInt(e.target.value))}
+                                                            type="checkbox"
+                                                            className="w-5 h-5 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                                                            checked={selectedSkus.has(item.sku)}
+                                                            onChange={(e) => {
+                                                                const newSet = new Set(selectedSkus);
+                                                                if (e.target.checked) newSet.add(item.sku);
+                                                                else newSet.delete(item.sku);
+                                                                setSelectedSkus(newSet);
+                                                            }}
                                                         />
-                                                        <span className="text-xs text-slate-400">cajas</span>
-                                                    </div>
-                                                </td>
-                                                <td className="p-4 text-center">
-                                                    <button
-                                                        onClick={() => removeSuggestion(item.sku)}
-                                                        className="text-slate-400 hover:text-red-500 transition"
-                                                    >
-                                                        <AlertTriangle size={16} />
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ))}
+                                                    </td>
+                                                    <td className="p-4">
+                                                        <div className="font-bold text-slate-800">{item.product_name}</div>
+                                                        <div className="text-xs text-slate-400 font-mono">{item.sku}</div>
+                                                    </td>
+                                                    <td className="p-4">
+                                                        <div className="font-bold text-slate-800">{item.current_stock} un.</div>
+                                                        <div className="text-xs text-slate-400">Max: {item.max_stock}</div>
+                                                    </td>
+                                                    <td className="p-4 w-32">
+                                                        <div className="w-full bg-slate-200 rounded-full h-2.5 mb-1">
+                                                            <div
+                                                                className={`h-2.5 rounded-full ${(item.stock_level_percent ?? 0) < 20 ? 'bg-red-500' :
+                                                                    (item.stock_level_percent ?? 0) < 50 ? 'bg-amber-500' :
+                                                                        'bg-emerald-500'
+                                                                    }`}
+                                                                style={{ width: `${Math.min(100, item.stock_level_percent ?? 0)}%` }}
+                                                            ></div>
+                                                        </div>
+                                                        <span className="text-xs font-bold text-slate-600">
+                                                            {item.stock_level_percent}%
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-4 text-slate-500">
+                                                        {Math.round(item.daily_avg_sales * analysisWindow)} un/{analysisWindow}d
+                                                    </td>
+                                                    <td className="p-4">
+                                                        <div className="flex items-center gap-2">
+                                                            {item.days_until_stockout <= 5 ? (
+                                                                <span className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg font-bold text-xs flex items-center gap-1.5">
+                                                                    🔴 {item.days_until_stockout.toFixed(1)} d
+                                                                </span>
+                                                            ) : item.days_until_stockout <= 15 ? (
+                                                                <span className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg font-bold text-xs flex items-center gap-1.5">
+                                                                    🟡 {item.days_until_stockout.toFixed(1)} d
+                                                                </span>
+                                                            ) : (
+                                                                <span className="px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-lg font-bold text-xs flex items-center gap-1.5">
+                                                                    🟢 {item.days_until_stockout > 900 ? '∞' : item.days_until_stockout.toFixed(1)} d
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-4">
+                                                        <div className="flex items-center gap-2">
+                                                            <input
+                                                                type="number"
+                                                                className={`w-20 p-2 border rounded-lg font-bold text-center focus:outline-none border-purple-300 bg-purple-50 text-purple-700`}
+                                                                value={item.suggested_order_qty}
+                                                                onChange={(e) => updateSuggestion(item.sku, 'suggested_order_qty', parseInt(e.target.value))}
+                                                            />
+                                                            <span className="text-xs text-slate-400">cajas</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-4 text-center">
+                                                        <button
+                                                            onClick={() => removeSuggestion(item.sku)}
+                                                            className="text-slate-400 hover:text-red-500 transition"
+                                                        >
+                                                            <AlertTriangle size={16} />
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
                                     </tbody>
                                 </table>
                             )}
@@ -339,7 +461,7 @@ const SupplyChainPage: React.FC = () => {
                             <div className="flex justify-between items-center mb-3">
                                 <div className="space-y-1">
                                     <p className="text-lg font-bold text-slate-800">
-                                        📦 Se generarán <span className="text-purple-600">{suggestions.length}</span> orden(es) para <span className="text-indigo-600">{stats.suppliers}</span> proveedor(es)
+                                        📦 Se generarán <span className="text-purple-600">{suggestions.filter(s => selectedSkus.has(s.sku)).length}</span> orden(es) para <span className="text-indigo-600">{stats.suppliers}</span> proveedor(es)
                                     </p>
                                     <p className="text-sm text-slate-600">
                                         💰 Costo estimado: <span className="text-xl font-bold text-emerald-600">${stats.totalCost.toLocaleString()}</span>
@@ -353,7 +475,7 @@ const SupplyChainPage: React.FC = () => {
                                 <div className="flex gap-3">
                                     <button
                                         onClick={handleGenerateOrders}
-                                        disabled={suggestions.length === 0}
+                                        disabled={selectedSkus.size === 0}
                                         className="px-8 py-4 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl font-bold hover:from-cyan-700 hover:to-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-xl shadow-cyan-300 text-lg"
                                     >
                                         🚀 Generar Borradores
