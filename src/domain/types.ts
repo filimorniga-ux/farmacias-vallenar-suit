@@ -518,6 +518,7 @@ export interface AutoOrderSuggestion {
     current_stock: number;
     min_stock: number;
     max_stock: number;
+    stock_level_percent?: number; // New: Percentage of max stock filled
     daily_avg_sales: number;
     forecast_demand_14d: number; // Next 14 days forecast
     days_until_stockout: number;

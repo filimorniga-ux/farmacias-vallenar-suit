@@ -449,6 +449,28 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
         }
     };
 
+    // --- NEW: Opening Mode Selection (RESUME vs NEW) ---
+    const [openingMode, setOpeningMode] = useState<'SELECT' | 'MANUAL'>('MANUAL');
+
+    useEffect(() => {
+        if (suggestedInfo) {
+            setOpeningMode('SELECT');
+        } else {
+            setOpeningMode('MANUAL');
+        }
+    }, [suggestedInfo]);
+
+    const handleSelectMode = (mode: 'RESUME' | 'NEW') => {
+        if (mode === 'RESUME' && suggestedInfo) {
+            const formatted = formatWithThousands(suggestedInfo.amount);
+            setOpeningAmount(formatted);
+            toast.info(`Monto de ${suggestedInfo.user} cargado.`);
+        } else {
+            setOpeningAmount('');
+        }
+        setOpeningMode('MANUAL');
+    };
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
@@ -692,40 +714,83 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                                         </select>
                                     </div>
 
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">Fondo Inicial (Efectivo Sencillo)</label>
-                                        <div className="relative">
-                                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                                            <input
-                                                type="text"
-                                                inputMode="numeric"
-                                                value={openingAmount}
-                                                onChange={(e) => {
-                                                    const formatted = formatWithThousands(e.target.value);
-                                                    setOpeningAmount(formatted);
-                                                }}
-                                                className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-cyan-500 outline-none font-mono text-lg"
-                                                placeholder="100.000"
-                                            />
-                                        </div>
-                                        {openingAmount && (
-                                            <p className="text-xs text-slate-500 mt-1 text-right">
-                                                Valor: $ {formatWithThousands(openingAmount)} CLP
-                                            </p>
-                                        )}
-                                        {suggestedInfo && (
-                                            <div className="mt-2 text-xs bg-cyan-50 text-cyan-700 p-2 rounded-lg flex items-center gap-2 border border-cyan-100 animate-in fade-in">
-                                                <RotateCcw size={14} />
-                                                <span>
-                                                    <strong>Continuidad:</strong> Monto heredado de {suggestedInfo.user}.
-                                                </span>
+                                    {/* OPENING MODE SELECTION vs MANUAL INPUT */}
+                                    {openingMode === 'SELECT' && suggestedInfo ? (
+                                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3 animate-in fade-in slide-in-from-top-2">
+                                            <div className="flex items-center gap-2 text-amber-800 font-bold text-sm">
+                                                <RotateCcw size={16} />
+                                                <span>Continuidad de Turno Detectada</span>
                                             </div>
-                                        )}
-                                    </div>
+                                            <p className="text-xs text-amber-700">
+                                                El cajero anterior ({suggestedInfo.user}) dejó un saldo en caja.
+                                                ¿Cómo deseas iniciar tu turno?
+                                            </p>
+
+                                            <div className="grid grid-cols-1 gap-3 mt-3">
+                                                <button
+                                                    onClick={() => handleSelectMode('RESUME')}
+                                                    className="w-full p-4 bg-white border-2 border-amber-300 hover:border-amber-500 hover:bg-amber-50 rounded-xl text-left transition-all group shadow-sm"
+                                                >
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="font-bold text-slate-800 group-hover:text-amber-800">Retomar Saldo Anterior</span>
+                                                        <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded text-xs font-mono font-bold">
+                                                            ${formatWithThousands(suggestedInfo.amount)}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-[10px] text-slate-500 mt-1">
+                                                        Recomendado para cambios de turno con traspaso de fondos.
+                                                    </p>
+                                                </button>
+
+                                                <button
+                                                    onClick={() => handleSelectMode('NEW')}
+                                                    className="w-full p-3 bg-white border border-slate-200 hover:border-slate-400 hover:bg-slate-50 rounded-xl text-left transition-all flex justify-between items-center group"
+                                                >
+                                                    <span className="text-sm font-medium text-slate-600 group-hover:text-slate-800">Iniciar Nuevo Turno desde $0</span>
+                                                    <ArrowRight size={16} className="text-slate-300 group-hover:text-slate-500" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div>
+                                            <div className="flex justify-between items-center mb-1">
+                                                <label className="block text-sm font-medium text-slate-700">Fondo Inicial</label>
+                                                {suggestedInfo && (
+                                                    <button
+                                                        onClick={() => setOpeningMode('SELECT')}
+                                                        className="text-xs text-cyan-600 hover:underline flex items-center gap-1"
+                                                    >
+                                                        <RotateCcw size={12} /> Ver Opciones
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <div className="relative">
+                                                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                                <input
+                                                    type="text"
+                                                    inputMode="numeric"
+                                                    value={openingAmount}
+                                                    onChange={(e) => {
+                                                        const formatted = formatWithThousands(e.target.value);
+                                                        // Ensure we don't accidentally override suggested if user types manual
+                                                        setOpeningAmount(formatted);
+                                                    }}
+                                                    className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-cyan-500 outline-none font-mono text-lg"
+                                                    placeholder="0"
+                                                />
+                                            </div>
+                                            {openingAmount && (
+                                                <p className="text-xs text-slate-500 mt-1 text-right">
+                                                    Valor: $ {formatWithThousands(openingAmount)} CLP
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
 
                                     <button
                                         onClick={handleNext}
-                                        className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 text-white font-bold rounded-xl transition-colors shadow-lg shadow-cyan-200 mt-4"
+                                        disabled={openingMode === 'SELECT'} // Force selection
+                                        className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 text-white font-bold rounded-xl transition-colors shadow-lg shadow-cyan-200 mt-4 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         Continuar
                                     </button>

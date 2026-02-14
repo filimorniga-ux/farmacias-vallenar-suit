@@ -8,12 +8,13 @@
  * Usa usePlatform() para detectar la plataforma (Capacitor/Electron/Web).
  * Skills: estilo-marca, modo-produccion, arquitecto-offline
  */
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
     Warehouse, Truck, PackageCheck, ArrowLeftRight,
     PackagePlus, MapPin, RefreshCw
 } from 'lucide-react';
 import { usePharmaStore } from '@/presentation/store/useStore';
+import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { useQueryClient } from '@tanstack/react-query';
 import { usePlatform } from '@/hooks/usePlatform';
 import { WMSDespachoTab } from '@/presentation/components/wms/tabs/WMSDespachoTab';
@@ -49,16 +50,72 @@ export const WMSPage: React.FC = () => {
     const [activeTab, setActiveTab] = useState<WMSTab>('despacho');
     const { isMobile } = usePlatform();
     const queryClient = useQueryClient();
-    const { currentLocationId } = usePharmaStore();
+    const {
+        currentLocationId,
+        currentWarehouseId,
+        currentTerminalId,
+        setCurrentLocation,
+        locations: pharmaLocations,
+        user,
+    } = usePharmaStore();
+    const locationStoreCurrent = useLocationStore(s => s.currentLocation);
+    const locationStoreLocations = useLocationStore(s => s.locations);
 
-    const currentLocationName = usePharmaStore(s => {
-        const loc = s.locations?.find(l => l.id === s.currentLocationId);
-        return loc?.name || 'Sin ubicación';
-    });
-    const currentLocationType = usePharmaStore(s => {
-        const loc = s.locations?.find(l => l.id === s.currentLocationId);
-        return loc?.type || 'STORE';
-    });
+    const resolvedLocation = useMemo(() => {
+        const fromPharma = pharmaLocations.find(loc => loc.id === currentLocationId);
+        if (fromPharma) return fromPharma;
+
+        if (locationStoreCurrent) return locationStoreCurrent;
+
+        const fromLocationStore = locationStoreLocations.find(loc => loc.id === currentLocationId);
+        if (fromLocationStore) return fromLocationStore;
+
+        return null;
+    }, [currentLocationId, pharmaLocations, locationStoreCurrent, locationStoreLocations]);
+
+    const currentLocationName = resolvedLocation?.name || 'Sin ubicación';
+    const currentLocationType = resolvedLocation?.type || 'STORE';
+
+    useEffect(() => {
+        const fallbackIds: string[] = [];
+        try {
+            const contextId = localStorage.getItem('context_location_id');
+            const preferredId = localStorage.getItem('preferred_location_id');
+            if (contextId) fallbackIds.push(contextId);
+            if (preferredId) fallbackIds.push(preferredId);
+        } catch {
+            // localStorage may be unavailable in constrained environments
+        }
+
+        const targetId =
+            currentLocationId ||
+            locationStoreCurrent?.id ||
+            user?.assigned_location_id ||
+            fallbackIds.find(Boolean) ||
+            '';
+
+        if (!targetId) return;
+
+        const targetLocation =
+            pharmaLocations.find(loc => loc.id === targetId) ||
+            locationStoreLocations.find(loc => loc.id === targetId) ||
+            (locationStoreCurrent?.id === targetId ? locationStoreCurrent : undefined);
+
+        const targetWarehouseId = currentWarehouseId || targetLocation?.default_warehouse_id || '';
+
+        if (currentLocationId !== targetId || (targetWarehouseId && currentWarehouseId !== targetWarehouseId)) {
+            setCurrentLocation(targetId, targetWarehouseId, currentTerminalId || '');
+        }
+    }, [
+        currentLocationId,
+        currentWarehouseId,
+        currentTerminalId,
+        setCurrentLocation,
+        pharmaLocations,
+        locationStoreLocations,
+        locationStoreCurrent,
+        user?.assigned_location_id,
+    ]);
 
     const handleRefresh = () => {
         queryClient.invalidateQueries({ queryKey: ['inventory'] });

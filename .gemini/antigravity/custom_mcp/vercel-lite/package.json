@@ -1,0 +1,11 @@
+{
+    "name": "vercel-lite-mcp",
+    "version": "1.0.0",
+    "description": "Lightweight Vercel MCP Server",
+    "type": "module",
+    "main": "index.js",
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.0.1",
+        "zod": "^3.22.4"
+    }
+}

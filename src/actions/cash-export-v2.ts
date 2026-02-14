@@ -16,6 +16,7 @@ import { query } from '@/lib/db';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { ExcelService } from '@/lib/excel-generator';
+import { formatChileDate, formatChileDateOnly, formatChileTimeOnly } from '@/lib/utils';
 
 // ============================================================================
 // SCHEMAS
@@ -433,8 +434,8 @@ export async function generateCashReportSecure(
 
         const detailRows = flow.map(f => ({
             folio: f.folio || '-',
-            date: f.timestamp.toLocaleDateString('es-CL'),
-            time: f.timestamp.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }),
+            date: formatChileDateOnly(f.timestamp),
+            time: formatChileTimeOnly(f.timestamp),
             desc: f.details ? `${f.description}\n${f.details}` : f.description, // Items already in description for Sales
             method: f.method,
             client: f.client,
@@ -505,7 +506,7 @@ export async function generateCashReportSecure(
         shiftSheet.getRow(1).font = { bold: true };
 
         const shiftRows = shiftsRes.rows.map((s: any) => ({
-            date: new Date(s.opened_at).toLocaleString('es-CL'),
+            date: formatChileDate(s.opened_at),
             user: s.cashier_name,
             term: s.terminal_name,
             open: Number(s.opening_amount),
@@ -583,7 +584,7 @@ export async function exportSalesDetailSecure(
 
         const data = res.rows.map((row: any) => ({
             id: row.id,
-            date: new Date(row.timestamp).toLocaleString('es-CL', { timeZone: 'America/Santiago' }),
+            date: formatChileDate(row.timestamp),
             location: row.location_name || '-',
             seller: row.seller_name || '-',
             subtotal: Number(row.subtotal || 0),
@@ -680,8 +681,8 @@ export async function exportShiftSummarySecure(
             location: row.location_name || '-',
             terminal: row.terminal_name || '-',
             cashier: row.cashier_name || '-',
-            start: new Date(Number(row.start_time)).toLocaleString('es-CL', { timeZone: 'America/Santiago' }),
-            end: row.end_time ? new Date(Number(row.end_time)).toLocaleString('es-CL', { timeZone: 'America/Santiago' }) : 'Activo',
+            start: formatChileDate(new Date(Number(row.start_time))),
+            end: row.end_time ? formatChileDate(new Date(Number(row.end_time))) : 'Activo',
             opening: Number(row.opening_amount || 0),
             closing: Number(row.closing_amount || 0),
             expected: Number(row.closing_amount || 0) - Number(row.cash_difference || 0),

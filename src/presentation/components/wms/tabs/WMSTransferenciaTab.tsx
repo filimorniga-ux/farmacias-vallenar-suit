@@ -2,13 +2,14 @@
  * WMSTransferenciaTab - Transferencia entre bodegas/sucursales
  * Scanner → Carrito → Origen↔Destino → PIN si necesario → Confirmar
  */
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { ArrowLeftRight, Send, FileText, Loader2, ShieldCheck, KeyRound } from 'lucide-react';
 import { WMSProductScanner } from '../WMSProductScanner';
 import { WMSProductCart, WMSCartItem } from '../WMSProductCart';
 import { WMSLocationPicker } from '../WMSLocationPicker';
 import { WMSReportPanel } from '../WMSReportPanel';
 import { usePharmaStore } from '@/presentation/store/useStore';
+import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { executeTransferSecure } from '@/actions/wms-v2';
 import { InventoryBatch } from '@/domain/types';
 import { toast } from 'sonner';
@@ -21,10 +22,19 @@ export const WMSTransferenciaTab: React.FC = () => {
     const qc = useQueryClient();
     const { inventory, currentLocationId, currentWarehouseId } = usePharmaStore();
     const user = usePharmaStore(s => s.user);
-    const locName = usePharmaStore(s => s.locations?.find(l => l.id === s.currentLocationId)?.name || 'Actual');
+    const locationStoreCurrent = useLocationStore(s => s.currentLocation);
+    const pharmaLocationWarehouseId = usePharmaStore(s =>
+        s.locations?.find(l => l.id === s.currentLocationId)?.default_warehouse_id || ''
+    );
+    const pharmaLocationName = usePharmaStore(s =>
+        s.locations?.find(l => l.id === s.currentLocationId)?.name || ''
+    );
+    const effectiveLocationId = currentLocationId || locationStoreCurrent?.id || '';
+    const currentLocationWarehouseId = pharmaLocationWarehouseId || locationStoreCurrent?.default_warehouse_id || '';
+    const locName = pharmaLocationName || locationStoreCurrent?.name || 'Actual';
 
     const [cart, setCart] = useState<WMSCartItem[]>([]);
-    const [originId, setOriginId] = useState(currentWarehouseId || currentLocationId);
+    const [originId, setOriginId] = useState(currentWarehouseId || currentLocationWarehouseId);
     const [destId, setDestId] = useState('');
     const [notes, setNotes] = useState('');
     const [pin, setPin] = useState('');
@@ -33,6 +43,12 @@ export const WMSTransferenciaTab: React.FC = () => {
 
     const totalQty = cart.reduce((s, i) => s + i.quantity, 0);
     const needsPin = totalQty >= PIN_THRESHOLD;
+
+    useEffect(() => {
+        if (!originId && (currentWarehouseId || currentLocationWarehouseId)) {
+            setOriginId(currentWarehouseId || currentLocationWarehouseId);
+        }
+    }, [originId, currentWarehouseId, currentLocationWarehouseId]);
 
     const addProduct = useCallback((p: InventoryBatch) => {
         setCart(prev => {
@@ -44,6 +60,7 @@ export const WMSTransferenciaTab: React.FC = () => {
 
     const confirm = async () => {
         if (!cart.length) return toast.error('Agregue productos');
+        if (!originId) return toast.error('No hay origen de transferencia');
         if (!destId) return toast.error('Seleccione destino');
         if (needsPin && pin.length < 4) return toast.error('PIN requerido');
         setSubmitting(true);
@@ -79,7 +96,7 @@ export const WMSTransferenciaTab: React.FC = () => {
             <WMSProductCart items={cart} onUpdateItem={(id, q) => setCart(p => p.map(i => i.id === id ? { ...i, quantity: q } : i))} onRemoveItem={id => setCart(p => p.filter(i => i.id !== id))} title="Productos a Transferir" disabled={submitting} />
             {cart.length > 0 && (
                 <div className="animate-in fade-in slide-in-from-top-4 duration-300">
-                    <WMSLocationPicker mode="both" currentLocationId={currentLocationId} currentLocationName={locName}
+                    <WMSLocationPicker mode="both" currentLocationId={effectiveLocationId} currentLocationName={locName}
                         onOriginChange={(id) => setOriginId(id)} onDestinationChange={(id) => setDestId(id)}
                         selectedOrigin={originId} selectedDestination={destId} />
                 </div>
@@ -112,7 +129,7 @@ export const WMSTransferenciaTab: React.FC = () => {
                     </button>
                 </div>
             </div>
-            {showRep && <WMSReportPanel activeTab="TRANSFERENCIA" locationId={currentLocationId} onClose={() => setShowRep(false)} />}
+            {showRep && <WMSReportPanel activeTab="TRANSFERENCIA" locationId={effectiveLocationId} onClose={() => setShowRep(false)} />}
         </div>
     );
 };

@@ -5,12 +5,13 @@
  * Usa createDispatchSecure del backend.
  */
 import React, { useState, useCallback } from 'react';
-import { Truck, Send, FileText, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Truck, Send, FileText, Loader2 } from 'lucide-react';
 import { WMSProductScanner } from '../WMSProductScanner';
 import { WMSProductCart, WMSCartItem } from '../WMSProductCart';
 import { WMSLocationPicker } from '../WMSLocationPicker';
 import { WMSReportPanel } from '../WMSReportPanel';
 import { usePharmaStore } from '@/presentation/store/useStore';
+import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { createDispatchSecure } from '@/actions/wms-v2';
 import { InventoryBatch } from '@/domain/types';
 import { toast } from 'sonner';
@@ -19,7 +20,8 @@ import * as Sentry from '@sentry/nextjs';
 
 export const WMSDespachoTab: React.FC = () => {
     const queryClient = useQueryClient();
-    const { inventory, currentLocationId, currentWarehouseId } = usePharmaStore();
+    const { inventory, currentLocationId } = usePharmaStore();
+    const locationStoreCurrent = useLocationStore(s => s.currentLocation);
 
     // State
     const [cartItems, setCartItems] = useState<WMSCartItem[]>([]);
@@ -31,11 +33,12 @@ export const WMSDespachoTab: React.FC = () => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showReports, setShowReports] = useState(false);
 
-    // Get current location name from store
-    const currentLocationName = usePharmaStore(s => {
+    const pharmaLocationName = usePharmaStore(s => {
         const loc = s.locations?.find(l => l.id === s.currentLocationId);
-        return loc?.name || 'Sucursal Actual';
+        return loc?.name || '';
     });
+    const effectiveLocationId = currentLocationId || locationStoreCurrent?.id || '';
+    const currentLocationName = pharmaLocationName || locationStoreCurrent?.name || 'Sucursal Actual';
 
     // Agregar producto al carrito
     const handleProductSelected = useCallback((product: InventoryBatch) => {
@@ -81,6 +84,10 @@ export const WMSDespachoTab: React.FC = () => {
             toast.error('Agregue al menos un producto');
             return;
         }
+        if (!effectiveLocationId) {
+            toast.error('No hay ubicación activa de origen');
+            return;
+        }
         if (!destinationId) {
             toast.error('Seleccione destino');
             return;
@@ -90,7 +97,7 @@ export const WMSDespachoTab: React.FC = () => {
         try {
             const result = await createDispatchSecure({
                 type: 'OUTBOUND',
-                originLocationId: currentLocationId,
+                originLocationId: effectiveLocationId,
                 destinationLocationId: destinationId,
                 items: cartItems.map(item => ({
                     batchId: item.id,
@@ -162,7 +169,7 @@ export const WMSDespachoTab: React.FC = () => {
                 <div className="animate-in fade-in slide-in-from-top-4 duration-300">
                     <WMSLocationPicker
                         mode="destination"
-                        currentLocationId={currentLocationId}
+                        currentLocationId={effectiveLocationId}
                         currentLocationName={currentLocationName}
                         onDestinationChange={(id, name) => {
                             setDestinationId(id);
@@ -244,7 +251,7 @@ export const WMSDespachoTab: React.FC = () => {
             {showReports && (
                 <WMSReportPanel
                     activeTab="DESPACHO"
-                    locationId={currentLocationId}
+                    locationId={effectiveLocationId}
                     onClose={() => setShowReports(false)}
                 />
             )}

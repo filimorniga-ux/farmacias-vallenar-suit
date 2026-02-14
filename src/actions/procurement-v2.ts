@@ -845,7 +845,8 @@ export async function generateRestockSuggestionSecure(
     supplierId?: string,
     daysToCover: number = 15,
     analysisWindow: number = 30,
-    locationId?: string
+    locationId?: string,
+    stockThreshold?: number // New: 0.1 to 1.0 (or >1 for overstock)
 ): Promise<{
     success: boolean;
     data?: any[];
@@ -915,7 +916,7 @@ export async function generateRestockSuggestionSecure(
             ),
             IncomingStock AS (
                 SELECT 
-                    p.id as product_id,
+                    p.id as product_id, 
                     SUM(poi.quantity_ordered - COALESCE(poi.quantity_received, 0)) as incoming
                 FROM purchase_order_items poi
                 JOIN purchase_orders po ON poi.purchase_order_id = po.id
@@ -971,7 +972,6 @@ export async function generateRestockSuggestionSecure(
             LEFT JOIN IncomingStock incs ON tp.product_id::text = incs.product_id::text
             LEFT JOIN SalesHistory sh ON tp.product_id::text = sh.product_id::text
             LEFT JOIN GlobalStock gs ON tp.product_id::text = gs.product_id::text
-            WHERE (COALESCE(sh.total_sold, 0) > 0 OR COALESCE(cs.total_stock, 0) <= COALESCE(tp.safety_stock, 0))
             ORDER BY tp.product_name ASC
         `;
 
@@ -987,13 +987,27 @@ export async function generateRestockSuggestionSecure(
             const safety = Number(row.safety_stock);
             const leadTime = 0; // Default
 
-            const required = (velocity * (daysToCover + leadTime)) + safety;
-            const netNeeds = required - stock - incoming;
+            // Estima el Stock Máximo Dinámico basado en la cobertura deseada
+            const maxStock = Math.ceil((velocity * (daysToCover + leadTime)) + safety);
 
+            const netNeeds = maxStock - stock - incoming;
+
+            // Suggested is the gap to fill maxStock
             let suggested = Math.max(0, Math.ceil(netNeeds));
             const daysUntilStockout = velocity > 0 ? (stock / velocity) : 999;
 
-            let reason = `Venta Diaria: ${velocity.toFixed(2)} | Cobertura: ${daysToCover}d | Stock: ${stock}`;
+            // Calcular porcentaje de llenado actual respecto al objetivo dinámico
+            const stockLevelPercent = maxStock > 0 ? Math.round((stock / maxStock) * 100) : (stock > 0 ? 100 : 0);
+
+            // Filtering Logic in backend to reduce payload if threshold is set
+            if (stockThreshold !== undefined && stockThreshold !== null) {
+                // Return null if it doesn't meet criteria (filtered out later)
+                // NOTE: stockThreshold e.g. 10 (10%) or 90 (90%)
+                // Input is expected to be percent integer e.g. 10, 20, 90.
+                if (stockLevelPercent > stockThreshold) return null;
+            }
+
+            let reason = `Venta Diaria: ${velocity.toFixed(2)} | Cobertura: ${daysToCover}d | Nivel: ${stockLevelPercent}%`;
             let aiConfidence = undefined;
             let aiAction = 'PURCHASE';
 
@@ -1020,6 +1034,8 @@ export async function generateRestockSuggestionSecure(
 
                     // Merge AI Logic
                     if (aiResult.confidence === 'HIGH' || aiResult.confidence === 'MEDIUM') {
+                        // Si la IA sugiere, usamos su sugerencia pero respetamos el techo del maxStock si es 'PURCHASE'
+                        // A veces la IA puede sugerir más por tendencias estacionales no capturadas en el promedio simple
                         suggested = aiResult.suggestedOrderQty;
                         reason = `🤖 IA: ${aiResult.reasoning}`;
                         aiConfidence = aiResult.confidence;
@@ -1036,19 +1052,30 @@ export async function generateRestockSuggestionSecure(
                 }
             }
 
+            // Determine urgency based on stockout days
+            let urgency: 'HIGH' | 'MEDIUM' | 'LOW' = 'LOW';
+            if (daysUntilStockout <= 5) urgency = 'HIGH';
+            else if (daysUntilStockout <= 15) urgency = 'MEDIUM';
+
+
             return {
                 product_id: row.product_id,
                 product_name: row.product_name,
                 sku: row.sku,
                 image_url: row.image_url,
+                location_id: locationId,   // Added
                 current_stock: stock,
-                global_stock: globalStock, // Exposed to UI
+                global_stock: globalStock,
                 incoming_stock: incoming,
                 safety_stock: safety,
+                min_stock: safety,         // Mapped to safety_stock
+                max_stock: maxStock,
+                stock_level_percent: stockLevelPercent,
                 daily_velocity: Number(velocity.toFixed(3)),
                 suggested_quantity: suggested,
                 days_coverage: velocity > 0 ? (stock / velocity).toFixed(1) : '∞',
                 days_until_stockout: daysUntilStockout,
+                urgency: urgency,          // Added
                 unit_cost: Number(row.unit_cost),
                 supplier_sku: row.supplier_sku,
                 supplier_id: row.supplier_id,
@@ -1060,8 +1087,11 @@ export async function generateRestockSuggestionSecure(
             };
         }));
 
+        // Filter out nulls (items that didn't pass threshold)
+        const validSuggestions = suggestions.filter(s => s !== null);
+
         // Sort by urgency
-        const sortedSuggestions = suggestions.sort((a, b) => a.days_until_stockout - b.days_until_stockout);
+        const sortedSuggestions = validSuggestions.sort((a, b) => a.days_until_stockout - b.days_until_stockout);
 
         return { success: true, data: sortedSuggestions };
 

@@ -32,6 +32,7 @@ import { IntelligentOrderingService } from '../services/intelligentOrderingServi
 import { forceCloseTerminalShift } from '../../actions/terminals-v2';
 import { createTerminalSecure, deleteTerminalSecure, updateTerminalSecure } from '../../actions/network-v2';
 import { toast } from 'sonner';
+import { buildSoldQuantityByBatch, resolveCartBatchIds } from '../../domain/logic/cartStock';
 // Mocks removed
 // Mocks removed
 
@@ -905,6 +906,7 @@ export const usePharmaStore = create<PharmaState>()(
             addToCart: (item, quantity = 1, options) => set((state) => {
                 const isFractional = options?.is_fractional ?? false;
                 const itemId = isFractional ? `${item.id}-F` : item.id;
+                const { batchId, originalBatchId } = resolveCartBatchIds(item);
 
                 const existingItem = state.cart.find(i => i.id === itemId);
                 if (existingItem) {
@@ -916,7 +918,7 @@ export const usePharmaStore = create<PharmaState>()(
                 }
                 const newItem: CartItem = {
                     id: itemId,
-                    batch_id: item.original_batch_id || item.id, // ✅ Prioriza UUID real sobre ID de frontend
+                    batch_id: batchId,
                     sku: item.sku,
                     name: options?.name ?? ((isFractional || item.is_retail_lot) ? `🔵 ${item.name}` : item.name),
                     price: options?.price ?? (
@@ -930,7 +932,7 @@ export const usePharmaStore = create<PharmaState>()(
                     cost_price: item.cost_price || 0,
                     is_fractional: isFractional || item.is_retail_lot || false,
                     original_name: item.name,
-                    original_batch_id: item.original_batch_id || item.id // ✅ Persiste para auditoría
+                    original_batch_id: originalBatchId
                 };
                 return { cart: [...state.cart, newItem] };
             }),
@@ -1038,7 +1040,7 @@ export const usePharmaStore = create<PharmaState>()(
                         status: 'COMPLETED',
                         timestamp: Date.now(),
                         items: state.cart.map(item => ({
-                            batch_id: item.original_batch_id || item.batch_id || item.id, // ✅ Asegura UUID válido
+                            batch_id: item.batch_id || item.id,
                             sku: item.sku,
                             name: item.name,
                             price: item.price,
@@ -1084,10 +1086,11 @@ export const usePharmaStore = create<PharmaState>()(
                     // ✅ Sale saved (either Cloud or Local)
 
                     // 3. Update local inventory (deduct stock)
+                    const soldByBatch = buildSoldQuantityByBatch(state.cart);
                     const newInventory = state.inventory.map(item => {
-                        const cartItem = state.cart.find(c => c.sku === item.sku);
-                        if (cartItem) {
-                            return { ...item, stock_actual: item.stock_actual - cartItem.quantity };
+                        const soldQty = soldByBatch.get(item.id) || 0;
+                        if (soldQty > 0) {
+                            return { ...item, stock_actual: item.stock_actual - soldQty };
                         }
                         return item;
                     });

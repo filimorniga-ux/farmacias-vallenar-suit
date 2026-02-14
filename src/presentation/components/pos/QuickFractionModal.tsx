@@ -34,8 +34,10 @@ const QuickFractionModal: React.FC<QuickFractionModalProps> = ({ isOpen, onClose
     const divisor = parseInt(userUnitsPerBox) || 1;
     const boxPrice = product.price || 0;
 
-    // Cálculo Dinámico Basado en lo que el usuario ponga
-    const dynamicUnitPrice = Math.round(boxPrice / divisor);
+    // Cálculo Dinámico con Regla de Redondeo (Business Rule)
+    // "Si está bajo 50, a 50. Si es superior, a 100" -> Math.ceil(price / 50) * 50
+    const rawUnitPrice = boxPrice / divisor;
+    const dynamicUnitPrice = Math.ceil(rawUnitPrice / 50) * 50;
     const totalPrice = qty * dynamicUnitPrice;
 
     const handleConfirm = (e: React.FormEvent) => {
