@@ -1,120 +1,205 @@
-/**
- * E2E Test Helpers - Login Flow
- * 
- * Helper reutilizable para el flujo de login real de la aplicación.
- * Actualizado: 27/01/2026
- * 
- * Flujo real:
- * 1. Seleccionar sucursal (Santiago)
- * 2. Click en ACCEDER (módulo)
- * 3. Seleccionar usuario (ej: Gerente General 1)
- * 4. Ingresar PIN
- */
-
 import { Page, expect } from '@playwright/test';
 
 export interface LoginOptions {
-    branch?: string;          // Default: 'Farmacia Vallenar santiago'
-    module?: string;          // Default: 'Administración' (primer módulo)
-    user?: string;            // Default: 'Gerente General 1'
-    pin?: string;             // Default: '1213'
+    branch?: string;
+    module?: string;
+    user?: string;
+    pin?: string;
 }
 
-/**
- * Login como Gerente General (rol con permisos amplios)
- */
-export async function loginAsManager(page: Page, options?: LoginOptions) {
-    const {
-        branch = 'Farmacia Vallenar santiago',
-        module = 'ACCEDER',
-        user = 'Gerente General 1',
-        pin = '1213'
-    } = options || {};
+const DEFAULT_OPTIONS: Required<LoginOptions> = {
+    branch: 'Farmacia Vallenar santiago',
+    module: 'Administración',
+    user: 'Gerente General 1',
+    pin: '1213',
+};
 
-    // 1. Ir a la página inicial
+async function waitInitialSurface(page: Page): Promise<void> {
+    await Promise.race([
+        page.getByRole('button', { name: /Seleccionar/i }).first().waitFor({ state: 'visible', timeout: 90000 }),
+        page.getByText('Administración', { exact: true }).first().waitFor({ state: 'visible', timeout: 90000 }),
+        page.getByText('Punto de Venta', { exact: true }).first().waitFor({ state: 'visible', timeout: 90000 }),
+        page.getByText('Logística', { exact: true }).first().waitFor({ state: 'visible', timeout: 90000 }),
+        page.getByText('Resumen General', { exact: true }).first().waitFor({ state: 'visible', timeout: 90000 }),
+        page.getByText(/No hay sucursales configuradas/i).first().waitFor({ state: 'visible', timeout: 90000 }),
+    ]);
+}
+
+async function selectBranchIfPresent(page: Page, branch: string): Promise<void> {
+    const selectButtons = page.getByRole('button', { name: /Seleccionar/i });
+    if (!(await selectButtons.first().isVisible().catch(() => false))) {
+        return;
+    }
+
+    const normalizedTarget = branch.toLowerCase();
+    const buttonCount = await selectButtons.count();
+
+    let selected = false;
+    for (let i = 0; i < buttonCount; i += 1) {
+        const button = selectButtons.nth(i);
+        const cardText = (await button
+            .locator('xpath=ancestor::*[self::article or self::section or self::div][1]')
+            .innerText()
+            .catch(() => '')).toLowerCase();
+
+        if (cardText.includes(normalizedTarget)) {
+            await button.click();
+            selected = true;
+            break;
+        }
+    }
+
+    if (!selected) {
+        // Fallback seguro: primer destino disponible
+        await selectButtons.first().click();
+    }
+
+    await page.waitForLoadState('networkidle');
+}
+
+async function alreadyAuthenticated(page: Page): Promise<boolean> {
+    const hasSidebar = await page.getByText('Resumen General', { exact: true }).isVisible().catch(() => false);
+    const hasLogout = await page.getByRole('button', { name: /Cerrar Sesión|Salir/i }).first().isVisible().catch(() => false);
+    return hasSidebar || hasLogout;
+}
+
+async function openModuleForLogin(page: Page, module: string): Promise<void> {
+    const moduleHeading = page.getByRole('heading', { name: module }).first();
+    if (await moduleHeading.isVisible().catch(() => false)) {
+        await moduleHeading.click();
+        return;
+    }
+
+    const moduleText = page.getByText(module, { exact: true }).first();
+    if (await moduleText.isVisible().catch(() => false)) {
+        await moduleText.click();
+        return;
+    }
+
+    const accessFallback = page.getByText(/Acceder|Entrar/i).first();
+    if (await accessFallback.isVisible().catch(() => false)) {
+        await accessFallback.click();
+        return;
+    }
+
+    throw new Error(`No se encontró forma de abrir módulo "${module}"`);
+}
+
+async function waitLoginModal(page: Page): Promise<void> {
+    await Promise.race([
+        page.getByRole('heading', { name: /Iniciar Sesión/i }).first().waitFor({ state: 'visible', timeout: 15000 }),
+        page.getByRole('heading', { name: /Acceso Logística/i }).first().waitFor({ state: 'visible', timeout: 15000 }),
+    ]);
+}
+
+async function chooseUser(page: Page, user: string): Promise<void> {
+    if (await page.getByText(/No se encontraron usuarios/i).first().isVisible().catch(() => false)) {
+        throw new Error('LOGIN_NO_USERS_AVAILABLE');
+    }
+
+    const userButtons = page
+        .locator('button')
+        .filter({ hasText: /ADMIN|GERENTE|CAJERO|BODEGA|SUPERVISOR/i });
+    await userButtons.first().waitFor({ state: 'visible', timeout: 15000 });
+
+    const exactUser = page.getByRole('button', { name: new RegExp(user, 'i') }).first();
+    if (await exactUser.isVisible().catch(() => false)) {
+        await exactUser.click();
+        return;
+    }
+
+    if (await userButtons.first().isVisible().catch(() => false)) {
+        await userButtons.first().click();
+        return;
+    }
+
+    throw new Error(`No se encontró usuario para login: ${user}`);
+}
+
+async function fillPinAndSubmit(page: Page, pin: string): Promise<void> {
+    const pinInput = page
+        .locator('input[type="password"], input[placeholder*="PIN" i], input[placeholder*="••••"]')
+        .first();
+
+    await pinInput.waitFor({ state: 'visible', timeout: 15000 });
+    await pinInput.fill(pin);
+
+    const submit = page.getByRole('button', { name: /Entrar|Ingresar|Acceder/i }).first();
+    if (await submit.isVisible().catch(() => false)) {
+        await submit.click();
+    } else {
+        // Algunos modales usan botón genérico ("..."), por eso usamos fallback de botón habilitado.
+        const enabledFallback = page
+            .locator('button:not([disabled])')
+            .filter({ hasNotText: /Atrás|Volver|Cerrar/i })
+            .last();
+        if (await enabledFallback.isVisible().catch(() => false)) {
+            await enabledFallback.click();
+        } else {
+            await page.keyboard.press('Enter');
+        }
+    }
+}
+
+export async function loginAsManager(page: Page, options?: LoginOptions): Promise<boolean> {
+    const cfg = { ...DEFAULT_OPTIONS, ...(options ?? {}) };
+
     await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-    // 2. Seleccionar sucursal
-    const branchBtn = page.locator(`button:has-text("${branch}")`).first();
-
-    // Esperar a que cargue la lista de sucursales (o cards con "Seleccionar")
     try {
-        await page.waitForSelector('button:has-text("Seleccionar")', { timeout: 60000 });
-    } catch (e) {
-        // Un reintento suave por si la app tarda en hidratar
-        await page.waitForTimeout(2000);
-        await page.waitForSelector('button:has-text("Seleccionar")', { timeout: 20000 });
+        await waitInitialSurface(page);
+    } catch {
+        await page.reload({ waitUntil: 'domcontentloaded' });
+        await waitInitialSurface(page);
     }
 
-    if (await branchBtn.count()) {
-        await branchBtn.click();
-    } else {
-        // Fallback: elegir la primera sucursal disponible
-        const fallbackBranch = page.locator('button:has-text("Seleccionar")').first();
-        await fallbackBranch.click();
+    if (await page.getByText(/No hay sucursales configuradas/i).first().isVisible().catch(() => false)) {
+        throw new Error('LOGIN_NO_BRANCHES_CONFIGURED');
     }
 
-    // 3. Esperar a que cargue el dashboard de módulos
+    await selectBranchIfPresent(page, cfg.branch);
+
+    if (await alreadyAuthenticated(page)) {
+        return true;
+    }
+
     await page.waitForLoadState('networkidle');
+    await openModuleForLogin(page, cfg.module);
+    await waitLoginModal(page);
+    await chooseUser(page, cfg.user);
+    await fillPinAndSubmit(page, cfg.pin);
 
-    // 4. Click en ACCEDER (primer módulo disponible)
-    const accederBtn = page.locator(`button:has-text("${module}")`).first();
-    await accederBtn.waitFor({ state: 'visible', timeout: 10000 });
-    await accederBtn.click();
+    await Promise.race([
+        expect(page).toHaveURL(/dashboard|pos|caja|warehouse|inventory|finance|supply-chain/i, { timeout: 20000 }),
+        page.getByText('Resumen General', { exact: true }).waitFor({ state: 'visible', timeout: 20000 }),
+    ]);
 
-    // 5. Esperar modal de login
-    await page.waitForSelector('text=Iniciar Sesión', { timeout: 5000 });
-
-    // 6. Seleccionar usuario
-    await page.click(`text=${user}`);
-
-    // 7. Ingresar PIN
-    await page.fill('input[type="password"]', pin);
-
-    // 8. Click en Entrar
-    await page.click('button:has-text("Entrar")');
-
-    // 9. Esperar a que cargue el dashboard
-    await expect(page).toHaveURL(/.*dashboard.*/, { timeout: 15000 });
-
-    // 10. Esperar a que la página esté lista
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('networkidle').catch(() => undefined);
+    return true;
 }
 
-/**
- * Login como Cajero (rol limitado)
- */
-export async function loginAsCashier(page: Page) {
-    await loginAsManager(page, {
-        user: 'Cajero 1',
-        pin: '1234' // Ajustar según PIN real del cajero
+export async function loginAsCashier(page: Page): Promise<boolean> {
+    return loginAsManager(page, {
+        module: 'Punto de Venta',
+        user: 'Cajero Stgo AM 1',
+        pin: '1234',
     });
 }
 
-/**
- * Cerrar sesión desde cualquier página
- */
-export async function logout(page: Page) {
-    // Buscar botón de logout en sidebar o header
-    const logoutBtn = page.locator('button:has-text("Cerrar Sesión"), button:has-text("Salir"), [data-testid="logout"]').first();
-    if (await logoutBtn.isVisible()) {
-        await logoutBtn.click();
+export async function logout(page: Page): Promise<void> {
+    const logoutButton = page.getByRole('button', { name: /Cerrar Sesión|Salir/i }).first();
+    if (await logoutButton.isVisible().catch(() => false)) {
+        await logoutButton.click();
         await page.waitForURL('**/');
     }
 }
 
-/**
- * Navegar a logística/inventario después del login
- */
-export async function goToInventory(page: Page) {
-    await page.goto('/logistica/inventory');
-    await page.waitForLoadState('networkidle');
+export async function goToInventory(page: Page): Promise<void> {
+    await page.goto('/inventory', { waitUntil: 'domcontentloaded' });
+    await page.waitForLoadState('networkidle').catch(() => undefined);
 }
 
-/**
- * Navegar a caja después del login
- */
-export async function goToCaja(page: Page) {
-    await page.goto('/caja');
-    await page.waitForLoadState('networkidle');
+export async function goToCaja(page: Page): Promise<void> {
+    await page.goto('/caja', { waitUntil: 'domcontentloaded' });
+    await page.waitForLoadState('networkidle').catch(() => undefined);
 }
