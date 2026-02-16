@@ -20,6 +20,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "seed:sandbox": "npx tsx src/scripts/seed-sandbox.ts",
     "test:actions": "vitest run tests/actions",
     "test:actions:coverage": "vitest run tests/actions --coverage --coverage.include=\"src/actions/**\"",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
