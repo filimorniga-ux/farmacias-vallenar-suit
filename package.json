@@ -62,8 +62,7 @@
           "arch": [
             "x64",
             "arm64"
-          ],
-          "artifactName": "FarmaciasVallenar-Mac-${arch}.zip"
+          ]
         }
       ],
       "icon": "public/icon.icns",
@@ -76,6 +75,9 @@
     "afterSign": "build/notarize.cjs",
     "dmg": {
       "artifactName": "FarmaciasVallenar-Mac-Universal.dmg"
+    },
+    "zip": {
+      "artifactName": "FarmaciasVallenar-Mac-${arch}.zip"
     },
     "win": {
       "target": [
