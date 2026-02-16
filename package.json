@@ -50,34 +50,20 @@
     "mac": {
       "category": "public.app-category.business",
       "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
-        },
-        {
-          "target": "zip",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
+        "dmg",
+        "zip"
       ],
       "icon": "public/icon.icns",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
-      "identity": "Miguel Alfonso Perdomo serrato (XY5KRY6FXK)"
+      "identity": "Miguel Alfonso Perdomo serrato (XY5KRY6FXK)",
+      "artifactName": "FarmaciasVallenar-Mac-${arch}.${ext}"
     },
     "afterSign": "build/notarize.cjs",
     "dmg": {
-      "artifactName": "FarmaciasVallenar-Mac-Universal.dmg"
-    },
-    "zip": {
-      "artifactName": "FarmaciasVallenar-Mac-${arch}.zip"
+      "sign": false
     },
     "win": {
       "target": [
