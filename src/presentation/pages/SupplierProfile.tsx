@@ -396,7 +396,7 @@ export const SupplierProfile = () => {
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-right font-medium text-slate-900">
-                                            ${po.total_estimated.toLocaleString()}
+                                            ${(po.total_estimated ?? 0).toLocaleString()}
                                         </td>
                                         <td className="px-6 py-4 text-center">
                                             <button className="text-blue-600 hover:text-blue-800 font-medium text-xs">Ver Detalle</button>

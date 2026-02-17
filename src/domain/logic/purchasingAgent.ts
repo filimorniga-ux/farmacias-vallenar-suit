@@ -87,6 +87,7 @@ export const PurchasingAgent = {
                 id: `PO-SUG-${Date.now()}-${supplierId.substring(0, 3)}`,
                 supplier_id: supplierId,
                 destination_location_id: 'BODEGA_CENTRAL', // Default location for suggested orders
+                target_warehouse_id: 'BODEGA_CENTRAL', // Required FK for stock arrival
                 created_at: Date.now(),
                 status: 'SUGGESTED',
                 items: itemsBySupplier[supplierId],

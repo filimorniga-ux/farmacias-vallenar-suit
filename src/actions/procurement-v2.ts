@@ -1328,3 +1328,53 @@ export async function generateRestockSuggestionSecure(
         return { success: false, error: 'Error generando sugerencias: ' + error.message };
     }
 }
+
+/**
+ * 📋 Get Transfer History - Consulta traspasos ejecutados entre sucursales
+ */
+export async function getTransferHistorySecure(params?: {
+    locationId?: string;
+    limit?: number;
+}): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    try {
+        const limit = params?.limit || 50;
+        const locationFilter = params?.locationId
+            ? `AND (sm_out.location_id = $2 OR sm_in.location_id = $2)`
+            : '';
+        const queryParams: any[] = [limit];
+        if (params?.locationId) queryParams.push(params.locationId);
+
+        const result = await pool.query(`
+            SELECT 
+                sm_out.reference_id as transfer_id,
+                sm_out.timestamp AT TIME ZONE 'America/Santiago' as executed_at,
+                sm_out.sku,
+                sm_out.product_name,
+                sm_out.location_id as from_location_id,
+                l_from.name as from_location_name,
+                sm_in.location_id as to_location_id,
+                l_to.name as to_location_name,
+                ABS(sm_out.quantity) as quantity,
+                u.name as executed_by,
+                sm_out.notes as reason
+            FROM stock_movements sm_out
+            JOIN stock_movements sm_in 
+                ON sm_in.reference_id = sm_out.reference_id
+                AND sm_in.sku = sm_out.sku
+                AND sm_in.movement_type = 'TRANSFER_IN'
+            LEFT JOIN locations l_from ON sm_out.location_id = l_from.id
+            LEFT JOIN locations l_to ON sm_in.location_id = l_to.id
+            LEFT JOIN users u ON sm_out.user_id = u.id
+            WHERE sm_out.movement_type = 'TRANSFER_OUT'
+            AND sm_out.reference_type = 'LOCATION_TRANSFER'
+            ${locationFilter}
+            ORDER BY sm_out.timestamp DESC
+            LIMIT $1
+        `, queryParams);
+
+        return { success: true, data: result.rows };
+    } catch (error: any) {
+        logger.error({ error }, '[PROCUREMENT-V2] Transfer history error');
+        return { success: false, error: 'Error consultando historial: ' + error.message };
+    }
+}

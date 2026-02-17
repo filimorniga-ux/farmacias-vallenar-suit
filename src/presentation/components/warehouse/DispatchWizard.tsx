@@ -236,6 +236,7 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
                 id: `PO-${Date.now()}`,
                 supplier_id: originId,
                 destination_location_id: destinationId, // Destination warehouse
+                target_warehouse_id: destinationId, // Required FK for stock arrival
                 created_at: Date.now(),
                 status: 'SENT',
                 items: selectedItems.map(i => ({
