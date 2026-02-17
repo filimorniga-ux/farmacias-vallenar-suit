@@ -27,6 +27,9 @@ import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
 import { randomUUID } from 'crypto';
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DBRow = any;
+
 // ============================================================================
 // VALIDATION SCHEMAS
 // ============================================================================
@@ -176,6 +179,8 @@ async function getSession(): Promise<{ user?: { id: string; role: string } } | n
 /**
  * Get client IP address
  */
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function getClientIP(): Promise<string> {
     try {
         const headersList = await headers();
@@ -192,7 +197,8 @@ async function getClientIP(): Promise<string> {
 /**
  * Verify ADMIN permissions
  */
-async function verifyAdminPermission(client: any): Promise<{
+
+async function verifyAdminPermission(client: DBRow): Promise<{
     valid: boolean;
     admin?: { id: string; name: string; role: string };
     error?: string;
@@ -226,18 +232,20 @@ async function verifyAdminPermission(client: any): Promise<{
 /**
  * Insert audit log for user operations
  */
-async function insertUserAudit(client: any, params: {
+
+async function insertUserAudit(client: DBRow, params: {
     actionCode: string;
     userId: string;
     targetUserId: string;
-    oldValues?: Record<string, any>;
-    newValues?: Record<string, any>;
+    oldValues?: DBRow;
+    newValues?: DBRow;
     justification?: string;
 }): Promise<void> {
     try {
         // Remove sensitive fields from audit
-        const sanitizeValues = (values?: Record<string, any>) => {
+        const sanitizeValues = (values?: DBRow) => {
             if (!values) return null;
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { access_pin, access_pin_hash, ...safe } = values;
             return safe;
         };
@@ -264,7 +272,8 @@ async function insertUserAudit(client: any, params: {
 /**
  * Count active ADMINs
  */
-async function countActiveAdmins(client: any): Promise<number> {
+
+async function countActiveAdmins(client: DBRow): Promise<number> {
     const result = await client.query(`
         SELECT COUNT(*) as count
         FROM users
@@ -397,12 +406,15 @@ export async function createUserSecure(data: z.infer<typeof CreateUserSchema>): 
             data: createResult.rows[0]
         };
 
-    } catch (error: any) {
+
+
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         console.error('[USERS-V2] Create user error:', error);
+        const message = error instanceof Error ? error.message : 'Error desconocido';
         return {
             success: false,
-            error: error.message || 'Error al crear usuario'
+            error: message || 'Error al crear usuario'
         };
     } finally {
         client.release();
@@ -458,7 +470,7 @@ export async function updateUserSecure(data: z.infer<typeof UpdateUserSchema>): 
 
         // 4. Build update query dynamically
         const updates: string[] = [];
-        const values: any[] = [];
+        const values: (string | number | boolean | string[] | null)[] = [];
         let paramIndex = 1;
 
         if (validated.data.name !== undefined) {
@@ -540,17 +552,20 @@ export async function updateUserSecure(data: z.infer<typeof UpdateUserSchema>): 
             data: updateResult.rows[0]
         };
 
-    } catch (error: any) {
+
+
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         console.error('[USERS-V2] Update user error:', error);
+        const err = error as { code?: string, message?: string };
 
-        if (error.code === '55P03') { // Lock not available
+        if (err.code === '55P03') { // Lock not available
             return { success: false, error: 'Usuario está siendo modificado por otro proceso' };
         }
 
         return {
             success: false,
-            error: error.message || 'Error al actualizar usuario'
+            error: err.message || 'Error al actualizar usuario'
         };
     } finally {
         client.release();
@@ -656,12 +671,15 @@ export async function changeUserRoleSecure(data: z.infer<typeof ChangeRoleSchema
 
         return { success: true };
 
-    } catch (error: any) {
+
+
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         console.error('[USERS-V2] Change role error:', error);
+        const message = error instanceof Error ? error.message : 'Error desconocido';
         return {
             success: false,
-            error: error.message || 'Error al cambiar rol'
+            error: message || 'Error al cambiar rol'
         };
     } finally {
         client.release();
@@ -697,7 +715,8 @@ export async function resetUserPinSecure(data: z.infer<typeof ResetPinSchema>): 
         }
 
         // 3. Check rate limiting (integrate with rate-limiter.ts)
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } =
+        // 3. Check rate limiting (integrate with rate-limiter.ts)
+        const { checkRateLimit, resetAttempts } =
             await import('@/lib/rate-limiter');
 
         const rateCheck = checkRateLimit(validated.data.userId);
@@ -743,12 +762,15 @@ export async function resetUserPinSecure(data: z.infer<typeof ResetPinSchema>): 
 
         return { success: true };
 
-    } catch (error: any) {
+
+
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         console.error('[USERS-V2] Reset PIN error:', error);
+        const message = error instanceof Error ? error.message : 'Error desconocido';
         return {
             success: false,
-            error: error.message || 'Error al resetear PIN'
+            error: message || 'Error al resetear PIN'
         };
     } finally {
         client.release();
@@ -843,17 +865,20 @@ export async function deactivateUserSecure(data: z.infer<typeof DeactivateUserSc
 
         return { success: true };
 
-    } catch (error: any) {
+
+
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         console.error('[USERS-V2] Deactivate user error:', error);
+        const err = error as { code?: string, message?: string };
 
-        if (error.code === '55P03') {
+        if (err.code === '55P03') {
             return { success: false, error: 'Usuario está siendo modificado por otro proceso' };
         }
 
         return {
             success: false,
-            error: error.message || 'Error al desactivar usuario'
+            error: err.message || 'Error al desactivar usuario'
         };
     } finally {
         client.release();
@@ -903,8 +928,9 @@ export async function getUsersSecure(filters?: z.infer<typeof GetUsersSchema>): 
 
     try {
         // 2. Build WHERE clause
+        // 2. Build WHERE clause
         const conditions: string[] = [];
-        const params: any[] = [];
+        const params: (string | number | boolean)[] = [];
         let paramIndex = 1;
 
         if (validated.data.locationId) {
@@ -983,11 +1009,14 @@ export async function getUsersSecure(filters?: z.infer<typeof GetUsersSchema>): 
             }
         };
 
-    } catch (error: any) {
+
+
+    } catch (error: unknown) {
         console.error('[USERS-V2] Get users error:', error);
+        const message = error instanceof Error ? error.message : 'Error desconocido';
         return {
             success: false,
-            error: error.message || 'Error al obtener usuarios'
+            error: message || 'Error al obtener usuarios'
         };
     }
 }

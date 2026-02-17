@@ -127,11 +127,11 @@ export class IntelligentOrderingService {
         suppliers: Supplier[],
         inventory: InventoryBatch[]
     ): PurchaseOrder[] {
-        // Group suggestions by supplier
+        // Group suggestions by supplier (use 'UNASSIGNED' for null/empty)
         const posBySupplier = new Map<string, AutoOrderSuggestion[]>();
 
         suggestions.forEach(s => {
-            const supplierId = s.supplier_id || 'DEFAULT_SUPPLIER';
+            const supplierId = s.supplier_id || 'UNASSIGNED';
             if (!posBySupplier.has(supplierId)) {
                 posBySupplier.set(supplierId, []);
             }
@@ -141,7 +141,10 @@ export class IntelligentOrderingService {
         // Create a PO for each supplier
         const generatedPOs: PurchaseOrder[] = [];
 
-        posBySupplier.forEach((items, supplierId) => {
+        posBySupplier.forEach((items, supplierKey) => {
+            const isUnassigned = supplierKey === 'UNASSIGNED';
+            const supplierId = isUnassigned ? null : supplierKey;
+
             const supplier = suppliers.find(s => s.id === supplierId);
             const locationId = items[0].location_id; // All items from same location
 
@@ -172,6 +175,7 @@ export class IntelligentOrderingService {
                 supplier_id: supplierId,
                 supplier_name: supplier?.fantasy_name,
                 destination_location_id: locationId,
+                target_warehouse_id: locationId, // Primary FK as per new schema
                 created_at: Date.now(),
                 status: 'DRAFT',
                 items: poItems,

@@ -17,14 +17,28 @@ if (!process.env.DATABASE_URL) {
 }
 
 // Configuración robusta
-const isCloudDB = process.env.DATABASE_URL?.includes('tsdb.cloud.timescale.com');
+const dbUrl = process.env.DATABASE_URL || '';
+const isCloudDB = dbUrl.includes('tsdb.cloud.timescale.com') || dbUrl.includes('m1xugm0lj9');
+const isLocalhost = dbUrl.includes('localhost') || dbUrl.includes('127.0.0.1');
+
+// SSL Config: Force rejectUnauthorized: false for cloud/remote
+const sslConfig = (!isLocalhost || isCloudDB) ? { rejectUnauthorized: false } : undefined;
+
+if (!isProduction) {
+    console.log(`🔌 [DB] Environment Trace:`, {
+        isCloudDB,
+        isLocalhost,
+        hasSSL: !!sslConfig,
+        sslMode: sslConfig ? 'REJECT_UNAUTHORIZED_FALSE' : 'NONE'
+    });
+}
 
 const connectionConfig = {
-    connectionString: process.env.DATABASE_URL,
-    ssl: (isProduction || isCloudDB) ? { rejectUnauthorized: false } : undefined,
-    max: 10, // Reduced from 20 to 10 to avoid connection limits in cloud tiers
-    connectionTimeoutMillis: 30000, // Reduced to 30s to fail faster and retry
-    idleTimeoutMillis: 10000, // Reduced to 10s to release clients faster
+    connectionString: dbUrl,
+    ssl: sslConfig,
+    max: 20, // Increased to 20 to handle concurrent sync operations
+    connectionTimeoutMillis: 15000, // 15s timeout for handshake
+    idleTimeoutMillis: 30000,
     keepAlive: true,
 };
 
@@ -40,37 +54,39 @@ const setLocalTimezone = (client: any) => {
 if (isProduction) {
     console.log('🔌 [DB] Creating Production Pool...');
     pool = new Pool(connectionConfig);
-
-    // Configurar Timezone al conectar
     pool.on('connect', setLocalTimezone);
-
-    // Error handler para producción
-    pool.on('error', (err) => {
-        console.error('🔥 [DB] Unexpected pool error in production:', err.message);
-    });
+    pool.on('error', (err) => console.error('🔥 [DB] Unexpected pool error in production:', err.message));
 } else {
-    if (!global.postgresPool) {
-        console.log('🔌 Initializing PostgreSQL Pool (Dev)...');
+    // Force recreation if config changes during dev (Hot Reload safety)
+    const currentPool = global.postgresPool as any;
+    const needsRecreation = !currentPool || currentPool._lastUrl !== dbUrl;
+
+    if (needsRecreation) {
+        if (currentPool) {
+            console.log('🔌 [DB] Configuration changed, closing old pool...');
+            currentPool.end().catch(() => { });
+        }
+
+        console.log('🔌 [DB] Initializing PostgreSQL Pool (Dev)...');
         try {
-            global.postgresPool = new Pool(connectionConfig);
+            const newPool = new Pool(connectionConfig) as any;
+            newPool._lastUrl = dbUrl; // Store URL for comparison
 
-            // Configurar Timezone al conectar
-            global.postgresPool.on('connect', setLocalTimezone);
+            newPool.on('connect', setLocalTimezone);
+            newPool.on('error', (err: any) => console.error('🔥 [DB] Unexpected error on idle client:', err.message));
 
-            // Test connection immediately
-            global.postgresPool.on('error', (err) => {
-                console.error('🔥 Unexpected error on idle client', err.message);
-            });
+            newPool.connect()
+                .then((client: any) => {
+                    console.log('✅ [DB] Connected successfully to:', dbUrl.split('@')[1] || 'DB');
+                    client.release();
+                })
+                .catch((err: any) => {
+                    console.error('❌ [DB] FATAL: Could not connect:', err.message);
+                });
 
-            global.postgresPool.connect().then(client => {
-                console.log('✅ Database connected successfully');
-                client.release();
-            }).catch(err => {
-                console.error('❌ FATAL: Could not connect to database:', err.message);
-            });
-
+            global.postgresPool = newPool;
         } catch (err) {
-            console.error('❌ Failed to create pool:', err);
+            console.error('❌ [DB] Failed to create pool:', err);
         }
     }
     pool = global.postgresPool as Pool;

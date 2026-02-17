@@ -1,7 +1,7 @@
 
 'use server';
 
-import { TreasuryService, DailyFinancials, TreasuryForecast, TreasuryInsight } from '../../services/treasury-forecast';
+import { TreasuryService } from '../../services/treasury-forecast';
 
 export async function getTreasuryDashboardData() {
     try {
@@ -14,11 +14,12 @@ export async function getTreasuryDashboardData() {
             forecast: aiResult.forecast,
             insights: aiResult.insights
         };
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Treasury Action Error:", error);
+        const message = error instanceof Error ? error.message : 'Error desconocido';
         return {
             success: false,
-            message: error.message
+            message
         };
     }
 }

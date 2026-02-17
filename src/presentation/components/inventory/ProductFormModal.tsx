@@ -39,7 +39,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
 
     const [formData, setFormData] = useState({
         sku: product?.sku || initialValues?.sku || '',
-        name: product?.name || initialValues?.name || '',
+        name: (product?.name || initialValues?.name || '').replace(/^\[AL DETAL\]\s*/i, '').trim(),
         category: product?.category || 'MEDICAMENTO',
         subcategory: product?.subcategory || '',
         stock_actual: product?.stock_actual || 0,

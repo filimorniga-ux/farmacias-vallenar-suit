@@ -1060,7 +1060,11 @@ export async function updateProductMasterSecure(data: z.infer<typeof UpdateProdu
 
         const addBatchUpdate = (col: string, val: any) => {
             if (val !== undefined) {
-                batchUpdates.push(`${col} = $${bpIdx++}`);
+                if (col === 'name') {
+                    batchUpdates.push(`name = CASE WHEN is_retail_lot = TRUE THEN '[AL DETAL] ' || $${bpIdx++} ELSE $${bpIdx - 1} END`);
+                } else {
+                    batchUpdates.push(`${col} = $${bpIdx++}`);
+                }
                 batchParams.push(val);
             }
         };

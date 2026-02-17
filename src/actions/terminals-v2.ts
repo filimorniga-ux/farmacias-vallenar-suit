@@ -19,6 +19,9 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DBRow = any;
+
 // =====================================================
 // SCHEMAS DE VALIDACIÓN
 // =====================================================
@@ -67,7 +70,7 @@ const ERROR_MESSAGES = {
 // =====================================================
 
 async function insertAuditLog(
-    client: any,
+    client: { query: (sql: string, params?: (string | number | boolean | null | undefined | object)[]) => Promise<DBRow> },
     params: {
         userId: string | null;
         userName?: string;
@@ -77,8 +80,8 @@ async function insertAuditLog(
         actionCode: string;
         entityType: string;
         entityId: string;
-        oldValues?: Record<string, any>;
-        newValues?: Record<string, any>;
+        oldValues?: Record<string, unknown>;
+        newValues?: Record<string, unknown>;
         justification?: string;
     }
 ) {
@@ -116,7 +119,7 @@ async function insertAuditLog(
             params.newValues ? JSON.stringify(params.newValues) : null,
             params.justification || null
         ]);
-    } catch (auditError: any) {
+    } catch (auditError: unknown) {
         // Log pero no fallar la transacción principal si audit_log no existe aún
         logger.warn({ err: auditError }, 'Audit log insertion failed (non-critical if table missing)');
     }
@@ -267,28 +270,30 @@ export async function openTerminalAtomic(
 
         return { success: true, sessionId: newSessionId };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         // --- ROLLBACK ---
         await client.query('ROLLBACK');
 
+        const err = error as { code?: string; message?: string };
+
         // Manejo específico de errores PostgreSQL
-        if (error.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
+        if (err.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
             logger.warn({ terminalId }, '⏳ [Atomic v2.1] Terminal locked by another process');
             return { success: false, error: ERROR_MESSAGES.TERMINAL_LOCKED };
         }
 
-        if (error.code === ERROR_CODES.SERIALIZATION_FAILURE) {
+        if (err.code === ERROR_CODES.SERIALIZATION_FAILURE) {
             logger.warn({ terminalId }, '🔄 [Atomic v2.1] Serialization conflict');
             return { success: false, error: ERROR_MESSAGES.SERIALIZATION_ERROR };
         }
 
-        if (error.code === ERROR_CODES.DEADLOCK_DETECTED) {
+        if (err.code === ERROR_CODES.DEADLOCK_DETECTED) {
             logger.warn({ terminalId }, '🔒 [Atomic v2.1] Deadlock detected');
             return { success: false, error: ERROR_MESSAGES.DEADLOCK };
         }
 
         logger.error({ err: error, terminalId, userId }, '❌ [Atomic v2.1] Transaction ROLLED BACK');
-        return { success: false, error: error.message || 'Error de base de datos' };
+        return { success: false, error: err.message || 'Error de base de datos' };
 
     } finally {
         client.release();
@@ -497,21 +502,23 @@ export async function openTerminalWithPinValidation(
             autoCheckInTriggered
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
 
-        if (error.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
+        const err = error as { code?: string; message?: string };
+
+        if (err.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
             logger.warn({ terminalId }, '⏳ Terminal locked by another process');
             return { success: false, error: ERROR_MESSAGES.TERMINAL_LOCKED };
         }
 
-        if (error.code === ERROR_CODES.SERIALIZATION_FAILURE) {
+        if (err.code === ERROR_CODES.SERIALIZATION_FAILURE) {
             logger.warn({ terminalId }, '🔄 Serialization conflict');
             return { success: false, error: ERROR_MESSAGES.SERIALIZATION_ERROR };
         }
 
         logger.error({ err: error, terminalId, userId }, '❌ [Atomic v2.2] Transaction ROLLED BACK');
-        return { success: false, error: error.message || 'Error de base de datos' };
+        return { success: false, error: err.message || 'Error de base de datos' };
 
     } finally {
         client.release();
@@ -676,19 +683,21 @@ export async function closeTerminalAtomic(
 
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
 
-        if (error.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
+        const err = error as { code?: string; message?: string };
+
+        if (err.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
             return { success: false, error: ERROR_MESSAGES.TERMINAL_LOCKED };
         }
 
-        if (error.code === ERROR_CODES.SERIALIZATION_FAILURE) {
+        if (err.code === ERROR_CODES.SERIALIZATION_FAILURE) {
             return { success: false, error: ERROR_MESSAGES.SERIALIZATION_ERROR };
         }
 
         logger.error({ err: error, terminalId }, '❌ [Atomic v2.1] Close Failed');
-        return { success: false, error: error.message || 'Error cerrando terminal' };
+        return { success: false, error: err.message || 'Error cerrando terminal' };
 
     } finally {
         client.release();
@@ -753,7 +762,7 @@ export async function forceCloseTerminalSecure(
             FOR UPDATE
         `, [terminalId]);
 
-        let oldSession: any = null;
+        let oldSession: DBRow | null = null;
 
         if (sessionRes.rows.length > 0) {
             const session = sessionRes.rows[0];
@@ -836,10 +845,10 @@ export async function forceCloseTerminalSecure(
 
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         logger.error({ err: error, terminalId }, '❌ [Atomic v2.1] Force Close Failed');
-        return { success: false, error: error.message || 'Error forzando cierre' };
+        return { success: false, error: (error as Error).message || 'Error forzando cierre' };
 
     } finally {
         client.release();
@@ -877,9 +886,9 @@ export async function getTerminalStatusAtomic(terminalId: string) {
 
         return { success: true, data: result.rows[0] };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ err: error, terminalId }, 'Error getting terminal status');
-        return { success: false, error: error.message };
+        return { success: false, error: (error as Error).message };
     }
 }
 
@@ -895,7 +904,7 @@ export async function getTerminalStatusAtomic(terminalId: string) {
  */
 export async function getTerminalsByLocationSecure(locationId?: string): Promise<{
     success: boolean;
-    data?: any[];
+    data?: DBRow[];
     error?: string;
 }> {
     try {
@@ -910,7 +919,7 @@ export async function getTerminalsByLocationSecure(locationId?: string): Promise
             LEFT JOIN users u ON t.current_cashier_id = u.id
             WHERE t.is_active = true AND t.deleted_at IS NULL
         `;
-        const params: any[] = [];
+        const params: (string | number | boolean | Date)[] = [];
 
         if (locationId) {
             sql += ` AND t.location_id = $1`;
@@ -926,9 +935,9 @@ export async function getTerminalsByLocationSecure(locationId?: string): Promise
 
         return { success: true, data: serializedData };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error, locationId }, '[TerminalsV2] getTerminalsByLocationSecure error');
-        return { success: false, error: error.message || 'Error obteniendo terminales' };
+        return { success: false, error: (error as Error).message || 'Error obteniendo terminales' };
     }
 }
 
@@ -941,7 +950,7 @@ const UpdateTerminalSchema = z.object({
     name: z.string().min(1).max(100).optional(),
     module_number: z.string().max(20).optional(),
     type: z.enum(['POS', 'KIOSK', 'SELF_SERVICE']).optional(),
-    printer_config: z.record(z.string(), z.any()).optional(),
+    printer_config: z.record(z.string(), z.unknown()).optional(),
 });
 
 
@@ -950,7 +959,7 @@ const UpdateTerminalSchema = z.object({
  */
 export async function updateTerminalSecure(
     terminalId: string,
-    data: { name?: string; module_number?: string; type?: string; printer_config?: Record<string, any> }
+    data: { name?: string; module_number?: string; type?: string; printer_config?: Record<string, unknown> }
 ): Promise<{ success: boolean; error?: string }> {
     const validation = UpdateTerminalSchema.safeParse({ terminalId, ...data });
     if (!validation.success) {
@@ -979,7 +988,7 @@ export async function updateTerminalSecure(
         }
 
         const updates: string[] = [];
-        const values: any[] = [];
+        const values: (string | number | boolean | Date | object)[] = [];
         let paramIndex = 1;
 
         if (data.name !== undefined) {
@@ -1023,9 +1032,9 @@ export async function updateTerminalSecure(
 
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error, terminalId }, '[TerminalsV2] updateTerminalSecure error');
-        return { success: false, error: error.message || 'Error actualizando terminal' };
+        return { success: false, error: (error as Error).message || 'Error actualizando terminal' };
     }
 }
 
@@ -1091,9 +1100,9 @@ export async function deleteTerminalSecure(
 
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error, terminalId }, '[TerminalsV2] deleteTerminalSecure error');
-        return { success: false, error: error.message || 'Error eliminando terminal' };
+        return { success: false, error: (error as Error).message || 'Error eliminando terminal' };
     }
 }
 
@@ -1176,7 +1185,7 @@ export async function getActiveSession(terminalId: string): Promise<{
             }
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error, terminalId }, '[TerminalsV2] getActiveSession error');
         return { success: false, error: 'Error verificando sesión de caja' };
     }
@@ -1235,7 +1244,7 @@ export async function getSuggestedOpeningAmount(terminalId: string): Promise<{ s
             lastUser
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Error fetching suggested amount:', error);
         return { success: false, error: 'Error calculando sugerencia' };
     } finally {

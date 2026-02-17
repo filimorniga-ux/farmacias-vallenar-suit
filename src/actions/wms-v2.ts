@@ -28,6 +28,9 @@ import { pool } from '@/lib/db';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DBRow = any;
+
 // ============================================================================
 // VALIDATION SCHEMAS
 // ============================================================================
@@ -91,7 +94,7 @@ const LARGE_ADJUSTMENT_THRESHOLD = 100; // units - requires supervisor PIN
 /**
  * Validate supervisor PIN
  */
-async function validateSupervisorPin(client: any, pin: string): Promise<{
+async function validateSupervisorPin(client: DBRow, pin: string): Promise<{
     valid: boolean;
     supervisor?: { id: string; name: string };
     error?: string;
@@ -165,7 +168,7 @@ function calculateDelta(quantity: number, type: string): number {
 /**
  * Get location from warehouse
  */
-async function getLocationFromWarehouse(client: any, warehouseId: string): Promise<string | null> {
+async function getLocationFromWarehouse(client: DBRow, warehouseId: string): Promise<string | null> {
     const res = await client.query(
         'SELECT location_id FROM warehouses WHERE id = $1',
         [warehouseId]
@@ -179,11 +182,11 @@ async function getLocationFromWarehouse(client: any, warehouseId: string): Promi
 /**
  * Insert audit log
  */
-async function insertStockAudit(client: any, params: {
+async function insertStockAudit(client: DBRow, params: {
     actionCode: string;
     userId: string;
     productId: string;
-    details: Record<string, any>;
+    details: DBRow;
 }): Promise<void> {
     await client.query(`
         INSERT INTO audit_log (
@@ -201,7 +204,7 @@ async function insertStockAudit(client: any, params: {
 /**
  * Generic Audit Log
  */
-async function insertAuditLog(client: any, params: {
+async function insertAuditLog(client: DBRow, params: {
     type: string;
     userId: string;
     shipmentId: string;
@@ -395,17 +398,18 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
             data: { newStock: newQty }
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         console.error('[WMS-V2] Stock movement error:', error);
+        const err = error as { code?: string, message?: string };
 
-        if (error.code === '55P03') {
+        if (err.code === '55P03') {
             return { success: false, error: 'Lote está siendo modificado por otro usuario' };
         }
 
         return {
             success: false,
-            error: error.message || 'Error en movimiento de stock'
+            error: err.message || 'Error en movimiento de stock'
         };
     } finally {
         client.release();
@@ -623,17 +627,18 @@ export async function executeTransferSecure(data: z.infer<typeof TransferSchema>
 
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         console.error('[WMS-V2] Transfer error:', error);
+        const err = error as { code?: string, message?: string };
 
-        if (error.code === '55P03') {
+        if (err.code === '55P03') {
             return { success: false, error: 'Uno o más lotes están siendo modificados' };
         }
 
         return {
             success: false,
-            error: error.message || 'Error en transferencia'
+            error: err.message || 'Error en transferencia'
         };
     } finally {
         client.release();
@@ -654,7 +659,7 @@ export async function getStockHistorySecure(filters: {
 }): Promise<{
     success: boolean;
     data?: {
-        movements: any[];
+        movements: DBRow[];
         total: number;
         page: number;
         pageSize: number;
@@ -667,7 +672,7 @@ export async function getStockHistorySecure(filters: {
 
         // Build WHERE clause
         const conditions: string[] = [];
-        const params: any[] = [];
+        const params: (string | number | boolean | Date)[] = [];
         let paramIndex = 1;
 
         if (filters.productId) {
@@ -731,11 +736,12 @@ export async function getStockHistorySecure(filters: {
             }
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[WMS-V2] Get history error:', error);
+        const message = error instanceof Error ? error.message : 'Error desconocido';
         return {
             success: false,
-            error: error.message || 'Error obteniendo historial'
+            error: message || 'Error obteniendo historial'
         };
     }
 }
@@ -771,7 +777,7 @@ const GetPurchaseOrdersSchema = z.object({
 export async function getShipmentsSecure(filters?: z.infer<typeof GetShipmentsSchema>): Promise<{
     success: boolean;
     data?: {
-        shipments: any[];
+        shipments: DBRow[];
         total: number;
         page: number;
         pageSize: number;
@@ -791,7 +797,7 @@ export async function getShipmentsSecure(filters?: z.infer<typeof GetShipmentsSc
     const session = await getSessionSecure();
     const ALLOWED_ROLES = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'WAREHOUSE', 'QF'];
 
-    if (!session || !ALLOWED_ROLES.includes(session.role as any)) {
+    if (!session || !ALLOWED_ROLES.includes(session.role as string)) {
         return { success: false, error: 'No autorizado' };
     }
 
@@ -800,7 +806,7 @@ export async function getShipmentsSecure(filters?: z.infer<typeof GetShipmentsSc
 
         // Build WHERE clause
         const conditions: string[] = [];
-        const params: any[] = [];
+        const params: (string | number | boolean | Date)[] = [];
         let paramIndex = 1;
 
         if (locationId) {
@@ -879,7 +885,7 @@ export async function getShipmentsSecure(filters?: z.infer<typeof GetShipmentsSc
             updated_at: row.updated_at ? new Date(row.updated_at).getTime() : null,
             expected_delivery: row.expected_delivery ? new Date(row.expected_delivery).getTime() : null,
             transport_data: row.transport_data || {},
-            items: (row.shipment_items || []).map((item: any) => ({
+            items: (row.shipment_items || []).map((item: DBRow) => ({
                 id: item.id,
                 batchId: item.batch_id,
                 sku: item.sku,
@@ -907,11 +913,12 @@ export async function getShipmentsSecure(filters?: z.infer<typeof GetShipmentsSc
             }
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[WMS-V2] Get shipments error:', error);
+        const message = error instanceof Error ? error.message : 'Error desconocido';
         return {
             success: false,
-            error: error.message || 'Error obteniendo envíos'
+            error: message || 'Error obteniendo envíos'
         };
     }
 }
@@ -1109,7 +1116,7 @@ export async function createDispatchSecure(data: z.infer<typeof CreateDispatchSc
             userId: session.userId,
             shipmentId,
             itemsCount: items.length
-        } as any); // Reusing/adapting existing audit helper if flexible, or generic insert
+        }); // Reusing/adapting existing audit helper if flexible, or generic insert
 
         await client.query('COMMIT');
 
@@ -1118,10 +1125,10 @@ export async function createDispatchSecure(data: z.infer<typeof CreateDispatchSc
 
         return { success: true, shipmentId };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         console.error('Create Dispatch Error:', error);
-        return { success: false, error: error.message };
+        return { success: false, error: (error as Error).message };
     } finally {
         client.release();
     }
@@ -1144,7 +1151,7 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
     const validated = ProcessReceptionSchema.safeParse(data);
     if (!validated.success) return { success: false, error: 'Datos inválidos' };
 
-    const { shipmentId, receivedItems, notes, photos } = validated.data;
+    const { shipmentId, receivedItems, notes } = validated.data;
 
     const client = await pool.connect();
 
@@ -1275,10 +1282,10 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
 
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         console.error('Reception Error:', error);
-        return { success: false, error: error.message };
+        return { success: false, error: (error as Error).message };
     } finally {
         client.release();
     }
@@ -1291,7 +1298,7 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
 export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurchaseOrdersSchema>): Promise<{
     success: boolean;
     data?: {
-        purchaseOrders: any[];
+        purchaseOrders: DBRow[];
         total: number;
         page: number;
         pageSize: number;
@@ -1311,7 +1318,7 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
     const session = await getSessionSecure();
     const ALLOWED_ROLES = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'WAREHOUSE', 'QF'];
 
-    if (!session || !ALLOWED_ROLES.includes(session.role as any)) {
+    if (!session || !ALLOWED_ROLES.includes(session.role as string)) {
         return { success: false, error: 'No autorizado' };
     }
 
@@ -1320,7 +1327,7 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
 
         // Build WHERE clause
         const conditions: string[] = [];
-        const params: any[] = [];
+        const params: (string | number | boolean | Date)[] = [];
         let paramIndex = 1;
 
         if (locationId) {
@@ -1422,11 +1429,11 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
             }
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[WMS-V2] Get purchase orders error:', error);
         return {
             success: false,
-            error: error.message || 'Error obteniendo órdenes de compra'
+            error: (error as Error).message || 'Error obteniendo órdenes de compra'
         };
     }
 }
@@ -1558,10 +1565,10 @@ export async function createReturnSecure(data: z.infer<typeof CreateReturnSchema
         revalidatePath('/logistics');
         return { success: true, shipmentId };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         console.error('Create Return Error:', error);
-        return { success: false, error: error.message };
+        return { success: false, error: (error as Error).message };
     } finally {
         client.release();
     }
