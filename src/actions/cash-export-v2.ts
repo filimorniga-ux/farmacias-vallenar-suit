@@ -369,12 +369,12 @@ export async function generateCashReportSecure(
             salesByMethod[method] = (salesByMethod[method] || 0) + Number(s.total_amount);
         });
 
-        const titleStyle = { font: { bold: true, size: 14, color: { argb: 'FFFFFFFF' } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F2937' } } } as any;
+        const titleStyle = { font: { bold: true, size: 14, color: { argb: 'FFFFFFFF' } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F2937' } } } as unknown;
         const currencyFormat = '"$"#,##0';
 
         summarySheet.mergeCells('A1:C1');
         summarySheet.getCell('A1').value = 'RESUMEN EJECUTIVO DE CAJA';
-        summarySheet.getCell('A1').style = titleStyle;
+        summarySheet.getCell('A1').style = titleStyle as any; // Type assertion needed for ExcelJS style
         summarySheet.getCell('A1').alignment = { horizontal: 'center' };
 
         summarySheet.getCell('A3').value = 'Periodo:';
@@ -463,7 +463,9 @@ export async function generateCashReportSecure(
             });
 
             // Conditional formatting logic
-            const type = row.getCell('method').value as string; // Using method for some logic or category from before?
+            // Conditional formatting logic
+            // const type = row.getCell('method').value as string; // Unused
+
             // Wait, we lost 'category' in columns, but we have it in flow.
             // Let's use the 'in' 'out' or just re-inspect flow?
             // It's cleaner to check values in the row or just basic logic.
@@ -561,7 +563,7 @@ export async function exportSalesDetailSecure(
     }
 
     try {
-        const sqlParams: any[] = [params.startDate, params.endDate];
+        const sqlParams: (string | number | Date)[] = [params.startDate, params.endDate];
         let locationFilter = '';
         if (locationId) {
             locationFilter = 'AND s.location_id = $3::uuid';
@@ -655,7 +657,7 @@ export async function exportShiftSummarySecure(
     }
 
     try {
-        const sqlParams: any[] = [params.startDate, params.endDate];
+        const sqlParams: (string | number | Date)[] = [params.startDate, params.endDate];
         let locationFilter = '';
         if (locationId) {
             locationFilter = 'AND t.location_id = $3::uuid';
@@ -677,7 +679,7 @@ export async function exportShiftSummarySecure(
 
         const res = await query(sql, sqlParams);
 
-        const data = res.rows.map((row: any) => ({
+        const data = res.rows.map((row: Record<string, any>) => ({
             location: row.location_name || '-',
             terminal: row.terminal_name || '-',
             cashier: row.cashier_name || '-',
@@ -717,7 +719,7 @@ export async function exportShiftSummarySecure(
             filename: `Turnos_${params.startDate.split('T')[0]}.xlsx`,
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Export] Shift summary error');
         return { success: false, error: 'Error exportando turnos' };
     }
