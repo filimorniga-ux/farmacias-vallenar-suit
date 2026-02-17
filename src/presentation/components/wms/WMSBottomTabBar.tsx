@@ -7,9 +7,9 @@
  * Skills: estilo-marca (#0ea5e9), modo-produccion (touch targets)
  */
 import React from 'react';
-import { Truck, PackageCheck, ArrowLeftRight, PackagePlus } from 'lucide-react';
+import { Truck, PackageCheck, ArrowLeftRight, PackagePlus, History } from 'lucide-react';
 
-type WMSTab = 'despacho' | 'recepcion' | 'transferencia' | 'pedidos';
+type WMSTab = 'despacho' | 'recepcion' | 'transferencia' | 'pedidos' | 'suministros' | 'historial';
 
 interface WMSBottomTabBarProps {
     activeTab: WMSTab;
@@ -21,6 +21,8 @@ const TABS: { key: WMSTab; label: string; icon: typeof Truck; color: string; act
     { key: 'recepcion', label: 'Recepción', icon: PackageCheck, color: 'text-slate-400', activeColor: 'text-emerald-500' },
     { key: 'transferencia', label: 'Transfer.', icon: ArrowLeftRight, color: 'text-slate-400', activeColor: 'text-purple-500' },
     { key: 'pedidos', label: 'Pedidos', icon: PackagePlus, color: 'text-slate-400', activeColor: 'text-amber-500' },
+    { key: 'suministros', label: 'K-Sumin.', icon: Truck, color: 'text-slate-400', activeColor: 'text-cyan-500' },
+    { key: 'historial', label: 'Historial', icon: History, color: 'text-slate-400', activeColor: 'text-slate-700' },
 ];
 
 const DOT_COLORS: Record<WMSTab, string> = {
@@ -28,6 +30,8 @@ const DOT_COLORS: Record<WMSTab, string> = {
     recepcion: 'bg-emerald-500',
     transferencia: 'bg-purple-500',
     pedidos: 'bg-amber-500',
+    suministros: 'bg-cyan-500',
+    historial: 'bg-slate-700',
 };
 
 export const WMSBottomTabBar: React.FC<WMSBottomTabBarProps> = ({ activeTab, onTabChange }) => {
