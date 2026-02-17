@@ -44,16 +44,20 @@ describe('Procurement V2 Logic', () => {
         it('should calculate suggested quantity correctly', async () => {
             vi.mocked(dbModule.pool.query).mockResolvedValue({
                 rows: [{
-                    product_id: 'prod-1', productName: 'Paracetamol', sku: 'PARA500',
-                    current_stock: 10, daily_velocity: 2.0, safety_stock: 5, incoming_stock: 0,
-                    unit_cost: 100, suggested_quantity: 0
+                    product_id: 'prod-1', product_name: 'Paracetamol', sku: 'PARA500',
+                    current_stock: 10, other_warehouses_stock: 0,
+                    sold_7d: 14, sold_15d: 30, sold_30d: 60, sold_60d: 120, sold_90d: 180, sold_180d: 360, sold_365d: 730,
+                    safety_stock: 5, incoming_stock: 0,
+                    unit_cost: 100, internal_cost: 100,
+                    suppliers_data: null, stock_by_location: [],
+                    total_sold_in_period: 60, sales_history: []
                 }]
             } as any);
 
             const res = await generateRestockSuggestionSecure(mockSupplierId, 10, 30);
             expect(res.success).toBe(true);
-            // Formula: 2.0 * 10 + 5 - 10 - 0 = 15
-            expect(res.data![0].suggested_quantity).toBe(15);
+            // Formula: velocity=60/30=2.0, maxStock=ceil(2.0*10+5)=25, net=25-10-0=15
+            expect(res.data![0].suggested_order_qty).toBe(15);
         });
 
         it('should fail with invalid supplier UUID', async () => {
@@ -137,15 +141,19 @@ describe('Procurement V2 Logic', () => {
 
                 // 1. Get Order
                 if (sql.includes('FROM purchase_orders'))
-                    return { rows: [{ id: orderId, status: 'APPROVED', target_warehouse_id: 'wh-1' }] };
+                    return { rows: [{ id: orderId, status: 'APPROVED', target_warehouse_id: 'wh-1', supplier_id: 'sup-1' }] };
                 // 2. Get Item
                 if (sql.includes('FROM purchase_order_items'))
-                    return { rows: [{ id: itemUuid, product_id: 'prod-1', sku: 'SKU1', cost_price: 100 }] };
-                // 3. Check Batch (exists)
+                    return { rows: [{ id: itemUuid, sku: 'SKU1', name: 'Test Product', cost_price: 100 }] };
+                // 3. Get Product ID by SKU
+                if (sql.includes('FROM products'))
+                    return { rows: [{ id: 'prod-1' }] };
+                // 4. Check Batch (exists)
                 if (sql.includes('FROM inventory_batches')) return { rows: [{ id: 'batch-1', quantity_real: 10 }] };
 
-                // Updates/Inserts
-                if (sql.startsWith('UPDATE') || sql.startsWith('INSERT')) return { rows: [], rowCount: 1 };
+                // Updates/Inserts (catch-all for UPDATE and trimmed INSERT)
+                const trimmed = sql.trim();
+                if (trimmed.startsWith('UPDATE') || trimmed.startsWith('INSERT')) return { rows: [], rowCount: 1 };
 
                 return { rows: [] };
             });
