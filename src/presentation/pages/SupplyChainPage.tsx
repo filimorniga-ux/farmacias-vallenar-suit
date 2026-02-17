@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { usePharmaStore } from '../store/useStore';
 import { AutoOrderSuggestion } from '../../domain/types';
-import { Package, Truck, CheckCircle, AlertCircle, Plus, Calendar, TrendingUp, RefreshCw, AlertTriangle, Zap, DollarSign, Trash2, Filter, Calculator, MapPin, Search, BarChart3, Users, ChevronDown, ScanBarcode, Settings } from 'lucide-react';
+import { Package, Truck, CheckCircle, AlertCircle, Plus, Calendar, TrendingUp, RefreshCw, AlertTriangle, Zap, DollarSign, Trash2, Filter, Calculator, MapPin, Search, BarChart3, Users, ChevronDown, ScanBarcode, Settings, ArrowLeftRight } from 'lucide-react';
 import { PurchaseOrderReceivingModal } from '../components/scm/PurchaseOrderReceivingModal';
 import ManualOrderModal from '../components/supply/ManualOrderModal';
 import { useNotificationStore } from '../store/useNotificationStore';
@@ -19,18 +19,27 @@ interface ExtendedSuggestion extends AutoOrderSuggestion {
     supplier_name?: string;
     supplier_sku?: string;
     total_estimated?: number;
-    unit_cost?: number; // Ensure this exists
-    daily_velocity: number; // Fix for type error
-    max_stock: number; // Required by AutoOrderSuggestion
+    unit_cost?: number;
+    daily_velocity: number;
+    max_stock: number;
     incoming_stock?: number;
-    current_stock: number; // Must match AutoOrderSuggestion (required)
+    current_stock: number;
 
-    // New fields for per-item customization
+    // Per-item customization
     velocities?: Record<number, number>;
     sold_counts?: Record<number, number>;
     selected_analysis_window?: number;
     selected_coverage_days?: number;
     safety_stock?: number;
+
+    // Transfer-aware fields
+    global_stock?: number;
+    action_type?: 'PURCHASE' | 'TRANSFER' | 'PARTIAL_TRANSFER';
+    transfer_sources?: Array<{
+        location_name: string;
+        available_qty: number;
+        location_id: string;
+    }>;
 }
 
 const SupplyChainPage: React.FC = () => {
@@ -221,10 +230,38 @@ const SupplyChainPage: React.FC = () => {
             return;
         }
 
-        const pos = generateSuggestedPOs(selectedItems);
-        pos.forEach(po => addPurchaseOrder(po));
+        // Separar por tipo de acción
+        const purchaseItems = selectedItems.filter(s => s.action_type !== 'TRANSFER');
+        const transferItems = selectedItems.filter(s => s.action_type === 'TRANSFER');
 
-        toast.success(`${pos.length} orden(es) generada(s) como borrador`);
+        let totalOrders = 0;
+
+        // Generar OC para compras normales y parciales
+        if (purchaseItems.length > 0) {
+            const pos = generateSuggestedPOs(purchaseItems);
+            pos.forEach(po => addPurchaseOrder(po));
+            totalOrders += pos.length;
+        }
+
+        // Para transferencias completas, generar como OC interna
+        if (transferItems.length > 0) {
+            const transferPOs = generateSuggestedPOs(
+                transferItems.map(t => ({
+                    ...t,
+                    supplier_name: 'TRASPASO INTERNO',
+                    supplier_id: 'TRANSFER',
+                    unit_cost: 0,
+                    total_estimated: 0
+                }))
+            );
+            transferPOs.forEach(po => addPurchaseOrder({ ...po, notes: `[TRASPASO] ${po.notes || ''}` } as typeof po));
+            totalOrders += transferPOs.length;
+            toast.info(`📦 ${transferPOs.length} traspaso(s) internos generados`);
+        }
+
+        if (totalOrders > 0) {
+            toast.success(`${totalOrders} orden(es) generada(s) como borrador`);
+        }
         setSuggestions([]);
         setSelectedSkus(new Set());
     };
@@ -232,7 +269,11 @@ const SupplyChainPage: React.FC = () => {
     const stats = {
         critical: suggestions.filter(s => s.urgency === 'HIGH').length,
         low: suggestions.filter(s => s.urgency === 'MEDIUM').length,
+        transfers: suggestions.filter(s => s.action_type === 'TRANSFER' || s.action_type === 'PARTIAL_TRANSFER').length,
         totalCost: suggestions.filter(s => selectedSkus.has(s.sku)).reduce((sum, s) => sum + (s.total_estimated || 0), 0),
+        potentialSavings: suggestions
+            .filter(s => selectedSkus.has(s.sku) && s.action_type === 'TRANSFER')
+            .reduce((sum, s) => sum + (s.total_estimated || 0), 0),
         suppliers: new Set(suggestions.filter(s => selectedSkus.has(s.sku)).map(s => s.supplier_id)).size
     };
 
@@ -587,6 +628,12 @@ const SupplyChainPage: React.FC = () => {
                                                 <td className="p-4 text-center">
                                                     <div className="font-bold text-slate-800">{item.current_stock || 0}</div>
                                                     <div className="text-[10px] text-slate-400">Min: {item.min_stock || 0}</div>
+                                                    {(item.global_stock ?? 0) > 0 && (
+                                                        <div className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded mt-1 inline-flex items-center gap-1 cursor-help" title={`Stock disponible en otras sucursales: ${item.global_stock}u`}>
+                                                            <ArrowLeftRight size={10} />
+                                                            {item.global_stock}u otras
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 {/* Analysis Window Selector */}
                                                 <td className="p-4 text-center">
@@ -634,12 +681,25 @@ const SupplyChainPage: React.FC = () => {
                                                 <td className="p-4 text-center relative group/tooltip">
                                                     <input
                                                         type="number"
-                                                        className="w-16 p-1.5 border rounded-lg font-bold text-center focus:outline-none border-purple-300 bg-white text-purple-700 text-sm shadow-sm"
+                                                        className={`w-16 p-1.5 border rounded-lg font-bold text-center focus:outline-none text-sm shadow-sm ${item.action_type === 'TRANSFER' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' :
+                                                            item.action_type === 'PARTIAL_TRANSFER' ? 'border-amber-300 bg-amber-50 text-amber-700' :
+                                                                'border-purple-300 bg-white text-purple-700'
+                                                            }`}
                                                         value={item.suggested_order_qty ?? 0}
                                                         placeholder="0"
                                                         onChange={(e) => updateSuggestion(item.sku, 'suggested_order_qty', e.target.value === '' ? 0 : parseInt(e.target.value))}
                                                     />
-                                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover/tooltip:block bg-slate-800 text-white text-[10px] p-2 rounded shadow-lg z-50 whitespace-nowrap text-left border border-slate-700">
+                                                    {item.action_type === 'TRANSFER' && (
+                                                        <div className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full mt-1 inline-block">
+                                                            📦 TRASPASO
+                                                        </div>
+                                                    )}
+                                                    {item.action_type === 'PARTIAL_TRANSFER' && (
+                                                        <div className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full mt-1 inline-block">
+                                                            📦 PARCIAL
+                                                        </div>
+                                                    )}
+                                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover/tooltip:block bg-slate-800 text-white text-[10px] p-2 rounded shadow-lg z-50 whitespace-nowrap text-left border border-slate-700 min-w-[220px]">
                                                         <div className="font-bold border-b border-slate-700 mb-1 pb-1 text-purple-300">Cálculo de Sugerencia</div>
                                                         <div><span className="text-slate-400">Objetivo ({item.selected_coverage_days}d):</span> {item.max_stock} u</div>
                                                         <div><span className="text-slate-400">Stock Actual (se resta):</span> {item.current_stock} u</div>
@@ -650,6 +710,17 @@ const SupplyChainPage: React.FC = () => {
                                                         <div className="text-[9px] text-slate-500 mt-1 italic">
                                                             (Venta diaria: {(item.daily_velocity || 0).toFixed(2)} * Días)
                                                         </div>
+                                                        {item.transfer_sources && item.transfer_sources.length > 0 && (
+                                                            <div className="border-t border-slate-600 mt-1 pt-1">
+                                                                <div className="font-bold text-emerald-400">📦 Stock en Otras Sucursales:</div>
+                                                                {item.transfer_sources.map((src, i) => (
+                                                                    <div key={i} className="flex justify-between gap-4">
+                                                                        <span className="text-slate-400">{src.location_name}:</span>
+                                                                        <span className="font-bold">{src.available_qty}u</span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </td>
                                                 <td className="p-4 text-center">
