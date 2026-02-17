@@ -21,6 +21,9 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DBRow = any;
+
 // =====================================================
 // TIPOS EXPORTADOS (compatibles con treasury legacy)
 // =====================================================
@@ -202,7 +205,7 @@ async function getFullSessionSecure() {
  * Valida PIN de un usuario autorizado usando bcrypt
  */
 async function validateAuthorizationPin(
-    client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, any>[] }> },
+    client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: DBRow[] }> },
     pin: string,
     requiredRoles: readonly string[] = AUTHORIZED_ROLES
 ): Promise<{ valid: boolean; authorizedBy?: { id: string; name: string; role: string }; error?: string }> {
@@ -274,7 +277,7 @@ async function validateAuthorizationPin(
  * Inserta registro de auditoría para operaciones financieras
  */
 async function insertFinancialAudit(
-    client: { query: (sql: string, params?: unknown[]) => Promise<any> },
+    client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }> },
     params: {
         userId: string;
         authorizedById?: string;

@@ -20,6 +20,9 @@ import bcrypt from 'bcryptjs';
 
 const UUIDSchema = z.string().uuid('ID inválido');
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DBRow = any;
+
 const CreatePOSchema = z.object({
     id: z.string().optional(),
     supplierId: z.union([z.string().uuid(), z.literal('')]).nullable().optional().transform(val => val === '' ? null : val),
@@ -60,7 +63,7 @@ const PIN_THRESHOLD_CLP = 500000; // Requiere PIN para > $500,000
 // ============================================================================
 
 async function validateManagerPin(
-    client: any,
+    client: DBRow,
     pin: string
 ): Promise<{ valid: boolean; manager?: { id: string; name: string } }> {
     try {
@@ -100,7 +103,7 @@ export async function createPurchaseOrderSecure(
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { supplierId, targetWarehouseId, items, notes, isAuto, reason, status = 'DRAFT' } = validated.data;
+    const { supplierId, targetWarehouseId, items, notes, status = 'DRAFT' } = validated.data;
     const client = await pool.connect();
 
     try {
@@ -129,9 +132,8 @@ export async function createPurchaseOrderSecure(
             finalWarehouseId = whRes.rows[0].id;
             logger.warn({ targetWarehouseId, fallbackId: finalWarehouseId }, '⚠️ Create Warehouse fallback triggered');
         }
-        const locationId = whRes.rows[0].location_id;
 
-        const totalEstimated = items.reduce((sum, item) => sum + item.quantity * item.cost, 0);
+
         const poId = data.id || randomUUID();
 
         await client.query(`
@@ -159,11 +161,13 @@ export async function createPurchaseOrderSecure(
         revalidatePath('/supply-chain');
         revalidatePath('/warehouse');
         revalidatePath('/logistica'); // Fallback
+        revalidatePath('/logistica'); // Fallback
         return { success: true, orderId: poId };
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         logger.error({ error }, '[Supply] Create PO error');
-        return { success: false, error: `Error creando orden: ${error.message}` };
+        const message = error instanceof Error ? error.message : 'Error desconocido';
+        return { success: false, error: `Error creando orden: ${message}` };
     } finally {
         client.release();
     }
@@ -232,7 +236,7 @@ export async function receivePurchaseOrderSecure(
             }
         }
 
-        const itemsToReceive = (receivedItems && receivedItems.length > 0) ? receivedItems : itemsRes.rows.map((i: any) => ({
+        const itemsToReceive = (receivedItems && receivedItems.length > 0) ? receivedItems : itemsRes.rows.map((i: DBRow) => ({
             sku: i.sku,
             quantity: i.quantity_ordered,
             lotNumber: `PO-${po.id.slice(0, 8)}`,
@@ -285,10 +289,12 @@ export async function receivePurchaseOrderSecure(
         revalidatePath('/supply-chain');
         revalidatePath('/warehouse');
         revalidatePath('/logistica'); // Fallback
+        revalidatePath('/logistica'); // Fallback
         return { success: true };
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
-        return { success: false, error: `Error recibiendo orden: ${error.message}` };
+        const message = error instanceof Error ? error.message : 'Error desconocido';
+        return { success: false, error: `Error recibiendo orden: ${message}` };
     } finally {
         client.release();
     }
@@ -310,8 +316,9 @@ export async function cancelPurchaseOrderSecure(orderId: string, userId: string,
         revalidatePath('/warehouse');
         revalidatePath('/logistica'); // Fallback
         return { success: true };
-    } catch (error: any) {
-        return { success: false, error: error.message };
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Error desconocido';
+        return { success: false, error: message };
     } finally {
         client.release();
     }
@@ -326,8 +333,9 @@ export async function deletePurchaseOrderSecure(data: { orderId: string; userId:
         revalidatePath('/warehouse');
         revalidatePath('/logistica'); // Fallback
         return { success: true };
-    } catch (error: any) {
-        return { success: false, error: error.message };
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Error desconocido';
+        return { success: false, error: message };
     } finally {
         client.release();
     }
@@ -365,14 +373,12 @@ export async function updatePurchaseOrderSecure(
         }
 
         // Fallback bodega
-        let whRes = await client.query('SELECT id FROM warehouses WHERE id = $1', [targetWarehouseId]);
+        const whRes = await client.query('SELECT id FROM warehouses WHERE id = $1', [targetWarehouseId]);
         let actualWarehouseId = targetWarehouseId;
         if (whRes.rows.length === 0) {
             const fallbackWh = await client.query('SELECT id FROM warehouses LIMIT 1');
             if (fallbackWh.rows.length > 0) actualWarehouseId = fallbackWh.rows[0].id;
         }
-
-        const totalEstimated = items.reduce((sum, item) => sum + item.quantity * item.cost, 0);
 
         await client.query(`
             UPDATE purchase_orders 
@@ -396,15 +402,16 @@ export async function updatePurchaseOrderSecure(
         revalidatePath('/warehouse');
         revalidatePath('/logistica'); // Fallback
         return { success: true };
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
-        return { success: false, error: error.message };
+        const message = error instanceof Error ? error.message : 'Error desconocido';
+        return { success: false, error: message };
     } finally {
         client.release();
     }
 }
 
-export async function getSupplyOrdersHistory(filters?: { status?: string; supplierId?: string; page?: number; pageSize?: number }): Promise<{ success: boolean; data?: any[]; total?: number; error?: string }> {
+export async function getSupplyOrdersHistory(filters?: { status?: string; supplierId?: string; page?: number; pageSize?: number }): Promise<{ success: boolean; data?: DBRow[]; total?: number; error?: string }> {
     try {
         const page = filters?.page || 1;
         const pageSize = filters?.pageSize || 20;
@@ -438,8 +445,9 @@ export async function getSupplyOrdersHistory(filters?: { status?: string; suppli
             LIMIT $1 OFFSET $2
         `, [pageSize, offset]);
         return { success: true, data: res.rows, total };
-    } catch (error: any) {
-        return { success: false, error: error.message };
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Error desconocido';
+        return { success: false, error: message };
     }
 }
 
@@ -450,20 +458,19 @@ export async function getSupplyChainHistorySecure(filters?: {
     type?: 'PO' | 'SHIPMENT';
     page?: number;
     pageSize?: number;
-}): Promise<{ success: boolean; data?: any[]; total?: number; error?: string }> {
+}): Promise<{ success: boolean; data?: DBRow[]; total?: number; error?: string }> {
     try {
         const page = filters?.page || 1;
         const pageSize = filters?.pageSize || 20;
         const offset = (page - 1) * pageSize;
 
-        const conditions: string[] = [];
-        const params: any[] = [];
+        const params: (string | number)[] = [];
         let pIdx = 1;
 
         // Note: For history, we want a union of POs and Shipments
         // We will build a complex UNION query
 
-        let poQuery = `
+        const poQuery = `
             SELECT 
                 'PO' as main_type,
                 po.id,
@@ -486,7 +493,7 @@ export async function getSupplyChainHistorySecure(filters?: {
             LEFT JOIN locations l ON w.location_id = l.id
         `;
 
-        let shipQuery = `
+        const shipQuery = `
             SELECT 
                 'SHIPMENT' as main_type,
                 s.id,
@@ -554,13 +561,14 @@ export async function getSupplyChainHistorySecure(filters?: {
         `, [...params, pageSize, offset]);
 
         return { success: true, data: dataRes.rows, total };
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Supply] getSupplyChainHistorySecure error');
-        return { success: false, error: error.message };
+        const message = error instanceof Error ? error.message : 'Error desconocido';
+        return { success: false, error: message };
     }
 }
 
-export async function getHistoryItemDetailsSecure(id: string, type: 'PO' | 'SHIPMENT'): Promise<{ success: boolean; data?: any[]; error?: string }> {
+export async function getHistoryItemDetailsSecure(id: string, type: 'PO' | 'SHIPMENT'): Promise<{ success: boolean; data?: DBRow[]; error?: string }> {
     try {
         const UUIDSchema = z.string().uuid();
         if (!UUIDSchema.safeParse(id).success) {
@@ -597,8 +605,9 @@ export async function getHistoryItemDetailsSecure(id: string, type: 'PO' | 'SHIP
         }
 
         return { success: true, data: res.rows };
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error, id, type }, '[Supply] getHistoryItemDetailsSecure error');
-        return { success: false, error: error.message };
+        const message = error instanceof Error ? error.message : 'Error desconocido';
+        return { success: false, error: message };
     }
 }

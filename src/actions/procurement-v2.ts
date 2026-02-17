@@ -27,6 +27,7 @@ import { pool } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
+import { logger } from '@/lib/logger';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -35,7 +36,6 @@ import { randomUUID } from 'crypto';
 const UUIDSchema = z.string().uuid('ID inválido');
 
 const PurchaseOrderItemSchema = z.object({
-    productId: UUIDSchema,
     productName: z.string().min(1),
     sku: z.string().min(1).optional(),
     quantity: z.number().int().positive('Cantidad debe ser positiva'),
@@ -43,7 +43,7 @@ const PurchaseOrderItemSchema = z.object({
 });
 
 const CreatePurchaseOrderSchema = z.object({
-    supplierId: UUIDSchema,
+    supplierId: z.union([z.string().uuid(), z.literal('')]).nullable().optional().transform(val => val === '' ? null : val),
     warehouseId: UUIDSchema.optional(),
     items: z.array(PurchaseOrderItemSchema).min(1, 'Debe incluir al menos un item'),
     notes: z.string().max(500).optional(),
@@ -182,15 +182,19 @@ export async function createPurchaseOrderSecure(data: z.infer<typeof CreatePurch
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-        // 2. Validate supplier exists
-        const supplierRes = await client.query(
-            'SELECT id, business_name as name FROM suppliers WHERE id = $1 AND status = $2',
-            [validated.data.supplierId, 'ACTIVE']
-        );
+        // 2. Validate supplier exists (only if provided)
+        let supplierName = '';
+        if (validated.data.supplierId) {
+            const supplierRes = await client.query(
+                'SELECT id, business_name as name FROM suppliers WHERE id = $1 AND status = $2',
+                [validated.data.supplierId, 'ACTIVE']
+            );
 
-        if (supplierRes.rows.length === 0) {
-            await client.query('ROLLBACK');
-            return { success: false, error: 'Proveedor no encontrado o inactivo' };
+            if (supplierRes.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return { success: false, error: 'Proveedor no encontrado o inactivo' };
+            }
+            supplierName = supplierRes.rows[0].name;
         }
 
         // 3. Resolve warehouse
@@ -218,14 +222,12 @@ export async function createPurchaseOrderSecure(data: z.infer<typeof CreatePurch
         await client.query(`
             INSERT INTO purchase_orders (
                 id, supplier_id, target_warehouse_id, 
-                created_at, status, is_auto_generated, 
-                total_estimated, created_by, notes
-            ) VALUES ($1, $2, $3, NOW(), 'DRAFT', false, $4, $5, $6)
+                created_at, status, created_by, notes
+            ) VALUES ($1, $2, $3, NOW(), 'DRAFT', $4, $5)
         `, [
             orderId,
             validated.data.supplierId,
             warehouseId,
-            total,
             validated.data.userId,
             validated.data.notes || null
         ]);
@@ -233,24 +235,16 @@ export async function createPurchaseOrderSecure(data: z.infer<typeof CreatePurch
         // 7. Insert items
         for (const item of validated.data.items) {
             // Get SKU if not provided
-            let sku = item.sku;
-            if (!sku) {
-                const prodRes = await client.query(
-                    'SELECT sku FROM products WHERE id = $1',
-                    [item.productId]
-                );
-                sku = prodRes.rows[0]?.sku || 'UNKNOWN';
-            }
+            let sku = item.sku || 'UNKNOWN';
 
             await client.query(`
                 INSERT INTO purchase_order_items (
-                    id, purchase_order_id, product_id, sku, name, 
+                    id, purchase_order_id, sku, name, 
                     quantity_ordered, cost_price
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ) VALUES ($1, $2, $3, $4, $5, $6)
             `, [
                 randomUUID(),
                 orderId,
-                item.productId,
                 sku,
                 item.productName,
                 item.quantity,
@@ -265,7 +259,7 @@ export async function createPurchaseOrderSecure(data: z.infer<typeof CreatePurch
             orderId,
             details: {
                 supplier_id: validated.data.supplierId,
-                supplier_name: supplierRes.rows[0].name,
+                supplier_name: supplierName || 'UNASSIGNED',
                 warehouse_id: warehouseId,
                 items_count: validated.data.items.length,
                 total,
@@ -452,7 +446,7 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
 
             // Get item details
             const itemRes = await client.query(`
-                SELECT poi.id, poi.product_id, poi.sku, poi.name, poi.cost_price
+                SELECT poi.id, poi.sku, poi.name, poi.cost_price
                 FROM purchase_order_items poi
                 WHERE poi.id = $1 AND poi.purchase_order_id = $2
                 FOR UPDATE
@@ -462,11 +456,19 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
 
             const item = itemRes.rows[0];
 
+            // Get product ID for inventory batches
+            const prodLookup = await client.query('SELECT id FROM products WHERE sku = $1', [item.sku]);
+            const productId = prodLookup.rows[0]?.id;
+
+            if (!productId) {
+                logger.error({ sku: item.sku }, 'Product ID not found for SKU in receivePurchaseOrderSecure');
+                continue;
+            }
+
             // Update item received quantity
             await client.query(`
                 UPDATE purchase_order_items
-                SET quantity_received = COALESCE(quantity_received, 0) + $1,
-                    received_at = NOW()
+                SET quantity_received = COALESCE(quantity_received, 0) + $1
                 WHERE id = $2
             `, [receivedItem.quantityReceived, receivedItem.itemId]);
 
@@ -481,7 +483,7 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
                 WHERE product_id = $1 
                   AND warehouse_id = $2 
                   AND lot_number = $3
-            `, [item.product_id, order.target_warehouse_id, lotNumber]);
+            `, [productId, order.target_warehouse_id, lotNumber]);
 
             if (batchRes.rows.length > 0) {
                 // Update existing batch
@@ -500,7 +502,7 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
                 `, [
                     randomUUID(),
-                    item.product_id,
+                    productId,
                     order.target_warehouse_id,
                     lotNumber,
                     expiryDate,
@@ -535,12 +537,9 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
         await client.query(`
             UPDATE purchase_orders
             SET status = 'RECEIVED',
-                received_at = NOW(),
-                received_by = $1,
-                receiving_notes = $2,
-                updated_at = NOW()
-            WHERE id = $3
-        `, [validated.data.userId, validated.data.notes || null, validated.data.orderId]);
+                received_by = $1
+            WHERE id = $2
+        `, [validated.data.userId, validated.data.orderId]);
 
         // 5. Audit
         await insertProcurementAudit(client, {
@@ -682,11 +681,14 @@ export async function deletePurchaseOrderSecure(params: {
     try {
         await client.query('BEGIN');
 
-        // 1. Verificar estado (solo borradores)
-        const orderRes = await client.query(
-            'SELECT status, created_by, location_id FROM purchase_orders WHERE id = $1 FOR UPDATE',
-            [orderId]
-        );
+        // 1. Verificar estado (solo borradores) y obtener ubicación vía warehouse
+        const orderRes = await client.query(`
+            SELECT po.status, po.created_by, w.location_id 
+            FROM purchase_orders po
+            LEFT JOIN warehouses w ON po.target_warehouse_id = w.id
+            WHERE po.id = $1 
+            FOR UPDATE
+        `, [orderId]);
 
         if (orderRes.rows.length === 0) {
             await client.query('ROLLBACK');
@@ -819,6 +821,31 @@ export async function getPurchaseOrderHistory(filters?: {
             LIMIT $${paramIndex++} OFFSET $${paramIndex++}
         `, params);
 
+        // Get items for these orders
+        const orderIds = ordersResult.rows.map(o => o.id);
+        if (orderIds.length > 0) {
+            const itemsResult = await pool.query(`
+                SELECT * FROM purchase_order_items 
+                WHERE purchase_order_id = ANY($1)
+            `, [orderIds]);
+
+            // Map items back to orders
+            ordersResult.rows.forEach(order => {
+                order.items = itemsResult.rows
+                    .filter(item => item.purchase_order_id === order.id)
+                    .map(item => ({
+                        ...item,
+                        quantity_ordered: Number(item.quantity_ordered),
+                        quantity_received: Number(item.quantity_received),
+                        cost_price: Number(item.cost_price)
+                    }));
+            });
+        } else {
+            ordersResult.rows.forEach(order => {
+                order.items = [];
+            });
+        }
+
         return {
             success: true,
             data: {
@@ -841,17 +868,25 @@ export async function getPurchaseOrderHistory(filters?: {
 /**
  * 🧠 Generate Restock Suggestion (MRP Algorithm - Secure)
  */
+/**
+ * 🧠 Generate Restock Suggestion (MRP Algorithm - Secure)
+ * Enhanced with Multi-Supplier, Search, and Top N Logic
+ */
 export async function generateRestockSuggestionSecure(
     supplierId?: string,
     daysToCover: number = 15,
     analysisWindow: number = 30,
     locationId?: string,
-    stockThreshold?: number // New: 0.1 to 1.0 (or >1 for overstock)
+    stockThreshold?: number, // New: 0.1 to 1.0 (or >1 for overstock)
+    searchQuery?: string,    // New: Filter by name/sku
+    limit: number = 100      // New: Top N results
 ): Promise<{
     success: boolean;
     data?: any[];
     error?: string;
 }> {
+    console.log('[MRP] Generate Suggestion Params:', { supplierId, daysToCover, analysisWindow, locationId, stockThreshold, searchQuery, limit });
+
     // Validate inputs
     let supplierValidated: string | undefined = undefined;
     if (supplierId) {
@@ -872,16 +907,59 @@ export async function generateRestockSuggestionSecure(
 
     try {
         // Parametros para la query
-        const queryParams: any[] = [supplierValidated || null, analysisWindow];
-        let paramIndex = 3;
+        // $1: SupplierID (Optional)
+        // $2: AnalysisWindow (Days)
+        // $3: SearchQuery (Optional)
+        // $4: LocationID (Optional) - For stock filtering
+        // $5: Limit
+
+        const queryParams: any[] = [
+            supplierValidated || null,
+            searchQuery ? `%${searchQuery}%` : null,
+            limit
+        ];
+
+        // DEBUG BACKDOOR
+        if (false) {
+            // Comparative STOCK Analysis: GLOBAL vs LOCAL
+            const stockCheck = await pool.query(`
+                WITH LocalStock AS (
+                    SELECT p.sku, SUM(ib.quantity_real) as local_qty
+                    FROM inventory_batches ib
+                    JOIN warehouses w ON ib.warehouse_id = w.id
+                    JOIN products p ON ib.product_id::text = p.id::text
+                    WHERE ($1::uuid IS NULL OR w.location_id = $1::uuid)
+                    GROUP BY p.sku
+                ),
+                GlobalStock AS (
+                    SELECT p.sku, SUM(ib.quantity_real) as global_qty
+                    FROM inventory_batches ib
+                    JOIN products p ON ib.product_id::text = p.id::text
+                    GROUP BY p.sku
+                )
+                SELECT 
+                    COALESCE(l.sku, g.sku) as sku, 
+                    COALESCE(l.local_qty, 0) as local_qty, 
+                    COALESCE(g.global_qty, 0) as global_qty,
+                    (COALESCE(g.global_qty, 0) - COALESCE(l.local_qty, 0)) as diff
+                FROM LocalStock l
+                FULL OUTER JOIN GlobalStock g ON l.sku = g.sku
+                ORDER BY diff DESC
+                LIMIT 15
+            `, [locationId || null]);
+
+            return { success: false, error: `DEBUG COMPARISON (Loc: ${locationId}): ` + JSON.stringify(stockCheck.rows) };
+        }
+
+        let paramIndex = 4;
 
         // Filtro de ubicación para Stock y Ventas
         let locationFilterStock = '';
         let locationFilterSales = '';
 
         if (locationId) {
-            locationFilterStock = `AND w.location_id = $${paramIndex}`;
-            locationFilterSales = `AND w.location_id = $${paramIndex}`;
+            locationFilterStock = `AND w.location_id = $${paramIndex}::uuid`;
+            locationFilterSales = `AND w.location_id = $${paramIndex}::uuid`;
             queryParams.push(locationId);
             paramIndex++;
         }
@@ -895,14 +973,42 @@ export async function generateRestockSuggestionSecure(
                     p.sku as product_sku, 
                     NULL as image_url,
                     p.stock_minimo_seguridad as safety_stock,
-                    COALESCE(ps.last_cost, p.cost_net, p.cost_price, 0) as last_cost, 
-                    ps.supplier_sku,
-                    s.id as supplier_id,
-                    s.business_name as supplier_name
+                    COALESCE(p.cost_net, p.cost_price, 0) as internal_cost,
+                    
+                    -- Top 3 Suppliers by Cost (or filtered supplier)
+                    (
+                        SELECT jsonb_agg(sub_s)
+                        FROM (
+                            SELECT 
+                                s.id, 
+                                s.business_name as name, 
+                                COALESCE(ps.last_cost, ps.average_cost, 0) as cost_price,
+                                ps.supplier_sku,
+                                ps.is_preferred
+                            FROM product_suppliers ps
+                            JOIN suppliers s ON ps.supplier_id = s.id
+                            WHERE ps.product_id::text = p.id
+                            AND s.status = 'ACTIVE'
+                            -- If specific supplier selected, only show that one (or prioritize it)
+                            AND ($1::uuid IS NULL OR ps.supplier_id = $1::uuid)
+                            ORDER BY COALESCE(ps.last_cost, ps.average_cost, 0) ASC NULLS LAST
+                            LIMIT 3
+                        ) sub_s
+                    ) as suppliers_data
+                    
                 FROM products p
-                LEFT JOIN product_suppliers ps ON p.id::text = ps.product_id::text AND ps.is_preferred = true
-                LEFT JOIN suppliers s ON ps.supplier_id = s.id
-                WHERE ($1::text IS NULL OR ps.supplier_id::text = $1::text)
+                WHERE 
+                    -- Apply Search Filter
+                    ($2::text IS NULL OR p.name ILIKE $2::text OR p.sku ILIKE $2::text)
+                    -- Exclude Retail/Fractionated products from suggestions
+                    AND p.name NOT ILIKE '%[AL DETAL]%'
+                    -- Apply Supplier Filter (Check if ANY supplier matches)
+                    AND (
+                        $1::uuid IS NULL OR EXISTS (
+                            SELECT 1 FROM product_suppliers ps 
+                            WHERE ps.product_id::text = p.id AND ps.supplier_id = $1::uuid
+                        )
+                    )
             ),
             CurrentStock AS (
                 SELECT 
@@ -922,13 +1028,23 @@ export async function generateRestockSuggestionSecure(
                 JOIN purchase_orders po ON poi.purchase_order_id = po.id
                 JOIN products p ON poi.sku = p.sku
                 WHERE po.status = 'APPROVED'
-                ${locationId ? `AND po.target_warehouse_id = $${queryParams.length}` : ''} 
+                ${locationId ? `AND po.target_warehouse_id IN (SELECT id FROM warehouses WHERE location_id = $${queryParams.length}::uuid)` : ''} 
                 GROUP BY p.id
             ),
             SalesHistory AS (
                 SELECT 
                     ib.product_id, 
-                    SUM(si.quantity) as total_sold,
+                    -- Multi-window Sales Aggregation
+                    SUM(CASE WHEN s.timestamp >= NOW() - INTERVAL '7 days' THEN si.quantity ELSE 0 END) as sold_7d,
+                    SUM(CASE WHEN s.timestamp >= NOW() - INTERVAL '15 days' THEN si.quantity ELSE 0 END) as sold_15d,
+                    SUM(CASE WHEN s.timestamp >= NOW() - INTERVAL '30 days' THEN si.quantity ELSE 0 END) as sold_30d,
+                    SUM(CASE WHEN s.timestamp >= NOW() - INTERVAL '60 days' THEN si.quantity ELSE 0 END) as sold_60d,
+                    SUM(CASE WHEN s.timestamp >= NOW() - INTERVAL '90 days' THEN si.quantity ELSE 0 END) as sold_90d,
+                    SUM(CASE WHEN s.timestamp >= NOW() - INTERVAL '180 days' THEN si.quantity ELSE 0 END) as sold_180d,
+                    SUM(CASE WHEN s.timestamp >= NOW() - INTERVAL '365 days' THEN si.quantity ELSE 0 END) as sold_365d,
+                    
+                    SUM(si.quantity) as total_sold_max_window,
+
                     -- Timeseries Data for AI (Last 4 weeks)
                     jsonb_agg(jsonb_build_object(
                         'week', to_char(s.timestamp, 'IYYY-IW'),
@@ -938,7 +1054,7 @@ export async function generateRestockSuggestionSecure(
                 JOIN sales s ON si.sale_id = s.id
                 JOIN inventory_batches ib ON si.batch_id = ib.id
                 JOIN warehouses w ON ib.warehouse_id = w.id
-                WHERE s.timestamp >= NOW() - ($2 || ' days')::INTERVAL
+                WHERE s.timestamp >= NOW() - INTERVAL '365 days'
                 ${locationFilterSales}
                 GROUP BY ib.product_id
             ),
@@ -949,30 +1065,43 @@ export async function generateRestockSuggestionSecure(
                 FROM inventory_batches ib
                 WHERE ib.quantity_real > 0
                 -- Exclude current location to find "Other" stock
-                ${locationId ? `AND ib.warehouse_id NOT IN (SELECT id FROM warehouses WHERE location_id = $${paramIndex - 1})` : ''}
+                ${locationId ? `AND ib.warehouse_id NOT IN (SELECT id FROM warehouses WHERE location_id = $${paramIndex - 1}::uuid)` : ''}
                 GROUP BY ib.product_id
             )
             SELECT 
                 tp.product_id,
                 tp.product_name,
                 tp.product_sku as sku,
+                COALESCE(tp.internal_cost, 0) as internal_cost,
                 tp.image_url,
-                tp.last_cost as unit_cost,
-                tp.supplier_sku,
-                tp.supplier_id,
-                tp.supplier_name,
+                tp.internal_cost as unit_cost,
+                tp.suppliers_data,
+                
                 COALESCE(cs.total_stock, 0) as current_stock,
                 COALESCE(gs.global_stock, 0) as other_warehouses_stock,
                 COALESCE(incs.incoming, 0) as incoming_stock,
                 COALESCE(tp.safety_stock, 0) as safety_stock,
-                (COALESCE(sh.total_sold, 0)::FLOAT / $2::FLOAT) as daily_velocity,
+                
+                -- Velocity Data
+                COALESCE(sh.sold_7d, 0) as sold_7d,
+                COALESCE(sh.sold_15d, 0) as sold_15d,
+                COALESCE(sh.sold_30d, 0) as sold_30d,
+                COALESCE(sh.sold_60d, 0) as sold_60d,
+                COALESCE(sh.sold_90d, 0) as sold_90d,
+                COALESCE(sh.sold_180d, 0) as sold_180d,
+                COALESCE(sh.sold_365d, 0) as sold_365d,
+                
+                COALESCE(sh.total_sold_max_window, 0) as total_sold_in_period,
                 COALESCE(sh.weekly_sales, '[]'::jsonb) as sales_history
             FROM TargetProducts tp
             LEFT JOIN CurrentStock cs ON tp.product_id::text = cs.product_id::text
             LEFT JOIN IncomingStock incs ON tp.product_id::text = incs.product_id::text
             LEFT JOIN SalesHistory sh ON tp.product_id::text = sh.product_id::text
             LEFT JOIN GlobalStock gs ON tp.product_id::text = gs.product_id::text
-            ORDER BY tp.product_name ASC
+            
+            -- Sort by highest sales volume first (Top N)
+            ORDER BY total_sold_in_period DESC, tp.product_name ASC
+            LIMIT $3
         `;
 
         const res = await pool.query(finalSql, queryParams);
@@ -980,7 +1109,32 @@ export async function generateRestockSuggestionSecure(
         // Calculate Formula in JS for precision control
         // Suggested = CEIL(Velocity * (DaysToCover + LeadTime) + Safety - Stock - Incoming)
         const suggestions = await Promise.all(res.rows.map(async (row) => {
-            const velocity = Number(row.daily_velocity);
+            // Calculate velocities for all windows
+            const velocities: Record<number, number> = {
+                7: Number(row.sold_7d) / 7,
+                15: Number(row.sold_15d) / 15,
+                30: Number(row.sold_30d) / 30,
+                60: Number(row.sold_60d) / 60,
+                90: Number(row.sold_90d) / 90,
+                180: Number(row.sold_180d) / 180,
+                365: Number(row.sold_365d) / 365
+            };
+
+            const sold_counts: Record<number, number> = {
+                7: Number(row.sold_7d),
+                15: Number(row.sold_15d),
+                30: Number(row.sold_30d),
+                60: Number(row.sold_60d),
+                90: Number(row.sold_90d),
+                180: Number(row.sold_180d),
+                365: Number(row.sold_365d)
+            };
+
+            // Default velocity based on requested analysisWindow (fallback to 30 if not found)
+            // If analysisWindow is e.g. 45, we fallback to closest or just 30. 
+            // The frontend sends standard values (7,15,30,60,90,180).
+            const velocity = velocities[analysisWindow] || velocities[30] || 0;
+
             const stock = Number(row.current_stock);
             const globalStock = Number(row.other_warehouses_stock || 0);
             const incoming = Number(row.incoming_stock);
@@ -994,18 +1148,28 @@ export async function generateRestockSuggestionSecure(
 
             // Suggested is the gap to fill maxStock
             let suggested = Math.max(0, Math.ceil(netNeeds));
-            const daysUntilStockout = velocity > 0 ? (stock / velocity) : 999;
+            const daysUntilStockout = velocity > 0 ? (stock / velocity) : (stock > 0 ? 999 : 0);
 
-            // Calcular porcentaje de llenado actual respecto al objetivo dinámico
-            const stockLevelPercent = maxStock > 0 ? Math.round((stock / maxStock) * 100) : (stock > 0 ? 100 : 0);
+            // Calcular porcentaje de llenado (Regla de Negocio: 100 unidades = 100%)
+            // El usuario define que "todo el stock" es de 100 unidades en adelante.
+            const stockTarget = 100;
+            const stockLevelPercent = Math.min(100, Math.max(0, Math.round((stock / stockTarget) * 100)));
 
             // Filtering Logic in backend to reduce payload if threshold is set
             if (stockThreshold !== undefined && stockThreshold !== null) {
-                // Return null if it doesn't meet criteria (filtered out later)
-                // NOTE: stockThreshold e.g. 10 (10%) or 90 (90%)
-                // Input is expected to be percent integer e.g. 10, 20, 90.
-                if (stockLevelPercent > stockThreshold) return null;
+                // stockThreshold viene como 0.1 (10%), 0.5 (50%), etc.
+                // Convertimos a porcentaje entero (10, 50, etc) para comparar
+                const thresholdPercent = stockThreshold * 100;
+
+                // Si el filtro es 100% (1.0), mostramos todo (no filtramos)
+                // "solo filtra cuando lo llevo a todo" -> Si es < 100%, aplicamos filtro "HASTA ese porcentaje"
+                if (thresholdPercent < 100) {
+                    if (stockLevelPercent > thresholdPercent) return null;
+                }
             }
+
+            // Also ensure we show CRITICAL items regardless of threshold if they have sales
+            // OR if the user is searching for them specifically.
 
             let reason = `Venta Diaria: ${velocity.toFixed(2)} | Cobertura: ${daysToCover}d | Nivel: ${stockLevelPercent}%`;
             let aiConfidence = undefined;
@@ -1029,7 +1193,7 @@ export async function generateRestockSuggestionSecure(
                         weeklySales: row.sales_history,
                         context: `Days to cover: ${daysToCover}. Lead time: ${leadTime} days.`,
                         globalStock,
-                        supplierName: row.supplier_name
+                        supplierName: row.suppliers_data?.[0]?.name || 'Unknown'
                     });
 
                     // Merge AI Logic
@@ -1048,14 +1212,31 @@ export async function generateRestockSuggestionSecure(
                         }
                     }
                 } catch (err) {
-                    console.warn('AI Forecast skipped for item:', row.product_sku);
+                    console.warn('AI Forecast skipped for item:', row.sku);
                 }
             }
 
             // Determine urgency based on stockout days
             let urgency: 'HIGH' | 'MEDIUM' | 'LOW' = 'LOW';
-            if (daysUntilStockout <= 5) urgency = 'HIGH';
+            if (stock <= 0) urgency = 'HIGH';
+            else if (daysUntilStockout <= 5) urgency = 'HIGH';
             else if (daysUntilStockout <= 15) urgency = 'MEDIUM';
+
+
+            // Resolver proveedor preferido o el mejor precio
+            let bestSupplier = null;
+            if (row.suppliers_data && row.suppliers_data.length > 0) {
+                // Try to find preferred
+                bestSupplier = row.suppliers_data.find((s: any) => s.is_preferred);
+                // Fallback to first (cheapest)
+                if (!bestSupplier) bestSupplier = row.suppliers_data[0];
+            }
+
+            // If filtering by specific supplier, ensure we use that one's data if available
+            if (supplierId && row.suppliers_data) {
+                const specificSup = row.suppliers_data.find((s: any) => s.id === supplierId);
+                if (specificSup) bestSupplier = specificSup;
+            }
 
 
             return {
@@ -1063,35 +1244,50 @@ export async function generateRestockSuggestionSecure(
                 product_name: row.product_name,
                 sku: row.sku,
                 image_url: row.image_url,
-                location_id: locationId,   // Added
+                location_id: locationId,
                 current_stock: stock,
                 global_stock: globalStock,
                 incoming_stock: incoming,
                 safety_stock: safety,
-                min_stock: safety,         // Mapped to safety_stock
+                min_stock: safety,
                 max_stock: maxStock,
                 stock_level_percent: stockLevelPercent,
                 daily_velocity: Number(velocity.toFixed(3)),
-                suggested_quantity: suggested,
-                days_coverage: velocity > 0 ? (stock / velocity).toFixed(1) : '∞',
+                suggested_order_qty: suggested,
+                days_coverage: velocity > 0 ? (stock / velocity).toFixed(1) : (stock > 0 ? '∞' : '0.0'),
                 days_until_stockout: daysUntilStockout,
-                urgency: urgency,          // Added
-                unit_cost: Number(row.unit_cost),
-                supplier_sku: row.supplier_sku,
-                supplier_id: row.supplier_id,
-                supplier_name: row.supplier_name,
-                total_estimated: suggested * Number(row.unit_cost),
+                urgency: urgency,
+                unit_cost: Number(bestSupplier?.cost_price || row.unit_cost),
+                supplier_sku: bestSupplier?.supplier_sku || null,
+                supplier_id: bestSupplier?.id || null,
+                supplier_name: bestSupplier?.name || 'Sin Proveedor Asignado',
+                other_suppliers: (row.suppliers_data || []).map((s: any) => ({ ...s, cost: s.cost_price })),
+                total_estimated: suggested * Number(bestSupplier?.cost_price || row.unit_cost),
                 reason,
                 ai_confidence: aiConfidence,
-                action_type: aiAction
+                action_type: aiAction,
+                velocities, // New field exposing all calculated velocities
+                sold_counts
             };
         }));
 
         // Filter out nulls (items that didn't pass threshold)
         const validSuggestions = suggestions.filter(s => s !== null);
 
-        // Sort by urgency
-        const sortedSuggestions = validSuggestions.sort((a, b) => a.days_until_stockout - b.days_until_stockout);
+        // Sort: High Urgency First, then High Velocity
+        const sortedSuggestions = validSuggestions.sort((a, b) => {
+            // 1. Urgency 
+            if (a.urgency === 'HIGH' && b.urgency !== 'HIGH') return -1;
+            if (b.urgency === 'HIGH' && a.urgency !== 'HIGH') return 1;
+
+            // 2. Stockout Days (Ascending)
+            if (a.days_until_stockout !== b.days_until_stockout) {
+                return a.days_until_stockout - b.days_until_stockout;
+            }
+
+            // 3. Velocity (Descending)
+            return b.daily_velocity - a.daily_velocity;
+        });
 
         return { success: true, data: sortedSuggestions };
 

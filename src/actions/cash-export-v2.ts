@@ -26,6 +26,9 @@ const UUIDSchema = z.string().uuid('ID inválido');
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const _dummy = UUIDSchema;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DBRow = any;
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
@@ -243,7 +246,7 @@ export async function generateCashReportSecure(
         let totalIncome = 0;
 
         // Process Shifts (Opening/Closing)
-        shiftsRes.rows.forEach((s: any) => {
+        shiftsRes.rows.forEach((s: DBRow) => {
             // Opening
             if (s.opening_amount > 0) {
                 flow.push({
@@ -305,7 +308,7 @@ export async function generateCashReportSecure(
         });
 
         // Process Sales
-        salesRes.rows.forEach((s: any) => {
+        salesRes.rows.forEach((s: DBRow) => {
             flow.push({
                 timestamp: new Date(s.timestamp),
                 type: 'VENTA',
@@ -326,7 +329,7 @@ export async function generateCashReportSecure(
         });
 
         // Process Movements
-        movRes.rows.forEach((m: any) => {
+        movRes.rows.forEach((m: DBRow) => {
             const isIncome = m.type === 'INGRESO' || m.type === 'EXTRA_INCOME';
             flow.push({
                 timestamp: new Date(m.timestamp),
@@ -363,18 +366,20 @@ export async function generateCashReportSecure(
         const summarySheet = workbook.addWorksheet('Resumen General');
         // ... (Keep existing summary logic mostly, maybe refined)
         // Calculate Totals by Payment Method
+        // Calculate Totals by Payment Method
         const salesByMethod: Record<string, number> = {};
-        salesRes.rows.forEach((s: any) => {
+        salesRes.rows.forEach((s: DBRow) => {
             const method = s.payment_method || 'PENDIENTE';
             salesByMethod[method] = (salesByMethod[method] || 0) + Number(s.total_amount);
         });
 
-        const titleStyle = { font: { bold: true, size: 14, color: { argb: 'FFFFFFFF' } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F2937' } } } as unknown;
+        const titleStyle: Record<string, unknown> = { font: { bold: true, size: 14, color: { argb: 'FFFFFFFF' } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F2937' } } };
         const currencyFormat = '"$"#,##0';
 
         summarySheet.mergeCells('A1:C1');
         summarySheet.getCell('A1').value = 'RESUMEN EJECUTIVO DE CAJA';
-        summarySheet.getCell('A1').style = titleStyle as any; // Type assertion needed for ExcelJS style
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        summarySheet.getCell('A1').style = titleStyle as any;
         summarySheet.getCell('A1').alignment = { horizontal: 'center' };
 
         summarySheet.getCell('A3').value = 'Periodo:';
@@ -507,7 +512,7 @@ export async function generateCashReportSecure(
         // Header
         shiftSheet.getRow(1).font = { bold: true };
 
-        const shiftRows = shiftsRes.rows.map((s: any) => ({
+        const shiftRows = shiftsRes.rows.map((s: DBRow) => ({
             date: formatChileDate(s.opened_at),
             user: s.cashier_name,
             term: s.terminal_name,
@@ -584,7 +589,7 @@ export async function exportSalesDetailSecure(
 
         const res = await query(sql, sqlParams);
 
-        const data = res.rows.map((row: any) => ({
+        const data = res.rows.map((row: DBRow) => ({
             id: row.id,
             date: formatChileDate(row.timestamp),
             location: row.location_name || '-',
@@ -626,7 +631,7 @@ export async function exportSalesDetailSecure(
             filename: `Ventas_${params.startDate.split('T')[0]}.xlsx`,
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Export] Sales detail error');
         return { success: false, error: 'Error exportando ventas' };
     }
@@ -679,7 +684,7 @@ export async function exportShiftSummarySecure(
 
         const res = await query(sql, sqlParams);
 
-        const data = res.rows.map((row: Record<string, any>) => ({
+        const data = res.rows.map((row: DBRow) => ({
             location: row.location_name || '-',
             terminal: row.terminal_name || '-',
             cashier: row.cashier_name || '-',

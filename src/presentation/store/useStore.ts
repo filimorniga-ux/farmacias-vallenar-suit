@@ -508,13 +508,25 @@ export const usePharmaStore = create<PharmaState>()(
                     // Fire-and-forget for Inventory, Sales, and Movements
                     (async () => {
                         try {
-                            const [inventory, sales, cashMovements, shipments, purchaseOrders] = await Promise.all([
-                                currentStoreState.currentLocationId ? TigerDataService.fetchInventory(currentStoreState.currentLocationId) : Promise.resolve([]),
-                                TigerDataService.fetchSalesHistory(currentStoreState.currentLocationId, undefined, undefined, currentStoreState.currentShift?.id),
-                                TigerDataService.fetchCashMovements(),
-                                TigerDataService.fetchShipments(currentStoreState.currentLocationId),
-                                TigerDataService.fetchPurchaseOrders()
-                            ]);
+                            // SERIALIZED EXECUTION TO PREVENT POOL EXHAUSTION
+
+                            // 1. Inventory (Heavy)
+                            const inventory = await (currentStoreState.currentLocationId
+                                ? TigerDataService.fetchInventory(currentStoreState.currentLocationId)
+                                : Promise.resolve([]));
+
+                            // 2. Sales History (Heavy)
+                            const sales = await TigerDataService.fetchSalesHistory(
+                                currentStoreState.currentLocationId,
+                                undefined,
+                                undefined,
+                                currentStoreState.currentShift?.id
+                            );
+
+                            // 3. Others (Lighter)
+                            const cashMovements = await TigerDataService.fetchCashMovements();
+                            const shipments = await TigerDataService.fetchShipments(currentStoreState.currentLocationId);
+                            const purchaseOrders = await TigerDataService.fetchPurchaseOrders();
 
                             // Background Update
                             set({
@@ -546,7 +558,7 @@ export const usePharmaStore = create<PharmaState>()(
                             });
 
                             set({ isInitialized: true, isLoadingLocations: false });
-                            console.log('✅ Background Sync Complete');
+                            console.log('✅ Background Sync Complete (Serialized)');
 
                         } catch (bgError) {
                             console.error('❌ Background Sync Failed:', bgError);
