@@ -919,8 +919,8 @@ export async function generateRestockSuggestionSecure(
             limit
         ];
 
-        // DEBUG BACKDOOR
-        if (false) {
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+        if (process.env.DEBUG_STOCK_COMPARISON) {
             // Comparative STOCK Analysis: GLOBAL vs LOCAL
             const stockCheck = await pool.query(`
                 WITH LocalStock AS (
@@ -1058,11 +1058,19 @@ export async function generateRestockSuggestionSecure(
                 ${locationFilterSales}
                 GROUP BY ib.product_id
             ),
-            GlobalStock AS (
+            GlobalStockDetail AS (
                 SELECT 
                     ib.product_id,
-                    SUM(ib.quantity_real) as global_stock
+                    SUM(ib.quantity_real) as global_stock,
+                    jsonb_agg(jsonb_build_object(
+                        'location_id', w.location_id,
+                        'location_name', l.name,
+                        'warehouse_id', w.id,
+                        'available_qty', ib.quantity_real
+                    )) as stock_by_location
                 FROM inventory_batches ib
+                JOIN warehouses w ON ib.warehouse_id = w.id
+                JOIN locations l ON w.location_id = l.id
                 WHERE ib.quantity_real > 0
                 -- Exclude current location to find "Other" stock
                 ${locationId ? `AND ib.warehouse_id NOT IN (SELECT id FROM warehouses WHERE location_id = $${paramIndex - 1}::uuid)` : ''}
@@ -1079,6 +1087,7 @@ export async function generateRestockSuggestionSecure(
                 
                 COALESCE(cs.total_stock, 0) as current_stock,
                 COALESCE(gs.global_stock, 0) as other_warehouses_stock,
+                COALESCE(gs.stock_by_location, '[]'::jsonb) as stock_by_location,
                 COALESCE(incs.incoming, 0) as incoming_stock,
                 COALESCE(tp.safety_stock, 0) as safety_stock,
                 
@@ -1097,7 +1106,7 @@ export async function generateRestockSuggestionSecure(
             LEFT JOIN CurrentStock cs ON tp.product_id::text = cs.product_id::text
             LEFT JOIN IncomingStock incs ON tp.product_id::text = incs.product_id::text
             LEFT JOIN SalesHistory sh ON tp.product_id::text = sh.product_id::text
-            LEFT JOIN GlobalStock gs ON tp.product_id::text = gs.product_id::text
+            LEFT JOIN GlobalStockDetail gs ON tp.product_id::text = gs.product_id::text
             
             -- Sort by highest sales volume first (Top N)
             ORDER BY total_sold_in_period DESC, tp.product_name ASC
@@ -1173,7 +1182,19 @@ export async function generateRestockSuggestionSecure(
 
             let reason = `Venta Diaria: ${velocity.toFixed(2)} | Cobertura: ${daysToCover}d | Nivel: ${stockLevelPercent}%`;
             let aiConfidence = undefined;
-            let aiAction = 'PURCHASE';
+            let aiAction: 'PURCHASE' | 'TRANSFER' | 'PARTIAL_TRANSFER' = 'PURCHASE';
+
+            // 📦 TRANSFER DETECTION (antes de IA para que la IA pueda overridear)
+            // Si otra sucursal tiene suficiente stock, sugerir traspaso
+            if (suggested > 0 && globalStock > 0 && locationId) {
+                if (globalStock >= suggested) {
+                    aiAction = 'TRANSFER';
+                    reason = `📦 Traspaso sugerido: ${globalStock}u disponibles en otras sucursales | ${reason}`;
+                } else {
+                    aiAction = 'PARTIAL_TRANSFER';
+                    reason = `📦 Traspaso parcial: ${globalStock}u de ${suggested}u necesarias disponibles en otras sucursales | ${reason}`;
+                }
+            }
 
             // 🧠 AI ENHANCEMENT (Hybrid)
             // Solo analizar si es crítico (Stockout < 7 días) o alto valor
@@ -1239,6 +1260,16 @@ export async function generateRestockSuggestionSecure(
             }
 
 
+            // Parsear stock por ubicación para transfer_sources
+            const rawStockByLocation = row.stock_by_location || [];
+            const transferSources = (Array.isArray(rawStockByLocation) ? rawStockByLocation : [])
+                .filter((src: { available_qty: number }) => src.available_qty > 0)
+                .map((src: { location_id: string; location_name: string; available_qty: number }) => ({
+                    location_id: src.location_id,
+                    location_name: src.location_name,
+                    available_qty: src.available_qty
+                }));
+
             return {
                 product_id: row.product_id,
                 product_name: row.product_name,
@@ -1266,6 +1297,7 @@ export async function generateRestockSuggestionSecure(
                 reason,
                 ai_confidence: aiConfidence,
                 action_type: aiAction,
+                transfer_sources: transferSources,
                 velocities, // New field exposing all calculated velocities
                 sold_counts
             };
