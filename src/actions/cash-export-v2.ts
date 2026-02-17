@@ -355,7 +355,7 @@ export async function generateCashReportSecure(
         flow.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 
         // 3. EXCEL GENERATION
-        const { default: ExcelJS } = await import('exceljs');
+        const ExcelJS = await import('exceljs');
         const workbook = new ExcelJS.Workbook();
         workbook.creator = session.userName || 'Sistema Pharma';
 

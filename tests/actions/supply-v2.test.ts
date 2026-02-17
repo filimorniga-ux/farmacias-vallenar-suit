@@ -5,7 +5,15 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as supplyV2 from '@/actions/supply-v2';
 
-vi.mock('@/lib/db', () => ({ query: vi.fn(), pool: { connect: vi.fn() } }));
+vi.mock('@/lib/db', () => ({
+    query: vi.fn(),
+    pool: {
+        connect: vi.fn().mockResolvedValue({
+            query: vi.fn(),
+            release: vi.fn()
+        })
+    }
+}));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
@@ -14,7 +22,7 @@ describe('Supply V2 - Input Validation', () => {
         const result = await supplyV2.createPurchaseOrderSecure({
             supplierId: '550e8400-e29b-41d4-a716-446655440000',
             targetWarehouseId: '550e8400-e29b-41d4-a716-446655440001',
-            items: [{ sku: 'SKU001', name: 'Test', quantity: 10, cost: 100 }]
+            items: [{ sku: 'SKU001', name: 'Test', quantity: 10, cost: 100, productId: null }]
         }, 'invalid-user-id');
 
         expect(result.success).toBe(false);
@@ -50,8 +58,8 @@ describe('Supply V2 - History', () => {
     it('should return paginated results', async () => {
         const mockDb = await import('@/lib/db');
         vi.mocked(mockDb.query)
-            .mockResolvedValueOnce({ rows: [{ total: '50' }], rowCount: 1 } as any)
-            .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any);
+            .mockResolvedValueOnce({ rows: [{ total: '50' }], rowCount: 1 } as any) // Count query
+            .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any); // Data query
 
         const result = await supplyV2.getSupplyOrdersHistory({ page: 1, pageSize: 10 });
 

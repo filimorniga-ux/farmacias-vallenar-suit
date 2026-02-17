@@ -24,7 +24,7 @@ import { WMSPedidosTab } from '@/presentation/components/wms/tabs/WMSPedidosTab'
 import { WMSBottomTabBar } from '@/presentation/components/wms/WMSBottomTabBar';
 import { PurchaseOrderReceivingModal } from '@/presentation/components/scm/PurchaseOrderReceivingModal';
 import ManualOrderModal from '@/presentation/components/supply/ManualOrderModal';
-import SupplyKanban from '@/presentation/components/supply/SupplyKanban';
+import SupplyKanban from '../components/supply/SupplyKanban';
 import { SupplyChainHistoryTab } from '@/presentation/components/scm/SupplyChainHistoryTab';
 import { History } from 'lucide-react';
 
@@ -194,11 +194,11 @@ export const WMSPage: React.FC = () => {
                                     <p className="text-xs text-slate-500 mb-4">Órdenes de compra sincronizadas.</p>
                                     <SupplyKanban
                                         direction="col"
-                                        onEditOrder={(po) => {
+                                        onEditOrder={(po: any) => {
                                             setSelectedOrder(po);
                                             setIsManualOrderModalOpen(true);
                                         }}
-                                        onReceiveOrder={(po) => {
+                                        onReceiveOrder={(po: any) => {
                                             setSelectedOrder(po);
                                             setIsReceptionModalOpen(true);
                                         }}
@@ -319,11 +319,11 @@ export const WMSPage: React.FC = () => {
                                 <p className="text-sm text-slate-500 mb-6">Visualización en tiempo real de órdenes de compra pendientes y recibidas.</p>
                                 <SupplyKanban
                                     direction={isMobile ? 'col' : 'row'}
-                                    onEditOrder={(po) => {
+                                    onEditOrder={(po: any) => {
                                         setSelectedOrder(po);
                                         setIsManualOrderModalOpen(true);
                                     }}
-                                    onReceiveOrder={(po) => {
+                                    onReceiveOrder={(po: any) => {
                                         setSelectedOrder(po);
                                         setIsReceptionModalOpen(true);
                                     }}
