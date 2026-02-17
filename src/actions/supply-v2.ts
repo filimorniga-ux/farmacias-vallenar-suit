@@ -299,6 +299,10 @@ export async function receivePurchaseOrderSecure(
 // ============================================================================
 
 export async function cancelPurchaseOrderSecure(orderId: string, userId: string, reason: string): Promise<{ success: boolean; error?: string }> {
+    if (!reason || reason.length < 10) {
+        return { success: false, error: 'El motivo debe tener al menos 10 caracteres' };
+    }
+
     const client = await pool.connect();
     try {
         await client.query('UPDATE purchase_orders SET status = \'CANCELLED\', cancelled_at = NOW(), cancellation_reason = $2 WHERE id = $1 AND status NOT IN (\'RECEIVED\', \'CANCELLED\')', [orderId, reason]);

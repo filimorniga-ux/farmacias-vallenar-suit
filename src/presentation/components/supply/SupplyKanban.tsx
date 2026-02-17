@@ -25,7 +25,7 @@ const SupplyKanban: React.FC<SupplyKanbanProps> = ({ onEditOrder, onReceiveOrder
                     supplierId: po.supplier_id ? String(po.supplier_id) : null,
                     targetWarehouseId: String(po.target_warehouse_id),
                     notes: String(po.notes || ''),
-                    status: 'SENT' as 'SENT',
+                    status: 'SENT' as const,
                     items: (po.items || []).map((item: any) => ({
                         sku: String(item.sku),
                         name: String(item.name || 'Producto'),
