@@ -122,7 +122,7 @@ export const WarehouseOps = () => {
                 } else { // PurchaseOrder
                     matchesSearch =
                         item.id.toLowerCase().includes(searchStr) ||
-                        item.supplier_id.toLowerCase().includes(searchStr);
+                        (item.supplier_id ?? '').toLowerCase().includes(searchStr);
                 }
 
                 if (!matchesSearch) return false;
@@ -657,7 +657,7 @@ export const WarehouseOps = () => {
                                             </div>
                                         </div>
                                         <div className="text-right">
-                                            <p className="text-xl font-bold text-gray-800">${po.total_estimated.toLocaleString()}</p>
+                                            <p className="text-xl font-bold text-gray-800">${(po.total_estimated ?? 0).toLocaleString()}</p>
                                             <p className="text-xs text-gray-500">{new Date(po.created_at).toLocaleDateString()}</p>
                                         </div>
                                     </div>
