@@ -76,8 +76,8 @@ async function getSession(): Promise<{ userId: string; role: string; userName?: 
         }
 
         return null; // No valid session found
-    } catch (error) {
-        console.error('[Customer Export] getSession error:', error);
+    } catch (error: unknown) {
+        console.error('[Customer Export] getSession error:', error instanceof Error ? error.message : error);
         return null;
     }
 }
@@ -88,13 +88,15 @@ function maskRut(rut: string): string {
     return '****' + rut.slice(-5);
 }
 
-async function auditExport(userId: string, exportType: string, params: any): Promise<void> {
+async function auditExport(userId: string, exportType: string, params: Record<string, unknown>): Promise<void> {
     try {
         await query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, new_values, created_at)
             VALUES ($1, 'EXPORT', 'CUSTOMER', $2::jsonb, NOW())
         `, [userId, JSON.stringify({ export_type: exportType, ...params })]);
-    } catch { }
+    } catch (error) {
+        console.warn('[Customer Export] auditExport failed:', error instanceof Error ? error.message : 'Unknown error');
+    }
 }
 
 // ============================================================================
@@ -136,12 +138,12 @@ export async function generateCustomerReportSecure(
             GROUP BY customer_rut
         `, [startDate, endDate]);
 
-        const salesMap = new Map(salesRes.rows.map((r: any) => [r.customer_rut, r]));
+        const salesMap = new Map((salesRes.rows as Record<string, unknown>[]).map((r) => [r.customer_rut as string, r]));
 
-        const data = customersRes.rows.map((cust: any) => {
-            const stats = salesMap.get(cust.rut) || { total: 0, count: 0 }; // Match by RUT
+        const data = (customersRes.rows as Record<string, unknown>[]).map((cust) => {
+            const stats = (salesMap.get(cust.rut as string) as Record<string, unknown>) || { total: 0, count: 0 }; // Match by RUT
             return {
-                rut: maskRut(cust.rut), // ENMASCARADO
+                rut: maskRut(cust.rut as string), // ENMASCARADO
                 name: cust.name || cust.fullName || '-', // Use 'name' from DB
                 phone: cust.phone || '-',
                 email: cust.email || '-',
@@ -178,10 +180,10 @@ export async function generateCustomerReportSecure(
             filename: `Clientes_${startDate.split('T')[0]}.xlsx`,
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[Export] Customer report error:', error);
         logger.error({ error }, '[Export] Customer report error');
-        return { success: false, error: 'Error generando reporte: ' + (error.message || 'Unknown') };
+        return { success: false, error: 'Error generando reporte: ' + (error instanceof Error ? error.message : 'Error desconocido') };
     }
 }
 
@@ -216,13 +218,13 @@ export async function exportLoyaltyReportSecure(): Promise<{
             LIMIT 1000
         `);
 
-        const data = res.rows.map((row: any) => ({
-            rut: maskRut(row.rut),
-            name: row.fullName,
-            email: row.email || '-',
-            points: row.totalPoints || 0,
-            redeemed: row.totalRedeemed || 0,
-            available: (row.totalPoints || 0) - (row.totalRedeemed || 0),
+        const data = (res.rows as Record<string, unknown>[]).map((row) => ({
+            rut: maskRut(row.rut as string),
+            name: row.fullName as string,
+            email: (row.email as string) || '-',
+            points: (row.totalPoints as number) || 0,
+            redeemed: (row.totalRedeemed as number) || 0,
+            available: ((row.totalPoints as number) || 0) - ((row.totalRedeemed as number) || 0),
         }));
 
         const excel = new ExcelService();
@@ -250,9 +252,9 @@ export async function exportLoyaltyReportSecure(): Promise<{
             filename: `Fidelizacion_${new Date().toISOString().split('T')[0]}.xlsx`,
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Export] Loyalty report error');
-        return { success: false, error: 'Error generando reporte' };
+        return { success: false, error: 'Error generando reporte: ' + (error instanceof Error ? error.message : 'Error desconocido') };
     }
 }
 
@@ -294,7 +296,7 @@ export async function generateCustomerHistoryReportSecure(
 
         // 2. Build Date Filter
         let dateFilter = '';
-        const queryParams: any[] = [customerRuts];
+        const queryParams: (string | string[])[] = [customerRuts];
         let paramIndex = 2;
 
         if (startDate) {
@@ -326,7 +328,7 @@ export async function generateCustomerHistoryReportSecure(
             WHERE s.customer_rut = ANY($1)
             ${dateFilter}
             ORDER BY s.timestamp DESC
-        `, queryParams);
+        `, queryParams as (string | string[] | null)[]);
 
         // 4. Generate Excel
         const excel = new ExcelService();
@@ -336,13 +338,13 @@ export async function generateCustomerHistoryReportSecure(
         // OR we can try to use raw exceljs if we had access, but we are inside an action.
         // Let's stick to ExcelService's generateReport pattern but flatten the data for a detailed view.
 
-        const flattenedData = salesRes.rows.map((row: any) => {
+        const flattenedData = (salesRes.rows as Record<string, unknown>[]).map((row) => {
             const customer = customers.find(c => c.rut === row.customer_rut);
             return {
-                date: new Date(row.timestamp).toLocaleDateString() + ' ' + new Date(row.timestamp).toLocaleTimeString(),
+                date: new Date(row.timestamp as string).toLocaleDateString() + ' ' + new Date(row.timestamp as string).toLocaleTimeString(),
                 customer: customer ? customer.name : row.customer_rut,
-                rut: maskRut(row.customer_rut),
-                saleId: row.sale_id.slice(0, 8),
+                rut: maskRut(row.customer_rut as string),
+                saleId: (row.sale_id as string).slice(0, 8),
                 status: row.status,
                 product: row.product_name,
                 qty: row.quantity,
@@ -383,8 +385,8 @@ export async function generateCustomerHistoryReportSecure(
             filename: `Historial_Compras_${new Date().toISOString().split('T')[0]}.xlsx`,
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Export] History report error');
-        return { success: false, error: 'Error generando historial: ' + error.message };
+        return { success: false, error: 'Error generando historial: ' + (error instanceof Error ? error.message : 'Error desconocido') };
     }
 }

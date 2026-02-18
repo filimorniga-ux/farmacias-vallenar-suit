@@ -58,7 +58,7 @@ export interface AIConfig {
 const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL', 'MANAGER', 'QF'];
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
-const AUTH_TAG_LENGTH = 16;
+// AUTH_TAG_LENGTH is used implicitly in certain crypto versions but not directly here, removing to satisfy lint
 
 // Caché en memoria
 const configCache = new Map<string, { value: string | null; expiresAt: number }>();
@@ -307,10 +307,10 @@ export async function saveSystemConfigSecure(
 
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         logger.error({ error, key }, '❌ Error saving config');
-        return { success: false, error: error.message || 'Error guardando configuración' };
+        return { success: false, error: error instanceof Error ? error.message : 'Error guardando configuración' };
     } finally {
         client.release();
     }
@@ -392,7 +392,7 @@ export async function getSystemConfigsSecure(
                 created_at, updated_at
             FROM system_configs
         `;
-        const params: any[] = [];
+        const params: (string | number)[] = [];
 
         if (category) {
             sql += ' WHERE category = $1';
@@ -403,9 +403,9 @@ export async function getSystemConfigsSecure(
 
         const res = await query(sql, params);
 
-        return { success: true, data: res.rows };
+        return { success: true, data: res.rows as SystemConfig[] };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Config] Error listing configs');
         return { success: false, error: 'Error obteniendo configuraciones' };
     }
@@ -499,7 +499,7 @@ export async function deleteSystemConfigSecure(key: string): Promise<{ success: 
 
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error, key }, '❌ Error deleting config');
         return { success: false, error: 'Error eliminando configuración' };
     }
@@ -543,7 +543,7 @@ export async function getAIUsageSecure(): Promise<{
             }
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Config] Error getting AI usage');
         return { success: false, error: 'Error obteniendo uso de IA' };
     }
@@ -599,13 +599,17 @@ export async function checkAIConfiguredSecure(): Promise<{
             } finally {
                 clearTimeout(timeoutId);
             }
-        } catch (e: any) {
-            const isTimeout = e.name === 'AbortError' || e.cause?.name === 'ConnectTimeoutError';
+        } catch (e: unknown) {
+            // Safer way to check for timeouts without using 'any'
+            const isTimeout = e instanceof Error && (
+                e.name === 'AbortError' ||
+                (e.cause && typeof e.cause === 'object' && 'name' in e.cause && e.cause.name === 'ConnectTimeoutError')
+            );
             return {
                 configured: true,
                 provider: config.provider || undefined,
                 model: config.model || undefined,
-                error: isTimeout ? 'Tiempo de espera agotado al conectar con IA' : `Error de API: ${e.message}`
+                error: isTimeout ? 'Tiempo de espera agotado al conectar con IA' : `Error de API: ${e instanceof Error ? e.message : 'Error desconocido'}`
             };
         }
 
