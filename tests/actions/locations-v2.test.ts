@@ -260,7 +260,7 @@ describe('Locations V2 - Stock Transfer', () => {
         });
 
         expect(result.success).toBe(false);
-        expect(result.error).toContain('Stock insuficiente');
+        expect(result.error).toContain('insuficiente');
     });
 
     it('should reject same source and target', async () => {

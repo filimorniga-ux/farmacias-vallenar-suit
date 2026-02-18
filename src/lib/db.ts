@@ -1,5 +1,6 @@
 import 'server-only';
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
+export type { PoolClient };
 
 // Detectar entorno
 const isProduction = process.env.NODE_ENV === 'production';
@@ -46,9 +47,9 @@ const connectionConfig = {
 export let pool: Pool;
 
 // Configurar Timezone Global
-const setLocalTimezone = (client: any) => {
+const setLocalTimezone = (client: PoolClient) => {
     client.query("SET TIME ZONE 'America/Santiago'")
-        .catch((err: any) => console.error('❌ Error setting timezone to Chile:', err.message));
+        .catch((err: Error) => console.error('❌ Error setting timezone to Chile:', err.message));
 };
 
 if (isProduction) {
@@ -76,11 +77,11 @@ if (isProduction) {
             newPool.on('error', (err: any) => console.error('🔥 [DB] Unexpected error on idle client:', err.message));
 
             newPool.connect()
-                .then((client: any) => {
+                .then((client: PoolClient) => {
                     console.log('✅ [DB] Connected successfully to:', dbUrl.split('@')[1] || 'DB');
                     client.release();
                 })
-                .catch((err: any) => {
+                .catch((err: Error) => {
                     console.error('❌ [DB] FATAL: Could not connect:', err.message);
                 });
 
@@ -98,7 +99,7 @@ declare global {
 }
 
 // Función Query Exportada con Reintentos
-export async function query(text: string, params?: any[]) {
+export async function query(text: string, params?: (string | number | boolean | Date | null | undefined)[]) {
     const MAX_RETRIES = 3;
     const RETRY_DELAY = 1500;
     const start = Date.now();
@@ -155,7 +156,7 @@ export async function getClient() {
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
             const client = await pool.connect();
-            return client;
+            return client as PoolClient;
         } catch (error: any) {
             const isLastAttempt = attempt === MAX_RETRIES;
             const isTransient = error.code === 'ECONNRESET' || error.code === 'ECONNREFUSED' || error.message?.includes('aborted');

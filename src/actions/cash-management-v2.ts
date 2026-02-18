@@ -127,7 +127,7 @@ export interface CashMovementView {
     customer_rut?: string;
     status?: string;
     // Extended properties for frontend compatibility
-    items?: any[];
+    items?: Record<string, unknown>[];
     queueTicket?: { number: string };
     authorized_by_name?: string;
     total?: number;
@@ -725,8 +725,8 @@ export async function closeCashDrawerSystem(
                 metadata: { sessionId: session.id, terminalId, reason },
                 locationId: (await client.query('SELECT location_id FROM terminals WHERE id = $1', [terminalId])).rows[0]?.location_id
             });
-        } catch (_notifError) {
-            // Notification failure is non-critical — session already closed
+        } catch (notifError) {
+            logger.warn({ notifError }, '[Cash] Failed to create auto-close notification');
         }
 
         revalidatePath('/caja');
