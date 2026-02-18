@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeftRight, ArrowRight, CheckCircle, ChevronDown, ChevronUp, Clock, DollarSign, MapPin, Package, RefreshCw, Truck } from 'lucide-react';
+import { ArrowLeftRight, ArrowRight, CheckCircle, Clock, DollarSign, MapPin, Package, RefreshCw, Truck, TrendingUp } from 'lucide-react';
 import { getTransferHistorySecure } from '@/actions/procurement-v2';
 import TransferExecutionModal from './TransferExecutionModal';
 import { toast } from 'sonner';
@@ -41,20 +41,21 @@ interface TransferSuggestionsPanelProps {
     targetLocationId: string;
     targetLocationName: string;
     onTransferComplete: () => void;
+    onGoBack?: () => void;
 }
 
 const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
     suggestions,
     targetLocationId,
     targetLocationName,
-    onTransferComplete
+    onTransferComplete,
+    onGoBack
 }) => {
     const [selectedSkus, setSelectedSkus] = useState<Set<string>>(new Set());
     const [selectedSources, setSelectedSources] = useState<Record<string, string>>({});
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalItems, setModalItems] = useState<any[]>([]);
     const [history, setHistory] = useState<TransferHistoryItem[]>([]);
-    const [isHistoryOpen, setIsHistoryOpen] = useState(false);
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
     // Auto-select best source (most stock) for each suggestion
@@ -67,6 +68,8 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
             }
         });
         setSelectedSources(defaults);
+        // Load history automatically when component mounts
+        loadHistory();
     }, [suggestions]);
 
     const loadHistory = async () => {
@@ -75,19 +78,14 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
             const result = await getTransferHistorySecure({ locationId: targetLocationId, limit: 30 });
             if (result.success && result.data) {
                 setHistory(result.data as unknown as TransferHistoryItem[]);
+            } else if (!result.success) {
+                toast.error(result.error || 'Error cargando historial');
             }
         } catch {
             toast.error('Error cargando historial');
         } finally {
             setIsLoadingHistory(false);
         }
-    };
-
-    const toggleHistory = () => {
-        if (!isHistoryOpen && history.length === 0) {
-            loadHistory();
-        }
-        setIsHistoryOpen(!isHistoryOpen);
     };
 
     const getSelectedSource = (sku: string): TransferSource | undefined => {
@@ -103,6 +101,10 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
             return;
         }
         const transferQty = Math.min(suggestion.suggested_order_qty, source.available_qty);
+        if (transferQty <= 0) {
+            toast.error('La cantidad a traspasar debe ser mayor a 0');
+            return;
+        }
         setModalItems([{
             sku: suggestion.sku,
             product_name: suggestion.product_name,
@@ -118,11 +120,12 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
             .filter(s => selectedSkus.has(s.sku))
             .map(s => {
                 const source = getSelectedSource(s.sku);
-                if (!source) return null;
+                const qty = Math.min(s.suggested_order_qty, source?.available_qty || 0);
+                if (!source || qty <= 0) return null;
                 return {
                     sku: s.sku,
                     product_name: s.product_name,
-                    quantity: Math.min(s.suggested_order_qty, source.available_qty),
+                    quantity: qty,
                     source_location_id: source.location_id,
                     source_location_name: source.location_name
                 };
@@ -191,6 +194,54 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
                 </div>
             </div>
 
+            {/* Transfer History - Always visible on top */}
+            <div className="border-b border-slate-200 bg-slate-50/50">
+                <div className="w-full flex items-center justify-between px-4 py-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    <div className="flex items-center gap-2">
+                        <Clock size={14} className="text-slate-400" />
+                        Historial Reciente
+                        {history.length > 0 && (
+                            <span className="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full text-[9px]">{history.length}</span>
+                        )}
+                    </div>
+                </div>
+
+                <div className="max-h-52 overflow-y-auto px-4 pb-3">
+                    {isLoadingHistory ? (
+                        <div className="flex items-center justify-center gap-2 py-4 text-slate-400">
+                            <RefreshCw size={14} className="animate-spin" />
+                            <span className="text-xs">Cargando...</span>
+                        </div>
+                    ) : history.length === 0 ? (
+                        <div className="text-center py-4 bg-white/50 rounded-xl border border-dashed border-slate-200">
+                            <p className="text-xs text-slate-400">No hay traspasos registrados recientemente</p>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {history.map((h, i) => (
+                                <div key={`${h.transfer_id}-${h.sku}-${i}`} className="bg-white rounded-xl p-3 border border-slate-100 flex items-center gap-3 text-xs shadow-sm hover:border-emerald-200 transition-colors">
+                                    <div className="p-1.5 bg-emerald-50 rounded-lg shrink-0">
+                                        <CheckCircle size={14} className="text-emerald-500" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="font-bold text-slate-800 truncate">{h.product_name}</div>
+                                        <div className="flex items-center gap-1.5 text-[10px] text-slate-500 mt-0.5">
+                                            <span className="font-bold text-blue-600">{h.from_location_name}</span>
+                                            <ArrowRight size={10} className="text-slate-300" />
+                                            <span className="font-bold text-emerald-600">{h.to_location_name}</span>
+                                        </div>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                        <div className="font-black text-emerald-700">{h.quantity}u</div>
+                                        <div className="text-[9px] text-slate-400 font-medium">{formatDate(h.executed_at)}</div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+
             {/* Suggestions Table */}
             <div className="flex-1 overflow-y-auto">
                 {suggestions.length === 0 ? (
@@ -200,7 +251,16 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
                         </div>
                         <div className="text-center">
                             <p className="text-lg font-bold text-slate-600">Sin traspasos sugeridos</p>
-                            <p className="text-sm">Ejecute el análisis para detectar oportunidades de traspaso entre sucursales</p>
+                            <p className="text-sm mb-4">Ejecute el análisis para detectar oportunidades de traspaso entre sucursales</p>
+                            {onGoBack && (
+                                <button
+                                    onClick={onGoBack}
+                                    className="px-6 py-2.5 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition flex items-center gap-2 mx-auto"
+                                >
+                                    <TrendingUp size={16} />
+                                    Volver al Análisis
+                                </button>
+                            )}
                         </div>
                     </div>
                 ) : (
@@ -314,58 +374,6 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
                             })}
                         </tbody>
                     </table>
-                )}
-            </div>
-
-            {/* Transfer History (Collapsible) */}
-            <div className="border-t border-slate-200 bg-slate-50">
-                <button
-                    onClick={toggleHistory}
-                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-100 transition text-sm font-bold text-slate-600"
-                >
-                    <div className="flex items-center gap-2">
-                        <Clock size={16} className="text-slate-400" />
-                        Historial de Traspasos
-                        {history.length > 0 && (
-                            <span className="text-[10px] bg-slate-200 px-1.5 py-0.5 rounded-full">{history.length}</span>
-                        )}
-                    </div>
-                    {isHistoryOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                </button>
-
-                {isHistoryOpen && (
-                    <div className="max-h-64 overflow-y-auto px-4 pb-4">
-                        {isLoadingHistory ? (
-                            <div className="flex items-center justify-center gap-2 py-6 text-slate-400">
-                                <RefreshCw size={16} className="animate-spin" />
-                                <span className="text-sm">Cargando historial...</span>
-                            </div>
-                        ) : history.length === 0 ? (
-                            <p className="text-sm text-slate-400 text-center py-4">Sin traspasos registrados</p>
-                        ) : (
-                            <div className="space-y-2">
-                                {history.map((h, i) => (
-                                    <div key={`${h.transfer_id}-${h.sku}-${i}`} className="bg-white rounded-xl p-3 border border-slate-200 flex items-center gap-3 text-sm">
-                                        <div className="p-1.5 bg-emerald-50 rounded-lg">
-                                            <CheckCircle size={14} className="text-emerald-500" />
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="font-medium text-slate-800 line-clamp-1">{h.product_name}</div>
-                                            <div className="flex items-center gap-1.5 text-[11px] text-slate-400 mt-0.5">
-                                                <span className="font-bold text-blue-600">{h.from_location_name}</span>
-                                                <ArrowRight size={10} />
-                                                <span className="font-bold text-emerald-600">{h.to_location_name}</span>
-                                            </div>
-                                        </div>
-                                        <div className="text-right flex-shrink-0">
-                                            <div className="font-bold text-emerald-700">{h.quantity}u</div>
-                                            <div className="text-[10px] text-slate-400">{formatDate(h.executed_at)}</div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
                 )}
             </div>
 
