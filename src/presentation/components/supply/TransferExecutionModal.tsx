@@ -28,10 +28,17 @@ const TransferExecutionModal: React.FC<TransferExecutionModalProps> = ({
     targetLocationName,
     onSuccess
 }) => {
+    const [editableItems, setEditableItems] = useState<TransferItem[]>(items);
     const [pin, setPin] = useState('');
     const [reason, setReason] = useState('Traspaso sugerido por Motor MRP');
     const [isExecuting, setIsExecuting] = useState(false);
-    const [editableItems, setEditableItems] = useState<TransferItem[]>(items);
+
+    // Update editable items when props change (re-opening modal with different selection)
+    React.useEffect(() => {
+        setEditableItems(items);
+        setPin(''); // Reset PIN for security
+        setIsExecuting(false);
+    }, [items, isOpen]);
 
     // Group items by source location
     const groupedBySource = editableItems.reduce((acc, item) => {

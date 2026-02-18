@@ -1060,21 +1060,29 @@ export async function generateRestockSuggestionSecure(
             ),
             GlobalStockDetail AS (
                 SELECT 
-                    ib.product_id,
-                    SUM(ib.quantity_real) as global_stock,
+                    product_id,
+                    SUM(location_total) as global_stock,
                     jsonb_agg(jsonb_build_object(
-                        'location_id', w.location_id,
-                        'location_name', l.name,
-                        'warehouse_id', w.id,
-                        'available_qty', ib.quantity_real
+                        'location_id', location_id,
+                        'location_name', location_name,
+                        'available_qty', location_total
                     )) as stock_by_location
-                FROM inventory_batches ib
-                JOIN warehouses w ON ib.warehouse_id = w.id
-                JOIN locations l ON w.location_id = l.id
-                WHERE ib.quantity_real > 0
-                -- Exclude current location to find "Other" stock
-                ${locationId ? `AND ib.warehouse_id NOT IN (SELECT id FROM warehouses WHERE location_id = $${paramIndex - 1}::uuid)` : ''}
-                GROUP BY ib.product_id
+                FROM (
+                    SELECT 
+                        ib.product_id,
+                        w.location_id,
+                        l.name as location_name,
+                        SUM(ib.quantity_real) as location_total
+                    FROM inventory_batches ib
+                    JOIN warehouses w ON ib.warehouse_id = w.id
+                    JOIN locations l ON w.location_id = l.id
+                    WHERE ib.quantity_real > 0
+                    AND ib.status = 'AVAILABLE'
+                    -- Exclude current location to find "Other" stock
+                    ${locationId ? `AND w.location_id != $${paramIndex - 1}::uuid` : ''}
+                    GROUP BY ib.product_id, w.location_id, l.name
+                ) sub
+                GROUP BY product_id
             )
             SELECT 
                 tp.product_id,
@@ -1235,6 +1243,13 @@ export async function generateRestockSuggestionSecure(
                 } catch (err) {
                     console.warn('AI Forecast skipped for item:', row.sku);
                 }
+            }
+            // 🛑 COST OPTIMIZATION OVERRIDE
+            // Even if AI suggests PURCHASE, if we have enough Global Stock, we MUST TRANSFER.
+            // Internal stock transfer is free/cheaper than buying new stock.
+            if (suggested > 0 && globalStock >= suggested && locationId) {
+                aiAction = 'TRANSFER';
+                reason = `📦 TRASPASO PRIORITARIO: Stock global suficiente (${globalStock}u). Ahorro de compra detectado.`;
             }
 
             // Determine urgency based on stockout days

@@ -652,98 +652,94 @@ export async function transferStockBetweenLocationsSecure(
 
         // Process each item
         for (const item of items) {
-            // Get source batch
-            const batchRes = await client.query(`
+            let remainingToTransfer = item.quantity;
+
+            // Get all available batches for this SKU at source, ordered by expiry (FEFO)
+            const batchesRes = await client.query(`
                 SELECT id, sku, name, quantity_real, product_id, 
                        expiry_date, lot_number, unit_cost, sale_price
                 FROM inventory_batches 
-                WHERE location_id = $1 AND sku = $2 AND quantity_real >= $3
-                FOR UPDATE NOWAIT
-            `, [sourceLocationId, item.sku, item.quantity]);
+                WHERE location_id = $1 AND sku = $2 AND quantity_real > 0 AND status = 'AVAILABLE'
+                ORDER BY expiry_date ASC NULLS LAST
+                FOR UPDATE
+            `, [sourceLocationId, item.sku]);
 
-            if (batchRes.rows.length === 0) {
+            const totalAvailable = batchesRes.rows.reduce((sum, b) => sum + Number(b.quantity_real), 0);
+            if (totalAvailable < item.quantity) {
                 await client.query('ROLLBACK');
-                return { success: false, error: `Stock insuficiente para SKU: ${item.sku}` };
+                client.release();
+                return { success: false, error: `Stock total insuficiente para SKU ${item.sku} en origen (${totalAvailable} < ${item.quantity})` };
             }
 
-            const sourceBatch = batchRes.rows[0];
-            const newSourceQuantity = Number(sourceBatch.quantity_real) - item.quantity;
+            for (const sourceBatch of batchesRes.rows) {
+                if (remainingToTransfer <= 0) break;
 
-            // Decrement source
-            await client.query(`
-                UPDATE inventory_batches 
-                SET quantity_real = $2, updated_at = NOW()
-                WHERE id = $1
-            `, [sourceBatch.id, newSourceQuantity]);
+                const qtyFromThisBatch = Math.min(remainingToTransfer, Number(sourceBatch.quantity_real));
+                const newSourceQuantity = Number(sourceBatch.quantity_real) - qtyFromThisBatch;
 
-            // Find or create target batch
-            const targetBatchRes = await client.query(`
-                SELECT id, quantity_real FROM inventory_batches 
-                WHERE location_id = $1 AND sku = $2 AND lot_number = $3
-                FOR UPDATE NOWAIT
-            `, [targetLocationId, item.sku, sourceBatch.lot_number]);
-
-            if (targetBatchRes.rows.length > 0) {
-                // Increment existing
-                const targetBatch = targetBatchRes.rows[0];
+                // Decrement source batch
                 await client.query(`
                     UPDATE inventory_batches 
-                    SET quantity_real = quantity_real + $2, updated_at = NOW()
+                    SET quantity_real = $2, updated_at = NOW()
                     WHERE id = $1
-                `, [targetBatch.id, item.quantity]);
-            } else {
-                // Create new batch
-                const newBatchId = uuidv4();
+                `, [sourceBatch.id, newSourceQuantity]);
+
+                // Find or create target batch (matching lot_number if exists)
+                const targetBatchRes = await client.query(`
+                    SELECT id, quantity_real FROM inventory_batches 
+                    WHERE location_id = $1 AND sku = $2 AND COALESCE(lot_number, '') = COALESCE($3, '')
+                    FOR UPDATE
+                `, [targetLocationId, item.sku, sourceBatch.lot_number]);
+
+                let targetStockBefore = 0;
+                let targetStockAfter = qtyFromThisBatch;
+
+                if (targetBatchRes.rows.length > 0) {
+                    const targetBatch = targetBatchRes.rows[0];
+                    targetStockBefore = Number(targetBatch.quantity_real);
+                    targetStockAfter = targetStockBefore + qtyFromThisBatch;
+
+                    await client.query(`
+                        UPDATE inventory_batches 
+                        SET quantity_real = quantity_real + $2, updated_at = NOW()
+                        WHERE id = $1
+                    `, [targetBatch.id, qtyFromThisBatch]);
+                } else {
+                    const newBatchId = uuidv4();
+                    await client.query(`
+                        INSERT INTO inventory_batches (
+                            id, sku, name, product_id, location_id,
+                            quantity_real, expiry_date, lot_number,
+                            unit_cost, sale_price, created_at, status
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), 'AVAILABLE')
+                    `, [
+                        newBatchId, sourceBatch.sku, sourceBatch.name, sourceBatch.product_id,
+                        targetLocationId, qtyFromThisBatch, sourceBatch.expiry_date,
+                        sourceBatch.lot_number, sourceBatch.unit_cost, sourceBatch.sale_price
+                    ]);
+                }
+
+                // Record movement for THIS batch part
                 await client.query(`
-                    INSERT INTO inventory_batches (
-                        id, sku, name, product_id, location_id,
-                        quantity_real, expiry_date, lot_number,
-                        unit_cost, sale_price, created_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+                    INSERT INTO stock_movements (
+                        id, sku, product_name, location_id, movement_type,
+                        quantity, stock_before, stock_after,
+                        timestamp, user_id, notes, reference_type, reference_id
+                    ) VALUES 
+                        (uuid_generate_v4(), $1, $2, $3, 'TRANSFER_OUT', $4, $5, $6, NOW(), $7, $8, 'LOCATION_TRANSFER', $9),
+                        (uuid_generate_v4(), $1, $2, $10, 'TRANSFER_IN', $11, $12, $13, NOW(), $7, $8, 'LOCATION_TRANSFER', $9)
                 `, [
-                    newBatchId,
-                    sourceBatch.sku,
-                    sourceBatch.name,
-                    sourceBatch.product_id,
-                    targetLocationId,
-                    item.quantity,
-                    sourceBatch.expiry_date,
-                    sourceBatch.lot_number,
-                    sourceBatch.unit_cost,
-                    sourceBatch.sale_price
+                    item.sku, sourceBatch.name, sourceLocationId, -qtyFromThisBatch,
+                    sourceBatch.quantity_real, newSourceQuantity, authResult.manager!.id,
+                    reason, transferId, targetLocationId, qtyFromThisBatch,
+                    targetStockBefore, targetStockAfter
                 ]);
+
+                remainingToTransfer -= qtyFromThisBatch;
             }
-
-            // Record movement
-            const outMovementId = uuidv4();
-            const inMovementId = uuidv4();
-
-            await client.query(`
-                INSERT INTO stock_movements (
-                    id, sku, product_name, location_id, movement_type,
-                    quantity, stock_before, stock_after,
-                    timestamp, user_id, notes, reference_type, reference_id
-                ) VALUES 
-                    ($1, $2, $3, $4, 'TRANSFER_OUT', $5, $6, $7, NOW(), $8, $9, 'LOCATION_TRANSFER', $10),
-                    ($11, $2, $3, $12, 'TRANSFER_IN', $5, 0, $5, NOW(), $8, $9, 'LOCATION_TRANSFER', $10)
-            `, [
-                outMovementId,
-                item.sku,
-                sourceBatch.name,
-                sourceLocationId,
-                -item.quantity,
-                sourceBatch.quantity_real,
-                newSourceQuantity,
-                authResult.manager!.id,
-                reason,
-                transferId,
-                inMovementId,
-                targetLocationId
-            ]);
 
             transferredItems.push({
                 sku: item.sku,
-                name: sourceBatch.name,
                 quantity: item.quantity
             });
         }
