@@ -8,42 +8,45 @@
  */
 
 import { query } from '@/lib/db';
-import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
 import { ExcelService } from '@/lib/excel-generator';
+import { formatDateTimeCL, formatDateCL } from '@/lib/timezone';
+import { getSessionSecure } from './auth-v2';
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
 
 const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
 const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'];
 
-async function getSession(): Promise<{ userId: string; role: string; locationId?: string; userName?: string } | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        const locationId = headersList.get('x-user-location');
-        const userName = headersList.get('x-user-name');
-        if (!userId || !role) return null;
-        return { userId, role, locationId: locationId || undefined, userName: userName || undefined };
-    } catch { return null; }
-}
+// ============================================================================
+// HELPERS
+// ============================================================================
 
 async function auditExport(userId: string, exportType: string, params: any): Promise<void> {
     try {
-        await query(`INSERT INTO audit_log (user_id, action_code, entity_type, new_values, created_at)
-            VALUES ($1, 'EXPORT', 'POS', $2::jsonb, NOW())`, [userId, JSON.stringify({ export_type: exportType, ...params })]);
+        await query(`
+            INSERT INTO audit_log (user_id, action_code, entity_type, new_values, created_at)
+            VALUES ($1, 'EXPORT', 'POS', $2::jsonb, NOW())
+        `, [userId, JSON.stringify({ export_type: exportType, ...params })]);
     } catch { }
 }
 
+// ============================================================================
+// EXPORT POS HISTORY
+// ============================================================================
+
 /**
- * 🧾 Exportar Historial POS (RBAC)
+ * 🧾 Historial de Ventas POS (MANAGER+)
  */
 export async function exportSalesHistorySecure(
     params: { startDate: string; endDate: string; locationId?: string; paymentMethod?: string; searchTerm?: string }
 ): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session) return { success: false, error: 'No autenticado' };
+    if (!MANAGER_ROLES.includes(session.role)) return { success: false, error: 'Acceso denegado' };
 
-    // RBAC
     let locationId = params.locationId;
     if (!ADMIN_ROLES.includes(session.role) && session.locationId) {
         locationId = session.locationId;
@@ -54,21 +57,18 @@ export async function exportSalesHistorySecure(
         let whereClause = 'WHERE s.timestamp >= $1::timestamp AND s.timestamp <= $2::timestamp';
         let paramIndex = 3;
 
-        // Location Filter
         if (locationId && locationId !== 'ALL') {
             whereClause += ` AND s.location_id = $${paramIndex}::uuid`;
             sqlParams.push(locationId);
             paramIndex++;
         }
 
-        // Payment Method Filter
         if (params.paymentMethod && params.paymentMethod !== 'ALL') {
             whereClause += ` AND s.payment_method = $${paramIndex}`;
             sqlParams.push(params.paymentMethod);
             paramIndex++;
         }
 
-        // Search Term Filter
         if (params.searchTerm) {
             whereClause += ` AND (
                 s.id::text ILIKE $${paramIndex} OR 
@@ -82,7 +82,7 @@ export async function exportSalesHistorySecure(
 
         const res = await query(`
             SELECT s.id, s.timestamp, s.total_amount, s.payment_method, s.dte_folio,
-                   l.name as branch_name, u.name as seller_name, s.customer_name
+                   l.name as branch_name, u.name as seller_name
             FROM sales s
             LEFT JOIN locations l ON s.location_id = l.id
             LEFT JOIN users u ON s.user_id = u.id
@@ -92,7 +92,7 @@ export async function exportSalesHistorySecure(
 
         const data = res.rows.map((row: any) => ({
             id: row.id,
-            date: new Date(row.timestamp).toLocaleString('es-CL'),
+            date: formatDateTimeCL(row.timestamp),
             branch: row.branch_name || '-',
             seller: row.seller_name || '-',
             method: row.payment_method,
@@ -102,29 +102,28 @@ export async function exportSalesHistorySecure(
 
         const excel = new ExcelService();
         const buffer = await excel.generateReport({
-            title: 'Historial de Ventas POS',
-            subtitle: `${new Date(params.startDate).toLocaleDateString()} - ${new Date(params.endDate).toLocaleDateString()}`,
+            title: 'Control de Ventas POS - Farmacias Vallenar',
+            subtitle: `Filtrado desde: ${formatDateCL(params.startDate)} hasta: ${formatDateCL(params.endDate)}`,
             sheetName: 'Ventas',
             creator: session.userName,
             columns: [
-                { header: 'ID', key: 'id', width: 25 },
-                { header: 'Fecha', key: 'date', width: 20 },
-                { header: 'Sucursal', key: 'branch', width: 20 },
-                { header: 'Vendedor', key: 'seller', width: 20 },
+                { header: 'ID Venta', key: 'id', width: 30 },
+                { header: 'Fecha y Hora', key: 'date', width: 22 },
+                { header: 'Sucursal/Punto de Venta', key: 'branch', width: 25 },
+                { header: 'Vendedor Responsable', key: 'seller', width: 25 },
                 { header: 'Medio Pago', key: 'method', width: 15 },
-                { header: 'DTE', key: 'dte', width: 15 },
-                { header: 'Total', key: 'total', width: 15 },
+                { header: 'Folio DTE', key: 'dte', width: 15 },
+                { header: 'Monto Total ($)', key: 'total', width: 18 },
             ],
             data,
         });
 
         await auditExport(session.userId, 'POS_HISTORY', { ...params, rows: res.rowCount });
-        logger.info({ userId: session.userId }, '🧾 [Export] POS history');
-
-        return { success: true, data: buffer.toString('base64'), filename: `POS_${params.startDate.split('T')[0]}.xlsx` };
+        return { success: true, data: buffer.toString('base64'), filename: `POS_Ventas_${params.startDate.split('T')[0]}.xlsx` };
 
     } catch (error: any) {
-        logger.error({ error }, '[Export] POS error');
-        return { success: false, error: 'Error generando reporte' };
+        logger.error({ error }, '[Export] POS history error');
+        return { success: false, error: 'Error exportando historial POS' };
     }
 }
+

@@ -8,24 +8,12 @@
  */
 
 import { query } from '@/lib/db';
-import { headers } from 'next/headers';
+import { getSessionSecure } from './auth-v2';
 import { logger } from '@/lib/logger';
 import { ExcelService } from '@/lib/excel-generator';
 
 const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
 const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
-
-async function getSession(): Promise<{ userId: string; role: string; locationId?: string; userName?: string } | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        const locationId = headersList.get('x-user-location');
-        const userName = headersList.get('x-user-name');
-        if (!userId || !role) return null;
-        return { userId, role, locationId: locationId || undefined, userName: userName || undefined };
-    } catch { return null; }
-}
 
 async function auditExport(userId: string, params: any): Promise<void> {
     try {
@@ -40,7 +28,7 @@ async function auditExport(userId: string, params: any): Promise<void> {
 export async function exportQueueReportSecure(
     params: { startDate: string; endDate: string; locationId?: string }
 ): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session) return { success: false, error: 'No autenticado' };
 
     if (!MANAGER_ROLES.includes(session.role)) {
@@ -83,7 +71,7 @@ export async function exportQueueReportSecure(
 
         const excel = new ExcelService();
         const buffer = await excel.generateReport({
-            title: 'Reporte de Flujo de Atención',
+            title: 'Reporte de Flujo de Atención - Farmacias Vallenar',
             subtitle: `${new Date(params.startDate).toLocaleDateString()} - ${new Date(params.endDate).toLocaleDateString()}`,
             sheetName: 'Filas',
             creator: session.userName,

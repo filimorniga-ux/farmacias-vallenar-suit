@@ -391,8 +391,8 @@ export async function fetchLocationsSecure(): Promise<{
         let sql = 'SELECT * FROM locations WHERE is_active = true';
         const params: any[] = [];
 
-        // Si no es ADMIN/GERENTE, solo ver ubicación asignada
-        if (!['ADMIN', 'GERENTE_GENERAL'].includes(session.role) && session.locationId) {
+        // Si no es ADMIN/GERENTE/MANAGER, solo ver ubicación asignada
+        if (!['ADMIN', 'GERENTE_GENERAL', 'MANAGER'].includes(session.role) && session.locationId) {
             sql += ' AND id = $1';
             params.push(session.locationId);
         }

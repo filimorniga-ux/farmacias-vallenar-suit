@@ -14,10 +14,9 @@
 
 import { pool, query } from '@/lib/db';
 import { z } from 'zod';
-import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
 import { ExcelService } from '@/lib/excel-generator';
-import bcrypt from 'bcryptjs';
+import { formatDateTimeCL, formatDateCL, formatTimeCL } from '@/lib/timezone';
 import { getSessionSecure } from './auth-v2';
 
 // Importar versiones SEGURAS
@@ -34,8 +33,6 @@ const ACCOUNTING_ROLES = ['CONTADOR', 'ADMIN', 'GERENTE_GENERAL', 'MANAGER'];
 // ============================================================================
 // HELPERS
 // ============================================================================
-
-
 
 async function auditExport(userId: string, exportType: string, params: any): Promise<void> {
     try {
@@ -57,13 +54,8 @@ export async function exportCashFlowSecure(
     params: { startDate: string; endDate: string; locationId?: string }
 ): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
     const session = await getSessionSecure();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
-    }
-
-    if (!MANAGER_ROLES.includes(session.role)) {
-        return { success: false, error: 'Solo managers pueden exportar flujo de caja' };
-    }
+    if (!session) return { success: false, error: 'No autenticado' };
+    if (!MANAGER_ROLES.includes(session.role)) return { success: false, error: 'Acceso denegado' };
 
     try {
         const flowResult = await getCashFlowLedgerSecure(params);
@@ -72,7 +64,7 @@ export async function exportCashFlowSecure(
         }
 
         const data = flowResult.data.map(row => ({
-            date: new Date(row.timestamp).toLocaleString('es-CL'),
+            date: formatDateTimeCL(row.timestamp),
             desc: row.description,
             cat: row.category,
             user: row.user_name || 'Sistema',
@@ -82,29 +74,23 @@ export async function exportCashFlowSecure(
 
         const excel = new ExcelService();
         const buffer = await excel.generateReport({
-            title: 'Flujo de Caja Detallado',
-            subtitle: `Período: ${new Date(params.startDate).toLocaleDateString()} - ${new Date(params.endDate).toLocaleDateString()}`,
+            title: 'Libro Auxiliar de Flujo de Caja - Farmacias Vallenar',
+            subtitle: `Período: ${formatDateCL(params.startDate)} - ${formatDateCL(params.endDate)}`,
             sheetName: 'Movimientos',
             creator: session.userName,
             columns: [
-                { header: 'Fecha', key: 'date', width: 20 },
-                { header: 'Descripción', key: 'desc', width: 40 },
-                { header: 'Categoría', key: 'cat', width: 15 },
+                { header: 'Fecha y Hora', key: 'date', width: 22 },
+                { header: 'Descripción del Movimiento', key: 'desc', width: 45 },
+                { header: 'Categoría', key: 'cat', width: 18 },
                 { header: 'Responsable', key: 'user', width: 20 },
-                { header: 'Entrada ($)', key: 'in', width: 15 },
-                { header: 'Salida ($)', key: 'out', width: 15 },
+                { header: 'Ingreso ($)', key: 'in', width: 15 },
+                { header: 'Egreso ($)', key: 'out', width: 15 },
             ],
             data,
         });
 
         await auditExport(session.userId, 'CASH_FLOW', { ...params, rows: data.length });
-
-        logger.info({ userId: session.userId }, '💰 [Export] Cash flow exported');
-        return {
-            success: true,
-            data: buffer.toString('base64'),
-            filename: `FlujoCaja_${params.startDate.split('T')[0]}.xlsx`,
-        };
+        return { success: true, data: buffer.toString('base64'), filename: `FlujoCaja_${params.startDate.split('T')[0]}.xlsx` };
 
     } catch (error: any) {
         logger.error({ error }, '[Export] Cash flow error');
@@ -123,13 +109,8 @@ export async function exportTaxSummarySecure(
     month?: string
 ): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
     const session = await getSessionSecure();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
-    }
-
-    if (!ACCOUNTING_ROLES.includes(session.role)) {
-        return { success: false, error: 'Solo contadores y administradores' };
-    }
+    if (!session) return { success: false, error: 'No autenticado' };
+    if (!ACCOUNTING_ROLES.includes(session.role)) return { success: false, error: 'Acceso denegado' };
 
     try {
         const taxResult = await getTaxSummarySecure(month);
@@ -139,35 +120,29 @@ export async function exportTaxSummarySecure(
 
         const taxData = taxResult.data;
         const data = [
-            { concept: 'Ventas Netas', value: taxData.total_net_sales, detail: 'Base Imponible' },
-            { concept: 'IVA Débito (Ventas)', value: taxData.total_vat_debit, detail: 'Impuesto Recaudado' },
-            { concept: 'Compras Netas', value: taxData.total_net_purchases, detail: 'Base Imponible' },
-            { concept: 'IVA Crédito (Compras)', value: taxData.total_vat_credit, detail: 'Impuesto Soportado' },
-            { concept: 'IMPUESTO A PAGAR', value: taxData.estimated_tax_payment, detail: 'Débito - Crédito' },
+            { concept: 'Ventas Netas Totales', value: taxData.total_net_sales, detail: 'Base Imponible Ventas' },
+            { concept: 'IVA Débito Fiscal (19%)', value: taxData.total_vat_debit, detail: 'Impuesto por Ventas' },
+            { concept: 'Compras Netas Totales', value: taxData.total_net_purchases, detail: 'Base Imponible Compras' },
+            { concept: 'IVA Crédito Fiscal (19%)', value: taxData.total_vat_credit, detail: 'Impuesto Soportado' },
+            { concept: 'ESTIMADO F29 A PAGAR', value: taxData.estimated_tax_payment, detail: 'Débito - Crédito' },
         ];
 
         const excel = new ExcelService();
         const buffer = await excel.generateReport({
-            title: 'Resumen Tributario (Simulación F29)',
-            subtitle: `Período: ${taxData.period}`,
+            title: 'Resumen Tributario Consolidado - Farmacias Vallenar',
+            subtitle: `Período Fiscal: ${taxData.period}`,
             sheetName: 'Impuestos',
             creator: session.userName,
             columns: [
-                { header: 'Concepto', key: 'concept', width: 30 },
-                { header: 'Monto ($)', key: 'value', width: 20 },
-                { header: 'Detalle', key: 'detail', width: 30 },
+                { header: 'Concepto Tributario', key: 'concept', width: 35 },
+                { header: 'Monto Acumulado ($)', key: 'value', width: 25 },
+                { header: 'Observaciones / Detalle', key: 'detail', width: 35 },
             ],
             data,
         });
 
         await auditExport(session.userId, 'TAX_SUMMARY', { month });
-
-        return {
-            success: true,
-            data: buffer.toString('base64'),
-            filename: `Impuestos_${month || 'actual'}.xlsx`,
-        };
-
+        return { success: true, data: buffer.toString('base64'), filename: `Impuestos_${month || 'actual'}.xlsx` };
     } catch (error: any) {
         logger.error({ error }, '[Export] Tax summary error');
         return { success: false, error: 'Error exportando resumen tributario' };
@@ -175,11 +150,11 @@ export async function exportTaxSummarySecure(
 }
 
 // ============================================================================
-// EXPORT PAYROLL - REQUIERE PIN ADMIN
+// EXPORT PAYROLL
 // ============================================================================
 
 /**
- * 👥 Exportar Nómina (ADMIN + PIN OBLIGATORIO)
+ * 👥 Exportar Nómina (ADMIN + PIN)
  */
 export async function exportPayrollSecure(
     month: number,
@@ -187,20 +162,10 @@ export async function exportPayrollSecure(
     adminPin: string
 ): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
     const session = await getSessionSecure();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
-    }
-
-    if (!ADMIN_ROLES.includes(session.role)) {
-        return { success: false, error: 'Solo administradores pueden exportar nómina' };
-    }
-
-    if (!adminPin) {
-        return { success: false, error: 'Se requiere PIN de administrador para exportar datos de nómina' };
-    }
+    if (!session) return { success: false, error: 'No autenticado' };
+    if (!ADMIN_ROLES.includes(session.role)) return { success: false, error: 'Acceso denegado' };
 
     try {
-        // Usar la versión SEGURA con PIN
         const payrollResult = await getPayrollPreviewSecure(month, year, adminPin);
         if (!payrollResult.success || !payrollResult.data) {
             return { success: false, error: payrollResult.error || 'Error obteniendo datos' };
@@ -210,41 +175,32 @@ export async function exportPayrollSecure(
             rut: p.rut,
             name: p.name,
             role: p.job_title,
-            base: p.base_salary,
-            afp: p.deductions.afp,
-            health: p.deductions.health,
-            liquid: p.total_liquid,
+            base: Number(p.base_salary),
+            afp: Number(p.deductions.afp),
+            health: Number(p.deductions.health),
+            liquid: Number(p.total_liquid),
         }));
-
-        const totalLiquido = data.reduce((acc: number, curr: any) => acc + curr.liquid, 0);
 
         const excel = new ExcelService();
         const buffer = await excel.generateReport({
-            title: 'Pre-Nómina de Remuneraciones',
-            subtitle: `${month}/${year} | Total: $${totalLiquido.toLocaleString('es-CL')}`,
-            sheetName: 'Nomina',
+            title: 'Libro de Remuneraciones - Farmacias Vallenar',
+            subtitle: `Mes: ${month}/${year} | Nómina General Vallenar`,
+            sheetName: 'Remuneraciones',
             creator: session.userName,
             columns: [
-                { header: 'RUT', key: 'rut', width: 15 },
-                { header: 'Nombre', key: 'name', width: 30 },
+                { header: 'RUT Colaborador', key: 'rut', width: 15 },
+                { header: 'Nombre Completo', key: 'name', width: 35 },
                 { header: 'Cargo', key: 'role', width: 20 },
-                { header: 'Sueldo Base', key: 'base', width: 15 },
-                { header: 'AFP', key: 'afp', width: 12 },
-                { header: 'Salud', key: 'health', width: 12 },
-                { header: 'Líquido', key: 'liquid', width: 15 },
+                { header: 'Sueldo Base ($)', key: 'base', width: 15 },
+                { header: 'Dcto. AFP ($)', key: 'afp', width: 15 },
+                { header: 'Dcto. Salud ($)', key: 'health', width: 15 },
+                { header: 'Sueldo Líquido ($)', key: 'liquid', width: 18 },
             ],
             data,
         });
 
-        await auditExport(session.userId, 'PAYROLL', { month, year, employees: data.length });
-
-        logger.info({ userId: session.userId, month, year }, '👥 [Export] Payroll exported');
-        return {
-            success: true,
-            data: buffer.toString('base64'),
-            filename: `Nomina_${month}_${year}.xlsx`,
-        };
-
+        await auditExport(session.userId, 'PAYROLL', { month, year, rows: data.length });
+        return { success: true, data: buffer.toString('base64'), filename: `Remuneraciones_${month}_${year}.xlsx` };
     } catch (error: any) {
         logger.error({ error }, '[Export] Payroll error');
         return { success: false, error: 'Error exportando nómina' };
@@ -262,81 +218,67 @@ export async function exportAttendanceSecure(
     params: { startDate: string; endDate: string; locationId?: string }
 ): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
     const session = await getSessionSecure();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
-    }
+    if (!session) return { success: false, error: 'No autenticado' };
 
     const ALLOWED_ROLES = [...MANAGER_ROLES, 'RRHH'];
-    if (!ALLOWED_ROLES.includes(session.role)) {
-        return { success: false, error: 'Acceso denegado' };
-    }
+    if (!ALLOWED_ROLES.includes(session.role)) return { success: false, error: 'Acceso denegado' };
 
-    // Forzar ubicación para no-admin
     let locationId = params.locationId;
-    if (!ADMIN_ROLES.includes(session.role) && session.locationId) {
-        locationId = session.locationId;
-    }
+    if (!ADMIN_ROLES.includes(session.role) && session.locationId) locationId = session.locationId;
 
     try {
         const sqlParams: any[] = [params.startDate, params.endDate];
-        let locationFilter = '';
-        if (locationId) {
-            locationFilter = 'AND a.location_id = $3';
-            sqlParams.push(locationId);
-        }
+        let locFilter = '';
+        if (locationId) { locFilter = 'AND a.location_id = $3'; sqlParams.push(locationId); }
 
-        const sql = `
+        const res = await query(`
             WITH DailyStats AS (
                 SELECT user_id, DATE(timestamp) as work_date,
-                       MIN(timestamp) as first_in, MAX(timestamp) as last_out
+                       MIN(timestamp) as first_in, MAX(timestamp) as last_out,
+                       (SELECT name FROM locations WHERE id = a.location_id) as loc_name
                 FROM attendance_logs a
-                WHERE timestamp >= $1::timestamp AND timestamp <= $2::timestamp ${locationFilter}
-                GROUP BY user_id, DATE(timestamp)
+                WHERE timestamp >= $1::timestamp AND timestamp <= $2::timestamp ${locFilter}
+                GROUP BY user_id, DATE(timestamp), location_id
             )
-            SELECT ds.work_date, u.name, u.rut, u.job_title, ds.first_in, ds.last_out
+            SELECT ds.work_date, u.name, u.rut, u.job_title, ds.first_in, ds.last_out, ds.loc_name
             FROM users u
             JOIN DailyStats ds ON u.id = ds.user_id
             ORDER BY ds.work_date DESC, u.name
-        `;
-
-        const res = await query(sql, sqlParams);
+        `, sqlParams);
 
         const data = res.rows.map((row: any) => ({
-            date: row.work_date.toISOString().split('T')[0],
+            date: formatDateCL(row.work_date),
             name: row.name,
             rut: row.rut,
-            role: row.job_title || 'Empleado',
-            in: row.first_in ? new Date(row.first_in).toLocaleTimeString('es-CL') : '-',
-            out: row.last_out ? new Date(row.last_out).toLocaleTimeString('es-CL') : '-',
+            role: row.job_title || 'Colaborador',
+            branch: row.loc_name || '-',
+            in: row.first_in ? formatTimeCL(new Date(row.first_in)) : '-',
+            out: row.last_out ? formatTimeCL(new Date(row.last_out)) : '-',
         }));
 
         const excel = new ExcelService();
         const buffer = await excel.generateReport({
-            title: 'Reporte de Asistencia',
-            subtitle: `${new Date(params.startDate).toLocaleDateString()} - ${new Date(params.endDate).toLocaleDateString()}`,
+            title: 'Control de Asistencia de Personal - Farmacias Vallenar',
+            subtitle: `Período: ${formatDateCL(params.startDate)} al ${formatDateCL(params.endDate)}`,
             sheetName: 'Asistencia',
             creator: session.userName,
             columns: [
                 { header: 'Fecha', key: 'date', width: 12 },
-                { header: 'Nombre', key: 'name', width: 30 },
+                { header: 'Colaborador', key: 'name', width: 30 },
                 { header: 'RUT', key: 'rut', width: 15 },
                 { header: 'Cargo', key: 'role', width: 20 },
-                { header: 'Entrada', key: 'in', width: 10 },
-                { header: 'Salida', key: 'out', width: 10 },
+                { header: 'Sucursal', key: 'branch', width: 18 },
+                { header: 'Entrada', key: 'in', width: 12 },
+                { header: 'Salida', key: 'out', width: 12 },
             ],
             data,
         });
 
         await auditExport(session.userId, 'ATTENDANCE', { ...params, rows: data.length });
-
-        return {
-            success: true,
-            data: buffer.toString('base64'),
-            filename: `Asistencia_${params.startDate.split('T')[0]}.xlsx`,
-        };
-
+        return { success: true, data: buffer.toString('base64'), filename: `Asistencia_${params.startDate.split('T')[0]}.xlsx` };
     } catch (error: any) {
         logger.error({ error }, '[Export] Attendance error');
         return { success: false, error: 'Error exportando asistencia' };
     }
 }
+

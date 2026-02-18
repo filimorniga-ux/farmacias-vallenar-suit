@@ -16,10 +16,12 @@
 
 import { query } from '@/lib/db';
 import { z } from 'zod';
-import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
 import bcrypt from 'bcryptjs';
 import { checkRateLimit } from '@/lib/rate-limiter';
+import { getSessionSecure } from './auth-v2';
+import { ExcelService } from '@/lib/excel-generator';
+import { formatDateTimeCL, formatDateCL } from '@/lib/timezone';
 
 type QueryParam = string | number | boolean | Date | string[] | null | undefined;
 
@@ -59,16 +61,7 @@ const ACTION_SEVERITY_MAP: Record<string, 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
 // HELPERS
 // ============================================================================
 
-async function getSession(): Promise<{ userId: string; role: string; userName?: string } | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        const userName = headersList.get('x-user-name');
-        if (!userId || !role) return null;
-        return { userId, role, userName: userName || undefined };
-    } catch { return null; }
-}
+// getSession removed in favor of getSessionSecure
 
 function getSeverity(actionCode: string): 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' {
     return ACTION_SEVERITY_MAP[actionCode] || 'LOW';
@@ -123,7 +116,7 @@ export async function getAuditLogsSecure(params: z.infer<typeof GetAuditLogsSche
     totalPages?: number;
     error?: string;
 }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session) return { success: false, error: 'No autenticado' };
 
     if (!AUDIT_VIEWER_ROLES.includes(session.role)) {
@@ -226,7 +219,7 @@ export async function getAuditLogsSecure(params: z.infer<typeof GetAuditLogsSche
 // ============================================================================
 
 export async function getAuditActionTypesSecure(): Promise<{ success: boolean; data?: string[]; error?: string }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session || !AUDIT_VIEWER_ROLES.includes(session.role)) {
         return { success: false, error: 'Acceso denegado' };
     }
@@ -244,7 +237,7 @@ export async function getAuditActionTypesSecure(): Promise<{ success: boolean; d
 // ============================================================================
 
 export async function getAuditUsersSecure(): Promise<{ success: boolean; data?: Array<{ id: string; name: string }>; error?: string }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session || !AUDIT_VIEWER_ROLES.includes(session.role)) {
         return { success: false, error: 'Acceso denegado' };
     }
@@ -266,7 +259,7 @@ export async function getAuditStatsSecure(): Promise<{
     data?: { totalToday: number; criticalToday: number; topActions: Array<{ action: string; count: number }>; topUsers: Array<{ name: string; count: number }> };
     error?: string;
 }> {
-    const session = await getSession();
+    const session = await getSessionSecure();
     if (!session || !AUDIT_VIEWER_ROLES.includes(session.role)) {
         return { success: false, error: 'Acceso denegado' };
     }
@@ -297,17 +290,18 @@ export async function getAuditStatsSecure(): Promise<{
 // EXPORT LOGS (PIN ADMIN para >1000)
 // ============================================================================
 
+// Redundant imports removed
+
 /**
- * 📤 Exportar Logs (PIN ADMIN requerido para >1000 registros)
+ * 📤 Exportar Logs de Auditoría (MANAGER+)
  */
 export async function exportAuditLogsSecure(
     params: { startDate?: string; endDate?: string; actionCode?: string; userId?: string },
     adminPin?: string
-): Promise<{ success: boolean; data?: Array<Record<string, string | number>>; error?: string }> {
-    const session = await getSession();
-    if (!session || !AUDIT_VIEWER_ROLES.includes(session.role)) {
-        return { success: false, error: 'Acceso denegado' };
-    }
+): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
+    const session = await getSessionSecure();
+    if (!session) return { success: false, error: 'No autenticado' };
+    if (!AUDIT_VIEWER_ROLES.includes(session.role)) return { success: false, error: 'Acceso denegado' };
 
     try {
         const whereConditions: string[] = [];
@@ -325,31 +319,31 @@ export async function exportAuditLogsSecure(
         const countRes = await query(`SELECT COUNT(*) as total FROM audit_log al ${whereClause}`, queryParams);
         const total = Number(countRes.rows[0]?.total || 0);
 
-        // Si más de 1000, requiere PIN ADMIN
+        // RBAC & PIN: Si más de 500, requiere ser ADMIN. Si más de 1000, requiere PIN ADMIN.
+        if (total > 500 && !ADMIN_ROLES.includes(session.role)) {
+            return { success: false, error: 'Reportes masivos de auditoría (>500) reservados para administración' };
+        }
+
         if (total > 1000) {
-            if (!ADMIN_ROLES.includes(session.role)) {
-                return { success: false, error: 'Solo ADMIN puede exportar más de 1000 registros' };
-            }
             if (!adminPin) {
                 return { success: false, error: 'Se requiere PIN de administrador para exportar más de 1000 registros' };
             }
-
-            // Validar PIN
             const adminRes = await query(`SELECT access_pin FROM users WHERE id = $1`, [session.userId]);
-            if (!adminRes.rows[0]?.access_pin) {
-                return { success: false, error: 'PIN no configurado' };
-            }
-            const validPin = await bcrypt.compare(adminPin, adminRes.rows[0].access_pin);
-            if (!validPin) {
-                return { success: false, error: 'PIN incorrecto' };
+            if (!adminRes.rows[0]?.access_pin || !(await bcrypt.compare(adminPin, adminRes.rows[0].access_pin))) {
+                return { success: false, error: 'PIN de seguridad inválido' };
             }
         }
 
-        // Límite máximo 5000
         const res = await query(`
-            SELECT al.created_at as "Fecha", COALESCE(u.name, 'Sistema') as "Usuario", COALESCE(u.role, 'SYSTEM') as "Rol",
-                   COALESCE(l.name, '-') as "Sucursal", al.action_code as "Acción", COALESCE(al.entity_type, '-') as "Tipo",
-                   COALESCE(al.justification, '-') as "Justificación"
+            SELECT 
+                al.created_at as timestamp, 
+                COALESCE(u.name, 'SISTEMA') as user_name, 
+                COALESCE(u.role, '-') as user_role,
+                COALESCE(l.name, 'GLOBAL') as location_name, 
+                al.action_code, 
+                COALESCE(al.entity_type, '-') as entity_type,
+                COALESCE(al.justification, '-') as justification,
+                al.ip_address
             FROM audit_log al
             LEFT JOIN users u ON al.user_id::text = u.id::text
             LEFT JOIN locations l ON al.location_id::text = l.id::text
@@ -358,20 +352,40 @@ export async function exportAuditLogsSecure(
             LIMIT 5000
         `, queryParams);
 
-        const data = res.rows.map((row: Record<string, string>) => ({
-            ...row,
-            'Fecha': new Date(row['Fecha']).toLocaleString('es-CL'),
+        const data = res.rows.map((row: any) => ({
+            date: formatDateTimeCL(row.timestamp),
+            user: `${row.user_name} [${row.user_role}]`,
+            location: row.location_name,
+            action: row.action_code,
+            entity: row.entity_type,
+            ip: row.ip_address || '-',
+            notes: row.justification,
         }));
 
-        // Meta-auditoría
-        await metaAudit(session.userId, 'AUDIT_LOG_EXPORT', { rows: data.length, filters: params });
+        const excel = new ExcelService();
+        const buffer = await excel.generateReport({
+            title: 'Registro de Auditoría de Operaciones - Farmacias Vallenar',
+            subtitle: `Filtros: ${formatDateCL(params.startDate || new Date())} a ${formatDateCL(params.endDate || new Date())}`,
+            sheetName: 'Logs Auditoría',
+            creator: session.userName,
+            columns: [
+                { header: 'Fecha y Hora (CL)', key: 'date', width: 22 },
+                { header: 'Usuario y Rol', key: 'user', width: 30 },
+                { header: 'Sucursal', key: 'location', width: 20 },
+                { header: 'Acción Ejecutada', key: 'action', width: 25 },
+                { header: 'Tipo Entidad', key: 'entity', width: 15 },
+                { header: 'Dirección IP', key: 'ip', width: 15 },
+                { header: 'Resumen / Justificación', key: 'notes', width: 45 },
+            ],
+            data,
+        });
 
-        logger.info({ userId: session.userId, rows: data.length }, '📤 [Audit] Export');
-        return { success: true, data };
+        await metaAudit(session.userId, 'AUDIT_LOG_EXPORT_V2', { rows: data.length, filters: params });
+        return { success: true, data: buffer.toString('base64'), filename: `Auditoria_${new Date().toISOString().split('T')[0]}.xlsx` };
 
-    } catch (error: unknown) {
+    } catch (error: any) {
         logger.error({ error }, '[Audit] Export error');
-        return { success: false, error: (error as Error).message };
+        return { success: false, error: 'Error exportando logs de auditoría' };
     }
 }
 

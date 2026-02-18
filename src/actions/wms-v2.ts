@@ -1331,7 +1331,7 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
         let paramIndex = 1;
 
         if (locationId) {
-            conditions.push(`po.location_id = $${paramIndex++}`);
+            conditions.push(`w.location_id = $${paramIndex++}`);
             params.push(locationId);
         }
 
@@ -1363,6 +1363,7 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
         const countResult = await pool.query(`
             SELECT COUNT(*) as total
             FROM purchase_orders po
+            LEFT JOIN warehouses w ON po.target_warehouse_id = w.id
             ${whereClause}
         `, params);
 
@@ -1377,6 +1378,7 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
         const purchaseOrdersResult = await pool.query(`
             SELECT 
                 po.*,
+                w.location_id,
                 s.business_name as supplier_name,
                 l.name as location_name,
                 cu.name as created_by_name,
@@ -1384,7 +1386,8 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
                 ru.name as received_by_name
             FROM purchase_orders po
             LEFT JOIN suppliers s ON po.supplier_id::text = s.id::text
-            LEFT JOIN locations l ON po.location_id::text = l.id::text
+            LEFT JOIN warehouses w ON po.target_warehouse_id = w.id
+            LEFT JOIN locations l ON w.location_id::text = l.id::text
             LEFT JOIN users cu ON po.created_by::text = cu.id::text
             LEFT JOIN users au ON po.approved_by::text = au.id::text
             LEFT JOIN users ru ON po.received_by::text = ru.id::text
@@ -1398,7 +1401,7 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
             id: row.id,
             supplier_id: row.supplier_id,
             supplier_name: row.supplier_name,
-            location_id: row.location_id,
+            location_id: row.location_id, // This will now come from the join (w.location_id) but I should probably alias it in the SELECT
             location_name: row.location_name,
             status: row.status,
             total_amount: Number(row.total_amount) || 0,

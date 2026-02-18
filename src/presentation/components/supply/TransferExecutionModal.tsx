@@ -67,10 +67,13 @@ const TransferExecutionModal: React.FC<TransferExecutionModalProps> = ({
             const results: { success: boolean; source: string; error?: string }[] = [];
 
             for (const [sourceId, group] of Object.entries(groupedBySource)) {
+                const validItems = group.items.filter(item => item.quantity > 0);
+                if (validItems.length === 0) continue;
+
                 const result = await transferStockBetweenLocationsSecure({
                     sourceLocationId: sourceId,
                     targetLocationId: targetLocationId,
-                    items: group.items.map(item => ({
+                    items: validItems.map(item => ({
                         sku: item.sku,
                         quantity: item.quantity
                     })),

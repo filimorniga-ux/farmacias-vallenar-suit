@@ -312,7 +312,7 @@ export async function approvePurchaseOrderSecure(data: z.infer<typeof ApprovePur
 
         // 2. Lock and get order
         const orderRes = await client.query(`
-            SELECT id, status, total_estimated, supplier_id
+            SELECT id, status, total_amount, supplier_id
             FROM purchase_orders
             WHERE id = $1
             FOR UPDATE NOWAIT
@@ -331,7 +331,7 @@ export async function approvePurchaseOrderSecure(data: z.infer<typeof ApprovePur
         }
 
         // 3. Determine required role based on amount
-        const total = Number(order.total_estimated);
+        const total = Number(order.total_amount);
         let requiredRoles: readonly string[];
 
         if (total >= GERENTE_THRESHOLD) {
@@ -597,7 +597,7 @@ export async function cancelPurchaseOrderSecure(data: z.infer<typeof CancelPurch
 
         // 2. Lock order
         const orderRes = await client.query(`
-            SELECT id, status, total_estimated
+            SELECT id, status, total_amount
             FROM purchase_orders
             WHERE id = $1
             FOR UPDATE NOWAIT
@@ -640,7 +640,7 @@ export async function cancelPurchaseOrderSecure(data: z.infer<typeof CancelPurch
             orderId: validated.data.orderId,
             details: {
                 previous_status: order.status,
-                total: order.total_estimated,
+                total: order.total_amount,
                 cancelled_by_name: pinCheck.approver!.name,
                 reason: validated.data.reason
             }
@@ -674,6 +674,8 @@ export async function deletePurchaseOrderSecure(params: {
 }): Promise<{ success: boolean; error?: string }> {
 
     const { orderId, userId } = params;
+    const isTempId = orderId.startsWith('PO-AUTO-') || orderId.startsWith('ORD-');
+    if (isTempId) return { success: true };
 
     const { pool } = await import('@/lib/db');
     const client = await pool.connect();
@@ -782,7 +784,7 @@ export async function getPurchaseOrderHistory(filters?: {
         }
 
         if (filters?.minTotal !== undefined) {
-            conditions.push(`total_estimated >= $${paramIndex++}`);
+            conditions.push(`total_amount >= $${paramIndex++}`);
             params.push(filters.minTotal);
         }
 
@@ -927,13 +929,17 @@ export async function generateRestockSuggestionSecure(
                     SELECT p.sku, SUM(ib.quantity_real) as local_qty
                     FROM inventory_batches ib
                     JOIN products p ON ib.product_id::text = p.id::text
+                    JOIN locations l ON ib.location_id = l.id
                     WHERE ($1::uuid IS NULL OR ib.location_id = $1::uuid)
+                    AND l.is_active = true
                     GROUP BY p.sku
                 ),
                 GlobalStock AS (
                     SELECT p.sku, SUM(ib.quantity_real) as global_qty
                     FROM inventory_batches ib
                     JOIN products p ON ib.product_id::text = p.id::text
+                    JOIN locations l ON ib.location_id = l.id
+                    WHERE l.is_active = true
                     GROUP BY p.sku
                 )
                 SELECT 
@@ -1014,7 +1020,8 @@ export async function generateRestockSuggestionSecure(
                     ib.product_id, 
                     SUM(ib.quantity_real) as total_stock
                 FROM inventory_batches ib
-                WHERE ib.quantity_real > 0
+                JOIN locations l ON ib.location_id = l.id
+                WHERE ib.quantity_real > 0 AND l.is_active = true
                 ${locationFilterStock}
                 GROUP BY ib.product_id
             ),
@@ -1025,8 +1032,12 @@ export async function generateRestockSuggestionSecure(
                 FROM purchase_order_items poi
                 JOIN purchase_orders po ON poi.purchase_order_id = po.id
                 JOIN products p ON poi.sku = p.sku
+                JOIN warehouses w ON po.target_warehouse_id = w.id
+                JOIN locations l ON w.location_id = l.id
                 WHERE po.status = 'APPROVED'
-                ${locationId ? `AND po.target_warehouse_id IN (SELECT id FROM warehouses WHERE location_id = $${queryParams.length}::uuid)` : ''} 
+                AND w.is_active = true
+                AND l.is_active = true
+                ${locationId ? `AND l.id = $${queryParams.length}::uuid` : ''} 
                 GROUP BY p.id
             ),
             SalesHistory AS (
@@ -1051,7 +1062,9 @@ export async function generateRestockSuggestionSecure(
                 FROM sale_items si
                 JOIN sales s ON si.sale_id = s.id
                 JOIN inventory_batches ib ON si.batch_id = ib.id
+                JOIN locations l ON ib.location_id = l.id
                 WHERE s.timestamp >= NOW() - INTERVAL '365 days'
+                AND l.is_active = true
                 ${locationFilterSales}
                 GROUP BY ib.product_id
             ),
@@ -1072,7 +1085,7 @@ export async function generateRestockSuggestionSecure(
                         SUM(ib.quantity_real) as location_total
                     FROM inventory_batches ib
                     JOIN locations l ON ib.location_id = l.id
-                    WHERE ib.quantity_real > 0
+                    WHERE ib.quantity_real > 0 AND l.is_active = true
                     -- Exclude current location to find "Other" stock
                     ${locationId ? `AND ib.location_id != $${paramIndex - 1}::uuid` : ''}
                     GROUP BY ib.product_id, ib.location_id, l.name
@@ -1349,7 +1362,7 @@ export async function getTransferHistorySecure(params?: {
     try {
         const limit = params?.limit || 50;
         const locationFilter = params?.locationId
-            ? `AND (sm_out.location_id = $2 OR sm_in.location_id = $2)`
+            ? `AND (sm_out.location_id = $2::uuid OR sm_in.location_id = $2::uuid)`
             : '';
         const queryParams: (number | string)[] = [limit];
         if (params?.locationId) queryParams.push(params.locationId);
