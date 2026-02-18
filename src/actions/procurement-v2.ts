@@ -1077,7 +1077,6 @@ export async function generateRestockSuggestionSecure(
                     JOIN warehouses w ON ib.warehouse_id = w.id
                     JOIN locations l ON w.location_id = l.id
                     WHERE ib.quantity_real > 0
-                    AND ib.status = 'AVAILABLE'
                     -- Exclude current location to find "Other" stock
                     ${locationId ? `AND w.location_id != $${paramIndex - 1}::uuid` : ''}
                     GROUP BY ib.product_id, w.location_id, l.name
