@@ -8,6 +8,8 @@ import { getSupplyChainHistorySecure } from '@/actions/supply-v2';
 import { MovementDetailModal } from './MovementDetailModal';
 import { toast } from 'sonner';
 
+import { exportPurchaseOrdersSecure } from '@/actions/inventory-export-v2';
+
 export const SupplyChainHistoryTab: React.FC = () => {
     const [history, setHistory] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -22,6 +24,7 @@ export const SupplyChainHistoryTab: React.FC = () => {
     // Modal
     const [selectedMovement, setSelectedMovement] = useState<any>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
 
     useEffect(() => {
         loadHistory();
@@ -52,6 +55,48 @@ export const SupplyChainHistoryTab: React.FC = () => {
     const handleRowClick = (movement: any) => {
         setSelectedMovement(movement);
         setIsModalOpen(true);
+    };
+
+    const handleExport = async () => {
+        setIsExporting(true);
+        try {
+            const today = new Date();
+            const startStr = new Date(today.getFullYear(), today.getMonth(), 1).toISOString(); // First day of month
+            const endStr = today.toISOString();
+
+            const result = await exportPurchaseOrdersSecure({
+                startDate: startStr,
+                endDate: endStr,
+                limit: 1000
+            });
+
+            if (result.success && result.data) {
+                const byteCharacters = atob(result.data);
+                const byteNumbers = new Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = result.filename || `Historial_Compras_${new Date().toISOString().split('T')[0]}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                toast.success('Reporte de compras generado');
+            } else {
+                toast.error(result.error || 'Error al exportar compras');
+            }
+        } catch (error) {
+            console.error('Export error:', error);
+            toast.error('Error inesperado al exportar historial');
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     return (
@@ -90,13 +135,23 @@ export const SupplyChainHistoryTab: React.FC = () => {
                     </div>
                 </div>
 
-                <button
-                    onClick={loadHistory}
-                    disabled={isLoading}
-                    className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors disabled:opacity-50"
-                >
-                    <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        onClick={handleExport}
+                        disabled={isExporting}
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors font-bold text-sm disabled:opacity-50"
+                    >
+                        {isExporting ? <RefreshCw size={16} className="animate-spin" /> : <Download size={16} />}
+                        Exportar Excel
+                    </button>
+                    <button
+                        onClick={loadHistory}
+                        disabled={isLoading}
+                        className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors disabled:opacity-50"
+                    >
+                        <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
+                    </button>
+                </div>
             </div>
 
             {/* List / Table */}
@@ -176,12 +231,12 @@ export const SupplyChainHistoryTab: React.FC = () => {
                                         </td>
                                         <td className="px-6 py-4">
                                             <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase ${item.status === 'RECEIVED' || item.status === 'DELIVERED'
-                                                    ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
-                                                    : item.status === 'CANCELLED'
-                                                        ? 'bg-red-50 text-red-600 border border-red-100'
-                                                        : item.status === 'IN_TRANSIT'
-                                                            ? 'bg-sky-50 text-sky-600 border border-sky-100'
-                                                            : 'bg-amber-50 text-amber-600 border border-amber-100'
+                                                ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                                                : item.status === 'CANCELLED'
+                                                    ? 'bg-red-50 text-red-600 border border-red-100'
+                                                    : item.status === 'IN_TRANSIT'
+                                                        ? 'bg-sky-50 text-sky-600 border border-sky-100'
+                                                        : 'bg-amber-50 text-amber-600 border border-amber-100'
                                                 }`}>
                                                 {item.status}
                                             </span>
