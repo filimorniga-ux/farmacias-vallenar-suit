@@ -1,5 +1,5 @@
 
-import { keepPreviousData, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { TigerDataService } from '../../domain/services/TigerDataService';
 import { InventoryBatch } from '../../domain/types';
 
@@ -38,7 +38,6 @@ export const useInventoryPagedQuery = (
     const query = useInfiniteQuery<InventoryPagedResponse, Error>({
         queryKey: ['inventory', 'infinite', locationId, pagination.limit, filters],
         initialPageParam: 1,
-        placeholderData: keepPreviousData,
         queryFn: async ({ pageParam = 1 }): Promise<InventoryPagedResponse> => {
             if (!locationId) return emptyResponse;
 
