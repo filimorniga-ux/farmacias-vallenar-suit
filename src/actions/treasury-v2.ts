@@ -24,6 +24,9 @@ import { logger } from '@/lib/logger';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DBRow = any;
 
+// Tipo compatible con la firma de query() en db.ts
+type QueryParam = string | number | boolean | Date | string[] | null | undefined;
+
 // =====================================================
 // TIPOS EXPORTADOS (compatibles con treasury legacy)
 // =====================================================
@@ -961,7 +964,7 @@ export async function getTransactionHistory(
 
     try {
         let whereClause = 'WHERE account_id = $1';
-        const params: unknown[] = [accountId];
+        const params: QueryParam[] = [accountId];
 
         if (startDate) {
             params.push(startDate);
@@ -1121,7 +1124,7 @@ export async function getRemittanceHistorySecure(
             LEFT JOIN users rec ON r.received_by = rec.id
             WHERE 1=1
         `;
-        const sqlParams: unknown[] = [];
+        const sqlParams: QueryParam[] = [];
 
         if (params?.locationId) {
             sqlParams.push(params.locationId);
@@ -1548,7 +1551,7 @@ export async function getAccountsPayableSecure(
         }
 
         let whereClause = 'WHERE 1=1';
-        const sqlParams: unknown[] = [];
+        const sqlParams: QueryParam[] = [];
 
         if (params?.supplierId) {
             sqlParams.push(params.supplierId);

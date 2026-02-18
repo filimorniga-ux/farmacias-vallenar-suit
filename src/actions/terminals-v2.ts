@@ -988,7 +988,7 @@ export async function updateTerminalSecure(
         }
 
         const updates: string[] = [];
-        const values: (string | number | boolean | Date | object)[] = [];
+        const values: (string | number | boolean | Date)[] = [];
         let paramIndex = 1;
 
         if (data.name !== undefined) {

@@ -533,16 +533,16 @@ export const usePharmaStore = create<PharmaState>()(
                                 inventory,
                                 shipments: shipments || [],
                                 purchaseOrders: purchaseOrders || [],
-                                cashMovements: cashMovements || [],
+                                cashMovements: (cashMovements || []) as unknown as CashMovement[],
                                 salesHistory: [
                                     ...sales,
                                     ...currentStoreState.salesHistory.filter(s => s.is_synced === false && !sales.some(cloud => cloud.id === s.id))
                                 ],
-                                expenses: (cashMovements || []).filter(m => m.type === 'OUT' && ['SUPPLIES', 'SERVICES', 'SALARY_ADVANCE', 'OTHER'].includes(m.reason)).map(m => ({
-                                    id: m.id,
+                                expenses: ((cashMovements || []) as unknown as CashMovement[]).filter(m => m.type === 'OUT' && ['SUPPLIES', 'SERVICES', 'SALARY_ADVANCE', 'OTHER'].includes(m.reason)).map(m => ({
+                                    id: String(m.id),
                                     description: m.description,
                                     amount: m.amount,
-                                    category: (m.reason === 'SUPPLIES' ? 'INSUMOS' : m.reason === 'SERVICES' ? 'SERVICIOS' : 'OTROS') as any,
+                                    category: (m.reason === 'SUPPLIES' ? 'INSUMOS' : m.reason === 'SERVICES' ? 'SERVICIOS' : 'OTROS') as Expense['category'],
                                     date: m.timestamp,
                                     is_deductible: false
                                 }))
@@ -553,7 +553,7 @@ export const usePharmaStore = create<PharmaState>()(
                                 employees,
                                 products: inventory,
                                 sales,
-                                cashMovements: cashMovements || [],
+                                cashMovements: (cashMovements || []) as unknown as CashMovement[],
                                 expenses: get().expenses
                             });
 

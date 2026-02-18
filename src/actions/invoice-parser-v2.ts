@@ -966,7 +966,7 @@ export async function parseInvoiceDocumentSecure(
             fileType,
             fileName || null,
             fileHash,
-            Buffer.from(fileBase64.includes(',') ? fileBase64.split(',')[1] : fileBase64, 'base64'), // original_file_data
+            Buffer.from(fileBase64.includes(',') ? fileBase64.split(',')[1] : fileBase64, 'base64').toString('base64'), // original_file_data as base64 string
             locationId,
             session.userId,
         ]);

@@ -95,7 +95,7 @@ export async function createSupplierAccountDocumentSecure(
                 parsed.data.fileName,
                 parsed.data.fileMime,
                 parsed.data.fileSize,
-                fileBuffer,
+                fileBuffer.toString('base64'),
                 session.userId,
                 session.userName || null
             ]
@@ -304,7 +304,7 @@ export async function createSupplierCatalogFileSecure(
                 parsed.data.fileName,
                 parsed.data.fileMime,
                 parsed.data.fileSize,
-                fileBuffer,
+                fileBuffer.toString('base64'),
                 session.userId,
                 session.userName || null
             ]

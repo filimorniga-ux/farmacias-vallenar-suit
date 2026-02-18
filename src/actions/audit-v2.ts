@@ -3,6 +3,8 @@
 import { query } from '@/lib/db';
 import { headers } from 'next/headers';
 
+type QueryParam = string | number | boolean | Date | string[] | null | undefined;
+
 /**
  * AUDIT-V2: Sistema de Auditoría Forense Mejorado
  * 
@@ -219,7 +221,7 @@ export async function getAuditEvents(filters: {
 }): Promise<{ success: boolean; data?: AuditEvent[]; total?: number; error?: string }> {
     try {
         const conditions: string[] = ['1=1'];
-        const params: unknown[] = [];
+        const params: QueryParam[] = [];
         let paramIndex = 1;
 
         if (filters.userId && filters.userId !== '') {
@@ -300,7 +302,7 @@ export async function getAuditEvents(filters: {
             WHERE ${whereClause}
             ORDER BY ae.created_at DESC
             LIMIT $${paramIndex++} OFFSET $${paramIndex++}
-        `, [...params, limit, offset]);
+        `, [...params, limit, offset] as QueryParam[]);
 
         return {
             success: true,
@@ -321,7 +323,7 @@ export async function getAuditEvents(filters: {
 export async function getPendingReviews(locationId?: string): Promise<{ success: boolean; data?: AuditEvent[]; error?: string }> {
     try {
         let whereClause = 'WHERE requires_manager_review = TRUE AND reviewed_at IS NULL';
-        const params: unknown[] = [];
+        const params: QueryParam[] = [];
 
         if (locationId) {
             whereClause += ' AND (location_id = $1::uuid OR location_id IS NULL)';

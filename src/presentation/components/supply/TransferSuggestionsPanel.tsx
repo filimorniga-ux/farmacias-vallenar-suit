@@ -74,7 +74,7 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
         try {
             const result = await getTransferHistorySecure({ locationId: targetLocationId, limit: 30 });
             if (result.success && result.data) {
-                setHistory(result.data);
+                setHistory(result.data as unknown as TransferHistoryItem[]);
             }
         } catch {
             toast.error('Error cargando historial');

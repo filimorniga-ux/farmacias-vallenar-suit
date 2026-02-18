@@ -137,7 +137,7 @@ export async function query(text: string, params?: (string | number | boolean | 
                 throw error;
             }
 
-            console.warn(`⚠️ [DB] Reintentando query por error transitorio "${error.code || 'aborted'}" (Intento ${attempt}/${MAX_RETRIES}) en ${RETRY_DELAY}ms...`);
+            console.warn(`⚠️ [DB] Reintentando query por error transitorio "${pgError.code || 'aborted'}" (Intento ${attempt}/${MAX_RETRIES}) en ${RETRY_DELAY}ms...`);
             await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempt)); // Exponential backoff light
         }
     }
