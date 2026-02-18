@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { useLocationStore } from '../../store/useLocationStore';
 import { usePharmaStore } from '../../store/useStore';
 import { MapPin, Building2, Warehouse, ChevronDown, Lock } from 'lucide-react';
@@ -33,6 +35,8 @@ const LocationSwitcher: React.FC = () => {
     const { user, setCurrentLocation } = usePharmaStore();
     const [isOpen, setIsOpen] = useState(false);
     const [isSwitching, setIsSwitching] = useState(false);
+    const router = useRouter();
+    const queryClient = useQueryClient();
 
     const canSwitch = user ? canSwitchLocation(user.role) : false;
 
@@ -50,23 +54,26 @@ const LocationSwitcher: React.FC = () => {
         const target = locations.find(l => l.id === locationId);
         if (!target) return;
 
-        // Simulate transition delay for effect
+        // Breve delay solo para mostrar la animación de transición
         setTimeout(() => {
             // 2. Update Location Store (Persisted)
             switchLocation(locationId, () => {
-
                 // 3. Update Pharma Store (Persisted & Actions Context)
-                // We resolve the default warehouse for this location. If none, use the location itself.
                 const warehouseId = target.default_warehouse_id || target.id;
-
-                // Update Global Store
                 setCurrentLocation(target.id, warehouseId, '');
 
-                // 4. Force Hard Reload to Reset All State
-                console.log('🔄 Sincronizando contexto global y recargando...');
-                window.location.reload();
+                // 4. Invalidar caché de React Query para forzar recarga de datos frescos
+                queryClient.invalidateQueries({ queryKey: ['inventory'] });
+                queryClient.invalidateQueries({ queryKey: ['sales'] });
+                queryClient.invalidateQueries({ queryKey: ['procurement'] });
+
+                // 5. Navegar al inicio para refrescar contexto sin recargar toda la app
+                console.log('🔄 Sucursal cambiada a:', target.name);
+                setIsSwitching(false);
+                router.push('/');
+                router.refresh();
             });
-        }, 800);
+        }, 150);
     };
 
     // If no location, we show a "Select" button if the user can switch
