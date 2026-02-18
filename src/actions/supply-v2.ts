@@ -205,7 +205,7 @@ export async function receivePurchaseOrderSecure(
             return { success: false, error: `La orden ya está ${po.status}` };
         }
 
-        const totalEstimated = Number(po.total_estimated) || 0;
+        const totalEstimated = Number(po.total_amount) || 0;
         if (totalEstimated > PIN_THRESHOLD_CLP) {
             if (!managerPin) {
                 await client.query('ROLLBACK');
@@ -325,6 +325,11 @@ export async function cancelPurchaseOrderSecure(orderId: string, userId: string,
 }
 
 export async function deletePurchaseOrderSecure(data: { orderId: string; userId: string }): Promise<{ success: boolean; error?: string }> {
+    const isTempId = data.orderId.startsWith('PO-AUTO-') || data.orderId.startsWith('ORD-');
+    if (isTempId) {
+        return { success: true };
+    }
+
     const client = await pool.connect();
     try {
         await client.query('DELETE FROM purchase_order_items WHERE purchase_order_id = $1', [data.orderId]);

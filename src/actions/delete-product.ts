@@ -10,7 +10,6 @@ import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 
 import bcrypt from 'bcryptjs';
-import { headers } from 'next/headers';
 
 const DeleteProductSchema = z.object({
     productId: z.string().uuid('ID de producto inválido'),

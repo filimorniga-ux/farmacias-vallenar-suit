@@ -5,17 +5,13 @@
  * SALES-EXPORT-V2: Exportación de Ventas Segura
  * Pharma-Synapse v3.1 - Security Hardened
  * ============================================================================
- * 
- * CORRECCIONES:
- * - RBAC completo (cajero solo sus ventas, manager ubicación, admin todo)
- * - Auditoría de exportaciones
  */
 
 import { query } from '@/lib/db';
-import { z } from 'zod';
-import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
 import { ExcelService } from '@/lib/excel-generator';
+import { formatDateTimeCL, formatDateCL } from '@/lib/timezone';
+import { getSessionSecure } from './auth-v2';
 
 // ============================================================================
 // CONSTANTS
@@ -28,25 +24,6 @@ const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'];
 // HELPERS
 // ============================================================================
 
-async function getSession(): Promise<{
-    userId: string;
-    role: string;
-    locationId?: string;
-    userName?: string;
-} | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        const locationId = headersList.get('x-user-location');
-        const userName = headersList.get('x-user-name');
-        if (!userId || !role) return null;
-        return { userId, role, locationId: locationId || undefined, userName: userName || undefined };
-    } catch {
-        return null;
-    }
-}
-
 async function auditExport(userId: string, exportType: string, params: any): Promise<void> {
     try {
         await query(`
@@ -57,31 +34,27 @@ async function auditExport(userId: string, exportType: string, params: any): Pro
 }
 
 // ============================================================================
-// GENERATE SALES REPORT
+// GENERATE SALES REPORT (DETAILED)
 // ============================================================================
 
 /**
- * 🧾 Generar Reporte de Ventas (RBAC Completo)
+ * 🧾 Generar Reporte Detallado de Ventas (MANAGER+)
  */
 export async function generateSalesReportSecure(
     params: { startDate: string; endDate: string; locationId?: string; terminalId?: string }
 ): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
-    }
+    const session = await getSessionSecure();
+    if (!session) return { success: false, error: 'No autenticado' };
 
-    // RBAC
+    // RBAC: Cajeros solo ven sus ventas, Managers su ubicación, Admins todo
     let effectiveLocationId = params.locationId;
     let userFilter = '';
-    const sqlParams: any[] = [new Date(params.startDate), new Date(params.endDate)];
+    const sqlParams: any[] = [params.startDate, params.endDate];
 
     if (session.role === 'CASHIER') {
-        // Cajero: Solo sus propias ventas
         userFilter = ` AND s.user_id = $${sqlParams.length + 1}`;
         sqlParams.push(session.userId);
     } else if (!ADMIN_ROLES.includes(session.role)) {
-        // Manager: Solo su ubicación
         effectiveLocationId = session.locationId;
     }
 
@@ -114,61 +87,51 @@ export async function generateSalesReportSecure(
 
         const res = await query(sql, sqlParams);
 
-        const data = res.rows.map((row: any) => {
-            const d = new Date(row.timestamp);
-            return {
-                id: row.id,
-                date: d.toLocaleDateString('es-CL'),
-                time: d.toLocaleTimeString('es-CL'),
-                location: row.location_name || '-',
-                terminal: row.terminal_name || '-',
-                seller: row.seller_name || '-',
-                sku: row.sku,
-                product: row.product_name,
-                qty: Number(row.quantity),
-                price: Number(row.price),
-                total: Number(row.quantity) * Number(row.price),
-                method: row.payment_method,
-                dte: row.dte_folio || '-',
-            };
-        });
+        const data = res.rows.map((row: any) => ({
+            id: row.id.slice(0, 8),
+            full_id: row.id,
+            date: formatDateTimeCL(row.timestamp),
+            location: row.location_name || '-',
+            terminal: row.terminal_name || '-',
+            seller: row.seller_name || '-',
+            sku: row.sku,
+            product: row.product_name,
+            qty: Number(row.quantity),
+            price: Number(row.price),
+            total: Number(row.quantity) * Number(row.price),
+            method: row.payment_method,
+            dte: row.dte_folio || 'Voucher',
+        }));
 
         const excel = new ExcelService();
         const buffer = await excel.generateReport({
-            title: 'Detalle de Ventas',
-            subtitle: `${new Date(params.startDate).toLocaleDateString()} - ${new Date(params.endDate).toLocaleDateString()}`,
-            sheetName: 'Ventas',
+            title: 'Reporte de Transacciones y Artículos - Farmacias Vallenar',
+            subtitle: `Período: ${formatDateCL(params.startDate)} al ${formatDateCL(params.endDate)}`,
+            sheetName: 'Detalle Ventas',
             creator: session.userName,
             columns: [
-                { header: 'ID', key: 'id', width: 20 },
-                { header: 'Fecha', key: 'date', width: 12 },
-                { header: 'Hora', key: 'time', width: 10 },
+                { header: 'ID (Corto)', key: 'id', width: 12 },
+                { header: 'Fecha y Hora', key: 'date', width: 22 },
                 { header: 'Sucursal', key: 'location', width: 20 },
-                { header: 'Caja', key: 'terminal', width: 15 },
-                { header: 'Vendedor', key: 'seller', width: 20 },
+                { header: 'Caja/Terminal', key: 'terminal', width: 15 },
+                { header: 'Vendedor', key: 'seller', width: 25 },
                 { header: 'SKU', key: 'sku', width: 15 },
-                { header: 'Producto', key: 'product', width: 35 },
-                { header: 'Cant', key: 'qty', width: 8 },
-                { header: 'Precio', key: 'price', width: 12 },
-                { header: 'Total', key: 'total', width: 12 },
-                { header: 'Pago', key: 'method', width: 12 },
-                { header: 'DTE', key: 'dte', width: 10 },
+                { header: 'Descripción Producto', key: 'product', width: 35 },
+                { header: 'Cant.', key: 'qty', width: 8 },
+                { header: 'Precio Unit. ($)', key: 'price', width: 15 },
+                { header: 'Subtotal Item ($)', key: 'total', width: 15 },
+                { header: 'Medio de Pago', key: 'method', width: 15 },
+                { header: 'Folio DTE', key: 'dte', width: 15 },
             ],
             data,
         });
 
-        await auditExport(session.userId, 'SALES_REPORT', { ...params, rows: res.rowCount });
-
-        logger.info({ userId: session.userId, role: session.role, rows: res.rowCount }, '🧾 [Export] Sales report');
-        return {
-            success: true,
-            data: buffer.toString('base64'),
-            filename: `Ventas_${params.startDate.split('T')[0]}.xlsx`,
-        };
+        await auditExport(session.userId, 'SALES_REPORT_DETAIL', { ...params, rows: res.rowCount });
+        return { success: true, data: buffer.toString('base64'), filename: `Ventas_Detalle_${params.startDate.split('T')[0]}.xlsx` };
 
     } catch (error: any) {
-        logger.error({ error }, '[Export] Sales report error');
-        return { success: false, error: 'Error generando reporte' };
+        logger.error({ error }, '[Export] Detailed sales error');
+        return { success: false, error: 'Error exportando detalle de ventas' };
     }
 }
 
@@ -177,38 +140,28 @@ export async function generateSalesReportSecure(
 // ============================================================================
 
 /**
- * 📊 Resumen de Ventas (MANAGER+)
+ * 📊 Resumen Ejecutivo de Ventas (MANAGER+)
  */
 export async function exportSalesSummarySecure(
     params: { startDate: string; endDate: string; locationId?: string }
 ): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
-    }
-
-    if (!MANAGER_ROLES.includes(session.role)) {
-        return { success: false, error: 'Solo managers pueden ver resumen de ventas' };
-    }
-
-    let locationId = params.locationId;
-    if (!ADMIN_ROLES.includes(session.role) && session.locationId) {
-        locationId = session.locationId;
-    }
+    const session = await getSessionSecure();
+    if (!session) return { success: false, error: 'No autenticado' };
+    if (!MANAGER_ROLES.includes(session.role)) return { success: false, error: 'Acceso denegado' };
 
     try {
         const sqlParams: any[] = [params.startDate, params.endDate];
         let locationFilter = '';
-        if (locationId) {
+        if (params.locationId && params.locationId !== 'ALL') {
             locationFilter = 'AND s.location_id = $3::uuid';
-            sqlParams.push(locationId);
+            sqlParams.push(params.locationId);
         }
 
         const res = await query(`
             SELECT 
-                DATE(s.timestamp) as date,
-                COUNT(DISTINCT s.id) as sales_count,
-                SUM(s.total_amount) as total,
+                DATE(s.timestamp) as work_date,
+                COUNT(DISTINCT s.id) as trans_count,
+                SUM(s.total_amount) as total_val,
                 s.payment_method
             FROM sales s
             WHERE s.timestamp >= $1::timestamp AND s.timestamp <= $2::timestamp ${locationFilter}
@@ -217,37 +170,32 @@ export async function exportSalesSummarySecure(
         `, sqlParams);
 
         const data = res.rows.map((row: any) => ({
-            date: new Date(row.date).toLocaleDateString('es-CL'),
-            count: Number(row.sales_count),
+            date: formatDateCL(row.work_date),
+            count: Number(row.trans_count),
             method: row.payment_method,
-            total: Number(row.total),
+            total: Number(row.total_val),
         }));
 
         const excel = new ExcelService();
         const buffer = await excel.generateReport({
-            title: 'Resumen de Ventas',
-            subtitle: `${new Date(params.startDate).toLocaleDateString()} - ${new Date(params.endDate).toLocaleDateString()}`,
-            sheetName: 'Resumen',
+            title: 'Resumen Ejecutivo de Ventas - Farmacias Vallenar',
+            subtitle: `Período: ${formatDateCL(params.startDate)} - ${formatDateCL(params.endDate)}`,
+            sheetName: 'Resumen Ventas',
             creator: session.userName,
             columns: [
-                { header: 'Fecha', key: 'date', width: 12 },
-                { header: 'Transacciones', key: 'count', width: 15 },
-                { header: 'Medio Pago', key: 'method', width: 15 },
-                { header: 'Total ($)', key: 'total', width: 15 },
+                { header: 'Fecha Contable', key: 'date', width: 15 },
+                { header: 'Cant. Transacciones', key: 'count', width: 22 },
+                { header: 'Medio de Pago', key: 'method', width: 20 },
+                { header: 'Monto Recaudado ($)', key: 'total', width: 22 },
             ],
             data,
         });
 
-        await auditExport(session.userId, 'SALES_SUMMARY', params);
-
-        return {
-            success: true,
-            data: buffer.toString('base64'),
-            filename: `Resumen_Ventas_${params.startDate.split('T')[0]}.xlsx`,
-        };
+        await auditExport(session.userId, 'SALES_SUMMARY', { ...params, rows: data.length });
+        return { success: true, data: buffer.toString('base64'), filename: `Resumen_Ventas_${params.startDate.split('T')[0]}.xlsx` };
 
     } catch (error: any) {
         logger.error({ error }, '[Export] Sales summary error');
-        return { success: false, error: 'Error generando resumen' };
+        return { success: false, error: 'Error exportando resumen de ventas' };
     }
 }

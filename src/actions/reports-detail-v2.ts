@@ -15,7 +15,6 @@
 
 import { pool, query } from '@/lib/db';
 import { z } from 'zod';
-import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
 import bcrypt from 'bcryptjs';
 import { getSessionSecure } from './auth-v2';
@@ -307,7 +306,7 @@ export async function getTaxSummarySecure(
         let grossPurchases = 0;
         try {
             const purchasesRes = await query(`
-                SELECT SUM(total_estimated) as total 
+                SELECT SUM(total_amount) as total 
                 FROM purchase_orders 
                 WHERE status = 'RECEIVED' 
                 AND received_at >= $1::timestamp AND received_at <= $2::timestamp

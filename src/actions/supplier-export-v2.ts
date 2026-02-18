@@ -15,25 +15,19 @@
 import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { ExcelService } from '@/lib/excel-generator';
+import { formatDateTimeCL, formatDateCL } from '@/lib/timezone';
+import { getSessionSecure } from './auth-v2';
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL', 'MANAGER', 'QF', 'WAREHOUSE'];
+const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
+const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF', 'WAREHOUSE'];
 
 // ============================================================================
 // HELPERS
 // ============================================================================
-
-async function getSession(): Promise<{ userId: string; role: string; userName?: string } | null> {
-    try {
-        const { getSessionSecure } = await import('@/actions/auth-v2');
-        return await getSessionSecure();
-    } catch {
-        return null;
-    }
-}
 
 async function auditExport(userId: string, exportType: string, params: any): Promise<void> {
     try {
@@ -49,34 +43,27 @@ async function auditExport(userId: string, exportType: string, params: any): Pro
 // ============================================================================
 
 /**
- * 🏢 Generar Reporte de Proveedores (ADMIN)
+ * 🏢 Generar Reporte de Proveedores (MANAGER+)
  */
 export async function generateSupplierReportSecure(
     params: { startDate: string; endDate: string; supplierIds?: string[] }
 ): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
-    }
-
-    if (!ADMIN_ROLES.includes(session.role)) {
-        return { success: false, error: 'Solo administradores pueden exportar datos de proveedores' };
-    }
+    const session = await getSessionSecure();
+    if (!session) return { success: false, error: 'No autenticado' };
+    if (!MANAGER_ROLES.includes(session.role)) return { success: false, error: 'Acceso denegado' };
 
     try {
         const { startDate, endDate, supplierIds } = params;
 
-        // Obtener proveedores
         let suppliersRes;
-        if (supplierIds && supplierIds.length > 0) {
+        if (supplierIds?.length) {
             suppliersRes = await query('SELECT * FROM suppliers WHERE id = ANY($1) ORDER BY business_name ASC', [supplierIds]);
         } else {
-            suppliersRes = await query('SELECT * FROM suppliers ORDER BY business_name ASC');
+            suppliersRes = await query('SELECT * FROM suppliers ORDER BY business_name ASC LIMIT 1000');
         }
 
-        // Obtener órdenes de compra del período
         const poRes = await query(`
-            SELECT supplier_id, COUNT(*) as po_count, SUM(total_estimated) as po_total
+            SELECT supplier_id, COUNT(*) as po_count, SUM(total_amount) as po_total
             FROM purchase_orders 
             WHERE created_at >= $1::timestamp AND created_at <= $2::timestamp
             GROUP BY supplier_id
@@ -89,48 +76,42 @@ export async function generateSupplierReportSecure(
             return {
                 rut: sup.rut,
                 name: sup.business_name,
-                sector: sup.sector || '-',
+                sector: sup.sector || 'General',
                 email: sup.contact_email || '-',
                 phone: sup.phone_1 || '-',
-                paymentTerms: sup.payment_terms || 'CONTADO',
-                leadTime: sup.lead_time_days || '-',
-                poCount: Number(poStats.po_count || 0),
-                poTotal: Number(poStats.po_total || 0),
+                terms: sup.payment_terms || 'CONTADO',
+                lead: sup.lead_time_days || '0',
+                count: Number(poStats.po_count),
+                total: Number(poStats.po_total)
             };
         });
 
         const excel = new ExcelService();
         const buffer = await excel.generateReport({
-            title: 'Reporte de Proveedores',
-            subtitle: `${new Date(startDate).toLocaleDateString()} - ${new Date(endDate).toLocaleDateString()}`,
+            title: 'Maestro de Proveedores - Farmacias Vallenar',
+            subtitle: `Período Evaluado: ${formatDateCL(startDate)} al ${formatDateCL(endDate)}`,
             sheetName: 'Proveedores',
             creator: session.userName,
             columns: [
-                { header: 'RUT', key: 'rut', width: 12 },
-                { header: 'Razón Social', key: 'name', width: 30 },
-                { header: 'Sector', key: 'sector', width: 20 },
-                { header: 'Email', key: 'email', width: 25 },
+                { header: 'RUT', key: 'rut', width: 15 },
+                { header: 'Razón Social', key: 'name', width: 35 },
+                { header: 'Categoría/Sector', key: 'sector', width: 22 },
+                { header: 'Email Contacto', key: 'email', width: 25 },
                 { header: 'Teléfono', key: 'phone', width: 15 },
-                { header: 'Cond. Pago', key: 'paymentTerms', width: 12 },
-                { header: 'Lead Time', key: 'leadTime', width: 10 },
-                { header: 'OC (N°)', key: 'poCount', width: 10 },
-                { header: 'Total OC ($)', key: 'poTotal', width: 15 },
+                { header: 'Condición Pago', key: 'terms', width: 15 },
+                { header: 'Lead Time (Días)', key: 'lead', width: 15 },
+                { header: 'OC Emitidas', key: 'count', width: 15 },
+                { header: 'Monto Total OC ($)', key: 'total', width: 18 },
             ],
             data,
         });
 
-        await auditExport(session.userId, 'SUPPLIER_REPORT', { startDate, endDate, count: data.length });
-
-        logger.info({ userId: session.userId, suppliers: data.length }, '🏢 [Export] Supplier report');
-        return {
-            success: true,
-            data: buffer.toString('base64'),
-            filename: `Proveedores_${startDate.split('T')[0]}.xlsx`,
-        };
+        await auditExport(session.userId, 'SUPPLIER_REPORT', { ...params, rows: data.length });
+        return { success: true, data: buffer.toString('base64'), filename: `Proveedores_${startDate.split('T')[0]}.xlsx` };
 
     } catch (error: any) {
         logger.error({ error }, '[Export] Supplier report error');
-        return { success: false, error: 'Error generando reporte' };
+        return { success: false, error: 'Error exportando proveedores' };
     }
 }
 
@@ -139,24 +120,19 @@ export async function generateSupplierReportSecure(
 // ============================================================================
 
 /**
- * 📋 Historial de Órdenes de Compra (ADMIN)
+ * 📋 Historial de Órdenes de Compra (MANAGER+)
  */
 export async function exportPOHistorySecure(
     supplierId: string,
     params: { startDate: string; endDate: string }
 ): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
-    }
-
-    if (!ADMIN_ROLES.includes(session.role)) {
-        return { success: false, error: 'Solo administradores' };
-    }
+    const session = await getSessionSecure();
+    if (!session) return { success: false, error: 'No autenticado' };
+    if (!MANAGER_ROLES.includes(session.role)) return { success: false, error: 'Acceso denegado' };
 
     try {
         const res = await query(`
-            SELECT po.id, po.created_at, po.status, po.total_estimated, s.business_name
+            SELECT po.id, po.created_at, po.status, po.total_amount, s.business_name
             FROM purchase_orders po
             LEFT JOIN suppliers s ON po.supplier_id = s.id
             WHERE po.supplier_id = $1
@@ -165,39 +141,34 @@ export async function exportPOHistorySecure(
         `, [supplierId, params.startDate, params.endDate]);
 
         const data = res.rows.map((row: any) => ({
-            id: row.id,
-            date: new Date(row.created_at).toLocaleDateString('es-CL'),
-            supplier: row.business_name || '-',
+            id: row.id.slice(0, 8),
+            date: formatDateTimeCL(row.created_at),
+            supplier: row.business_name,
             status: row.status,
-            total: Number(row.total_estimated || 0),
+            total: Number(row.total_amount || 0),
         }));
 
         const excel = new ExcelService();
         const buffer = await excel.generateReport({
-            title: 'Historial de Órdenes de Compra',
-            subtitle: `Proveedor: ${data[0]?.supplier || 'N/A'}`,
-            sheetName: 'OC',
+            title: 'Historial de Órdenes de Compra - Farmacias Vallenar',
+            subtitle: `Suministro de: ${data[0]?.supplier || 'Proveedor'} | Rango: ${formatDateCL(params.startDate)} - ${formatDateCL(params.endDate)}`,
+            sheetName: 'OC Histórico',
             creator: session.userName,
             columns: [
-                { header: 'ID', key: 'id', width: 20 },
-                { header: 'Fecha', key: 'date', width: 12 },
-                { header: 'Proveedor', key: 'supplier', width: 25 },
-                { header: 'Estado', key: 'status', width: 15 },
-                { header: 'Total ($)', key: 'total', width: 15 },
+                { header: 'ID (Corto)', key: 'id', width: 15 },
+                { header: 'Fecha Emisión', key: 'date', width: 22 },
+                { header: 'Razón Social', key: 'supplier', width: 30 },
+                { header: 'Estado OC', key: 'status', width: 15 },
+                { header: 'Monto Estimado ($)', key: 'total', width: 18 },
             ],
             data,
         });
 
-        await auditExport(session.userId, 'PO_HISTORY', { supplierId, ...params, count: data.length });
-
-        return {
-            success: true,
-            data: buffer.toString('base64'),
-            filename: `OC_Historial_${supplierId.slice(0, 8)}.xlsx`,
-        };
+        await auditExport(session.userId, 'PO_HISTORY', { supplierId, ...params, rows: data.length });
+        return { success: true, data: buffer.toString('base64'), filename: `OC_Historial_${supplierId.slice(0, 8)}.xlsx` };
 
     } catch (error: any) {
         logger.error({ error }, '[Export] PO history error');
-        return { success: false, error: 'Error generando historial' };
+        return { success: false, error: 'Error exportando historial OC' };
     }
 }

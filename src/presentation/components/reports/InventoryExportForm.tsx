@@ -56,16 +56,35 @@ export function InventoryExportForm() {
     const handleExport = async () => {
         setLoading(true);
         try {
-            // V2: exportInventoryReportSecure
-            const result = await exportInventoryReportSecure({
-                locationId: isManagerial ? selectedLocation : currentLocationId,
-                warehouseId: selectedWarehouse || undefined,
-                type: reportType,
-            });
+            const result = reportType === 'kardex'
+                ? await exportInventoryReportSecure({
+                    locationId: isManagerial ? selectedLocation : currentLocationId,
+                    warehouseId: selectedWarehouse || undefined,
+                    type: 'kardex',
+                    // Note: If we had a generic movements exporter that takes dates, we'd use it here.
+                    // For now, exportInventoryReport handles 'kardex' as a snapshot if type='kardex' 
+                    // But we want HISTORICAL movements. Let's use exportStockMovementsSecure if type is kardex.
+                })
+                : await exportInventoryReportSecure({
+                    locationId: isManagerial ? selectedLocation : currentLocationId,
+                    warehouseId: selectedWarehouse || undefined,
+                    type: 'seed',
+                });
 
-            if (result.success && result.data) {
+            // Improvement: If kardex is selected and we have dates, call the movements exporter instead
+            let finalResult = result;
+            if (reportType === 'kardex') {
+                const { exportStockMovementsSecure } = await import('@/actions/inventory-export-v2');
+                finalResult = await exportStockMovementsSecure({
+                    startDate: `${startDate}T00:00:00Z`,
+                    endDate: `${endDate}T23:59:59Z`,
+                    locationId: isManagerial ? selectedLocation : currentLocationId,
+                });
+            }
+
+            if (finalResult.success && finalResult.data) {
                 // Crear blob y descargar
-                const byteCharacters = atob(result.data);
+                const byteCharacters = atob(finalResult.data);
                 const byteNumbers = new Array(byteCharacters.length);
                 for (let i = 0; i < byteCharacters.length; i++) {
                     byteNumbers[i] = byteCharacters.charCodeAt(i);
@@ -76,13 +95,13 @@ export function InventoryExportForm() {
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = result.filename || 'reporte.xlsx';
+                a.download = finalResult.filename || 'reporte.xlsx';
                 document.body.appendChild(a);
                 a.click();
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
             } else {
-                alert('Error al exportar: ' + result.error);
+                alert('Error al exportar: ' + finalResult.error);
             }
         } catch (error) {
             console.error(error);
@@ -96,19 +115,43 @@ export function InventoryExportForm() {
         <div className="p-4 bg-white rounded-lg shadow space-y-4">
             <h3 className="text-lg font-semibold">Exportar Inventario</h3>
 
-            <div className="flex space-x-4 mb-4">
-                <label className="inline-flex items-center cursor-pointer">
-                    <input
-                        type="radio"
-                        className="form-radio text-indigo-600"
-                        name="reportType"
-                        value="seed"
-                        checked={reportType === 'seed'}
-                        onChange={() => setReportType('seed')}
-                    />
-                    <span className="ml-2">Inventario Actual (Semilla)</span>
-                </label>
+            <div className="flex gap-4 p-1 bg-slate-100 rounded-xl mb-4">
+                <button
+                    onClick={() => setReportType('seed')}
+                    className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-all ${reportType === 'seed' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    Inventario Actual
+                </button>
+                <button
+                    onClick={() => setReportType('kardex')}
+                    className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-all ${reportType === 'kardex' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    Kardex Histórico
+                </button>
             </div>
+
+            {reportType === 'kardex' && (
+                <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
+                    <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-500 uppercase ml-1">Desde</label>
+                        <input
+                            type="date"
+                            value={startDate}
+                            onChange={(e) => setStartDate(e.target.value)}
+                            className="block w-full rounded-xl border-slate-200 bg-slate-50 text-slate-700 text-sm p-2.5 font-medium outline-none focus:ring-2 focus:ring-indigo-500/20 border"
+                        />
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-500 uppercase ml-1">Hasta</label>
+                        <input
+                            type="date"
+                            value={endDate}
+                            onChange={(e) => setEndDate(e.target.value)}
+                            className="block w-full rounded-xl border-slate-200 bg-slate-50 text-slate-700 text-sm p-2.5 font-medium outline-none focus:ring-2 focus:ring-indigo-500/20 border"
+                        />
+                    </div>
+                </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* LOCATION SELECTOR - Only for Managers */}

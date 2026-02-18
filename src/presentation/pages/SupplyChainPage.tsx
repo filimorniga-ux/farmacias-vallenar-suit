@@ -12,6 +12,8 @@ import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { CameraScanner } from '../components/ui/CameraScanner';
 import SupplyKanban from '../components/supply/SupplyKanban';
 import TransferSuggestionsPanel from '../components/supply/TransferSuggestionsPanel';
+import { exportSuggestedOrdersSecure } from '../../actions/procurement-export';
+import { FileDown, Download } from 'lucide-react';
 
 // Extended type for frontend logic
 interface ExtendedSuggestion extends AutoOrderSuggestion {
@@ -68,6 +70,7 @@ const SupplyChainPage: React.FC = () => {
     // NEW: Search & Limits
     const [searchQuery, setSearchQuery] = useState('');
     const [topLimit, setTopLimit] = useState(100);
+    const [isExporting, setIsExporting] = useState(false);
 
     // ... (scanner hook and useEffects remain same)
     // Barcode Scanner Integration (Keyboard Wedge)
@@ -280,6 +283,49 @@ const SupplyChainPage: React.FC = () => {
         suppliers: new Set(suggestions.filter(s => selectedSkus.has(s.sku)).map(s => s.supplier_id)).size
     };
 
+    const handleExport = async () => {
+        setIsExporting(true);
+        try {
+            const result = await exportSuggestedOrdersSecure({
+                supplierId: selectedSupplier || undefined,
+                daysToCover,
+                analysisWindow,
+                locationId: selectedLocation || undefined,
+                stockThreshold: stockFilter || undefined,
+                searchQuery: searchQuery || undefined,
+                limit: topLimit
+            });
+
+            if (result.success && result.data) {
+                // Decode base64 and download
+                const byteCharacters = atob(result.data);
+                const byteNumbers = new Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = result.filename || 'sugerencias_pedido.xlsx';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                toast.success('Reporte generado exitosamente');
+            } else {
+                toast.error(result.error || 'Error al exportar reporte');
+            }
+        } catch (error) {
+            console.error('Export error:', error);
+            toast.error('Error inesperado al exportar reporte');
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     // ... Logic moved to SupplyKanban ...
 
     return (
@@ -307,6 +353,15 @@ const SupplyChainPage: React.FC = () => {
                         className="flex items-center gap-2 px-4 py-2.5 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold hover:bg-slate-50 transition text-sm shadow-sm"
                     >
                         <Plus size={18} /> Orden Manual
+                    </button>
+                    <button
+                        onClick={handleExport}
+                        disabled={isExporting}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition text-sm shadow-sm disabled:opacity-50"
+                        title="Exportar análisis actual a Excel corporativo"
+                    >
+                        {isExporting ? <RefreshCw className="animate-spin" size={18} /> : <FileDown size={18} />}
+                        {isExporting ? 'Exportando...' : 'Exportar Excel'}
                     </button>
                 </div>
             </header>
@@ -781,6 +836,7 @@ const SupplyChainPage: React.FC = () => {
                             targetLocationId={selectedLocation || currentLocationId || ''}
                             targetLocationName={locations?.find(l => l.id === (selectedLocation || currentLocationId))?.name || 'Sucursal Actual'}
                             onTransferComplete={() => runIntelligentAnalysis()}
+                            onGoBack={() => setActiveTab('suggestions')}
                         />
                     )}
                 </div>
