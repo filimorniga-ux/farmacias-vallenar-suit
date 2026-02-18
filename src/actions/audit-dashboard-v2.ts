@@ -21,6 +21,8 @@ import { logger } from '@/lib/logger';
 import bcrypt from 'bcryptjs';
 import { checkRateLimit } from '@/lib/rate-limiter';
 
+type QueryParam = string | number | boolean | Date | string[] | null | undefined;
+
 // ============================================================================
 // SCHEMAS
 // ============================================================================
@@ -143,7 +145,7 @@ export async function getAuditLogsSecure(params: z.infer<typeof GetAuditLogsSche
 
     try {
         const whereConditions: string[] = [];
-        const queryParams: unknown[] = [];
+        const queryParams: QueryParam[] = [];
         let paramIndex = 1;
 
         if (startDate) { whereConditions.push(`al.created_at >= $${paramIndex}::timestamp`); queryParams.push(startDate); paramIndex++; }
@@ -309,7 +311,7 @@ export async function exportAuditLogsSecure(
 
     try {
         const whereConditions: string[] = [];
-        const queryParams: unknown[] = [];
+        const queryParams: QueryParam[] = [];
         let paramIndex = 1;
 
         if (params.startDate) { whereConditions.push(`al.created_at >= $${paramIndex}::timestamp`); queryParams.push(params.startDate); paramIndex++; }

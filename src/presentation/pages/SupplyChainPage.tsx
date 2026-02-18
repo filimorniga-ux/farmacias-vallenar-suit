@@ -149,7 +149,8 @@ const SupplyChainPage: React.FC = () => {
             }
 
             // Initialize items with the global settings and recalculate to ensure consistency
-            const initializedSuggestions = result.data.map((item: ExtendedSuggestion) => {
+            const typedData = result.data as unknown as ExtendedSuggestion[];
+            const initializedSuggestions = typedData.map((item: ExtendedSuggestion) => {
                 // Ensure array/objects are safe
                 const baseItem = {
                     ...item,
@@ -162,7 +163,7 @@ const SupplyChainPage: React.FC = () => {
             setSuggestions(initializedSuggestions);
 
             // Auto-select only critical/high urgency items to avoid massive accidental orders
-            const criticalSkus = new Set(result.data.filter((s: any) => s.urgency === 'HIGH' || s.urgency === 'MEDIUM').map((s: any) => s.sku));
+            const criticalSkus = new Set(typedData.filter((s) => s.urgency === 'HIGH' || s.urgency === 'MEDIUM').map((s) => s.sku));
             setSelectedSkus(criticalSkus);
 
             toast.success(`Análisis completado. ${result.data.length} sugerencias encontradas.`);
@@ -318,8 +319,8 @@ const SupplyChainPage: React.FC = () => {
                         <button
                             onClick={() => setActiveTab('suggestions')}
                             className={`flex items-center gap-2 px-5 py-3 text-sm font-bold transition-all border-b-2 ${activeTab === 'suggestions'
-                                    ? 'border-purple-600 text-purple-700 bg-white'
-                                    : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-white/50'
+                                ? 'border-purple-600 text-purple-700 bg-white'
+                                : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-white/50'
                                 }`}
                         >
                             <TrendingUp size={16} />
@@ -328,8 +329,8 @@ const SupplyChainPage: React.FC = () => {
                         <button
                             onClick={() => setActiveTab('transfers')}
                             className={`flex items-center gap-2 px-5 py-3 text-sm font-bold transition-all border-b-2 ${activeTab === 'transfers'
-                                    ? 'border-emerald-600 text-emerald-700 bg-white'
-                                    : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-white/50'
+                                ? 'border-emerald-600 text-emerald-700 bg-white'
+                                : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-white/50'
                                 }`}
                         >
                             <ArrowLeftRight size={16} />

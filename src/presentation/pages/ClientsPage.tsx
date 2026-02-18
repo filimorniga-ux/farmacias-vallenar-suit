@@ -30,7 +30,7 @@ const ClientsPage: React.FC = () => {
             getCustomerHistorySecure(viewingHistory.id)
                 .then(res => {
                     if (res.success && res.data) {
-                        setFetchedHistory(res.data);
+                        setFetchedHistory(res.data as unknown as SaleTransaction[]);
                     } else {
                         toast.error(res.error || 'No se pudo cargar el historial completo');
                     }
