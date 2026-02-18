@@ -12,7 +12,7 @@
  * - Auditoría completa
  */
 
-import { pool, query } from '@/lib/db';
+import { pool, query, type PoolClient } from '@/lib/db';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { revalidatePath } from 'next/cache';
@@ -68,7 +68,7 @@ async function getSession(): Promise<{ userId: string; role: string; terminalId?
 }
 
 async function validatePinByRole(
-    client: any,
+    client: PoolClient,
     pin: string,
     roles: string[]
 ): Promise<{ valid: boolean; user?: { id: string; name: string } }> {
@@ -178,7 +178,7 @@ export async function createCashMovementSecure(
         revalidatePath('/caja');
         return { success: true, movementId };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Cash] Create movement error');
         return { success: false, error: 'Error creando movimiento' };
     }
@@ -243,7 +243,7 @@ export async function createExpenseSecure(
         revalidatePath('/caja');
         return { success: true, expenseId };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         logger.error({ error }, '[Cash] Create expense error');
         return { success: false, error: 'Error creando gasto' };
@@ -262,7 +262,7 @@ export async function createExpenseSecure(
 export async function getCashMovementsSecure(
     terminalId?: string,
     limit: number = 50
-): Promise<{ success: boolean; data?: any[]; error?: string }> {
+): Promise<{ success: boolean; data?: Record<string, unknown>[]; error?: string }> {
     const session = await getSession();
     if (!session) {
         return { success: false, error: 'No autenticado' };
@@ -276,7 +276,7 @@ export async function getCashMovementsSecure(
             LEFT JOIN terminals t ON cm.terminal_id = t.id
             WHERE 1=1
         `;
-        const params: any[] = [];
+        const params: (string | number)[] = [];
         let paramIdx = 1;
 
         if (terminalId && UUIDSchema.safeParse(terminalId).success) {
@@ -290,7 +290,7 @@ export async function getCashMovementsSecure(
         const res = await query(sql, params);
         return { success: true, data: res.rows };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Cash] Get movements error');
         return { success: false, error: 'Error obteniendo movimientos' };
     }
@@ -305,7 +305,7 @@ export async function getCashMovementsSecure(
  */
 export async function getCashBalanceSecure(
     terminalId: string
-): Promise<{ success: boolean; balance?: number; breakdown?: any; error?: string }> {
+): Promise<{ success: boolean; balance?: number; breakdown?: Record<string, number>; error?: string }> {
     if (!UUIDSchema.safeParse(terminalId).success) {
         return { success: false, error: 'ID de terminal inválido' };
     }
@@ -327,7 +327,7 @@ export async function getCashBalanceSecure(
         `, [terminalId]);
 
         const totals: Record<string, number> = {};
-        res.rows.forEach((r: any) => totals[r.type] = parseFloat(r.total));
+        res.rows.forEach((r) => totals[r.type] = parseFloat(r.total));
 
         const opening = totals['OPENING'] || 0;
         const income = totals['EXTRA_INCOME'] || 0;
@@ -346,7 +346,7 @@ export async function getCashBalanceSecure(
             },
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Cash] Get balance error');
         return { success: false, error: 'Error obteniendo saldo' };
     }
