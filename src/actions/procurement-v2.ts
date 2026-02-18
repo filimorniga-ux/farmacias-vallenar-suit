@@ -926,9 +926,8 @@ export async function generateRestockSuggestionSecure(
                 WITH LocalStock AS (
                     SELECT p.sku, SUM(ib.quantity_real) as local_qty
                     FROM inventory_batches ib
-                    JOIN warehouses w ON ib.warehouse_id = w.id
                     JOIN products p ON ib.product_id::text = p.id::text
-                    WHERE ($1::uuid IS NULL OR w.location_id = $1::uuid)
+                    WHERE ($1::uuid IS NULL OR ib.location_id = $1::uuid)
                     GROUP BY p.sku
                 ),
                 GlobalStock AS (
@@ -958,8 +957,8 @@ export async function generateRestockSuggestionSecure(
         let locationFilterSales = '';
 
         if (locationId) {
-            locationFilterStock = `AND w.location_id = $${paramIndex}::uuid`;
-            locationFilterSales = `AND w.location_id = $${paramIndex}::uuid`;
+            locationFilterStock = `AND ib.location_id = $${paramIndex}::uuid`;
+            locationFilterSales = `AND s.location_id = $${paramIndex}::uuid`;
             queryParams.push(locationId);
             paramIndex++;
         }
@@ -1015,7 +1014,6 @@ export async function generateRestockSuggestionSecure(
                     ib.product_id, 
                     SUM(ib.quantity_real) as total_stock
                 FROM inventory_batches ib
-                JOIN warehouses w ON ib.warehouse_id = w.id
                 WHERE ib.quantity_real > 0
                 ${locationFilterStock}
                 GROUP BY ib.product_id
@@ -1053,7 +1051,6 @@ export async function generateRestockSuggestionSecure(
                 FROM sale_items si
                 JOIN sales s ON si.sale_id = s.id
                 JOIN inventory_batches ib ON si.batch_id = ib.id
-                JOIN warehouses w ON ib.warehouse_id = w.id
                 WHERE s.timestamp >= NOW() - INTERVAL '365 days'
                 ${locationFilterSales}
                 GROUP BY ib.product_id
@@ -1070,16 +1067,15 @@ export async function generateRestockSuggestionSecure(
                 FROM (
                     SELECT 
                         ib.product_id,
-                        w.location_id,
+                        ib.location_id,
                         l.name as location_name,
                         SUM(ib.quantity_real) as location_total
                     FROM inventory_batches ib
-                    JOIN warehouses w ON ib.warehouse_id = w.id
-                    JOIN locations l ON w.location_id = l.id
+                    JOIN locations l ON ib.location_id = l.id
                     WHERE ib.quantity_real > 0
                     -- Exclude current location to find "Other" stock
-                    ${locationId ? `AND w.location_id != $${paramIndex - 1}::uuid` : ''}
-                    GROUP BY ib.product_id, w.location_id, l.name
+                    ${locationId ? `AND ib.location_id != $${paramIndex - 1}::uuid` : ''}
+                    GROUP BY ib.product_id, ib.location_id, l.name
                 ) sub
                 GROUP BY product_id
             )
