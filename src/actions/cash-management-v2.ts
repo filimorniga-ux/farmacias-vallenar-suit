@@ -20,9 +20,10 @@
  */
 
 import { pool } from '@/lib/db';
+import { PoolClient } from 'pg';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
-import { headers } from 'next/headers';
+// headers import removed — not currently used
 import { randomUUID } from 'crypto';
 import { logger } from '@/lib/logger';
 import { createNotificationSecure } from '@/actions/notifications-v2';
@@ -89,6 +90,7 @@ const CashHistorySchema = z.object({
 // CONSTANTS
 // ============================================================================
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const CASHIER_ROLES = ['CASHIER', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
 const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
 
@@ -109,10 +111,49 @@ const ADJUSTMENT_THRESHOLDS = {
 // ============================================================================
 
 /**
+ * Interface for Cash Movement View (Unified History)
+ */
+export interface CashMovementView {
+    id: string;
+    type: string;
+    amount: number;
+    payment_method?: string;
+    timestamp: Date | string; // PG returns Date, but JSON serialization makes it string
+    user_name?: string;
+    customer_name?: string;
+    reason?: string;
+    dte_folio?: string;
+    seller_name?: string;
+    customer_rut?: string;
+    status?: string;
+    // Extended properties for frontend compatibility
+    items?: any[];
+    queueTicket?: { number: string };
+    authorized_by_name?: string;
+    total?: number;
+    seller_id?: string;
+    [key: string]: unknown; // Allow extra fields
+}
+
+/** Typed database/pg error with optional code and message */
+interface DatabaseError {
+    code?: string;
+    message?: string;
+}
+
+/** Type guard for database errors */
+function asDatabaseError(error: unknown): DatabaseError {
+    if (error && typeof error === 'object') {
+        return error as DatabaseError;
+    }
+    return { message: String(error) };
+}
+
+/**
  * Validate user PIN
  */
 async function validateUserPin(
-    client: any,
+    client: PoolClient,
     userId: string,
     pin: string
 ): Promise<{ valid: boolean; user?: { id: string; name: string; role: string }; error?: string }> {
@@ -162,7 +203,7 @@ async function validateUserPin(
  * Validate manager PIN for large adjustments
  */
 async function validateManagerPin(
-    client: any,
+    client: PoolClient,
     pin: string
 ): Promise<{ valid: boolean; manager?: { id: string; name: string; role: string }; error?: string }> {
     try {
@@ -204,7 +245,7 @@ async function validateManagerPin(
  * Insert cash audit log
  */
 async function insertCashAudit(
-    client: any,
+    client: PoolClient,
     params: {
         userId: string;
         authorizedById?: string;
@@ -212,8 +253,8 @@ async function insertCashAudit(
         terminalId: string;
         actionCode: string;
         amount?: number;
-        oldValues?: Record<string, any>;
-        newValues?: Record<string, any>;
+        oldValues?: Record<string, unknown>;
+        newValues?: Record<string, unknown>;
         notes?: string;
     }
 ): Promise<void> {
@@ -369,14 +410,15 @@ export async function openCashDrawerSecure(
 
         return { success: true, sessionId };
 
-    } catch (error: any) {
+    } catch (err: unknown) {
         await client.query('ROLLBACK');
+        const error = asDatabaseError(err);
 
         if (error.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
             return { success: false, error: 'Terminal en proceso. Reintente.' };
         }
 
-        logger.error({ error }, '[Cash] Open drawer error');
+        logger.error({ error: err }, '[Cash] Open drawer error');
         return { success: false, error: error.message || 'Error abriendo caja' };
 
     } finally {
@@ -516,7 +558,7 @@ export async function closeCashDrawerSecure(
 
         // Audit
         await insertCashAudit(client, {
-            userId,
+            userId: closedBy,
             sessionId: session.id,
             terminalId,
             actionCode: 'CASH_DRAWER_CLOSED',
@@ -566,14 +608,15 @@ export async function closeCashDrawerSecure(
             }
         };
 
-    } catch (error: any) {
+    } catch (err: unknown) {
         await client.query('ROLLBACK');
+        const error = asDatabaseError(err);
 
         if (error.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
             return { success: false, error: 'Terminal en proceso. Reintente.' };
         }
 
-        logger.error({ error }, '[Cash] Close drawer error');
+        logger.error({ error: err }, '[Cash] Close drawer error');
         return { success: false, error: error.message || 'Error cerrando caja' };
 
     } finally {
@@ -682,14 +725,16 @@ export async function closeCashDrawerSystem(
                 metadata: { sessionId: session.id, terminalId, reason },
                 locationId: (await client.query('SELECT location_id FROM terminals WHERE id = $1', [terminalId])).rows[0]?.location_id
             });
-        } catch (e) { }
+        } catch (_notifError) {
+            // Notification failure is non-critical — session already closed
+        }
 
         revalidatePath('/caja');
         return { success: true };
 
-    } catch (error: any) {
+    } catch (err: unknown) {
         await client.query('ROLLBACK');
-        logger.error({ error }, '[Cash] System close error');
+        logger.error({ error: err }, '[Cash] System close error');
         return { success: false, error: 'Error en cierre automático' };
     } finally {
         client.release();
@@ -781,9 +826,10 @@ export async function registerCashCountSecure(
 
         return { success: true, difference };
 
-    } catch (error: any) {
+    } catch (err: unknown) {
         await client.query('ROLLBACK');
-        logger.error({ error }, '[Cash] Cash count error');
+        const error = asDatabaseError(err);
+        logger.error({ error: err }, '[Cash] Cash count error');
         return { success: false, error: error.message || 'Error registrando arqueo' };
 
     } finally {
@@ -911,9 +957,10 @@ export async function adjustCashSecure(
 
         return { success: true, movementId };
 
-    } catch (error: any) {
+    } catch (err: unknown) {
         await client.query('ROLLBACK');
-        logger.error({ error }, '[Cash] Adjust cash error');
+        const error = asDatabaseError(err);
+        logger.error({ error: err }, '[Cash] Adjust cash error');
         return { success: false, error: error.message || 'Error ajustando caja' };
 
     } finally {
@@ -1026,8 +1073,8 @@ export async function getCashDrawerStatus(
             }
         };
 
-    } catch (error: any) {
-        logger.error({ error }, '[Cash] Get status error');
+    } catch (err: unknown) {
+        logger.error({ error: err }, '[Cash] Get status error');
         return { success: false, error: 'Error obteniendo estado de caja' };
     }
 }
@@ -1042,7 +1089,7 @@ export async function getCashMovementHistory(
 ): Promise<{
     success: boolean;
     data?: {
-        movements: any[];
+        movements: CashMovementView[];
         total: number;
         page: number;
         pageSize: number;
@@ -1061,7 +1108,7 @@ export async function getCashMovementHistory(
         const { query } = await import('@/lib/db');
 
         // Parameter handling
-        const params: any[] = [];
+        const params: (string | number | Date)[] = [];
         let paramIndex = 1;
 
         // Base filters for both queries
@@ -1241,9 +1288,10 @@ export async function getCashMovementHistory(
             }
         };
 
-    } catch (error: any) {
-        logger.error({ error }, '[Cash] Get history error');
-        return { success: false, error: 'Error obteniendo historial: ' + error.message };
+    } catch (err: unknown) {
+        const error = asDatabaseError(err);
+        logger.error({ error: err }, '[Cash] Get history error');
+        return { success: false, error: 'Error obteniendo historial: ' + (error.message || '') };
     }
 }
 
@@ -1404,9 +1452,10 @@ export async function getShiftMetricsSecure(
             }
         };
 
-    } catch (error: any) {
-        logger.error({ error }, '[Cash] Get shift metrics error');
-        return { success: false, error: `Error obteniendo métricas del turno: ${error.message}` };
+    } catch (err: unknown) {
+        const error = asDatabaseError(err);
+        logger.error({ error: err }, '[Cash] Get shift metrics error');
+        return { success: false, error: `Error obteniendo métricas del turno: ${error.message || ''}` };
     }
 }
 
@@ -1422,7 +1471,7 @@ export async function exportCashMovementHistory(
     filters?: z.input<typeof CashHistorySchema>
 ): Promise<{
     success: boolean;
-    data?: any[];
+    data?: CashMovementView[];
     error?: string;
 }> {
     // Reuse schema but override page/pageSize for export
@@ -1437,7 +1486,7 @@ export async function exportCashMovementHistory(
         const { query } = await import('@/lib/db');
 
         // Parameter handling
-        const params: any[] = [];
+        const params: (string | number | Date)[] = [];
         let paramIndex = 1;
 
         // Base filters for both queries
@@ -1544,8 +1593,9 @@ export async function exportCashMovementHistory(
             data: historyRes.rows
         };
 
-    } catch (error: any) {
-        logger.error({ error }, '[Cash] Export history error');
-        return { success: false, error: 'Error exportando historial: ' + error.message };
+    } catch (err: unknown) {
+        const error = asDatabaseError(err);
+        logger.error({ error: err }, '[Cash] Export history error');
+        return { success: false, error: 'Error exportando historial: ' + (error.message || '') };
     }
 }

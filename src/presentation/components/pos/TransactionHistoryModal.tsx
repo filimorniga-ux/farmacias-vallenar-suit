@@ -4,7 +4,7 @@ import { useLocationStore } from '../../../presentation/store/useLocationStore';
 import { useSettingsStore } from '../../../presentation/store/useSettingsStore';
 import { X, Search, Calendar, Printer, Lock, FileText, Download, User, RotateCcw, Loader2, RefreshCw, AlertCircle, TrendingUp, TrendingDown, DollarSign } from 'lucide-react';
 import { exportSalesHistorySecure } from '../../../actions/pos-export-v2';
-import { getCashMovementHistory } from '../../../actions/cash-management-v2'; // Unified Endpoint
+import { CashMovementView, getCashMovementHistory } from '../../../actions/cash-management-v2'; // Unified Endpoint
 import { getSaleDetailsSecure } from '../../../actions/sales-v2'; // NEW: Details
 import { validateSupervisorPin } from '../../../actions/auth-v2';
 import { toast } from 'sonner';
@@ -35,7 +35,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
     const [isValidatingPin, setIsValidatingPin] = useState(false);
 
     // Data State
-    const [transactions, setTransactions] = useState<any[]>([]); // Mixed types
+    const [transactions, setTransactions] = useState<CashMovementView[]>([]); // Typed
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isExporting, setIsExporting] = useState(false);
@@ -53,7 +53,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
     });
 
     // Detail View
-    const [selectedItem, setSelectedItem] = useState<any | null>(null);
+    const [selectedItem, setSelectedItem] = useState<CashMovementView | null>(null);
     const [isLoadingDetails, setIsLoadingDetails] = useState(false); // NEW
     const [isReturnsModalOpen, setIsReturnsModalOpen] = useState(false);
 
@@ -759,7 +759,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
                     <ReturnsModal
                         isOpen={isReturnsModalOpen}
                         onClose={() => setIsReturnsModalOpen(false)}
-                        sale={selectedItem as SaleTransaction}
+                        sale={selectedItem as unknown as SaleTransaction}
                     />
                 )
             }
