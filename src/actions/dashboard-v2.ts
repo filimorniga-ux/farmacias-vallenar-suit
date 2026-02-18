@@ -13,7 +13,7 @@
  * - Caché de 5 minutos
  */
 
-import { pool, query } from '@/lib/db';
+import { query } from '@/lib/db';
 import { z } from 'zod';
 import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
@@ -66,7 +66,7 @@ const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
 const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
 
 // Caché simple en memoria
-const metricsCache = new Map<string, { data: any; expiresAt: number }>();
+const metricsCache = new Map<string, { data: FinancialMetrics | ExecutiveMetrics | Record<string, unknown>[]; expiresAt: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
 
 // ============================================================================
@@ -82,16 +82,17 @@ async function getSession(): Promise<{ userId: string; role: string; locationId?
         const terminalId = headersList.get('x-terminal-id');
         if (!userId || !role) return null;
         return { userId, role, locationId: locationId || undefined, terminalId: terminalId || undefined };
-    } catch {
+    } catch (error: unknown) {
+        console.error('[Dashboard] getSession error:', error instanceof Error ? error.message : error);
         return null;
     }
 }
 
-function getCacheKey(params: any, userId: string): string {
+function getCacheKey(params: Record<string, unknown>, userId: string): string {
     return `metrics:${userId}:${JSON.stringify(params)}`;
 }
 
-function getFromCache(key: string): any | null {
+function getFromCache(key: string): FinancialMetrics | ExecutiveMetrics | Record<string, unknown>[] | null {
     const entry = metricsCache.get(key);
     if (!entry) return null;
     if (Date.now() > entry.expiresAt) {
@@ -101,7 +102,7 @@ function getFromCache(key: string): any | null {
     return entry.data;
 }
 
-function setCache(key: string, data: any): void {
+function setCache(key: string, data: FinancialMetrics | ExecutiveMetrics | Record<string, unknown>[]): void {
     metricsCache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
@@ -146,8 +147,13 @@ export async function getFinancialMetricsSecure(
     }
 
     // Verificar caché
-    const cacheKey = getCacheKey({ dateRange, locationId, terminalId }, session.userId);
-    const cached = getFromCache(cacheKey);
+    const cacheKey = getCacheKey({
+        from: dateRange.from.toISOString(),
+        to: dateRange.to.toISOString(),
+        locationId: locationId || 'null',
+        terminalId: terminalId || 'null'
+    }, session.userId);
+    const cached = getFromCache(cacheKey) as FinancialMetrics | null;
     if (cached) {
         return { success: true, data: cached };
     }
@@ -157,7 +163,7 @@ export async function getFinancialMetricsSecure(
         const toStr = dateRange.to.toISOString();
 
         // Queries parametrizados (sin concatenación)
-        const baseParams: any[] = [fromStr, toStr];
+        const baseParams: (string | null | undefined)[] = [fromStr, toStr];
         let paramIndex = 3;
 
         // Construir condiciones de forma segura
@@ -195,9 +201,16 @@ export async function getFinancialMetricsSecure(
             FROM sales 
             WHERE timestamp >= $1::timestamp AND timestamp <= $2::timestamp
             ${salesLocationCondition} ${salesTerminalCondition}
-        `, baseParams);
+        `, baseParams as (string | number | boolean | Date | null | undefined)[]);
 
-        const sRow = salesRes.rows[0];
+        const sRow = salesRes.rows[0] as {
+            total: string;
+            count: string;
+            cash: string;
+            debit: string;
+            credit: string;
+            transfer: string;
+        };
 
         // 2. Movimientos de caja
         const cashRes = await query(`
@@ -208,7 +221,7 @@ export async function getFinancialMetricsSecure(
         `, baseParams);
 
         const cashMap = new Map<string, number>();
-        cashRes.rows.forEach((r: any) => cashMap.set(r.type, parseFloat(r.total)));
+        (cashRes.rows as Record<string, unknown>[]).forEach((r) => cashMap.set(r.type as string, parseFloat(r.total as string)));
 
         const baseCash = cashMap.get('APERTURA') || 0;
         const extraIncome = cashMap.get('INGRESO') || 0;
@@ -230,10 +243,10 @@ export async function getFinancialMetricsSecure(
                 GROUP BY l.id, l.name
                 ORDER BY total DESC
             `, [fromStr, toStr]);
-            breakdown = bdRes.rows.map((r: any) => ({
-                id: r.id,
-                name: r.name,
-                total: parseFloat(r.total),
+            breakdown = (bdRes.rows as Record<string, unknown>[]).map((r) => ({
+                id: r.id as string,
+                name: r.name as string,
+                total: parseFloat(r.total as string),
             }));
         } else if (locationId && !terminalId) {
             // Ubicación → Por terminal
@@ -246,10 +259,10 @@ export async function getFinancialMetricsSecure(
                 GROUP BY t.id, t.name
                 ORDER BY total DESC
             `, [fromStr, toStr, locationId]);
-            breakdown = bdRes.rows.map((r: any) => ({
-                id: r.id,
-                name: r.name,
-                total: parseFloat(r.total),
+            breakdown = (bdRes.rows as Record<string, unknown>[]).map((r) => ({
+                id: r.id as string,
+                name: r.name as string,
+                total: parseFloat(r.total as string),
             }));
         }
 
@@ -287,7 +300,7 @@ export async function getFinancialMetricsSecure(
 
         return { success: true, data: result };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Dashboard] Get metrics error');
         return { success: false, error: 'Error obteniendo métricas' };
     }
@@ -302,7 +315,7 @@ export async function getFinancialMetricsSecure(
  */
 export async function getSalesSummarySecure(
     dateRange: { from: Date; to: Date }
-): Promise<{ success: boolean; data?: any; error?: string }> {
+): Promise<{ success: boolean; data?: Record<string, unknown>[]; error?: string }> {
     const session = await getSession();
     if (!session) {
         return { success: false, error: 'No autenticado' };
@@ -310,7 +323,7 @@ export async function getSalesSummarySecure(
 
     try {
         let locationFilter = '';
-        const params: any[] = [dateRange.from.toISOString(), dateRange.to.toISOString()];
+        const params: (string | null | undefined)[] = [dateRange.from.toISOString(), dateRange.to.toISOString()];
 
         if (!ADMIN_ROLES.includes(session.role) && session.locationId) {
             locationFilter = 'AND location_id = $3::uuid';
@@ -326,11 +339,11 @@ export async function getSalesSummarySecure(
             WHERE timestamp >= $1::timestamp AND timestamp <= $2::timestamp ${locationFilter}
             GROUP BY DATE(timestamp)
             ORDER BY date DESC
-        `, params);
+        `, params as (string | number | boolean | Date | null | undefined)[]);
 
-        return { success: true, data: res.rows };
+        return { success: true, data: res.rows as Record<string, unknown>[] };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Dashboard] Sales summary error');
         return { success: false, error: 'Error obteniendo resumen' };
     }
@@ -345,7 +358,7 @@ export async function getSalesSummarySecure(
  */
 export async function getCashFlowSecure(
     dateRange: { from: Date; to: Date }
-): Promise<{ success: boolean; data?: any; error?: string }> {
+): Promise<{ success: boolean; data?: Record<string, unknown>[]; error?: string }> {
     const session = await getSession();
     if (!session) {
         return { success: false, error: 'No autenticado' };
@@ -358,7 +371,7 @@ export async function getCashFlowSecure(
 
     try {
         let terminalFilter = '';
-        const params: any[] = [dateRange.from.toISOString(), dateRange.to.toISOString()];
+        const params: (string | null | undefined)[] = [dateRange.from.toISOString(), dateRange.to.toISOString()];
 
         if (!ADMIN_ROLES.includes(session.role) && session.locationId) {
             terminalFilter = 'AND terminal_id IN (SELECT id FROM terminals WHERE location_id = $3::uuid)';
@@ -374,11 +387,11 @@ export async function getCashFlowSecure(
             WHERE timestamp >= $1::timestamp AND timestamp <= $2::timestamp ${terminalFilter}
             GROUP BY DATE(timestamp), type
             ORDER BY date DESC, type
-        `, params);
+        `, params as (string | number | boolean | Date | null | undefined)[]);
 
-        return { success: true, data: res.rows };
+        return { success: true, data: res.rows as Record<string, unknown>[] };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Dashboard] Cash flow error');
         return { success: false, error: 'Error obteniendo flujo' };
     }
@@ -416,7 +429,7 @@ export async function getExecutiveDashboardMetricsSecure(): Promise<{ success: b
     }
 
     const cacheKey = getCacheKey({ type: 'executive' }, session.userId);
-    const cached = getFromCache(cacheKey);
+    const cached = getFromCache(cacheKey) as ExecutiveMetrics | null;
     if (cached) return { success: true, data: cached };
 
     try {
@@ -489,19 +502,19 @@ export async function getExecutiveDashboardMetricsSecure(): Promise<{ success: b
             revenue: { current: currTotal, previous: prevTotal, growth: revGrowth },
             aov: { current: currAov, previous: prevAov, growth: aovGrowth },
             grossProfit: { value: grossProfitValue, margin: grossMargin },
-            salesByLocation: locRes.rows.map(r => ({ name: r.name, total: parseFloat(r.total) })),
-            recentSales: recentRes.rows.map(r => ({
-                id: r.id,
-                amount: parseFloat(r.amount),
-                timestamp: r.timestamp,
-                location: r.location
+            salesByLocation: (locRes.rows as Record<string, unknown>[]).map(r => ({ name: r.name as string, total: parseFloat(r.total as string) })),
+            recentSales: (recentRes.rows as Record<string, unknown>[]).map(r => ({
+                id: r.id as string,
+                amount: parseFloat(r.amount as string),
+                timestamp: r.timestamp as string,
+                location: r.location as string
             }))
         };
 
         setCache(cacheKey, data);
         return { success: true, data };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Dashboard] Executive metrics error');
         return { success: false, error: 'Error calculando métricas de gerencia' };
     }

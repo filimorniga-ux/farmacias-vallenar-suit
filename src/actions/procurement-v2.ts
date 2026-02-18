@@ -23,7 +23,7 @@
  * - PROC-006: No approval workflow
  */
 
-import { pool } from '@/lib/db';
+import { pool, type PoolClient } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
@@ -88,7 +88,7 @@ const GERENTE_THRESHOLD = 1000000; // CLP - requires GERENTE_GENERAL PIN
 // HELPER FUNCTIONS
 // ============================================================================
 
-async function validateApproverPin(client: any, pin: string, requiredRoles: readonly string[]): Promise<{
+async function validateApproverPin(client: PoolClient, pin: string, requiredRoles: readonly string[]): Promise<{
     valid: boolean;
     approver?: { id: string; name: string; role: string };
     error?: string;
@@ -137,11 +137,11 @@ async function validateApproverPin(client: any, pin: string, requiredRoles: read
     }
 }
 
-async function insertProcurementAudit(client: any, params: {
+async function insertProcurementAudit(client: PoolClient, params: {
     actionCode: string;
     userId: string;
     orderId: string;
-    details: Record<string, any>;
+    details: Record<string, unknown>;
 }): Promise<void> {
     await client.query(`
         INSERT INTO audit_log (
@@ -235,7 +235,7 @@ export async function createPurchaseOrderSecure(data: z.infer<typeof CreatePurch
         // 7. Insert items
         for (const item of validated.data.items) {
             // Get SKU if not provided
-            let sku = item.sku || 'UNKNOWN';
+            const sku = item.sku || 'UNKNOWN';
 
             await client.query(`
                 INSERT INTO purchase_order_items (
@@ -277,12 +277,12 @@ export async function createPurchaseOrderSecure(data: z.infer<typeof CreatePurch
             data: { orderId, total, requiresApproval }
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         console.error('[PROCUREMENT-V2] Create PO error:', error);
         return {
             success: false,
-            error: error.message || 'Error al crear orden de compra'
+            error: error instanceof Error ? error.message : 'Error al crear orden de compra'
         };
     } finally {
         client.release();
@@ -380,17 +380,17 @@ export async function approvePurchaseOrderSecure(data: z.infer<typeof ApprovePur
 
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         console.error('[PROCUREMENT-V2] Approve PO error:', error);
 
-        if (error.code === '55P03') {
+        if (error && typeof error === 'object' && 'code' in error && error.code === '55P03') {
             return { success: false, error: 'Orden está siendo procesada' };
         }
 
         return {
             success: false,
-            error: error.message || 'Error al aprobar orden'
+            error: error instanceof Error ? error.message : 'Error al aprobar orden'
         };
     } finally {
         client.release();
@@ -562,12 +562,12 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
 
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         console.error('[PROCUREMENT-V2] Receive PO error:', error);
         return {
             success: false,
-            error: error.message || 'Error al recibir orden'
+            error: error instanceof Error ? error.message : 'Error al recibir orden'
         };
     } finally {
         client.release();
@@ -653,12 +653,12 @@ export async function cancelPurchaseOrderSecure(data: z.infer<typeof CancelPurch
 
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         console.error('[PROCUREMENT-V2] Cancel PO error:', error);
         return {
             success: false,
-            error: error.message || 'Error al cancelar orden'
+            error: error instanceof Error ? error.message : 'Error al cancelar orden'
         };
     } finally {
         client.release();
@@ -722,10 +722,10 @@ export async function deletePurchaseOrderSecure(params: {
 
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         console.error('Error deleting PO:', error);
-        return { success: false, error: error.message };
+        return { success: false, error: error instanceof Error ? error.message : 'Error al eliminar orden' };
     } finally {
         client.release();
     }
@@ -745,7 +745,7 @@ export async function getPurchaseOrderHistory(filters?: {
 }): Promise<{
     success: boolean;
     data?: {
-        orders: any[];
+        orders: Record<string, unknown>[];
         total: number;
         page: number;
         pageSize: number;
@@ -758,7 +758,7 @@ export async function getPurchaseOrderHistory(filters?: {
 
         // Build WHERE clause
         const conditions: string[] = [];
-        const params: any[] = [];
+        const params: (string | number | Date | null)[] = [];
         let paramIndex = 1;
 
         if (filters?.supplierId) {
@@ -830,7 +830,7 @@ export async function getPurchaseOrderHistory(filters?: {
             `, [orderIds]);
 
             // Map items back to orders
-            ordersResult.rows.forEach(order => {
+            (ordersResult.rows as (Record<string, unknown> & { items: unknown[] })[]).forEach(order => {
                 order.items = itemsResult.rows
                     .filter(item => item.purchase_order_id === order.id)
                     .map(item => ({
@@ -856,11 +856,11 @@ export async function getPurchaseOrderHistory(filters?: {
             }
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[PROCUREMENT-V2] Get history error:', error);
         return {
             success: false,
-            error: error.message || 'Error obteniendo historial'
+            error: error instanceof Error ? error.message : 'Error obteniendo historial'
         };
     }
 }
@@ -882,7 +882,7 @@ export async function generateRestockSuggestionSecure(
     limit: number = 100      // New: Top N results
 ): Promise<{
     success: boolean;
-    data?: any[];
+    data?: Record<string, unknown>[];
     error?: string;
 }> {
     console.log('[MRP] Generate Suggestion Params:', { supplierId, daysToCover, analysisWindow, locationId, stockThreshold, searchQuery, limit });
@@ -913,7 +913,7 @@ export async function generateRestockSuggestionSecure(
         // $4: LocationID (Optional) - For stock filtering
         // $5: Limit
 
-        const queryParams: any[] = [
+        const queryParams: (string | number | null)[] = [
             supplierValidated || null,
             searchQuery ? `%${searchQuery}%` : null,
             limit
@@ -1232,7 +1232,7 @@ export async function generateRestockSuggestionSecure(
                         suggested = aiResult.suggestedOrderQty;
                         reason = `🤖 IA: ${aiResult.reasoning}`;
                         aiConfidence = aiResult.confidence;
-                        aiAction = (aiResult as any).suggestedAction || 'PURCHASE';
+                        aiAction = ((aiResult as { suggestedAction?: string }).suggestedAction as 'PURCHASE' | 'TRANSFER' | 'PARTIAL_TRANSFER') || 'PURCHASE';
 
                         // If AI suggests TRANSFER, set purchase qty to 0 (or reflect transfer logic)
                         if (aiAction === 'TRANSFER') {
@@ -1240,7 +1240,7 @@ export async function generateRestockSuggestionSecure(
                             reason = `📦 TRANSFERENCIA SUGERIDA: ${aiResult.reasoning}`;
                         }
                     }
-                } catch (err) {
+                } catch {
                     console.warn('AI Forecast skipped for item:', row.sku);
                 }
             }
@@ -1260,17 +1260,17 @@ export async function generateRestockSuggestionSecure(
 
 
             // Resolver proveedor preferido o el mejor precio
-            let bestSupplier = null;
-            if (row.suppliers_data && row.suppliers_data.length > 0) {
+            let bestSupplier: Record<string, unknown> | null = null;
+            if (row.suppliers_data && (row.suppliers_data as Record<string, unknown>[]).length > 0) {
                 // Try to find preferred
-                bestSupplier = row.suppliers_data.find((s: any) => s.is_preferred);
+                bestSupplier = (row.suppliers_data as Record<string, unknown>[]).find((s: Record<string, unknown>) => s.is_preferred) || null;
                 // Fallback to first (cheapest)
-                if (!bestSupplier) bestSupplier = row.suppliers_data[0];
+                if (!bestSupplier) bestSupplier = (row.suppliers_data as Record<string, unknown>[])[0];
             }
 
             // If filtering by specific supplier, ensure we use that one's data if available
             if (supplierId && row.suppliers_data) {
-                const specificSup = row.suppliers_data.find((s: any) => s.id === supplierId);
+                const specificSup = (row.suppliers_data as Record<string, unknown>[]).find((s: Record<string, unknown>) => s.id === supplierId);
                 if (specificSup) bestSupplier = specificSup;
             }
 
@@ -1305,9 +1305,9 @@ export async function generateRestockSuggestionSecure(
                 urgency: urgency,
                 unit_cost: Number(bestSupplier?.cost_price || row.unit_cost),
                 supplier_sku: bestSupplier?.supplier_sku || null,
-                supplier_id: bestSupplier?.id || null,
-                supplier_name: bestSupplier?.name || 'Sin Proveedor Asignado',
-                other_suppliers: (row.suppliers_data || []).map((s: any) => ({ ...s, cost: s.cost_price })),
+                supplier_id: (bestSupplier?.id as string) || null,
+                supplier_name: (bestSupplier?.name as string) || 'Sin Proveedor Asignado',
+                other_suppliers: (row.suppliers_data as Record<string, unknown>[] || []).map((s: Record<string, unknown>) => ({ ...s, cost: s.cost_price })),
                 total_estimated: suggested * Number(bestSupplier?.cost_price || row.unit_cost),
                 reason,
                 ai_confidence: aiConfidence,
@@ -1338,9 +1338,9 @@ export async function generateRestockSuggestionSecure(
 
         return { success: true, data: sortedSuggestions };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[PROCUREMENT-V2] MRP error:', error);
-        return { success: false, error: 'Error generando sugerencias: ' + error.message };
+        return { success: false, error: 'Error generando sugerencias: ' + (error instanceof Error ? error.message : 'Error desconocido') };
     }
 }
 
@@ -1350,13 +1350,13 @@ export async function generateRestockSuggestionSecure(
 export async function getTransferHistorySecure(params?: {
     locationId?: string;
     limit?: number;
-}): Promise<{ success: boolean; data?: any[]; error?: string }> {
+}): Promise<{ success: boolean; data?: Record<string, unknown>[]; error?: string }> {
     try {
         const limit = params?.limit || 50;
         const locationFilter = params?.locationId
             ? `AND (sm_out.location_id = $2 OR sm_in.location_id = $2)`
             : '';
-        const queryParams: any[] = [limit];
+        const queryParams: (number | string)[] = [limit];
         if (params?.locationId) queryParams.push(params.locationId);
 
         const result = await pool.query(`
@@ -1387,9 +1387,9 @@ export async function getTransferHistorySecure(params?: {
             LIMIT $1
         `, queryParams);
 
-        return { success: true, data: result.rows };
-    } catch (error: any) {
+        return { success: true, data: result.rows as Record<string, unknown>[] };
+    } catch (error: unknown) {
         logger.error({ error }, '[PROCUREMENT-V2] Transfer history error');
-        return { success: false, error: 'Error consultando historial: ' + error.message };
+        return { success: false, error: 'Error consultando historial: ' + (error instanceof Error ? error.message : 'Error desconocido') };
     }
 }

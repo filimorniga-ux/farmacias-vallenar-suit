@@ -59,7 +59,7 @@ if (isProduction) {
     pool.on('error', (err) => console.error('🔥 [DB] Unexpected pool error in production:', err.message));
 } else {
     // Force recreation if config changes during dev (Hot Reload safety)
-    const currentPool = global.postgresPool as any;
+    const currentPool = (global as any).postgresPool;
     const needsRecreation = !currentPool || currentPool._lastUrl !== dbUrl;
 
     if (needsRecreation) {
@@ -70,11 +70,11 @@ if (isProduction) {
 
         console.log('🔌 [DB] Initializing PostgreSQL Pool (Dev)...');
         try {
-            const newPool = new Pool(connectionConfig) as any;
+            const newPool = new Pool(connectionConfig) as Pool & { _lastUrl: string };
             newPool._lastUrl = dbUrl; // Store URL for comparison
 
             newPool.on('connect', setLocalTimezone);
-            newPool.on('error', (err: any) => console.error('🔥 [DB] Unexpected error on idle client:', err.message));
+            newPool.on('error', (err: Error) => console.error('🔥 [DB] Unexpected error on idle client:', err.message));
 
             newPool.connect()
                 .then((client: PoolClient) => {
@@ -99,7 +99,7 @@ declare global {
 }
 
 // Función Query Exportada con Reintentos
-export async function query(text: string, params?: (string | number | boolean | Date | null | undefined)[]) {
+export async function query(text: string, params?: (string | number | boolean | Date | string[] | null | undefined)[]) {
     const MAX_RETRIES = 3;
     const RETRY_DELAY = 1500;
     const start = Date.now();
@@ -107,16 +107,12 @@ export async function query(text: string, params?: (string | number | boolean | 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
             const res = await pool.query(text, params);
-            const duration = Date.now() - start;
-
-            if (!isProduction && duration > 1000) {
-                console.log('⚠️ Query Lenta:', { duration, rows: res.rowCount, text: text.substring(0, 100) + '...' });
-            }
             return res;
-        } catch (error: any) {
+        } catch (error: unknown) {
             const duration = Date.now() - start;
+            const pgError = error as { code?: string; message?: string };
             const isLastAttempt = attempt === MAX_RETRIES;
-            const isTransientError = [
+            const isTransientError = pgError.code && [
                 'ECONNREFUSED',
                 'ECONNRESET',
                 'ETIMEDOUT',
@@ -126,12 +122,12 @@ export async function query(text: string, params?: (string | number | boolean | 
                 '08001', // sql_client_unable_to_establish_sql_connection
                 '08003', // connection_does_not_exist
                 '08006', // connection_failure
-            ].includes(error.code) || error.message?.includes('aborted');
+            ].includes(pgError.code) || pgError.message?.includes('aborted');
 
             if (isLastAttempt || !isTransientError) {
                 console.error(`❌ [DB] Error Fatal (Intento ${attempt}/${MAX_RETRIES}):`, {
-                    message: error.message,
-                    code: error.code,
+                    message: pgError.message,
+                    code: pgError.code,
                     pool: {
                         total: pool.totalCount,
                         idle: pool.idleCount,
@@ -157,12 +153,13 @@ export async function getClient() {
         try {
             const client = await pool.connect();
             return client as PoolClient;
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const pgError = error as { code?: string; message?: string };
             const isLastAttempt = attempt === MAX_RETRIES;
-            const isTransient = error.code === 'ECONNRESET' || error.code === 'ECONNREFUSED' || error.message?.includes('aborted');
+            const isTransient = pgError.code === 'ECONNRESET' || pgError.code === 'ECONNREFUSED' || pgError.message?.includes('aborted');
 
             if (isLastAttempt || !isTransient) {
-                console.error(`❌ [DB] Error obteniendo cliente (Intento ${attempt}/${MAX_RETRIES}):`, error.message);
+                console.error(`❌ [DB] Error obteniendo cliente (Intento ${attempt}/${MAX_RETRIES}):`, pgError.message);
                 throw error;
             }
 

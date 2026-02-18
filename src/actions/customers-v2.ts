@@ -22,7 +22,7 @@
  * - CUST-004: Loyalty points not transactional
  */
 
-import { pool } from '@/lib/db';
+import { pool, type PoolClient } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
@@ -125,29 +125,25 @@ function validateRUTDigit(number: string, dv: string): boolean {
     return dv.toUpperCase() === expectedDVStr.toUpperCase();
 }
 
-/**
- * Hash RUT for privacy (one-way hash for search indexes)
- */
-async function hashRUT(rut: string): Promise<string> {
-    const crypto = await import('crypto');
-    return crypto.createHash('sha256').update(rut).digest('hex');
-}
+// hashRUT removed as it was unused and crypto is imported locally within the function
+// if needed again, ensure it's used.
 
 /**
  * Insert audit log (non-blocking, failures don't break main operation)
  */
-async function insertCustomerAudit(client: any, params: {
+async function insertCustomerAudit(client: PoolClient, params: {
     actionCode: string;
     userId: string;
     customerId: string;
-    oldValues?: Record<string, any>;
-    newValues?: Record<string, any>;
+    oldValues?: Record<string, unknown>;
+    newValues?: Record<string, unknown>;
 }): Promise<void> {
     try {
         // Remove sensitive PII from audit
-        const sanitize = (values?: Record<string, any>) => {
+        const sanitize = (values?: Record<string, unknown>) => {
             if (!values) return null;
-            const { rut, email, phone, address, ...safe } = values;
+            // Destructure unused fields to OMIT them from the audit log
+            const { rut: _r, email: _e, phone: _p, address: _a, ...safe } = values;
             return safe;
         };
 
@@ -216,7 +212,7 @@ export async function createCustomerSecure(data: z.infer<typeof CreateCustomerSc
 
         // 3. Create customer
         const customerId = randomUUID();
-        const createResult = await client.query(`
+        await client.query(`
             INSERT INTO customers (
                 id, rut, name, phone, email, address,
                 tags, loyalty_points, status, health_tags, source,
@@ -226,7 +222,6 @@ export async function createCustomerSecure(data: z.infer<typeof CreateCustomerSc
                 $7, 0, 'ACTIVE', $8, $9,
                 NOW(), NOW()
             )
-            RETURNING id
         `, [
             customerId,
             validated.data.rut,
@@ -262,17 +257,17 @@ export async function createCustomerSecure(data: z.infer<typeof CreateCustomerSc
             data: { id: customerId }
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         console.error('[CUSTOMERS-V2] Create customer error:', error);
 
-        if (error.code === '23505') { // Unique violation
+        if (error && typeof error === 'object' && 'code' in error && error.code === '23505') { // Unique violation
             return { success: false, error: 'Cliente ya existe' };
         }
 
         return {
             success: false,
-            error: error.message || 'Error al crear cliente'
+            error: error instanceof Error ? error.message : 'Error al crear cliente'
         };
     } finally {
         client.release();
@@ -318,7 +313,7 @@ export async function updateCustomerSecure(data: z.infer<typeof UpdateCustomerSc
 
         // 3. Build update query dynamically
         const updates: string[] = [];
-        const values: any[] = [];
+        const values: (string | number | boolean | string[] | null)[] = [];
         let paramIndex = 1;
 
         if (validated.data.fullName !== undefined) {
@@ -380,17 +375,17 @@ export async function updateCustomerSecure(data: z.infer<typeof UpdateCustomerSc
 
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         console.error('[CUSTOMERS-V2] Update customer error:', error);
 
-        if (error.code === '55P03') {
+        if (error && typeof error === 'object' && 'code' in error && error.code === '55P03') {
             return { success: false, error: 'Cliente está siendo modificado' };
         }
 
         return {
             success: false,
-            error: error.message || 'Error al actualizar cliente'
+            error: error instanceof Error ? error.message : 'Error al actualizar cliente'
         };
     } finally {
         client.release();
@@ -484,12 +479,12 @@ export async function addLoyaltyPointsSecure(data: z.infer<typeof LoyaltyPointsS
             data: { newBalance }
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         console.error('[CUSTOMERS-V2] Loyalty points error:', error);
         return {
             success: false,
-            error: error.message || 'Error actualizando puntos'
+            error: error instanceof Error ? error.message : 'Error actualizando puntos'
         };
     } finally {
         client.release();
@@ -501,7 +496,7 @@ export async function addLoyaltyPointsSecure(data: z.infer<typeof LoyaltyPointsS
  */
 export async function exportCustomerDataSecure(customerId: string): Promise<{
     success: boolean;
-    data?: Record<string, any>;
+    data?: Record<string, unknown>;
     error?: string;
 }> {
     const validated = UUIDSchema.safeParse(customerId);
@@ -538,7 +533,7 @@ export async function exportCustomerDataSecure(customerId: string): Promise<{
             data: exportData
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[CUSTOMERS-V2] Export data error:', error);
         return {
             success: false,
@@ -586,12 +581,12 @@ export async function deleteCustomerSecure(customerId: string, userId: string): 
 
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         console.error('[CUSTOMERS-V2] Delete customer error:', error);
         return {
             success: false,
-            error: error.message || 'Error al eliminar cliente'
+            error: error instanceof Error ? error.message : 'Error al eliminar cliente'
         };
     } finally {
         client.release();
@@ -604,7 +599,7 @@ export async function deleteCustomerSecure(customerId: string, userId: string): 
 export async function getCustomersSecure(filters?: z.input<typeof GetCustomersSchema>): Promise<{
     success: boolean;
     data?: {
-        customers: any[];
+        customers: Record<string, unknown>[];
         total: number;
         page: number;
         pageSize: number;
@@ -623,7 +618,7 @@ export async function getCustomersSecure(filters?: z.input<typeof GetCustomersSc
     try {
         // Build WHERE clause
         const conditions: string[] = [];
-        const params: any[] = [];
+        const params: (string | number)[] = [];
         let paramIndex = 1;
 
         if (validated.data.searchTerm) {
@@ -677,11 +672,11 @@ export async function getCustomersSecure(filters?: z.input<typeof GetCustomersSc
         const totalPages = Math.ceil(total / validated.data.pageSize);
 
         // Map DB fields to frontend Customer type
-        const mappedCustomers = customersResult.rows.map((c: any) => ({
+        const mappedCustomers = (customersResult.rows as Record<string, unknown>[]).map((c) => ({
             ...c,
             fullName: c.name, // Map 'name' from DB to 'fullName' for frontend
-            totalPoints: c.loyalty_points || 0,
-            lastVisit: c.last_visit ? new Date(c.last_visit).getTime() : Date.now(),
+            totalPoints: (c.loyalty_points as number) || 0,
+            lastVisit: c.last_visit ? new Date(c.last_visit as string).getTime() : Date.now(),
             total_spent: 0, // Not tracked in this query, could be added via JOIN if needed
         }));
 
@@ -696,11 +691,11 @@ export async function getCustomersSecure(filters?: z.input<typeof GetCustomersSc
             }
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[CUSTOMERS-V2] Get customers error:', error);
         return {
             success: false,
-            error: error.message || 'Error obteniendo clientes'
+            error: error instanceof Error ? error.message : 'Error obteniendo clientes'
         };
     }
 }
@@ -710,7 +705,7 @@ export async function getCustomersSecure(filters?: z.input<typeof GetCustomersSc
  */
 export async function getCustomerHistorySecure(customerId: string): Promise<{
     success: boolean;
-    data?: any[];
+    data?: Record<string, unknown>[];
     error?: string;
 }> {
     const validated = UUIDSchema.safeParse(customerId);
@@ -778,11 +773,11 @@ export async function getCustomerHistorySecure(customerId: string): Promise<{
             data: transactions
         };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[CUSTOMERS-V2] History fetch error:', error);
         return {
             success: false,
-            error: `Error: ${error.message || 'Error desconocido'}`
+            error: `Error: ${error instanceof Error ? error.message : 'Error desconocido'}`
         };
     }
 }
