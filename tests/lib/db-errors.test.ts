@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isTransientPgConnectionError } from '@/lib/db-errors';
+import { classifyPgError, isTransientPgConnectionError } from '@/lib/db-errors';
 
 describe('db-errors', () => {
     describe('isTransientPgConnectionError', () => {
@@ -24,6 +24,37 @@ describe('db-errors', () => {
         it('returns false for empty input', () => {
             expect(isTransientPgConnectionError(undefined)).toBe(false);
             expect(isTransientPgConnectionError(null)).toBe(false);
+        });
+    });
+
+    describe('classifyPgError', () => {
+        it('maps timeout message to DB_TIMEOUT', () => {
+            const result = classifyPgError({
+                message: 'Connection terminated due to connection timeout',
+            });
+
+            expect(result.code).toBe('DB_TIMEOUT');
+            expect(result.retryable).toBe(true);
+        });
+
+        it('maps auth failures to DB_AUTH', () => {
+            const result = classifyPgError({
+                code: '28P01',
+                message: 'password authentication failed for user',
+            });
+
+            expect(result.code).toBe('DB_AUTH');
+            expect(result.retryable).toBe(false);
+        });
+
+        it('maps dns failures to DB_DNS', () => {
+            const result = classifyPgError({
+                code: 'ENOTFOUND',
+                message: 'getaddrinfo ENOTFOUND db.internal',
+            });
+
+            expect(result.code).toBe('DB_DNS');
+            expect(result.retryable).toBe(true);
         });
     });
 });

@@ -23,6 +23,18 @@ import { formatDateCL, formatDateTimeCL } from '@/lib/timezone';
 const UUIDSchema = z.string().uuid('ID inválido');
 const INTERNAL_SUPPLIER_MARKERS = new Set(['TRANSFER', 'TRASPASO_INTERNO', 'INTERNAL_TRANSFER']);
 
+function normalizeOptionalUuid(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    return UUIDSchema.safeParse(trimmed).success ? trimmed : undefined;
+}
+
+const OptionalFilterUuidSchema = z.preprocess(
+    (value) => normalizeOptionalUuid(value),
+    UUIDSchema.optional()
+).optional();
+
 const SupplierIdSchema = z.string().optional().nullable()
     .transform((value) => {
         if (value === null || value === undefined) return null;
@@ -67,8 +79,8 @@ const ReceivePOSchema = z.object({
 });
 
 const SupplyHistoryFiltersSchema = z.object({
-    locationId: z.string().uuid().optional(),
-    supplierId: z.string().uuid().optional(),
+    locationId: OptionalFilterUuidSchema,
+    supplierId: OptionalFilterUuidSchema,
     status: z.string().optional(),
     type: z.enum(['PO', 'SHIPMENT']).optional(),
     startDate: z.string().optional(),
@@ -78,8 +90,8 @@ const SupplyHistoryFiltersSchema = z.object({
 });
 
 const ExportSupplyHistorySchema = z.object({
-    locationId: z.string().uuid().optional(),
-    supplierId: z.string().uuid().optional(),
+    locationId: OptionalFilterUuidSchema,
+    supplierId: OptionalFilterUuidSchema,
     status: z.string().optional(),
     type: z.enum(['PO', 'SHIPMENT', 'ALL']).default('ALL'),
     startDate: z.string().optional(),
@@ -475,7 +487,7 @@ export async function getSupplyOrdersHistory(filters?: { status?: string; suppli
             SELECT COUNT(*) as total 
             FROM purchase_orders po 
             LEFT JOIN suppliers s ON po.supplier_id::text = s.id::text
-            LEFT JOIN warehouses w ON po.target_warehouse_id = w.id
+            LEFT JOIN warehouses w ON po.target_warehouse_id::text = w.id::text
         `;
         const countRes = await query(countQuery, []);
         const total = parseInt(countRes.rows[0]?.total || '0');
@@ -484,7 +496,7 @@ export async function getSupplyOrdersHistory(filters?: { status?: string; suppli
             SELECT po.*, w.location_id as destination_location_id, s.business_name as supplier_name 
             FROM purchase_orders po 
             LEFT JOIN suppliers s ON po.supplier_id::text = s.id::text
-            LEFT JOIN warehouses w ON po.target_warehouse_id = w.id
+            LEFT JOIN warehouses w ON po.target_warehouse_id::text = w.id::text
             ORDER BY po.created_at DESC 
             LIMIT $1 OFFSET $2
         `, [pageSize, offset]);
@@ -548,7 +560,7 @@ export async function getSupplyChainHistorySecure(filters?: {
                 u_received.name as received_by_name
             FROM purchase_orders po
             LEFT JOIN suppliers s ON po.supplier_id::text = s.id::text
-            LEFT JOIN warehouses w ON po.target_warehouse_id = w.id
+            LEFT JOIN warehouses w ON po.target_warehouse_id::text = w.id::text
             LEFT JOIN locations l ON w.location_id::text = l.id::text
             LEFT JOIN users u_created ON po.created_by::text = u_created.id::text
             LEFT JOIN users u_approved ON po.approved_by::text = u_approved.id::text
@@ -733,7 +745,7 @@ export async function exportSupplyChainHistorySecure(
             FROM purchase_orders po
             LEFT JOIN purchase_order_items poi ON poi.purchase_order_id = po.id
             LEFT JOIN suppliers s ON po.supplier_id::text = s.id::text
-            LEFT JOIN warehouses w ON po.target_warehouse_id = w.id
+            LEFT JOIN warehouses w ON po.target_warehouse_id::text = w.id::text
             LEFT JOIN locations l ON w.location_id::text = l.id::text
             LEFT JOIN users u_created ON po.created_by::text = u_created.id::text
             LEFT JOIN users u_approved ON po.approved_by::text = u_approved.id::text
@@ -840,9 +852,9 @@ export async function exportSupplyChainHistorySecure(
 
 export async function getHistoryItemDetailsSecure(id: string, type: 'PO' | 'SHIPMENT'): Promise<{ success: boolean; data?: DBRow[]; error?: string }> {
     try {
-        const UUIDSchema = z.string().uuid();
-        if (!UUIDSchema.safeParse(id).success) {
-            return { success: false, error: 'ID inválido' };
+        const safeId = normalizeOptionalUuid(id);
+        if (!safeId) {
+            return { success: true, data: [] };
         }
 
         let res;
@@ -857,7 +869,7 @@ export async function getHistoryItemDetailsSecure(id: string, type: 'PO' | 'SHIP
                     cost_price as cost
                 FROM purchase_order_items 
                 WHERE purchase_order_id = $1
-            `, [id]);
+            `, [safeId]);
         } else {
             res = await query(`
                 SELECT 
@@ -871,7 +883,7 @@ export async function getHistoryItemDetailsSecure(id: string, type: 'PO' | 'SHIP
                 FROM shipment_items si
                 LEFT JOIN inventory_batches ib ON si.batch_id = ib.id
                 WHERE si.shipment_id = $1
-            `, [id]);
+            `, [safeId]);
         }
 
         return { success: true, data: res.rows };

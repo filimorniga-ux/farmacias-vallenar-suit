@@ -27,6 +27,11 @@
 import { pool } from '@/lib/db';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
+import {
+    buildDispatchLotNumber,
+    buildTransferLotNumber,
+    getTransferLotColor,
+} from '@/lib/wms-batch-lot';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DBRow = any;
@@ -36,6 +41,18 @@ type DBRow = any;
 // ============================================================================
 
 const UUIDSchema = z.string().uuid('ID inválido');
+
+function normalizeOptionalUuid(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    return UUIDSchema.safeParse(trimmed).success ? trimmed : undefined;
+}
+
+const OptionalFilterUuidSchema = z.preprocess(
+    (value) => normalizeOptionalUuid(value),
+    UUIDSchema.optional()
+).optional();
 
 const MovementTypeSchema = z.enum([
     'LOSS', 'RETURN', 'ADJUSTMENT', 'TRANSFER_OUT', 'TRANSFER_IN',
@@ -736,6 +753,8 @@ export async function getStockHistorySecure(filters: {
         const movementsResult = await pool.query(`
             SELECT
                 sm.*,
+                ib.lot_number as batch_lot_number,
+                ib.source_system as batch_source_system,
                 u.name as user_name,
                 sh.type as shipment_type,
                 sh.status as shipment_status,
@@ -751,6 +770,7 @@ export async function getStockHistorySecure(filters: {
                     ELSE sm.movement_type
                 END as operation_scope
             FROM stock_movements sm
+            LEFT JOIN inventory_batches ib ON sm.batch_id::text = ib.id::text
             LEFT JOIN users u ON sm.user_id::text = u.id::text
             LEFT JOIN shipments sh ON sm.reference_type = 'SHIPMENT' AND sm.reference_id::text = sh.id::text
             LEFT JOIN locations ml ON sm.location_id::text = ml.id::text
@@ -786,7 +806,7 @@ export async function getStockHistorySecure(filters: {
 // ============================================================================
 
 const GetShipmentsSchema = z.object({
-    locationId: UUIDSchema.optional(),
+    locationId: OptionalFilterUuidSchema,
     status: z.enum(['PENDING', 'IN_TRANSIT', 'DELIVERED', 'CANCELLED']).optional(),
     type: z.enum(['INBOUND', 'OUTBOUND', 'INTER_BRANCH']).optional(),
     direction: z.enum(['INCOMING', 'OUTGOING', 'BOTH']).default('BOTH'),
@@ -797,9 +817,9 @@ const GetShipmentsSchema = z.object({
 });
 
 const GetPurchaseOrdersSchema = z.object({
-    locationId: UUIDSchema.optional(),
+    locationId: OptionalFilterUuidSchema,
     status: z.enum(['PENDING', 'APPROVED', 'ORDERED', 'RECEIVED', 'CANCELLED']).optional(),
-    supplierId: UUIDSchema.optional(),
+    supplierId: OptionalFilterUuidSchema,
     startDate: z.date().optional(),
     endDate: z.date().optional(),
     page: z.number().min(1).default(1),
@@ -847,11 +867,11 @@ export async function getShipmentsSecure(filters?: z.input<typeof GetShipmentsSc
 
         if (locationId) {
             if (direction === 'INCOMING') {
-                conditions.push(`s.destination_location_id = $${paramIndex}`);
+                conditions.push(`s.destination_location_id::text = $${paramIndex}::text`);
             } else if (direction === 'OUTGOING') {
-                conditions.push(`s.origin_location_id = $${paramIndex}`);
+                conditions.push(`s.origin_location_id::text = $${paramIndex}::text`);
             } else {
-                conditions.push(`(s.origin_location_id = $${paramIndex} OR s.destination_location_id = $${paramIndex})`);
+                conditions.push(`(s.origin_location_id::text = $${paramIndex}::text OR s.destination_location_id::text = $${paramIndex}::text)`);
             }
             params.push(locationId);
             paramIndex++;
@@ -1260,8 +1280,11 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
 
             // Always create a new destination lot for each received line
             // to keep transfer traceability at lot-level.
-            const lotPrefix = shipment.type === 'INTER_BRANCH' ? 'TRF' : 'DSP';
-            const lotNumber = `${lotPrefix}-${shipmentId.slice(0, 8)}-${String(index + 1).padStart(3, '0')}`;
+            const isTransferReception = shipment.type === 'INTER_BRANCH';
+            const transferColor = isTransferReception ? getTransferLotColor(index) : null;
+            const lotNumber = isTransferReception
+                ? buildTransferLotNumber(shipmentId, index)
+                : buildDispatchLotNumber(shipmentId, index);
             const expiry = sourceBatch?.expiry_date || null;
 
             const finalBatchId = randomUUID();
@@ -1298,7 +1321,12 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
             `, [
                 randomUUID(), shipItem.sku, shipItem.name, shipment.destination_location_id,
                 received.quantity, qtyBefore, qtyAfter,
-                session.userId, `Recepción ${shipmentId}`, finalBatchId, shipmentId
+                session.userId,
+                transferColor
+                    ? `Recepción ${shipmentId} | Lote ${lotNumber} | Color ${transferColor.label}`
+                    : `Recepción ${shipmentId} | Lote ${lotNumber}`,
+                finalBatchId,
+                shipmentId
             ]);
         }
 
@@ -1315,7 +1343,7 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
                     'received_by_name', $3::text,
                     'received_at', NOW()::text
                 ),
-                notes = CASE WHEN $4::text IS NOT NULL THEN COALESCE(notes, '') || E'\n' || $4 ELSE notes END
+                notes = CASE WHEN $4::text IS NOT NULL THEN COALESCE(notes, '') || E'\n' || $4::text ELSE notes END
             WHERE id = $5
         `, [status, session.userId, session.userName || 'Usuario', notes || null, shipmentId]);
 
@@ -1415,7 +1443,7 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
         const countResult = await pool.query(`
             SELECT COUNT(*) as total
             FROM purchase_orders po
-            LEFT JOIN warehouses w ON po.target_warehouse_id = w.id
+            LEFT JOIN warehouses w ON po.target_warehouse_id::text = w.id::text
             ${whereClause}
         `, params);
 
@@ -1443,7 +1471,7 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
                 ) as items_count
             FROM purchase_orders po
             LEFT JOIN suppliers s ON po.supplier_id::text = s.id::text
-            LEFT JOIN warehouses w ON po.target_warehouse_id = w.id
+            LEFT JOIN warehouses w ON po.target_warehouse_id::text = w.id::text
             LEFT JOIN locations l ON w.location_id::text = l.id::text
             LEFT JOIN users cu ON po.created_by::text = cu.id::text
             LEFT JOIN users au ON po.approved_by::text = au.id::text

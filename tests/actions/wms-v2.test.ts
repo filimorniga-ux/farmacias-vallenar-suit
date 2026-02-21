@@ -436,7 +436,7 @@ describe('WMS V2 - getShipmentsSecure', () => {
         expect(result.data?.shipments[0]?.authorized_by_name).toBe('Supervisor QA');
 
         const firstSql = String(mockPoolQuery.mock.calls[0]?.[0] || '');
-        expect(firstSql).toContain('destination_location_id = $1');
+        expect(firstSql).toContain('destination_location_id::text = $1::text');
     });
 
     it('should deny access when no session is available', async () => {
@@ -449,6 +449,27 @@ describe('WMS V2 - getShipmentsSecure', () => {
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('No autorizado');
+    });
+
+    it('should ignore legacy non-uuid location filter instead of failing', async () => {
+        mockPoolQuery
+            .mockResolvedValueOnce({ rows: [{ total: '0' }] })
+            .mockResolvedValueOnce({ rows: [] });
+
+        const result = await getShipmentsSecure({
+            // ID legacy eliminado/humano
+            locationId: 'BODEGA_CENTRAL',
+            status: 'IN_TRANSIT',
+            direction: 'INCOMING',
+            page: 1,
+            pageSize: 20,
+        });
+
+        expect(result.success).toBe(true);
+        const firstSql = String(mockPoolQuery.mock.calls[0]?.[0] || '');
+        expect(firstSql).not.toContain('origin_location_id::text');
+        expect(firstSql).not.toContain('destination_location_id::text = $1::text');
+        expect(firstSql).toContain('s.status = $1');
     });
 });
 
@@ -511,6 +532,24 @@ describe('WMS V2 - getPurchaseOrdersSecure', () => {
         expect(countSql).toContain('w.location_id::text = $1::text');
         expect(dataSql).toContain('FROM purchase_order_items poi');
     });
+
+    it('should ignore invalid location and supplier filters without throwing', async () => {
+        mockPoolQuery
+            .mockResolvedValueOnce({ rows: [{ total: '0' }] })
+            .mockResolvedValueOnce({ rows: [] });
+
+        const result = await getPurchaseOrdersSecure({
+            locationId: 'SUCURSAL-PRAT-ANTIGUA',
+            supplierId: 'PROVEEDOR-LEGACY',
+            page: 1,
+            pageSize: 20,
+        });
+
+        expect(result.success).toBe(true);
+        const countSql = String(mockPoolQuery.mock.calls[0]?.[0] || '');
+        expect(countSql).not.toContain('w.location_id::text = $1::text');
+        expect(countSql).not.toContain('po.supplier_id::text = $1::text');
+    });
 });
 
 describe('WMS V2 - processReceptionSecure', () => {
@@ -564,6 +603,16 @@ describe('WMS V2 - processReceptionSecure', () => {
                         expiry_date: null,
                     }]
                 });
+            }
+            if (sql.includes('INSERT INTO inventory_batches')) {
+                const params = mockQuery.mock.calls[mockQuery.mock.calls.length - 1]?.[1] as unknown[];
+                expect(String(params?.[3] || '')).toBe('TRF-550E8400-001-TURQUESA');
+                return Promise.resolve({ rows: [] });
+            }
+            if (sql.includes('INSERT INTO stock_movements')) {
+                const params = mockQuery.mock.calls[mockQuery.mock.calls.length - 1]?.[1] as unknown[];
+                expect(String(params?.[8] || '')).toContain('Color Turquesa');
+                return Promise.resolve({ rows: [] });
             }
             if (sql.includes('UPDATE shipments')) {
                 expect(sql).toContain(`'received_by_name', $3::text`);

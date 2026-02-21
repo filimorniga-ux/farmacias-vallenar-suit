@@ -148,7 +148,9 @@ const LandingPage: React.FC = () => {
                 // Redirect
                 navigate(finalPath, { replace: true });
             } else {
-                setError(result.error || 'Credenciales inválidas o sin permiso en esta sucursal');
+                const baseError = result.error || 'Credenciales inválidas o sin permiso en esta sucursal';
+                const supportRef = result.correlationId ? ` Ref: ${result.correlationId.slice(0, 8)}` : '';
+                setError(`${baseError}${supportRef}`);
                 setPin('');
                 setIsLoading(false);
             }

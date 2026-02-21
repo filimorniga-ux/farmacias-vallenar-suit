@@ -6,7 +6,8 @@ import {
     cancelPurchaseOrderSecure,
     receivePurchaseOrderSecure,
     deletePurchaseOrderSecure,
-    getSuggestionAnalysisHistorySecure
+    getSuggestionAnalysisHistorySecure,
+    getPurchaseOrderHistory
 } from '@/actions/procurement-v2';
 import * as dbModule from '@/lib/db';
 
@@ -101,6 +102,39 @@ describe('Procurement V2 Logic', () => {
                 total_estimated: 12345
             });
             expect(dbModule.pool.query).toHaveBeenCalledWith(expect.stringContaining("REPORT_GENERATE"), [10, validUuid]);
+        });
+
+        it('should ignore legacy non-uuid location id in suggestions query', async () => {
+            vi.mocked(dbModule.pool.query).mockResolvedValue({
+                rows: [{
+                    product_id: 'prod-2',
+                    product_name: 'Ibuprofeno',
+                    sku: 'IBU400',
+                    current_stock: 20,
+                    other_warehouses_stock: 10,
+                    sold_7d: 7,
+                    sold_15d: 15,
+                    sold_30d: 30,
+                    sold_60d: 60,
+                    sold_90d: 90,
+                    sold_180d: 180,
+                    sold_365d: 365,
+                    safety_stock: 5,
+                    incoming_stock: 0,
+                    unit_cost: 100,
+                    internal_cost: 100,
+                    suppliers_data: null,
+                    stock_by_location: [],
+                    total_sold_in_period: 30,
+                    sales_history: []
+                }]
+            } as any);
+
+            const res = await generateRestockSuggestionSecure(undefined, 10, 30, 'BODEGA_CENTRAL', undefined, undefined, 20);
+
+            expect(res.success).toBe(true);
+            const params = vi.mocked(dbModule.pool.query).mock.calls[0]?.[1] as unknown[];
+            expect(params).not.toContain('BODEGA_CENTRAL');
         });
     });
 
@@ -262,6 +296,25 @@ describe('Procurement V2 Logic', () => {
 
             expect(res.success).toBe(false);
             expect(res.error).toContain('Solo se pueden eliminar borradores');
+        });
+    });
+
+    describe('Purchase Order History Query', () => {
+        it('should qualify status filter with po alias to avoid ambiguity', async () => {
+            vi.mocked(dbModule.pool.query)
+                .mockResolvedValueOnce({ rows: [{ total: '0' }] } as any)
+                .mockResolvedValueOnce({ rows: [] } as any);
+
+            const res = await getPurchaseOrderHistory({
+                status: 'APPROVED',
+                page: 1,
+                pageSize: 20
+            });
+
+            expect(res.success).toBe(true);
+            const countSql = String(vi.mocked(dbModule.pool.query).mock.calls[0]?.[0] || '');
+            expect(countSql).toContain('FROM purchase_orders po');
+            expect(countSql).toContain('po.status = $1');
         });
     });
 });

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle, Package, RefreshCw, Trash2, Truck } from 'lucide-react';
 import { usePharmaStore } from '@/presentation/store/useStore';
+import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { toast } from 'sonner';
 import { deletePurchaseOrderSecure, updatePurchaseOrderSecure } from '@/actions/supply-v2';
 import {
@@ -8,6 +9,11 @@ import {
     SupplyKanbanColumnKey,
     SupplyKanbanEntry,
 } from './supplyKanbanUtils';
+
+function isUuid(value: string | undefined): boolean {
+    if (!value) return false;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
 
 interface SupplyKanbanProps {
     onEditOrder: (order: any) => void;
@@ -64,6 +70,11 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
             return;
         }
 
+        if (!isUuid(user?.id)) {
+            toast.error('Sesión inválida para actualizar la orden');
+            return;
+        }
+
         try {
             const mappedData = {
                 id: String(po.id),
@@ -80,7 +91,7 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
                 })),
             };
 
-            const res = await updatePurchaseOrderSecure(mappedData.id, mappedData as any, user?.id || 'SYSTEM');
+            const res = await updatePurchaseOrderSecure(mappedData.id, mappedData as any, String(user.id));
 
             if (res.success) {
                 updatePurchaseOrder(entry.id, { ...po, status: 'SENT' });
@@ -154,8 +165,12 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
                                         onClick={async (e) => {
                                             e.stopPropagation();
                                             if (!confirm('¿Desea eliminar esta orden?')) return;
+                                            if (!isUuid(user?.id)) {
+                                                toast.error('Sesión inválida para eliminar la orden');
+                                                return;
+                                            }
                                             try {
-                                                const res = await deletePurchaseOrderSecure({ orderId: entry.id, userId: user?.id || 'SYSTEM' });
+                                                const res = await deletePurchaseOrderSecure({ orderId: entry.id, userId: String(user.id) });
                                                 if (res.success) {
                                                     removePurchaseOrder(entry.id);
                                                     toast.success('Orden eliminada correctamente');
@@ -214,17 +229,44 @@ const SupplyKanban: React.FC<SupplyKanbanProps> = ({ onEditOrder, onReceiveOrder
 
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [lastError, setLastError] = useState<string | null>(null);
+    const locationStoreCurrentId = useLocationStore((state) => state.currentLocation?.id);
+    const [localStorageLocationId, setLocalStorageLocationId] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        try {
+            const contextId = localStorage.getItem('context_location_id');
+            const preferredId = localStorage.getItem('preferred_location_id');
+            setLocalStorageLocationId(contextId || preferredId || null);
+        } catch {
+            setLocalStorageLocationId(null);
+        }
+    }, []);
+
+    const effectiveLocationId = currentLocationId || locationStoreCurrentId || localStorageLocationId || undefined;
 
     const refreshKanban = useCallback(async () => {
-        if (!currentLocationId) return;
-
         setIsRefreshing(true);
         setLastError(null);
         try {
-            await Promise.all([
-                refreshShipments(currentLocationId),
-                refreshPurchaseOrders(currentLocationId),
+            const [shipmentsResult, purchaseOrdersResult] = await Promise.allSettled([
+                refreshShipments(effectiveLocationId),
+                refreshPurchaseOrders(effectiveLocationId),
             ]);
+            const errors: string[] = [];
+
+            if (shipmentsResult.status === 'rejected') {
+                errors.push(shipmentsResult.reason instanceof Error ? shipmentsResult.reason.message : 'Error cargando envíos');
+            }
+            if (purchaseOrdersResult.status === 'rejected') {
+                errors.push(purchaseOrdersResult.reason instanceof Error ? purchaseOrdersResult.reason.message : 'Error cargando órdenes');
+            }
+
+            if (errors.length > 0) {
+                const message = errors.join(' | ');
+                setLastError(message);
+                toast.error(message);
+            }
         } catch (error: any) {
             const message = error?.message || 'No se pudo actualizar el tablero';
             setLastError(message);
@@ -232,7 +274,7 @@ const SupplyKanban: React.FC<SupplyKanbanProps> = ({ onEditOrder, onReceiveOrder
         } finally {
             setIsRefreshing(false);
         }
-    }, [currentLocationId, refreshPurchaseOrders, refreshShipments]);
+    }, [effectiveLocationId, refreshPurchaseOrders, refreshShipments]);
 
     useEffect(() => {
         void refreshKanban();

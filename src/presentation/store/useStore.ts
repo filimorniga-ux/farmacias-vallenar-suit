@@ -33,6 +33,7 @@ import { forceCloseTerminalShift } from '../../actions/terminals-v2';
 import { createTerminalSecure, deleteTerminalSecure, updateTerminalSecure } from '../../actions/network-v2';
 import { toast } from 'sonner';
 import { buildSoldQuantityByBatch, resolveCartBatchIds } from '../../domain/logic/cartStock';
+import type { ActionFailure } from '@/lib/action-response';
 // Mocks removed
 // Mocks removed
 
@@ -49,7 +50,11 @@ interface PharmaState {
     // Auth
     user: EmployeeProfile | null;
     employees: EmployeeProfile[]; // Store loaded employees
-    login: (userId: string, pin: string, locationId?: string) => Promise<{ success: boolean; error?: string }>;
+    login: (
+        userId: string,
+        pin: string,
+        locationId?: string
+    ) => Promise<{ success: boolean; error?: string; code?: string; correlationId?: string; retryable?: boolean }>;
     logout: () => void;
 
     // Data Sync
@@ -263,7 +268,12 @@ export const usePharmaStore = create<PharmaState>()(
             employees: [], // ⚠️ DEBUG: Start empty to prove DB connection
             login: async (userId, pin, locationId) => {
                 let authenticatedUser: EmployeeProfile | null = null;
-                let serverError = '';
+                let serverFailure: ActionFailure | null = null;
+                const allowOfflineFallback = process.env.NODE_ENV !== 'production';
+
+                type LoginServerResponse =
+                    | { success: true; user: EmployeeProfile }
+                    | ActionFailure;
 
                 // 1. Online Attempt (Secure Server Action with bcrypt)
                 try {
@@ -271,36 +281,67 @@ export const usePharmaStore = create<PharmaState>()(
                     const { authenticateUserSecure } = await import('../../actions/auth-v2');
 
                     // Add timeout to prevent indefinite hanging (60 seconds) -- Increased for cold starts
-                    const timeoutPromise = new Promise<any>((_, reject) =>
+                    const timeoutPromise = new Promise<LoginServerResponse>((_, reject) =>
                         setTimeout(() => reject(new Error('Login timeout')), 60000)
                     );
 
-                    const result = await Promise.race([
-                        authenticateUserSecure(userId, pin, locationId),
+                    const result = await Promise.race<LoginServerResponse>([
+                        authenticateUserSecure(userId, pin, locationId) as Promise<LoginServerResponse>,
                         timeoutPromise
                     ]);
 
-                    if (result.success && result.user) {
+                    if (result.success) {
                         // Cast to EmployeeProfile - auth-v2 returns compatible user data
                         authenticatedUser = result.user as EmployeeProfile;
-                    } else if (result.error) {
+                    } else {
                         // Capture server error for potential feedback
                         console.warn('⚠️ Server Login Error:', result.error);
-                        serverError = result.error;
+                        serverFailure = result;
 
                         // If explicit blocking error (not just invalid credentials), notify immediately
-                        if (result.error.includes('No tienes contrato') || result.error.includes('Bloqueado')) {
-                            import('sonner').then(({ toast }) => toast.error(result.error));
-                            return { success: false, error: result.error };
+                        const uiError = result.userMessage || result.error;
+                        if (uiError.includes('No tienes contrato') || uiError.includes('Bloqueado')) {
+                            import('sonner').then(({ toast }) => toast.error(uiError));
+                            return {
+                                success: false,
+                                error: uiError,
+                                code: result.code,
+                                correlationId: result.correlationId,
+                                retryable: result.retryable
+                            };
                         }
                     }
-                } catch (error: any) {
-                    console.warn('⚠️ Online login failed/timeout, trying offline fallback...', error);
-                    serverError = error?.message || 'Error de conexión / Timeout';
+                } catch (error) {
+                    const runtimeError = error instanceof Error ? error.message : 'Error de conexión';
+                    const isTimeout = /timeout/i.test(runtimeError);
+                    serverFailure = {
+                        success: false,
+                        error: isTimeout
+                            ? 'Servicio temporalmente no disponible. Intente nuevamente en unos minutos.'
+                            : 'No fue posible validar sus credenciales con el servidor.',
+                        userMessage: isTimeout
+                            ? 'Servicio temporalmente no disponible. Intente nuevamente en unos minutos.'
+                            : 'No fue posible validar sus credenciales con el servidor.',
+                        code: isTimeout ? 'DB_TIMEOUT' : 'AUTH_CLIENT_ERROR',
+                        retryable: true,
+                        correlationId: `client-${Date.now().toString(36)}`
+                    };
+                    console.warn('⚠️ Online login failed/timeout:', runtimeError);
+                }
+
+                // Producción: bloquear fallback offline cuando hay error de datos/infra
+                if (!allowOfflineFallback && !authenticatedUser && serverFailure?.code?.startsWith('DB_')) {
+                    return {
+                        success: false,
+                        error: serverFailure.userMessage,
+                        code: serverFailure.code,
+                        correlationId: serverFailure.correlationId,
+                        retryable: serverFailure.retryable
+                    };
                 }
 
                 // 2. Offline Fallback
-                if (!authenticatedUser) {
+                if (!authenticatedUser && allowOfflineFallback) {
                     const { employees } = get();
                     // Hash del PIN input para comparar con lo almacenado (si fue persistido hash)
                     const hashedPin = typeof window !== 'undefined' ? window.btoa(pin).split('').reverse().join('') : pin;
@@ -405,7 +446,13 @@ export const usePharmaStore = create<PharmaState>()(
                     return { success: true };
                 }
 
-                return { success: false, error: serverError || 'Credenciales inválidas o sin conexión a datos' };
+                return {
+                    success: false,
+                    error: serverFailure?.userMessage || serverFailure?.error || 'Credenciales inválidas o sin conexión a datos',
+                    code: serverFailure?.code,
+                    correlationId: serverFailure?.correlationId,
+                    retryable: serverFailure?.retryable
+                };
             },
             logout: () => {
                 // Limpiar sesión en store

@@ -18,11 +18,23 @@ import { generateRestockSuggestionSecure } from './procurement-v2';
 // SCHEMAS
 const UUIDSchema = z.string().uuid('ID inválido');
 
+function normalizeOptionalUuid(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    return UUIDSchema.safeParse(trimmed).success ? trimmed : undefined;
+}
+
+const OptionalFilterUuidSchema = z.preprocess(
+    (value) => normalizeOptionalUuid(value),
+    UUIDSchema.optional()
+).optional();
+
 const ExportProcurementSchema = z.object({
-    supplierId: z.string().uuid().optional(),
+    supplierId: OptionalFilterUuidSchema,
     daysToCover: z.number().int().min(1).max(365).default(15),
     analysisWindow: z.number().int().min(7).max(365).default(30),
-    locationId: UUIDSchema.optional(),
+    locationId: OptionalFilterUuidSchema,
     stockThreshold: z.number().optional(),
     searchQuery: z.string().optional(),
     limit: z.number().int().min(1).max(5000).default(500),

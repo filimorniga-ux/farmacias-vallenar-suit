@@ -379,22 +379,88 @@ export const TigerDataService = {
      * 🚚 Fetch Shipments (Real)
      */
     fetchShipments: async (locationId?: string): Promise<any[]> => {
-        console.log('🐯 [Tiger Data] Fetching shipments for location:', locationId);
+        const normalizedLocationId = typeof locationId === 'string' && locationId.trim()
+            ? locationId.trim()
+            : undefined;
+
+        console.log('🐯 [Tiger Data] Fetching shipments for location:', normalizedLocationId || 'ALL');
         try {
             const { getShipmentsSecure } = await import('../../actions/wms-v2');
             const result = await getShipmentsSecure({
-                locationId,
+                locationId: normalizedLocationId,
                 page: 1,
                 pageSize: 100 // Aumentamos límite para ver más despachos
             });
 
-            if (result.success && result.data) {
+            if (result.success && result.data && result.data.shipments.length > 0) {
                 console.log(`✅ [Tiger Data] Loaded ${result.data.shipments.length} shipments from DB`);
                 return result.data.shipments;
             }
-            return [];
+
+            if (normalizedLocationId && result.success && result.data && result.data.shipments.length === 0) {
+                console.warn('⚠️ [Tiger Data] Sin resultados por ubicación, intentando vista corporativa de envíos...');
+                const globalResult = await getShipmentsSecure({
+                    page: 1,
+                    pageSize: 100
+                });
+
+                if (globalResult.success && globalResult.data && globalResult.data.shipments.length > 0) {
+                    console.log(`⚠️ [Tiger Data] Loaded ${globalResult.data.shipments.length} shipments (global fallback)`);
+                    return globalResult.data.shipments;
+                }
+            }
+
+            console.warn(`⚠️ [Tiger Data] Primary shipment fetch without resultados, activando fallback histórico: ${result.error || 'empty result'}`);
         } catch (error) {
             console.error('❌ [Tiger Data] Fetch Shipments failed:', error);
+        }
+
+        try {
+            const { getSupplyChainHistorySecure } = await import('../../actions/supply-v2');
+            const fallback = await getSupplyChainHistorySecure({
+                page: 1,
+                pageSize: 200,
+                type: 'SHIPMENT',
+                locationId: normalizedLocationId
+            });
+
+            const mapRows = (rows: Record<string, unknown>[]) => rows.map((row: Record<string, unknown>) => ({
+                id: row.id,
+                status: row.status,
+                type: row.shipment_type || 'INTER_BRANCH',
+                origin_location_id: row.origin_location_id || null,
+                origin_location_name: row.origin_location_name || 'Origen',
+                destination_location_id: row.location_id || null,
+                destination_location_name: row.location_name || 'Destino',
+                created_at: row.created_at ? new Date(String(row.created_at)).getTime() : Date.now(),
+                updated_at: row.updated_at ? new Date(String(row.updated_at)).getTime() : null,
+                notes: row.notes || '',
+                items_count: Number(row.items_count || 0)
+            }));
+
+            if (fallback.success && fallback.data && fallback.data.length > 0) {
+                const shipments = mapRows(fallback.data as Record<string, unknown>[]);
+                console.log(`⚠️ [Tiger Data] Loaded ${shipments.length} shipments (fallback source)`);
+                return shipments;
+            }
+
+            if (normalizedLocationId) {
+                const fallbackGlobal = await getSupplyChainHistorySecure({
+                    page: 1,
+                    pageSize: 200,
+                    type: 'SHIPMENT',
+                });
+
+                if (fallbackGlobal.success && fallbackGlobal.data && fallbackGlobal.data.length > 0) {
+                    const shipments = mapRows(fallbackGlobal.data as Record<string, unknown>[]);
+                    console.log(`⚠️ [Tiger Data] Loaded ${shipments.length} shipments (fallback source global)`);
+                    return shipments;
+                }
+            }
+
+            return [];
+        } catch (error) {
+            console.error('❌ [Tiger Data] Fallback shipment fetch failed:', error);
             return [];
         }
     },
@@ -403,36 +469,82 @@ export const TigerDataService = {
      * 🛒 Fetch Purchase Orders (Real)
      */
     fetchPurchaseOrders: async (locationId?: string): Promise<any[]> => {
-        console.log('🐯 [Tiger Data] Fetching purchase orders for location:', locationId);
+        const normalizedLocationId = typeof locationId === 'string' && locationId.trim()
+            ? locationId.trim()
+            : undefined;
+
+        console.log('🐯 [Tiger Data] Fetching purchase orders for location:', normalizedLocationId || 'ALL');
 
         try {
             const { getPurchaseOrdersSecure } = await import('../../actions/wms-v2');
             const result = await getPurchaseOrdersSecure({
-                locationId: locationId || undefined,
+                locationId: normalizedLocationId,
                 page: 1,
                 pageSize: 200
             });
 
-            if (result.success && result.data?.purchaseOrders) {
+            if (result.success && result.data?.purchaseOrders && result.data.purchaseOrders.length > 0) {
                 console.log(`✅ [Tiger Data] Loaded ${result.data.purchaseOrders.length} purchase orders (WMS source)`);
                 return result.data.purchaseOrders;
             }
+
+            if (normalizedLocationId && result.success && result.data?.purchaseOrders?.length === 0) {
+                console.warn('⚠️ [Tiger Data] Sin OC por ubicación, intentando vista corporativa...');
+                const globalResult = await getPurchaseOrdersSecure({
+                    page: 1,
+                    pageSize: 200
+                });
+
+                if (globalResult.success && globalResult.data?.purchaseOrders && globalResult.data.purchaseOrders.length > 0) {
+                    console.log(`⚠️ [Tiger Data] Loaded ${globalResult.data.purchaseOrders.length} purchase orders (global fallback)`);
+                    return globalResult.data.purchaseOrders;
+                }
+            }
+
+            console.warn(`⚠️ [Tiger Data] Primary purchase order fetch sin resultados, activando fallback: ${result.error || 'empty result'}`);
         } catch (error) {
             console.error('❌ [Tiger Data] Primary purchase order fetch failed:', error);
         }
 
         try {
-            const { getSupplyOrdersHistory } = await import('../../actions/supply-v2');
-            const fallback = await getSupplyOrdersHistory({ page: 1, pageSize: 200 });
-            const orders = fallback.success ? (fallback.data || []) : [];
-            const filtered = locationId
-                ? orders.filter((order: Record<string, unknown>) =>
-                    order.location_id === locationId || order.destination_location_id === locationId
-                )
-                : orders;
+            const { getSupplyChainHistorySecure } = await import('../../actions/supply-v2');
+            const fallback = await getSupplyChainHistorySecure({
+                page: 1,
+                pageSize: 200,
+                type: 'PO',
+                locationId: normalizedLocationId
+            });
 
-            console.log(`⚠️ [Tiger Data] Loaded ${filtered.length} purchase orders (fallback source)`);
-            return filtered;
+            const mapRows = (rows: Record<string, unknown>[]) => rows.map((order: Record<string, unknown>) => ({
+                ...order,
+                supplier_name: order.supplier_name || 'Proveedor Desconocido',
+                location_name: order.location_name || 'Sin ubicación',
+                items_count: Number(order.items_count || 0),
+                created_at: order.created_at ? new Date(String(order.created_at)).getTime() : Date.now(),
+                updated_at: order.updated_at ? new Date(String(order.updated_at)).getTime() : null,
+            }));
+
+            if (fallback.success && fallback.data && fallback.data.length > 0) {
+                const filtered = mapRows(fallback.data as Record<string, unknown>[]);
+                console.log(`⚠️ [Tiger Data] Loaded ${filtered.length} purchase orders (fallback source)`);
+                return filtered;
+            }
+
+            if (normalizedLocationId) {
+                const fallbackGlobal = await getSupplyChainHistorySecure({
+                    page: 1,
+                    pageSize: 200,
+                    type: 'PO',
+                });
+
+                if (fallbackGlobal.success && fallbackGlobal.data && fallbackGlobal.data.length > 0) {
+                    const filtered = mapRows(fallbackGlobal.data as Record<string, unknown>[]);
+                    console.log(`⚠️ [Tiger Data] Loaded ${filtered.length} purchase orders (fallback source global)`);
+                    return filtered;
+                }
+            }
+
+            return [];
         } catch (error) {
             console.error('❌ [Tiger Data] Fallback purchase order fetch failed:', error);
             return [];

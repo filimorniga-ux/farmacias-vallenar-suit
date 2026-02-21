@@ -24,12 +24,21 @@ import InventorySkeleton from '../components/skeletons/InventorySkeleton';
 
 import { useInventoryPagedQuery } from '../hooks/useInventoryPagedQuery';
 import { formatSku, getEffectiveUnits } from '../../lib/utils/inventory-utils';
+import { getTransferLotVisualTag } from '../../lib/wms-batch-lot';
 
 const getBatchTag = (batch: any): { label: string; className: string } | null => {
     const sourceSystem = String(batch?.source_system || '').toUpperCase();
     const lotNumber = String(batch?.lot_number || '').toUpperCase();
 
     if (sourceSystem === 'WMS_TRANSFER' || lotNumber.startsWith('TRF-')) {
+        const transferVisual = getTransferLotVisualTag(batch?.lot_number);
+        if (transferVisual) {
+            return {
+                label: `Traspaso ${transferVisual.label}`,
+                className: transferVisual.className,
+            };
+        }
+
         return {
             label: 'Traspaso',
             className: 'bg-emerald-100 text-emerald-700 border-emerald-200',

@@ -34,6 +34,13 @@ jobs:
       env:
         DATABASE_URL: "postgres://user:pass@localhost:5432/db"
 
+    - name: Smoke DB Health (optional)
+      if: ${{ secrets.APP_URL != '' && secrets.HEALTHCHECK_TOKEN != '' }}
+      run: npm run smoke:health-db
+      env:
+        APP_URL: ${{ secrets.APP_URL }}
+        HEALTHCHECK_TOKEN: ${{ secrets.HEALTHCHECK_TOKEN }}
+
   actions:
     name: Server Actions Validation
     runs-on: ubuntu-latest
