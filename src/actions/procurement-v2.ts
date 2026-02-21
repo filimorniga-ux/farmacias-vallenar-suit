@@ -688,7 +688,7 @@ export async function deletePurchaseOrderSecure(params: {
         const orderRes = await client.query(`
             SELECT po.status, po.created_by, w.location_id 
             FROM purchase_orders po
-            LEFT JOIN warehouses w ON po.target_warehouse_id = w.id
+            LEFT JOIN warehouses w ON po.target_warehouse_id::text = w.id::text
             WHERE po.id = $1 
             FOR UPDATE
         `, [orderId]);
@@ -765,27 +765,27 @@ export async function getPurchaseOrderHistory(filters?: {
         let paramIndex = 1;
 
         if (filters?.supplierId) {
-            conditions.push(`supplier_id = $${paramIndex++}`);
+            conditions.push(`po.supplier_id::text = $${paramIndex++}::text`);
             params.push(filters.supplierId);
         }
 
         if (filters?.status) {
-            conditions.push(`status = $${paramIndex++}`);
+            conditions.push(`po.status = $${paramIndex++}`);
             params.push(filters.status);
         }
 
         if (filters?.startDate) {
-            conditions.push(`created_at >= $${paramIndex++}`);
+            conditions.push(`po.created_at >= $${paramIndex++}`);
             params.push(filters.startDate);
         }
 
         if (filters?.endDate) {
-            conditions.push(`created_at <= $${paramIndex++}`);
+            conditions.push(`po.created_at <= $${paramIndex++}`);
             params.push(filters.endDate);
         }
 
         if (filters?.minTotal !== undefined) {
-            conditions.push(`total_amount >= $${paramIndex++}`);
+            conditions.push(`po.total_amount >= $${paramIndex++}`);
             params.push(filters.minTotal);
         }
 
@@ -796,7 +796,7 @@ export async function getPurchaseOrderHistory(filters?: {
         // Get total
         const countResult = await pool.query(`
             SELECT COUNT(*) as total
-            FROM purchase_orders
+            FROM purchase_orders po
             ${whereClause}
         `, params);
 
@@ -815,10 +815,10 @@ export async function getPurchaseOrderHistory(filters?: {
                 u2.name as approved_by_name,
                 u3.name as received_by_name
             FROM purchase_orders po
-            LEFT JOIN suppliers s ON po.supplier_id = s.id
-            LEFT JOIN users u1 ON po.created_by = u1.id
-            LEFT JOIN users u2 ON po.approved_by = u2.id
-            LEFT JOIN users u3 ON po.received_by = u3.id
+            LEFT JOIN suppliers s ON po.supplier_id::text = s.id::text
+            LEFT JOIN users u1 ON po.created_by::text = u1.id::text
+            LEFT JOIN users u2 ON po.approved_by::text = u2.id::text
+            LEFT JOIN users u3 ON po.received_by::text = u3.id::text
             ${whereClause}
             ORDER BY po.created_at DESC
             LIMIT $${paramIndex++} OFFSET $${paramIndex++}
@@ -871,11 +871,11 @@ export async function getPurchaseOrderHistory(filters?: {
 /**
  * 🧠 Generate Restock Suggestion (MRP Algorithm - Secure)
  */
-const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 function normalizeUuid(value?: string | null): string | null {
     if (!value) return null;
-    return UUID_V4_REGEX.test(value) ? value : null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    return UUIDSchema.safeParse(trimmed).success ? trimmed : null;
 }
 
 interface SuggestionHistoryPayload {
@@ -948,8 +948,6 @@ export async function generateRestockSuggestionSecure(
     data?: Record<string, unknown>[];
     error?: string;
 }> {
-    console.log('[MRP] Generate Suggestion Params:', { supplierId, daysToCover, analysisWindow, locationId, stockThreshold, searchQuery, limit });
-
     // Validate inputs
     let supplierValidated: string | undefined = undefined;
     if (supplierId) {
@@ -967,6 +965,13 @@ export async function generateRestockSuggestionSecure(
     if (analysisWindow < 7 || analysisWindow > 365) {
         return { success: false, error: 'Ventana de análisis debe estar entre 7 y 365 días' };
     }
+
+    const safeLocationId = normalizeUuid(locationId);
+
+    logger.info(
+        { supplierId: supplierValidated || null, daysToCover, analysisWindow, locationId: safeLocationId, stockThreshold, searchQuery, limit },
+        '[MRP] Generate Suggestion Params'
+    );
 
     try {
         // Parametros para la query
@@ -990,8 +995,8 @@ export async function generateRestockSuggestionSecure(
                     SELECT p.sku, SUM(ib.quantity_real) as local_qty
                     FROM inventory_batches ib
                     JOIN products p ON ib.product_id::text = p.id::text
-                    JOIN locations l ON ib.location_id = l.id
-                    WHERE ($1::uuid IS NULL OR ib.location_id = $1::uuid)
+                    JOIN locations l ON ib.location_id::text = l.id::text
+                    WHERE ($1::text IS NULL OR ib.location_id::text = $1::text)
                     AND l.is_active = true
                     GROUP BY p.sku
                 ),
@@ -999,7 +1004,7 @@ export async function generateRestockSuggestionSecure(
                     SELECT p.sku, SUM(ib.quantity_real) as global_qty
                     FROM inventory_batches ib
                     JOIN products p ON ib.product_id::text = p.id::text
-                    JOIN locations l ON ib.location_id = l.id
+                    JOIN locations l ON ib.location_id::text = l.id::text
                     WHERE l.is_active = true
                     GROUP BY p.sku
                 )
@@ -1012,9 +1017,9 @@ export async function generateRestockSuggestionSecure(
                 FULL OUTER JOIN GlobalStock g ON l.sku = g.sku
                 ORDER BY diff DESC
                 LIMIT 15
-            `, [locationId || null]);
+            `, [safeLocationId || null]);
 
-            return { success: false, error: `DEBUG COMPARISON (Loc: ${locationId}): ` + JSON.stringify(stockCheck.rows) };
+            return { success: false, error: `DEBUG COMPARISON (Loc: ${safeLocationId}): ` + JSON.stringify(stockCheck.rows) };
         }
 
         let paramIndex = 4;
@@ -1023,10 +1028,10 @@ export async function generateRestockSuggestionSecure(
         let locationFilterStock = '';
         let locationFilterSales = '';
 
-        if (locationId) {
-            locationFilterStock = `AND ib.location_id = $${paramIndex}::uuid`;
-            locationFilterSales = `AND s.location_id = $${paramIndex}::uuid`;
-            queryParams.push(locationId);
+        if (safeLocationId) {
+            locationFilterStock = `AND ib.location_id::text = $${paramIndex}::text`;
+            locationFilterSales = `AND s.location_id::text = $${paramIndex}::text`;
+            queryParams.push(safeLocationId);
             paramIndex++;
         }
 
@@ -1052,11 +1057,11 @@ export async function generateRestockSuggestionSecure(
                                 ps.supplier_sku,
                                 ps.is_preferred
                             FROM product_suppliers ps
-                            JOIN suppliers s ON ps.supplier_id = s.id
-                            WHERE ps.product_id = p.id::uuid
+                            JOIN suppliers s ON ps.supplier_id::text = s.id::text
+                            WHERE ps.product_id::text = p.id::text
                             AND s.status = 'ACTIVE'
                             -- If specific supplier selected, only show that one (or prioritize it)
-                            AND ($1::uuid IS NULL OR ps.supplier_id = $1::uuid)
+                            AND ($1::text IS NULL OR ps.supplier_id::text = $1::text)
                             ORDER BY COALESCE(ps.last_cost, ps.average_cost, 0) ASC NULLS LAST
                             LIMIT 3
                         ) sub_s
@@ -1070,9 +1075,9 @@ export async function generateRestockSuggestionSecure(
                     AND p.name NOT ILIKE '%[AL DETAL]%'
                     -- Apply Supplier Filter (Check if ANY supplier matches)
                     AND (
-                        $1::uuid IS NULL OR EXISTS (
+                        $1::text IS NULL OR EXISTS (
                             SELECT 1 FROM product_suppliers ps 
-                            WHERE ps.product_id = p.id::uuid AND ps.supplier_id = $1::uuid
+                            WHERE ps.product_id::text = p.id::text AND ps.supplier_id::text = $1::text
                         )
                     )
             ),
@@ -1081,7 +1086,7 @@ export async function generateRestockSuggestionSecure(
                     ib.product_id, 
                     SUM(ib.quantity_real) as total_stock
                 FROM inventory_batches ib
-                JOIN locations l ON ib.location_id = l.id
+                JOIN locations l ON ib.location_id::text = l.id::text
                 WHERE ib.quantity_real > 0 AND l.is_active = true
                 ${locationFilterStock}
                 GROUP BY ib.product_id
@@ -1093,12 +1098,12 @@ export async function generateRestockSuggestionSecure(
                 FROM purchase_order_items poi
                 JOIN purchase_orders po ON poi.purchase_order_id = po.id
                 JOIN products p ON poi.sku = p.sku
-                JOIN warehouses w ON po.target_warehouse_id = w.id
-                JOIN locations l ON w.location_id = l.id
+                JOIN warehouses w ON po.target_warehouse_id::text = w.id::text
+                JOIN locations l ON w.location_id::text = l.id::text
                 WHERE po.status = 'APPROVED'
                 AND w.is_active = true
                 AND l.is_active = true
-                ${locationId ? `AND l.id = $${queryParams.length}::uuid` : ''} 
+                ${safeLocationId ? `AND l.id::text = $${queryParams.length}::text` : ''} 
                 GROUP BY p.id::uuid
             ),
             SalesHistory AS (
@@ -1123,7 +1128,7 @@ export async function generateRestockSuggestionSecure(
                 FROM sale_items si
                 JOIN sales s ON si.sale_id = s.id
                 JOIN inventory_batches ib ON si.batch_id = ib.id
-                JOIN locations l ON ib.location_id = l.id
+                JOIN locations l ON ib.location_id::text = l.id::text
                 WHERE s.timestamp >= NOW() - INTERVAL '365 days'
                 AND l.is_active = true
                 AND ib.product_id IN (SELECT product_id FROM TargetProducts)
@@ -1148,11 +1153,11 @@ export async function generateRestockSuggestionSecure(
                         l.type as location_type,
                         SUM(ib.quantity_real) as location_total
                     FROM inventory_batches ib
-                    JOIN locations l ON ib.location_id = l.id
+                    JOIN locations l ON ib.location_id::text = l.id::text
                     WHERE ib.quantity_real > 0 AND l.is_active = true
                     AND ib.product_id IN (SELECT product_id FROM TargetProducts)
                     -- Exclude current location to find "Other" stock
-                    ${locationId ? `AND ib.location_id != $${paramIndex - 1}::uuid` : ''}
+                    ${safeLocationId ? `AND ib.location_id::text != $${paramIndex - 1}::text` : ''}
                     GROUP BY ib.product_id, ib.location_id, l.name, l.type
                 ) sub
                 GROUP BY product_id
@@ -1282,7 +1287,7 @@ export async function generateRestockSuggestionSecure(
 
             // 📦 TRANSFER DETECTION
             // Si otra sucursal tiene suficiente stock, sugerir traspaso
-            if (suggested > 0 && globalStock > 0 && locationId) {
+            if (suggested > 0 && globalStock > 0 && safeLocationId) {
                 if (globalStock >= suggested) {
                     aiAction = 'TRANSFER';
                     reason = `📦 Traspaso sugerido: ${globalStock}u disponibles en otras sucursales | ${reason}`;
@@ -1294,7 +1299,7 @@ export async function generateRestockSuggestionSecure(
 
             // 🛑 COST OPTIMIZATION OVERRIDE
             // Priorizar siempre el traspaso si hay stock global suficiente para ahorrar compras.
-            if (suggested > 0 && globalStock >= suggested && locationId) {
+            if (suggested > 0 && globalStock >= suggested && safeLocationId) {
                 aiAction = 'TRANSFER';
                 reason = `📦 TRASPASO PRIORITARIO: Stock global suficiente (${globalStock}u). Ahorro de compra detectado.`;
             }
@@ -1338,7 +1343,7 @@ export async function generateRestockSuggestionSecure(
                 product_name: row.product_name,
                 sku: row.sku,
                 image_url: row.image_url,
-                location_id: locationId,
+                location_id: safeLocationId,
                 current_stock: stock,
                 global_stock: globalStock,
                 incoming_stock: incoming,
@@ -1409,7 +1414,7 @@ export async function generateRestockSuggestionSecure(
                 supplier_name: supplierName,
                 days_to_cover: daysToCover,
                 analysis_window: analysisWindow,
-                location_id: normalizeUuid(locationId),
+                location_id: safeLocationId,
                 stock_threshold: stockThreshold ?? null,
                 search_query: searchQuery ?? null,
                 limit,

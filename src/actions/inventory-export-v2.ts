@@ -19,6 +19,7 @@ import { logger } from '@/lib/logger';
 import { ExcelService } from '@/lib/excel-generator';
 import { formatDateTimeCL, formatDateCL } from '@/lib/timezone';
 import { getSessionSecure } from './auth-v2';
+import { getTransferLotColorLabel } from '@/lib/wms-batch-lot';
 
 // ============================================================================
 // SCHEMAS
@@ -61,6 +62,24 @@ async function auditExport(userId: string, exportType: string, params: any): Pro
     } catch { }
 }
 
+async function hasTableColumn(tableName: string, columnName: string): Promise<boolean> {
+    try {
+        const result = await query(`
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = $1
+                  AND column_name = $2
+            ) AS exists
+        `, [tableName, columnName]);
+
+        return Boolean(result.rows[0]?.exists);
+    } catch {
+        return false;
+    }
+}
+
 // ============================================================================
 // EXPORT STOCK MOVEMENTS
 // ============================================================================
@@ -89,7 +108,7 @@ export async function exportStockMovementsSecure(
         let whereClause = 'WHERE sm.timestamp >= $1::timestamp AND sm.timestamp <= $2::timestamp';
 
         if (locationId && locationId !== 'ALL') {
-            whereClause += ` AND sm.location_id = $${sqlParams.length + 1}::uuid`;
+            whereClause += ` AND sm.location_id::text = $${sqlParams.length + 1}::text`;
             sqlParams.push(locationId);
         }
 
@@ -102,54 +121,106 @@ export async function exportStockMovementsSecure(
         const finalEndDate = endDate.includes('T') ? endDate : `${endDate} 23:59:59`;
         sqlParams[1] = finalEndDate;
 
-        const res = await query(`
-            SELECT
-                sm.timestamp,
-                sm.movement_type,
-                sm.quantity,
-                sm.stock_after,
-                sm.notes,
-                sm.product_name,
-                sm.sku,
-                sm.reference_type,
-                sm.reference_id,
-                u.name as user_name,
-                u.rut as user_rut,
-                l.name as location_name,
-                sh.type as shipment_type,
-                sh.status as shipment_status,
-                ol.name as origin_location_name,
-                dl.name as destination_location_name,
-                CASE
-                    WHEN sm.reference_type = 'SHIPMENT' AND sh.type = 'OUTBOUND' THEN 'DESPACHO'
-                    WHEN sm.reference_type = 'SHIPMENT' AND sh.type = 'INBOUND' THEN 'RECEPCION'
-                    WHEN sm.reference_type = 'SHIPMENT' AND sh.type = 'INTER_BRANCH' AND sm.movement_type = 'TRANSFER_OUT' THEN 'TRASPASO SALIDA'
-                    WHEN sm.reference_type = 'SHIPMENT' AND sh.type = 'INTER_BRANCH' AND sm.movement_type = 'TRANSFER_IN' THEN 'TRASPASO RECEPCION'
-                    WHEN sm.reference_type = 'PURCHASE_ORDER' THEN 'PEDIDO'
-                    ELSE sm.movement_type
-                END as operation_scope
-            FROM stock_movements sm
-            LEFT JOIN users u ON sm.user_id::text = u.id::text
-            LEFT JOIN locations l ON sm.location_id::text = l.id::text
-            LEFT JOIN shipments sh ON sm.reference_type = 'SHIPMENT' AND sm.reference_id::text = sh.id::text
-            LEFT JOIN locations ol ON sh.origin_location_id::text = ol.id::text
-            LEFT JOIN locations dl ON sh.destination_location_id::text = dl.id::text
-            ${whereClause}
-            ORDER BY sm.timestamp DESC
-            LIMIT $${sqlParams.length + 1}
-        `, [...sqlParams, limit]);
+        const hasBatchSourceSystem = await hasTableColumn('inventory_batches', 'source_system');
+        const batchSourceSystemSelect = hasBatchSourceSystem
+            ? 'ib.source_system as batch_source_system'
+            : '\'LEGACY\' as batch_source_system';
+
+        let res;
+        try {
+            res = await query(`
+                SELECT
+                    sm.timestamp,
+                    sm.movement_type,
+                    sm.quantity,
+                    sm.stock_after,
+                    sm.notes,
+                    sm.product_name,
+                    sm.sku,
+                    ib.lot_number as batch_lot_number,
+                    ${batchSourceSystemSelect},
+                    sm.reference_type,
+                    sm.reference_id,
+                    u.name as user_name,
+                    u.rut as user_rut,
+                    l.name as location_name,
+                    sh.type as shipment_type,
+                    sh.status as shipment_status,
+                    sh.transport_data->>'authorized_by_name' as authorized_by_name,
+                    sh.transport_data->>'received_by_name' as received_by_name,
+                    ol.name as origin_location_name,
+                    dl.name as destination_location_name,
+                    CASE
+                        WHEN sm.reference_type = 'SHIPMENT' AND sh.type = 'OUTBOUND' THEN 'DESPACHO'
+                        WHEN sm.reference_type = 'SHIPMENT' AND sh.type = 'INBOUND' THEN 'RECEPCION'
+                        WHEN sm.reference_type = 'SHIPMENT' AND sh.type = 'INTER_BRANCH' AND sm.movement_type = 'TRANSFER_OUT' THEN 'TRASPASO SALIDA'
+                        WHEN sm.reference_type = 'SHIPMENT' AND sh.type = 'INTER_BRANCH' AND sm.movement_type = 'TRANSFER_IN' THEN 'TRASPASO RECEPCION'
+                        WHEN sm.reference_type = 'PURCHASE_ORDER' THEN 'PEDIDO'
+                        ELSE sm.movement_type
+                    END as operation_scope
+                FROM stock_movements sm
+                LEFT JOIN inventory_batches ib ON sm.batch_id::text = ib.id::text
+                LEFT JOIN users u ON sm.user_id::text = u.id::text
+                LEFT JOIN locations l ON sm.location_id::text = l.id::text
+                LEFT JOIN shipments sh ON sm.reference_type = 'SHIPMENT' AND sm.reference_id::text = sh.id::text
+                LEFT JOIN locations ol ON sh.origin_location_id::text = ol.id::text
+                LEFT JOIN locations dl ON sh.destination_location_id::text = dl.id::text
+                ${whereClause}
+                ORDER BY sm.timestamp DESC
+                LIMIT $${sqlParams.length + 1}
+            `, [...sqlParams, limit]);
+        } catch (primaryQueryError) {
+            logger.warn({ primaryQueryError }, '[Export] Stock movements detailed query failed, using legacy fallback');
+
+            res = await query(`
+                SELECT
+                    sm.timestamp,
+                    sm.movement_type,
+                    sm.quantity,
+                    sm.stock_after,
+                    sm.notes,
+                    sm.product_name,
+                    sm.sku,
+                    NULL::text as batch_lot_number,
+                    'LEGACY' as batch_source_system,
+                    sm.reference_type,
+                    sm.reference_id,
+                    u.name as user_name,
+                    u.rut as user_rut,
+                    l.name as location_name,
+                    NULL::text as shipment_type,
+                    NULL::text as shipment_status,
+                    NULL::text as authorized_by_name,
+                    NULL::text as received_by_name,
+                    NULL::text as origin_location_name,
+                    NULL::text as destination_location_name,
+                    sm.movement_type as operation_scope
+                FROM stock_movements sm
+                LEFT JOIN users u ON sm.user_id::text = u.id::text
+                LEFT JOIN locations l ON sm.location_id::text = l.id::text
+                ${whereClause}
+                ORDER BY sm.timestamp DESC
+                LIMIT $${sqlParams.length + 1}
+            `, [...sqlParams, limit]);
+        }
 
         const data = res.rows.map((row: any) => ({
             date: formatDateTimeCL(row.timestamp),
             operation_scope: row.operation_scope || row.movement_type,
             movement_type: row.movement_type,
+            movement_id: row.reference_id || '-',
             sku: row.sku,
             product: row.product_name,
             qty: Number(row.quantity),
             stock: Number(row.stock_after),
             origin: row.origin_location_name || (row.quantity < 0 ? (row.location_name || '-') : '-'),
             destination: row.destination_location_name || (row.quantity > 0 ? (row.location_name || '-') : '-'),
+            lot_number: row.batch_lot_number || '-',
+            lot_color: getTransferLotColorLabel(row.batch_lot_number) || '-',
+            batch_source_system: row.batch_source_system || '-',
             user: row.user_name ? `${row.user_name} (${row.user_rut || '-'})` : 'Sistema',
+            authorized_by: row.authorized_by_name || '-',
+            received_by: row.received_by_name || '-',
             location: row.location_name || '-',
             notes: row.notes || '-',
         }));
@@ -164,13 +235,19 @@ export async function exportStockMovementsSecure(
                 { header: 'Fecha y Hora (CL)', key: 'date', width: 22 },
                 { header: 'Flujo Operación', key: 'operation_scope', width: 20 },
                 { header: 'Tipo Movimiento', key: 'movement_type', width: 18 },
+                { header: 'ID Movimiento', key: 'movement_id', width: 38 },
                 { header: 'SKU', key: 'sku', width: 15 },
                 { header: 'Descripción Producto', key: 'product', width: 35 },
                 { header: 'Cantidad', key: 'qty', width: 12 },
                 { header: 'Stock Final', key: 'stock', width: 12 },
                 { header: 'Origen', key: 'origin', width: 24 },
                 { header: 'Destino', key: 'destination', width: 24 },
+                { header: 'Lote', key: 'lot_number', width: 24 },
+                { header: 'Color Lote', key: 'lot_color', width: 16 },
+                { header: 'Origen Lote', key: 'batch_source_system', width: 16 },
                 { header: 'Responsable', key: 'user', width: 30 },
+                { header: 'Autorizado Por', key: 'authorized_by', width: 24 },
+                { header: 'Recepcionado Por', key: 'received_by', width: 24 },
                 { header: 'Ubicación Movimiento', key: 'location', width: 24 },
                 { header: 'Observaciones', key: 'notes', width: 40 },
             ],
@@ -216,7 +293,7 @@ export async function exportInventoryValuationSecure(
                 l.name as location_name
             FROM inventory_batches ib
             JOIN products p ON ib.product_id = p.id
-            LEFT JOIN locations l ON ib.location_id = l.id
+            LEFT JOIN locations l ON ib.location_id::text = l.id::text
             WHERE ib.quantity_real > 0 ${warehouseFilter}
             ORDER BY l.name, p.name
         `, params);
@@ -293,7 +370,7 @@ export async function exportKardexSecure(
 
         let locationFilter = '';
         if (locationId) {
-            locationFilter = 'AND sm.location_id = $4::uuid';
+            locationFilter = 'AND sm.location_id::text = $4::text';
             sqlParams.push(locationId);
         }
 
@@ -377,7 +454,7 @@ export async function exportInventoryReportSecure(
         let whereClause = 'WHERE ib.quantity_real > 0';
 
         if (locationId && locationId !== 'ALL') {
-            whereClause += ` AND l.id = $${sqlParams.length + 1}`;
+            whereClause += ` AND l.id::text = $${sqlParams.length + 1}::text`;
             sqlParams.push(locationId);
         }
 
@@ -395,7 +472,7 @@ export async function exportInventoryReportSecure(
             FROM inventory_batches ib
             JOIN products p ON ib.product_id = p.id
             JOIN warehouses w ON ib.warehouse_id = w.id
-            JOIN locations l ON w.location_id = l.id
+            JOIN locations l ON w.location_id::text = l.id::text
             ${whereClause}
             ORDER BY l.name, w.name, p.name ASC
         `, sqlParams);
@@ -466,9 +543,9 @@ export async function exportPurchaseOrdersSecure(
                 u.name as creator_name,
                 l.name as location_name
             FROM purchase_orders po
-            LEFT JOIN suppliers s ON po.supplier_id = s.id
+            LEFT JOIN suppliers s ON po.supplier_id::text = s.id::text
             LEFT JOIN users u ON po.created_by::text = u.id::text
-            LEFT JOIN warehouses w ON po.target_warehouse_id = w.id
+            LEFT JOIN warehouses w ON po.target_warehouse_id::text = w.id::text
             LEFT JOIN locations l ON w.location_id::text = l.id::text
             WHERE po.created_at >= $1::timestamp AND po.created_at <= $2::timestamp
             ORDER BY po.created_at DESC

@@ -185,7 +185,9 @@ const DashboardPage: React.FC = () => {
             // Sync critical data immediately after login
             syncData().catch(console.error);
         } else {
-            setError(result.error || 'PIN Incorrecto');
+            const baseError = result.error || 'PIN Incorrecto';
+            const supportRef = result.correlationId ? ` Ref: ${result.correlationId.slice(0, 8)}` : '';
+            setError(`${baseError}${supportRef}`);
             setPin('');
         }
     };

@@ -48,7 +48,7 @@ interface ExtendedSuggestion extends AutoOrderSuggestion {
 
 const SupplyChainPage: React.FC = () => {
     // ... (store hooks remain same)
-    const { inventory, suppliers, purchaseOrders, addPurchaseOrder, receivePurchaseOrder, generateSuggestedPOs, locations, fetchLocations, currentLocationId } = usePharmaStore();
+    const { inventory, suppliers, purchaseOrders, addPurchaseOrder, receivePurchaseOrder, generateSuggestedPOs, locations, fetchLocations, currentLocationId, user } = usePharmaStore();
 
     const [isReceptionModalOpen, setIsReceptionModalOpen] = useState(false);
     const [isManualOrderModalOpen, setIsManualOrderModalOpen] = useState(false);
@@ -73,6 +73,9 @@ const SupplyChainPage: React.FC = () => {
     const [topLimit, setTopLimit] = useState(100);
     const [isExporting, setIsExporting] = useState(false);
     const [analysisHistoryRefreshKey, setAnalysisHistoryRefreshKey] = useState(0);
+
+    const isValidUuid = (value: string | undefined): value is string =>
+        !!value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
     // ... (scanner hook and useEffects remain same)
     // Barcode Scanner Integration (Keyboard Wedge)
@@ -634,8 +637,17 @@ const SupplyChainPage: React.FC = () => {
                                                     <button
                                                         onClick={() => {
                                                             if (confirm('¿Estás seguro de eliminar este borrador? Esta acción no se puede deshacer.')) {
-                                                                deletePurchaseOrderSecure(selectedOrder.id)
-                                                                    .then(() => {
+                                                                const userId = user?.id;
+                                                                if (!isValidUuid(userId)) {
+                                                                    toast.error('Sesión inválida para eliminar borrador');
+                                                                    return;
+                                                                }
+                                                                deletePurchaseOrderSecure({ orderId: selectedOrder.id, userId })
+                                                                    .then((result) => {
+                                                                        if (!result.success) {
+                                                                            toast.error(result.error || 'Error al eliminar borrador');
+                                                                            return;
+                                                                        }
                                                                         toast.success('Borrador eliminado');
                                                                         setSelectedOrder(null);
                                                                         // Refresh?

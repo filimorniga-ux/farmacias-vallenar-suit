@@ -3,6 +3,20 @@ export interface PgLikeError {
     message?: string;
 }
 
+export type DbErrorCode =
+    | 'DB_TIMEOUT'
+    | 'DB_AUTH'
+    | 'DB_DNS'
+    | 'DB_UNAVAILABLE'
+    | 'DB_UNKNOWN';
+
+export interface ClassifiedDbError {
+    code: DbErrorCode;
+    retryable: boolean;
+    technicalMessage: string;
+    userMessage: string;
+}
+
 const TRANSIENT_CODES = new Set([
     'ECONNREFUSED',
     'ECONNRESET',
@@ -29,6 +43,16 @@ const TRANSIENT_MESSAGE_PATTERNS = [
     /could not connect/i,
 ];
 
+const AUTH_FAILURE_CODES = new Set([
+    '28P01', // invalid_password
+    '28000', // invalid_authorization_specification
+]);
+
+const DNS_FAILURE_CODES = new Set([
+    'ENOTFOUND',
+    'EAI_AGAIN',
+]);
+
 export function isTransientPgConnectionError(error: PgLikeError | null | undefined): boolean {
     if (!error) return false;
 
@@ -38,4 +62,53 @@ export function isTransientPgConnectionError(error: PgLikeError | null | undefin
 
     const message = error.message ?? '';
     return TRANSIENT_MESSAGE_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+export function classifyPgError(error: unknown): ClassifiedDbError {
+    const pgError = (error ?? {}) as PgLikeError;
+    const technicalMessage = pgError.message || 'Unknown DB error';
+    const code = pgError.code || '';
+
+    if (AUTH_FAILURE_CODES.has(code)) {
+        return {
+            code: 'DB_AUTH',
+            retryable: false,
+            technicalMessage,
+            userMessage: 'Error de autenticacion con base de datos.',
+        };
+    }
+
+    if (DNS_FAILURE_CODES.has(code) || /ENOTFOUND|EAI_AGAIN|dns/i.test(technicalMessage)) {
+        return {
+            code: 'DB_DNS',
+            retryable: true,
+            technicalMessage,
+            userMessage: 'No se pudo resolver el servicio de datos.',
+        };
+    }
+
+    if (isTransientPgConnectionError(pgError)) {
+        return {
+            code: 'DB_TIMEOUT',
+            retryable: true,
+            technicalMessage,
+            userMessage: 'Servicio temporalmente no disponible. Intente nuevamente en unos minutos.',
+        };
+    }
+
+    if (/ECONNREFUSED|08001|08003|08006|could not connect/i.test(`${code} ${technicalMessage}`)) {
+        return {
+            code: 'DB_UNAVAILABLE',
+            retryable: true,
+            technicalMessage,
+            userMessage: 'Servicio de datos no disponible temporalmente.',
+        };
+    }
+
+    return {
+        code: 'DB_UNKNOWN',
+        retryable: false,
+        technicalMessage,
+        userMessage: 'Ocurrio un error inesperado en el servicio de datos.',
+    };
 }

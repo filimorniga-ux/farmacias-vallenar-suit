@@ -39,7 +39,7 @@ const connectionConfig = {
     connectionString: dbUrl,
     ssl: sslConfig,
     max: 10, // Serverless limit logic
-    connectionTimeoutMillis: 8000, // 8s timeout to avoid Vercel 10s hard kill
+    connectionTimeoutMillis: 15000, // Aumentado a 15s para dar margen a la resolución de red
     idleTimeoutMillis: 30000,
     keepAlive: true,
 };

@@ -7,6 +7,12 @@ import { InventoryBatch, PurchaseOrder, PurchaseOrderItem } from '../../../domai
 import { createNotificationSecure } from '../../../actions/notifications-v2';
 import { createPurchaseOrderSecure, updatePurchaseOrderSecure } from '../../../actions/supply-v2';
 import { updatePriceSecure } from '../../../actions/products-v2';
+import {
+    DEFAULT_WAREHOUSE_FALLBACK_ID,
+    isValidUuid,
+    resolveManualOrderIds,
+    shouldSyncMasterCost
+} from './manualOrderUtils';
 
 interface ManualOrderModalProps {
     isOpen: boolean;
@@ -175,6 +181,10 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
             toast.error('Sesión inválida');
             return;
         }
+        if (!isValidUuid(user.id)) {
+            toast.error('Sesión inválida: ID de usuario no es UUID');
+            return;
+        }
 
         setIsSaving(true);
         const updates: Promise<any>[] = [];
@@ -182,8 +192,8 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
 
         // 1. Check for Cost Updates
         for (const item of orderItems) {
-            // Only update if cost changed, has productId, and is a valid cost
-            if (item.productId && item.cost_price !== item.original_cost && item.cost_price >= 0) {
+            // Only update if cost changed, has valid UUID productId, and is a valid cost
+            if (shouldSyncMasterCost(item)) {
                 console.log(`⚡️ Auto-updating Master Cost for ${item.sku}: $${item.original_cost} -> $${item.cost_price}`);
 
                 updates.push(
@@ -219,10 +229,16 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
             return;
         }
 
+        const { supplierId: sanitizedSupplierId, warehouseId: sanitizedWarehouseId } = resolveManualOrderIds({
+            selectedSupplierId,
+            currentWarehouseId,
+            fallbackWarehouseId: DEFAULT_WAREHOUSE_FALLBACK_ID
+        });
+
         const dbPayload = {
             id: customOrderId,
-            supplierId: selectedSupplierId && selectedSupplierId !== 'TRANSFER' ? selectedSupplierId : null,
-            targetWarehouseId: currentWarehouseId || '98d9ccca-583d-4720-9993-4fd73347e834', // Usar store o hardcoded como último recurso
+            supplierId: sanitizedSupplierId,
+            targetWarehouseId: sanitizedWarehouseId,
             items: activeItems.map(i => ({
                 sku: i.sku,
                 name: i.name,
@@ -257,9 +273,9 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
 
             // 3. Update local state (Zustand) for UI immediacy
             const orderData = {
-                supplier_id: selectedSupplierId && selectedSupplierId !== 'TRANSFER' ? selectedSupplierId : null,
+                supplier_id: sanitizedSupplierId,
                 supplier_name: selectedSupplierId === 'TRANSFER' ? 'TRASPASO INTERNO' : selectedSupplier?.fantasy_name,
-                target_warehouse_id: currentWarehouseId || '98d9ccca-583d-4720-9993-4fd73347e834',
+                target_warehouse_id: sanitizedWarehouseId,
                 destination_location_id: currentLocationId || 'BODEGA_CENTRAL',
                 status: (status === 'SENT' ? 'APPROVED' : 'DRAFT') as any,
                 items: orderItems.map(i => ({

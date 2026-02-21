@@ -20,6 +20,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "smoke:health-db": "node scripts/smoke-health-db.mjs",
     "seed:sandbox": "npx tsx src/scripts/seed-sandbox.ts",
     "test:actions": "vitest run tests/actions",
     "test:actions:coverage": "vitest run tests/actions --coverage --coverage.include=\"src/actions/**\"",

@@ -138,3 +138,33 @@ describe('Supply V2 - UUID/Proveedor interno normalization', () => {
         expect(result.orderId).not.toBe('PO-AUTO-123');
     });
 });
+
+describe('Supply V2 - Legacy filter resilience', () => {
+    it('should ignore non-uuid location filter in history', async () => {
+        const mockDb = await import('@/lib/db');
+        vi.mocked(mockDb.query)
+            .mockResolvedValueOnce({ rows: [{ total: '0' }], rowCount: 1 } as any)
+            .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any);
+
+        const result = await supplyV2.getSupplyChainHistorySecure({
+            locationId: 'BODEGA_CENTRAL',
+            type: 'SHIPMENT',
+            page: 1,
+            pageSize: 20,
+        });
+
+        expect(result.success).toBe(true);
+        const firstCallParams = vi.mocked(mockDb.query).mock.calls[0]?.[1];
+        expect(firstCallParams).toEqual([]);
+    });
+
+    it('should return empty detail payload for non-uuid temporary id', async () => {
+        const mockDb = await import('@/lib/db');
+
+        const result = await supplyV2.getHistoryItemDetailsSecure('PO-AUTO-777', 'PO');
+
+        expect(result.success).toBe(true);
+        expect(result.data).toEqual([]);
+        expect(vi.mocked(mockDb.query)).not.toHaveBeenCalled();
+    });
+});
