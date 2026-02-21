@@ -4,21 +4,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as salesExportV2 from '@/actions/sales-export-v2';
 import * as dbModule from '@/lib/db';
-import { logger } from '@/lib/logger';
 
 // Mock content
 const validUserId = '550e8400-e29b-41d4-a716-446655440001';
 
-const { mockHeaders } = vi.hoisted(() => ({
-    mockHeaders: new Map([
-        ['x-user-id', '550e8400-e29b-41d4-a716-446655440001'],
-        ['x-user-role', 'CASHIER']
-    ])
+const { mockGetSessionSecure } = vi.hoisted(() => ({
+    mockGetSessionSecure: vi.fn()
 }));
 
-vi.mock('next/headers', () => ({
-    headers: vi.fn().mockReturnValue(Promise.resolve(mockHeaders)),
-    cookies: vi.fn(() => ({ get: vi.fn() }))
+vi.mock('@/actions/auth-v2', () => ({
+    getSessionSecure: mockGetSessionSecure
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -42,8 +37,12 @@ vi.mock('@/lib/logger', () => ({
 
 beforeEach(() => {
     vi.clearAllMocks();
-    mockHeaders.set('x-user-id', validUserId);
-    mockHeaders.set('x-user-role', 'CASHIER');
+    mockGetSessionSecure.mockResolvedValue({
+        userId: validUserId,
+        role: 'CASHIER',
+        locationId: '550e8400-e29b-41d4-a716-446655440111',
+        userName: 'Cashier Test'
+    });
 });
 
 describe('Sales Export V2 - RBAC', () => {
@@ -87,6 +86,6 @@ describe('Sales Export V2 - RBAC', () => {
         });
 
         expect(result.success).toBe(false);
-        expect(result.error).toContain('managers'); // Or custom error message
+        expect(result.error).toContain('Acceso denegado');
     });
 });

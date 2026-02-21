@@ -5,20 +5,12 @@ import * as dbModule from '@/lib/db';
 
 const validUserId = '550e8400-e29b-41d4-a716-446655440001';
 
-const { mockCookies } = vi.hoisted(() => ({
-    mockCookies: {
-        get: vi.fn((key) => {
-            if (key === 'user_id') return { value: '550e8400-e29b-41d4-a716-446655440001' };
-            if (key === 'user_role') return { value: 'MANAGER' };
-            if (key === 'x-user-location') return { value: 'loc-1' };
-            return undefined;
-        })
-    }
+const { mockGetSessionSecure } = vi.hoisted(() => ({
+    mockGetSessionSecure: vi.fn()
 }));
 
-vi.mock('next/headers', () => ({
-    headers: vi.fn(() => Promise.resolve({ get: () => null })),
-    cookies: vi.fn(() => Promise.resolve(mockCookies))
+vi.mock('@/actions/auth-v2', () => ({
+    getSessionSecure: mockGetSessionSecure
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -42,12 +34,11 @@ vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: 
 
 beforeEach(() => {
     vi.clearAllMocks();
-    // Default success mock
-    mockCookies.get.mockImplementation((key) => {
-        if (key === 'user_id') return { value: '550e8400-e29b-41d4-a716-446655440001' };
-        if (key === 'user_role') return { value: 'MANAGER' };
-        if (key === 'x-user-location') return { value: 'loc-1' };
-        return undefined;
+    mockGetSessionSecure.mockResolvedValue({
+        userId: validUserId,
+        role: 'MANAGER',
+        locationId: 'loc-1',
+        userName: 'Test User'
     });
 });
 
@@ -60,28 +51,29 @@ describe('Supplier Export V2', () => {
         });
 
         it('should fail authentication if session is missing', async () => {
-            mockCookies.get.mockImplementation((key: string) => undefined);
+            mockGetSessionSecure.mockResolvedValueOnce(null);
             const result = await actionModule.generateSupplierReportSecure({ startDate: '2024-01-01', endDate: '2024-01-31' });
             expect(result.success).toBe(false);
             expect(result.error).toBe('No autenticado');
         });
 
         it('should fail if user has insufficient permissions (GUEST)', async () => {
-            mockCookies.get.mockImplementation((key: string) => {
-                if (key === 'user_id') return { value: 'user-1' };
-                if (key === 'user_role') return { value: 'GUEST' };
-                return undefined;
+            mockGetSessionSecure.mockResolvedValueOnce({
+                userId: validUserId,
+                role: 'GUEST',
+                locationId: 'loc-1',
+                userName: 'Guest User'
             });
             const result = await actionModule.generateSupplierReportSecure({ startDate: '2024-01-01', endDate: '2024-01-31' });
             expect(result.success).toBe(false);
-            expect(result.error).toContain('Solo administradores');
+            expect(result.error).toContain('Acceso denegado');
         });
 
         it('should handle database errors gracefully', async () => {
             vi.mocked(dbModule.query).mockRejectedValueOnce(new Error('DB connection failed'));
             const result = await actionModule.generateSupplierReportSecure({ startDate: '2024-01-01', endDate: '2024-01-31' });
             expect(result.success).toBe(false);
-            expect(result.error).toBe('Error generando reporte');
+            expect(result.error).toBe('Error exportando proveedores');
         });
 
         it('should handle empty supplier list correctly', async () => {
@@ -104,14 +96,15 @@ describe('Supplier Export V2', () => {
         });
 
         it('should fail PO history export if not authorized', async () => {
-            mockCookies.get.mockImplementation((key: string) => {
-                if (key === 'user_role') return { value: 'GUEST' };
-                if (key === 'user_id') return { value: 'user-1' };
-                return undefined;
+            mockGetSessionSecure.mockResolvedValueOnce({
+                userId: validUserId,
+                role: 'GUEST',
+                locationId: 'loc-1',
+                userName: 'Guest User'
             });
             const result = await actionModule.exportPOHistorySecure('sup-1', { startDate: '2024-01-01', endDate: '2024-01-31' });
             expect(result.success).toBe(false);
-            expect(result.error).toBe('Solo administradores');
+            expect(result.error).toBe('Acceso denegado');
         });
     });
 });

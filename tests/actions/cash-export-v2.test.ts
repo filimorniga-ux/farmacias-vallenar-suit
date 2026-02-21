@@ -3,22 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as actionModule from '@/actions/cash-export-v2';
 import * as dbModule from '@/lib/db';
 
-const validUserId = '550e8400-e29b-41d4-a716-446655440001';
-
-const { mockCookies } = vi.hoisted(() => ({
-    mockCookies: {
-        get: vi.fn((key) => {
-            if (key === 'user_id') return { value: '550e8400-e29b-41d4-a716-446655440001' };
-            if (key === 'user_role') return { value: 'MANAGER' };
-            if (key === 'x-user-location') return { value: 'loc-1' };
-            return undefined;
-        })
-    }
+const { mockGetSessionSecure } = vi.hoisted(() => ({
+    mockGetSessionSecure: vi.fn()
 }));
 
-vi.mock('next/headers', () => ({
-    headers: vi.fn(() => Promise.resolve({ get: () => null })),
-    cookies: vi.fn(() => Promise.resolve(mockCookies))
+vi.mock('@/actions/auth-v2', () => ({
+    getSessionSecure: mockGetSessionSecure
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -35,13 +25,22 @@ vi.mock('@/lib/db', () => ({
 }));
 
 vi.mock('@/lib/excel-generator', () => ({
-    ExcelService: class { generateReport = vi.fn().mockResolvedValue(Buffer.from('test')) }
+    ExcelService: class {
+        generateReport = vi.fn().mockResolvedValue(Buffer.from('test'));
+        generateMultiSheetReport = vi.fn().mockResolvedValue(Buffer.from('test'));
+    }
 }));
 
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 beforeEach(() => {
     vi.clearAllMocks();
+    mockGetSessionSecure.mockResolvedValue({
+        userId: '550e8400-e29b-41d4-a716-446655440001',
+        role: 'MANAGER',
+        locationId: '550e8400-e29b-41d4-a716-446655440111',
+        userName: 'Test User'
+    });
 });
 
 describe('Cash Export V2', () => {
@@ -51,8 +50,12 @@ describe('Cash Export V2', () => {
     });
 
     it('should fail authentication if headers/cookies missing', async () => {
-        // Override for failure
-        vi.mocked(mockCookies.get).mockReturnValue(undefined); 
-        // Note: We need to reset this for other tests if we had them, but here it's fine or we use mockImplementationOnce
+        mockGetSessionSecure.mockResolvedValueOnce(null);
+        const result = await actionModule.generateCashReportSecure({
+            startDate: '2024-01-01',
+            endDate: '2024-01-31'
+        });
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('No autenticado');
     });
 });
