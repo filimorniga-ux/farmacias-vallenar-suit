@@ -82,7 +82,7 @@ describe('TransferSuggestionsPanel', () => {
         renderPanel();
 
         await waitFor(() => {
-            expect(mockGetTransferHistorySecure).toHaveBeenCalledWith({ locationId: 'loc-1', limit: 30 });
+            expect(mockGetTransferHistorySecure).toHaveBeenCalledWith({ locationId: 'loc-1', limit: 10 });
         });
 
         expect(await screen.findByText('Traslado masivo')).toBeTruthy();

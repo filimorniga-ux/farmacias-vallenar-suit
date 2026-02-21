@@ -62,7 +62,7 @@ describe('SuggestionAnalysisHistoryPanel', () => {
         render(<SuggestionAnalysisHistoryPanel locationId="loc-1" isActive refreshKey={0} />);
 
         await waitFor(() => {
-            expect(mockGetSuggestionAnalysisHistorySecure).toHaveBeenCalledWith({ locationId: 'loc-1', limit: 30 });
+            expect(mockGetSuggestionAnalysisHistorySecure).toHaveBeenCalledWith({ locationId: 'loc-1', limit: 10 });
         });
 
         expect(await screen.findByText('Historial Reciente')).toBeTruthy();

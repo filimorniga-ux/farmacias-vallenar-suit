@@ -79,6 +79,7 @@ export function InventoryExportForm() {
                     startDate: `${startDate}T00:00:00Z`,
                     endDate: `${endDate}T23:59:59Z`,
                     locationId: isManagerial ? selectedLocation : currentLocationId,
+                    limit: 5000,
                 });
             }
 
