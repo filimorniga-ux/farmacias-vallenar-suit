@@ -35,8 +35,12 @@ jobs:
         DATABASE_URL: "postgres://user:pass@localhost:5432/db"
 
     - name: Smoke DB Health (optional)
-      if: ${{ secrets.APP_URL != '' && secrets.HEALTHCHECK_TOKEN != '' }}
-      run: npm run smoke:health-db
+      run: |
+        if [ -n "$APP_URL" ] && [ -n "$HEALTHCHECK_TOKEN" ]; then
+          npm run smoke:health-db
+        else
+          echo "Skipping Smoke DB Health check because secrets are not set."
+        fi
       env:
         APP_URL: ${{ secrets.APP_URL }}
         HEALTHCHECK_TOKEN: ${{ secrets.HEALTHCHECK_TOKEN }}
