@@ -69,11 +69,10 @@ describe('TransferSuggestionsPanel', () => {
                 {
                     transfer_id: 'tr-1',
                     executed_at: '2026-02-18T12:00:00.000Z',
-                    sku: 'SKU-HIST-1',
-                    product_name: 'Historial Producto',
                     from_location_name: 'Sucursal Norte',
                     to_location_name: 'Sucursal Centro',
-                    quantity: 5,
+                    quantity: 15,
+                    items_count: 3,
                     executed_by: 'Manager',
                     reason: 'Reabastecimiento',
                 },
@@ -86,7 +85,8 @@ describe('TransferSuggestionsPanel', () => {
             expect(mockGetTransferHistorySecure).toHaveBeenCalledWith({ locationId: 'loc-1', limit: 30 });
         });
 
-        expect(await screen.findByText('Historial Producto')).toBeTruthy();
+        expect(await screen.findByText('Traslado masivo')).toBeTruthy();
+        expect(screen.getByText('3 items')).toBeTruthy();
         expect(screen.getByText('Historial Reciente')).toBeTruthy();
     });
 

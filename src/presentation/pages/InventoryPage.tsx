@@ -25,6 +25,27 @@ import InventorySkeleton from '../components/skeletons/InventorySkeleton';
 import { useInventoryPagedQuery } from '../hooks/useInventoryPagedQuery';
 import { formatSku, getEffectiveUnits } from '../../lib/utils/inventory-utils';
 
+const getBatchTag = (batch: any): { label: string; className: string } | null => {
+    const sourceSystem = String(batch?.source_system || '').toUpperCase();
+    const lotNumber = String(batch?.lot_number || '').toUpperCase();
+
+    if (sourceSystem === 'WMS_TRANSFER' || lotNumber.startsWith('TRF-')) {
+        return {
+            label: 'Traspaso',
+            className: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+        };
+    }
+
+    if (sourceSystem === 'WMS_DISPATCH' || lotNumber.startsWith('DSP-')) {
+        return {
+            label: 'Despacho',
+            className: 'bg-sky-100 text-sky-700 border-sky-200',
+        };
+    }
+
+    return null;
+};
+
 // --- Internal Component for Virtualized List ---
 // This ensures virtualization logic is isolated from parent re-renders
 interface InventoryListProps {
@@ -96,27 +117,33 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
 
     // Recalcula alturas al expandir/cerrar filas para evitar cortes de scroll al final.
     useEffect(() => {
-        rowVirtualizer.measure();
+        requestAnimationFrame(() => {
+            rowVirtualizer.measure();
+        });
     }, [expandedGroups, rowVirtualizer]);
 
-    useEffect(() => {
-        const [lastItem] = [...rowVirtualizer.getVirtualItems()].reverse();
-        if (!lastItem) return;
+    const virtualItems = rowVirtualizer.getVirtualItems();
+    const lastVisibleIndex = virtualItems.length > 0 ? virtualItems[virtualItems.length - 1].index : -1;
 
+    useEffect(() => {
         if (
-            lastItem.index >= items.length - 1 &&
+            lastVisibleIndex >= items.length - 1 &&
             hasNextPage &&
             !isFetchingNextPage
         ) {
             console.log('📜 Reached end of list, fetching next page...');
-            fetchNextPage();
+            // Defer update to avoid flushSync error during render/effect cycle (React 18 conflict)
+            const timer = setTimeout(() => {
+                fetchNextPage();
+            }, 0);
+            return () => clearTimeout(timer);
         }
     }, [
         hasNextPage,
         fetchNextPage,
         items.length,
         isFetchingNextPage,
-        rowVirtualizer.getVirtualItems(),
+        lastVisibleIndex
     ]);
 
     return (
@@ -252,11 +279,21 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
                                                 <p className="text-xs font-bold text-slate-400 uppercase">Detalle de Lotes</p>
                                                 {item.batches.map((batch: any) => (
                                                     <div key={batch.id} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex justify-between items-center">
-                                                        <div>
-                                                            <div className="text-xs font-bold text-slate-700">Lote: {batch.lot_number || 'S/N'}</div>
-                                                            <div className={`text-[10px] flex items-center gap-1 ${batch.expiry_date && new Date(batch.expiry_date) < new Date() ? 'text-red-600 font-bold' : 'text-slate-500'}`}>
-                                                                <History size={10} />
-                                                                {batch.expiry_date ? new Date(batch.expiry_date).toLocaleDateString() : 'Sin Venc.'}
+                                                        <div className="flex items-center gap-2 min-w-0">
+                                                            {(() => {
+                                                                const batchTag = getBatchTag(batch);
+                                                                return batchTag ? (
+                                                                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${batchTag.className}`}>
+                                                                        {batchTag.label}
+                                                                    </span>
+                                                                ) : null;
+                                                            })()}
+                                                            <div>
+                                                                <div className="text-xs font-bold text-slate-700">Lote: {batch.lot_number || 'S/N'}</div>
+                                                                <div className={`text-[10px] flex items-center gap-1 ${batch.expiry_date && new Date(batch.expiry_date) < new Date() ? 'text-red-600 font-bold' : 'text-slate-500'}`}>
+                                                                    <History size={10} />
+                                                                    {batch.expiry_date ? new Date(batch.expiry_date).toLocaleDateString() : 'Sin Venc.'}
+                                                                </div>
                                                             </div>
                                                         </div>
                                                         <div className="text-right">
@@ -439,6 +476,14 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
                                                         {item.batches.map((batch: any) => (
                                                             <tr key={batch.id} className="hover:bg-indigo-50/30 transition-colors">
                                                                 <td className="py-2 pl-2 font-mono text-slate-600 flex items-center gap-1.5">
+                                                                    {(() => {
+                                                                        const batchTag = getBatchTag(batch);
+                                                                        return batchTag ? (
+                                                                            <span className={`flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold border ${batchTag.className}`}>
+                                                                                {batchTag.label}
+                                                                            </span>
+                                                                        ) : null;
+                                                                    })()}
                                                                     {batch.is_retail_lot && (
                                                                         <span className="flex items-center gap-1 bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded text-[10px] font-bold border border-indigo-100 uppercase tracking-tighter">
                                                                             <Scissors size={10} /> DETAL

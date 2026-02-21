@@ -182,23 +182,46 @@ async function getLocationFromWarehouse(client: DBRow, warehouseId: string): Pro
 /**
  * Insert audit log
  */
+async function runAuditInsertSafely(
+    client: DBRow,
+    operation: () => Promise<void>
+): Promise<void> {
+    const savepoint = 'audit_wms_safe';
+
+    try {
+        await client.query(`SAVEPOINT ${savepoint}`);
+        await operation();
+        await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+    } catch (error) {
+        try {
+            await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+            await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+        } catch (rollbackError) {
+            console.error('[WMS-V2] Audit savepoint rollback failed:', rollbackError);
+        }
+        console.warn('[WMS-V2] Audit log insertion failed (non-critical):', error);
+    }
+}
+
 async function insertStockAudit(client: DBRow, params: {
     actionCode: string;
     userId: string;
     productId: string;
     details: DBRow;
 }): Promise<void> {
-    await client.query(`
-        INSERT INTO audit_log (
-            user_id, action_code, entity_type, entity_id,
-            old_values, new_values, created_at
-        ) VALUES ($1, $2, 'PRODUCT', $3, NULL, $4::jsonb, NOW())
-    `, [
-        params.userId,
-        params.actionCode,
-        params.productId,
-        JSON.stringify(params.details)
-    ]);
+    await runAuditInsertSafely(client, async () => {
+        await client.query(`
+            INSERT INTO audit_log (
+                user_id, action_code, entity_type, entity_id,
+                old_values, new_values, created_at
+            ) VALUES ($1, $2, 'PRODUCT', $3, NULL, $4::jsonb, NOW())
+        `, [
+            params.userId,
+            params.actionCode,
+            params.productId,
+            JSON.stringify(params.details)
+        ]);
+    });
 }
 
 /**
@@ -210,17 +233,19 @@ async function insertAuditLog(client: DBRow, params: {
     shipmentId: string;
     itemsCount: number;
 }): Promise<void> {
-    await client.query(`
-        INSERT INTO audit_log (
-            user_id, action_code, entity_type, entity_id,
-            new_values, created_at
-        ) VALUES ($1, $2, 'SHIPMENT', $3, $4::jsonb, NOW())
-    `, [
-        params.userId,
-        params.type.toUpperCase(),
-        params.shipmentId,
-        JSON.stringify({ itemsCount: params.itemsCount })
-    ]);
+    await runAuditInsertSafely(client, async () => {
+        await client.query(`
+            INSERT INTO audit_log (
+                user_id, action_code, entity_type, entity_id,
+                new_values, created_at
+            ) VALUES ($1, $2, 'SHIPMENT', $3, $4::jsonb, NOW())
+        `, [
+            params.userId,
+            params.type.toUpperCase(),
+            params.shipmentId,
+            JSON.stringify({ itemsCount: params.itemsCount })
+        ]);
+    });
 }
 
 // ============================================================================
@@ -352,8 +377,13 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
         ]);
 
         // 10. Audit
+        const movementAuditAction =
+            validated.data.type === 'TRANSFER_OUT' || validated.data.type === 'TRANSFER_IN'
+                ? 'STOCK_TRANSFERRED'
+                : 'STOCK_ADJUSTED';
+
         await insertStockAudit(client, {
-            actionCode: 'STOCK_MOVEMENT',
+            actionCode: movementAuditAction,
             userId: validated.data.userId,
             productId: validated.data.productId,
             details: {
@@ -421,6 +451,7 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
  */
 export async function executeTransferSecure(data: z.infer<typeof TransferSchema>): Promise<{
     success: boolean;
+    shipmentId?: string;
     error?: string;
 }> {
     // 1. Validate input
@@ -461,13 +492,40 @@ export async function executeTransferSecure(data: z.infer<typeof TransferSchema>
             };
         }
 
+        let authorizedBy: { id: string; name: string } | undefined;
         if (validated.data.supervisorPin) {
             const pinCheck = await validateSupervisorPin(client, validated.data.supervisorPin);
             if (!pinCheck.valid) {
                 await client.query('ROLLBACK');
                 return { success: false, error: pinCheck.error };
             }
+            authorizedBy = pinCheck.supervisor;
         }
+
+        const shipmentId = randomUUID();
+        await client.query(`
+            INSERT INTO shipments (
+                id, type, status, origin_location_id, destination_location_id,
+                transport_data, created_by, notes, created_at, updated_at
+            ) VALUES (
+                $1::uuid, 'INTER_BRANCH', 'IN_TRANSIT', $2::uuid, $3::uuid,
+                $4::jsonb, $5::uuid, $6, NOW(), NOW()
+            )
+        `, [
+            shipmentId,
+            originLoc,
+            targetLoc,
+            JSON.stringify({
+                mode: 'DIRECT_TRANSFER',
+                origin_warehouse_id: validated.data.originWarehouseId,
+                target_warehouse_id: validated.data.targetWarehouseId,
+                created_by_id: validated.data.userId,
+                authorized_by_id: authorizedBy?.id || null,
+                authorized_by_name: authorizedBy?.name || null
+            }),
+            validated.data.userId,
+            validated.data.notes || 'Transferencia directa entre bodegas'
+        ]);
 
         // 5. Process each item
         for (const item of validated.data.items) {
@@ -538,80 +596,37 @@ export async function executeTransferSecure(data: z.infer<typeof TransferSchema>
             await client.query(`
                 INSERT INTO stock_movements (
                     sku, product_name, location_id, movement_type, quantity, 
-                    stock_before, stock_after, timestamp, user_id, notes, batch_id, reference_type
-                ) VALUES ($1, $2, $3, 'TRANSFER_OUT', $4, $5, $6, NOW(), $7, $8, $9, 'TRANSFER')
+                    stock_before, stock_after, timestamp, user_id, notes, batch_id, reference_type, reference_id
+                ) VALUES ($1, $2, $3, 'TRANSFER_OUT', $4, $5, $6, NOW(), $7, $8, $9, 'SHIPMENT', $10::uuid)
             `, [
                 batch.sku, batch.name, originLoc, -item.quantity,
                 batch.quantity_real, newOriginQty,
                 validated.data.userId,
                 `Transfer to ${validated.data.targetWarehouseId}`,
-                targetBatchId
+                targetBatchId,
+                shipmentId
             ]);
 
-            // Find or create destination batch
-            const destBatchRes = await client.query(`
-                SELECT * FROM inventory_batches 
-                WHERE warehouse_id = $1 
-                  AND product_id = $2 
-                  AND lot_number = $3 
-                  AND expiry_date = $4
-            `, [
-                validated.data.targetWarehouseId,
-                batch.product_id,
-                batch.lot_number,
-                batch.expiry_date
-            ]);
-
-            let destBatchId;
-            let destBefore = 0;
-            let destAfter = item.quantity;
-
-            if (destBatchRes.rows.length > 0) {
-                // Update existing
-                const destBatch = destBatchRes.rows[0];
-                destBatchId = destBatch.id;
-                destBefore = destBatch.quantity_real;
-                destAfter = destBefore + item.quantity;
-
-                await client.query(`
-                    UPDATE inventory_batches 
-                    SET quantity_real = $1, updated_at = NOW()
-                    WHERE id = $2
-                `, [destAfter, destBatchId]);
-            } else {
-                // Create new
-                const insertRes = await client.query(`
-                    INSERT INTO inventory_batches (
-                        product_id, warehouse_id, lot_number, expiry_date, 
-                        quantity_real, sku, name, unit_cost, sale_price, location_id
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                    RETURNING id
-                `, [
-                    batch.product_id, validated.data.targetWarehouseId,
-                    batch.lot_number, batch.expiry_date, item.quantity,
-                    batch.sku, batch.name, batch.unit_cost, batch.sale_price, targetLoc
-                ]);
-                destBatchId = insertRes.rows[0].id;
-            }
-
-            // Log IN
             await client.query(`
-                INSERT INTO stock_movements (
-                    sku, product_name, location_id, movement_type, quantity, 
-                    stock_before, stock_after, timestamp, user_id, notes, batch_id, reference_type
-                ) VALUES ($1, $2, $3, 'TRANSFER_IN', $4, $5, $6, NOW(), $7, $8, $9, 'TRANSFER')
+                INSERT INTO shipment_items (
+                    id, shipment_id, product_id, sku, name, quantity, batch_id
+                ) VALUES (
+                    $1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::uuid
+                )
             `, [
-                batch.sku, batch.name, targetLoc, item.quantity,
-                destBefore, destAfter,
-                validated.data.userId,
-                `Transfer from ${validated.data.originWarehouseId}`,
-                destBatchId
+                randomUUID(),
+                shipmentId,
+                batch.product_id || targetProductId,
+                batch.sku,
+                batch.name,
+                item.quantity,
+                targetBatchId
             ]);
         }
 
         // 6. Audit
         await insertStockAudit(client, {
-            actionCode: 'STOCK_TRANSFER',
+            actionCode: 'STOCK_TRANSFERRED',
             userId: validated.data.userId,
             productId: validated.data.items[0].productId,
             details: {
@@ -625,7 +640,7 @@ export async function executeTransferSecure(data: z.infer<typeof TransferSchema>
 
         await client.query('COMMIT');
 
-        return { success: true };
+        return { success: true, shipmentId };
 
     } catch (error: unknown) {
         await client.query('ROLLBACK');
@@ -676,27 +691,27 @@ export async function getStockHistorySecure(filters: {
         let paramIndex = 1;
 
         if (filters.productId) {
-            conditions.push(`batch_id IN (SELECT id FROM inventory_batches WHERE product_id = $${paramIndex++})`);
+            conditions.push(`sm.batch_id IN (SELECT id FROM inventory_batches WHERE product_id = $${paramIndex++})`);
             params.push(filters.productId);
         }
 
         if (filters.warehouseId) {
-            conditions.push(`location_id = $${paramIndex++}`);
+            conditions.push(`sm.location_id::text = $${paramIndex++}::text`);
             params.push(filters.warehouseId);
         }
 
         if (filters.startDate) {
-            conditions.push(`timestamp AT TIME ZONE 'America/Santiago' >= $${paramIndex++}`);
+            conditions.push(`sm.timestamp AT TIME ZONE 'America/Santiago' >= $${paramIndex++}`);
             params.push(filters.startDate);
         }
 
         if (filters.endDate) {
-            conditions.push(`timestamp AT TIME ZONE 'America/Santiago' <= $${paramIndex++}`);
+            conditions.push(`sm.timestamp AT TIME ZONE 'America/Santiago' <= $${paramIndex++}`);
             params.push(filters.endDate);
         }
 
         if (filters.movementType) {
-            conditions.push(`movement_type = $${paramIndex++}`);
+            conditions.push(`sm.movement_type = $${paramIndex++}`);
             params.push(filters.movementType);
         }
 
@@ -707,7 +722,7 @@ export async function getStockHistorySecure(filters: {
         // Get total
         const countResult = await pool.query(`
             SELECT COUNT(*) as total
-            FROM stock_movements
+            FROM stock_movements sm
             ${whereClause}
         `, params);
 
@@ -719,10 +734,30 @@ export async function getStockHistorySecure(filters: {
         params.push(offset);
 
         const movementsResult = await pool.query(`
-            SELECT *
-            FROM stock_movements
+            SELECT
+                sm.*,
+                u.name as user_name,
+                sh.type as shipment_type,
+                sh.status as shipment_status,
+                ml.name as movement_location_name,
+                ol.name as origin_location_name,
+                dl.name as destination_location_name,
+                CASE
+                    WHEN sm.reference_type = 'SHIPMENT' AND sh.type = 'OUTBOUND' THEN 'DESPACHO'
+                    WHEN sm.reference_type = 'SHIPMENT' AND sh.type = 'INBOUND' THEN 'RECEPCION'
+                    WHEN sm.reference_type = 'SHIPMENT' AND sh.type = 'INTER_BRANCH' AND sm.movement_type = 'TRANSFER_OUT' THEN 'TRASPASO SALIDA'
+                    WHEN sm.reference_type = 'SHIPMENT' AND sh.type = 'INTER_BRANCH' AND sm.movement_type = 'TRANSFER_IN' THEN 'TRASPASO RECEPCION'
+                    WHEN sm.reference_type = 'PURCHASE_ORDER' THEN 'PEDIDO'
+                    ELSE sm.movement_type
+                END as operation_scope
+            FROM stock_movements sm
+            LEFT JOIN users u ON sm.user_id::text = u.id::text
+            LEFT JOIN shipments sh ON sm.reference_type = 'SHIPMENT' AND sm.reference_id::text = sh.id::text
+            LEFT JOIN locations ml ON sm.location_id::text = ml.id::text
+            LEFT JOIN locations ol ON sh.origin_location_id::text = ol.id::text
+            LEFT JOIN locations dl ON sh.destination_location_id::text = dl.id::text
             ${whereClause}
-            ORDER BY timestamp DESC
+            ORDER BY sm.timestamp DESC
             LIMIT $${paramIndex++} OFFSET $${paramIndex++}
         `, params);
 
@@ -754,6 +789,7 @@ const GetShipmentsSchema = z.object({
     locationId: UUIDSchema.optional(),
     status: z.enum(['PENDING', 'IN_TRANSIT', 'DELIVERED', 'CANCELLED']).optional(),
     type: z.enum(['INBOUND', 'OUTBOUND', 'INTER_BRANCH']).optional(),
+    direction: z.enum(['INCOMING', 'OUTGOING', 'BOTH']).default('BOTH'),
     startDate: z.date().optional(),
     endDate: z.date().optional(),
     page: z.number().min(1).default(1),
@@ -774,7 +810,7 @@ const GetPurchaseOrdersSchema = z.object({
  * 📦 Get Shipments (Inbound/Outbound/Transit)
  * Secure version with filtering and pagination
  */
-export async function getShipmentsSecure(filters?: z.infer<typeof GetShipmentsSchema>): Promise<{
+export async function getShipmentsSecure(filters?: z.input<typeof GetShipmentsSchema>): Promise<{
     success: boolean;
     data?: {
         shipments: DBRow[];
@@ -802,7 +838,7 @@ export async function getShipmentsSecure(filters?: z.infer<typeof GetShipmentsSc
     }
 
     try {
-        const { locationId, status, type, startDate, endDate, page, pageSize } = validated.data;
+        const { locationId, status, type, direction, startDate, endDate, page, pageSize } = validated.data;
 
         // Build WHERE clause
         const conditions: string[] = [];
@@ -810,28 +846,34 @@ export async function getShipmentsSecure(filters?: z.infer<typeof GetShipmentsSc
         let paramIndex = 1;
 
         if (locationId) {
-            conditions.push(`(origin_location_id = $${paramIndex} OR destination_location_id = $${paramIndex})`);
+            if (direction === 'INCOMING') {
+                conditions.push(`s.destination_location_id = $${paramIndex}`);
+            } else if (direction === 'OUTGOING') {
+                conditions.push(`s.origin_location_id = $${paramIndex}`);
+            } else {
+                conditions.push(`(s.origin_location_id = $${paramIndex} OR s.destination_location_id = $${paramIndex})`);
+            }
             params.push(locationId);
             paramIndex++;
         }
 
         if (status) {
-            conditions.push(`status = $${paramIndex++}`);
+            conditions.push(`s.status = $${paramIndex++}`);
             params.push(status);
         }
 
         if (type) {
-            conditions.push(`type = $${paramIndex++}`);
+            conditions.push(`s.type = $${paramIndex++}`);
             params.push(type);
         }
 
         if (startDate) {
-            conditions.push(`created_at AT TIME ZONE 'America/Santiago' >= $${paramIndex++}`);
+            conditions.push(`s.created_at AT TIME ZONE 'America/Santiago' >= $${paramIndex++}`);
             params.push(startDate);
         }
 
         if (endDate) {
-            conditions.push(`created_at AT TIME ZONE 'America/Santiago' <= $${paramIndex++}`);
+            conditions.push(`s.created_at AT TIME ZONE 'America/Santiago' <= $${paramIndex++}`);
             params.push(endDate);
         }
 
@@ -842,7 +884,7 @@ export async function getShipmentsSecure(filters?: z.infer<typeof GetShipmentsSc
         // Get total count
         const countResult = await pool.query(`
             SELECT COUNT(*) as total
-            FROM shipments
+            FROM shipments s
             ${whereClause}
         `, params);
 
@@ -859,6 +901,7 @@ export async function getShipmentsSecure(filters?: z.infer<typeof GetShipmentsSc
                 s.*,
                 ol.name as origin_location_name,
                 dl.name as destination_location_name,
+                u.name as created_by_name,
                 (
                     SELECT json_agg(si)
                     FROM shipment_items si
@@ -867,6 +910,7 @@ export async function getShipmentsSecure(filters?: z.infer<typeof GetShipmentsSc
             FROM shipments s
             LEFT JOIN locations ol ON s.origin_location_id::text = ol.id::text
             LEFT JOIN locations dl ON s.destination_location_id::text = dl.id::text
+            LEFT JOIN users u ON s.created_by::text = u.id::text
             ${whereClause}
             ORDER BY s.created_at DESC
             LIMIT $${paramIndex++} OFFSET $${paramIndex++}
@@ -879,12 +923,24 @@ export async function getShipmentsSecure(filters?: z.infer<typeof GetShipmentsSc
             origin_location_name: row.origin_location_name,
             destination_location_id: row.destination_location_id,
             destination_location_name: row.destination_location_name,
+            created_by: row.created_by,
+            created_by_name: row.created_by_name || undefined,
             status: row.status,
             type: row.type,
             created_at: row.created_at ? new Date(row.created_at).getTime() : null,
             updated_at: row.updated_at ? new Date(row.updated_at).getTime() : null,
             expected_delivery: row.expected_delivery ? new Date(row.expected_delivery).getTime() : null,
             transport_data: row.transport_data || {},
+            authorized_by_name: row.transport_data?.authorized_by_name || undefined,
+            received_by_name: row.transport_data?.received_by_name || undefined,
+            received_at: row.transport_data?.received_at
+                ? new Date(row.transport_data.received_at).getTime()
+                : null,
+            direction: locationId
+                ? row.destination_location_id === locationId
+                    ? 'INCOMING'
+                    : 'OUTGOING'
+                : 'BOTH',
             items: (row.shipment_items || []).map((item: DBRow) => ({
                 id: item.id,
                 batchId: item.batch_id,
@@ -983,7 +1039,7 @@ export async function createDispatchSecure(data: z.infer<typeof CreateDispatchSc
 
     const { type, originLocationId, destinationLocationId, items, transportData, notes } = validated.data;
 
-    if ((type === 'INTER_BRANCH' || type === 'INTERNAL_TRANSFER' || type === 'INBOUND') && !destinationLocationId) {
+    if ((type !== 'INBOUND_PROVIDER') && !destinationLocationId) {
         return { success: false, error: 'Destino requerido para este tipo de movimiento' };
     }
 
@@ -1031,6 +1087,12 @@ export async function createDispatchSecure(data: z.infer<typeof CreateDispatchSc
         const mappedType = type === 'INTERNAL_TRANSFER' ? 'INTER_BRANCH' :
             type === 'INBOUND_PROVIDER' ? 'INBOUND' : type;
 
+        const transportContext = {
+            ...transportData,
+            created_by_id: session.userId,
+            created_by_name: session.userName || null,
+        };
+
         await client.query(`
             INSERT INTO shipments (
                 id, type, status, origin_location_id, destination_location_id,
@@ -1041,7 +1103,7 @@ export async function createDispatchSecure(data: z.infer<typeof CreateDispatchSc
             )
         `, [
             shipmentId, mappedType, originLocationId, destinationLocationId,
-            JSON.stringify(transportData), session.userId, notes || ''
+            JSON.stringify(transportContext), session.userId, notes || ''
         ]);
 
         // 4. Process Items (Lock, deduct, add to shipment_items)
@@ -1175,7 +1237,9 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
         if (!destWarehouseId) throw new Error('No se encontró bodega asociada al destino');
 
         // 3. Process Received Items
-        for (const received of receivedItems) {
+        for (const [index, received] of receivedItems.entries()) {
+            if (received.quantity <= 0) continue;
+
             // Find original item specs (product_id etc)
             const shipItemRes = await client.query('SELECT * FROM shipment_items WHERE id = $1', [received.itemId]);
             const shipItem = shipItemRes.rows[0];
@@ -1194,49 +1258,31 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
             const productId = shipItem.product_id || sourceBatch?.product_id;
             if (!productId) throw new Error(`Falta información de producto para ${shipItem.sku}`);
 
-            // Find or Create Batch in Destination Warehouse
-            // Logic: Same Lot Number + Expiry + Product + Warehouse
-            const lotNumber = sourceBatch?.lot_number || 'UNKNOWN';
+            // Always create a new destination lot for each received line
+            // to keep transfer traceability at lot-level.
+            const lotPrefix = shipment.type === 'INTER_BRANCH' ? 'TRF' : 'DSP';
+            const lotNumber = `${lotPrefix}-${shipmentId.slice(0, 8)}-${String(index + 1).padStart(3, '0')}`;
             const expiry = sourceBatch?.expiry_date || null;
 
-            const destBatchRes = await client.query(`
-                SELECT * FROM inventory_batches 
-                WHERE warehouse_id = $1 AND product_id = $2 AND lot_number = $3
-            `, [destWarehouseId, productId, lotNumber]);
-
-            let finalBatchId;
+            const finalBatchId = randomUUID();
             let qtyBefore = 0;
             let qtyAfter = received.quantity;
-
-            if (destBatchRes.rows.length > 0) {
-                // Update
-                const existing = destBatchRes.rows[0];
-                finalBatchId = existing.id;
-                qtyBefore = existing.quantity_real;
-                qtyAfter = qtyBefore + received.quantity;
-
-                await client.query(`
-                    UPDATE inventory_batches SET quantity_real = $1, updated_at = NOW() WHERE id = $2
-                `, [qtyAfter, finalBatchId]);
-            } else {
-                // Insert
-                const insert = await client.query(`
-                    INSERT INTO inventory_batches (
-                        id, product_id, warehouse_id, lot_number, expiry_date,
-                        quantity_real, sku, name, unit_cost, sale_price, location_id,
-                        created_at, updated_at
-                    ) VALUES (
-                        $1, $2, $3, $4, $5, 
-                        $6, $7, $8, $9, $10, $11,
-                        NOW(), NOW()
-                    ) RETURNING id
-                `, [
-                    randomUUID(), productId, destWarehouseId, lotNumber, expiry,
-                    received.quantity, shipItem.sku, shipItem.name,
-                    sourceBatch?.unit_cost || 0, sourceBatch?.sale_price || 0, shipment.destination_location_id
-                ]);
-                finalBatchId = insert.rows[0].id;
-            }
+            await client.query(`
+                INSERT INTO inventory_batches (
+                    id, product_id, warehouse_id, lot_number, expiry_date,
+                    quantity_real, sku, name, unit_cost, sale_price, location_id,
+                    source_system, created_at, updated_at
+                ) VALUES (
+                    $1, $2, $3, $4, $5, 
+                    $6, $7, $8, $9, $10, $11,
+                    $12, NOW(), NOW()
+                )
+            `, [
+                finalBatchId, productId, destWarehouseId, lotNumber, expiry,
+                received.quantity, shipItem.sku, shipItem.name,
+                sourceBatch?.unit_cost || 0, sourceBatch?.sale_price || 0, shipment.destination_location_id,
+                shipment.type === 'INTER_BRANCH' ? 'WMS_TRANSFER' : 'WMS_DISPATCH'
+            ]);
 
             // Create Stock Movement (IN)
             await client.query(`
@@ -1262,10 +1308,16 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
         const status = 'DELIVERED';
         await client.query(`
             UPDATE shipments 
-            SET status = $1, updated_at = NOW(), 
-                notes = CASE WHEN $2::text IS NOT NULL THEN notes || E'\n' || $2 ELSE notes END
-            WHERE id = $3
-        `, [status, notes || null, shipmentId]);
+            SET status = $1,
+                updated_at = NOW(),
+                transport_data = COALESCE(transport_data, '{}'::jsonb) || jsonb_build_object(
+                    'received_by_id', $2::text,
+                    'received_by_name', $3::text,
+                    'received_at', NOW()::text
+                ),
+                notes = CASE WHEN $4::text IS NOT NULL THEN COALESCE(notes, '') || E'\n' || $4 ELSE notes END
+            WHERE id = $5
+        `, [status, session.userId, session.userName || 'Usuario', notes || null, shipmentId]);
 
         // 5. Audit
         await insertAuditLog(client, {
@@ -1331,7 +1383,7 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
         let paramIndex = 1;
 
         if (locationId) {
-            conditions.push(`w.location_id = $${paramIndex++}`);
+            conditions.push(`w.location_id::text = $${paramIndex++}::text`);
             params.push(locationId);
         }
 
@@ -1341,7 +1393,7 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
         }
 
         if (supplierId) {
-            conditions.push(`po.supplier_id = $${paramIndex++}`);
+            conditions.push(`po.supplier_id::text = $${paramIndex++}::text`);
             params.push(supplierId);
         }
 
@@ -1383,7 +1435,12 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
                 l.name as location_name,
                 cu.name as created_by_name,
                 au.name as approved_by_name,
-                ru.name as received_by_name
+                ru.name as received_by_name,
+                (
+                    SELECT COUNT(*)
+                    FROM purchase_order_items poi
+                    WHERE poi.purchase_order_id = po.id
+                ) as items_count
             FROM purchase_orders po
             LEFT JOIN suppliers s ON po.supplier_id::text = s.id::text
             LEFT JOIN warehouses w ON po.target_warehouse_id = w.id
@@ -1407,6 +1464,7 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
             total_amount: Number(row.total_amount) || 0,
             tax_amount: Number(row.tax_amount) || 0,
             items: row.items || [],
+            items_count: Number(row.items_count) || 0,
             created_at: row.created_at ? new Date(row.created_at).getTime() : null,
             updated_at: row.updated_at ? new Date(row.updated_at).getTime() : null,
             expected_delivery: row.expected_delivery ? new Date(row.expected_delivery).getTime() : null,

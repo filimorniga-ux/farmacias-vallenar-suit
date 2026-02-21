@@ -408,6 +408,8 @@ export interface Supplier {
 
     // Banking
     bank_account?: BankAccount;
+
+    is_active?: boolean; // NEW: Status toggle
 }
 
 export interface SupplierDocument {

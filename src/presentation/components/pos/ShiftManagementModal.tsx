@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { usePharmaStore } from '../../store/useStore';
-import { X, User, DollarSign, Monitor, Lock, MapPin, LockKeyhole, ArrowRight, RotateCcw, AlertTriangle } from 'lucide-react';
+import { useLocationStore } from '../../store/useLocationStore';
+import { X, User, DollarSign, Monitor, Lock, MapPin, LockKeyhole, ArrowRight, RotateCcw, AlertTriangle, ChevronDown } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 // V2: Funciones atómicas seguras
@@ -67,34 +68,50 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
 
     // Auto-select user's location and restrict options
     useEffect(() => {
-        const user = usePharmaStore.getState().user; // Get current user
-        if (user) {
-            if (user.assigned_location_id) {
-                // 1. Prioridad: Sucursal asignada por sistema (Fija)
+        const state = usePharmaStore.getState();
+        const user = state.user;
+        const currentContextId = state.currentLocationId;
+
+        if (user && isOpen) {
+            // 1. Prioridad Máxima: El contexto donde el usuario ya está navegando
+            if (currentContextId && availableLocations.some(l => l.id === currentContextId)) {
+                console.log('📍 POS: Usando contexto de navegación actual:', currentContextId);
+                setSelectedLocation(currentContextId);
+            }
+            // 2. Segunda Prioridad: Sucursal asignada fija (para cajeros restringidos)
+            else if (user.assigned_location_id) {
                 setSelectedLocation(user.assigned_location_id);
-            } else {
-                // 2. Fallback: Última sucursal usada (Recordada en navegador)
+            }
+            // 3. Fallback: Última recordada o Santiago
+            else {
                 const lastLocationId = typeof window !== 'undefined' ? localStorage.getItem('current_location_id') : null;
-                if (lastLocationId) {
-                    // Verificar que aún exista en la lista (evitar IDs obsletos)
-                    // Nota: 'locations' puede estar vacío al inicio, así que confiamos y dejamos que el select lo maneje
-                    // O mejor, verificamos cuando 'locations' cambie.
+                const SANTIAGO_ID = 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6';
+
+                if (lastLocationId && availableLocations.some(l => l.id === lastLocationId)) {
                     setSelectedLocation(lastLocationId);
+                } else if (availableLocations.some(l => l.id === SANTIAGO_ID)) {
+                    setSelectedLocation(SANTIAGO_ID);
                 }
             }
         }
-    }, [isOpen, employees]); // Se mantiene employees como trigger de carga de usuario si cambia
+    }, [isOpen, locations.length]); // Re-evaluar cuando carguen las localizaciones o abra el modal
 
     const availableLocations = locations.filter(l => {
         // Exclude inactive locations
         if (l.is_active === false) return false;
 
         const user = usePharmaStore.getState().user;
-        // If Manager/Admin of a specific branch, restrict. If Global, allow all.
-        // Assuming 'assigned_location_id' dictates the restriction.
-        if (user?.assigned_location_id) {
+        if (!user) return true;
+
+        // PRIVILEGED ROLES: Can see everything (Admin, Manager, General Manager, QF)
+        const isPrivileged = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'QF'].includes(user.role);
+        if (isPrivileged) return true;
+
+        // RESTRICTED ROLES: Only their assigned location
+        if (user.assigned_location_id) {
             return l.id === user.assigned_location_id;
         }
+
         return true;
     });
 
@@ -288,7 +305,9 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
             try {
                 localStorage.setItem('pos_session_id', selectedTerminalData.session_id);
                 localStorage.setItem('current_location_id', selectedLocation);
-                console.log('🔄 Session token restored to localStorage');
+                // Sincronizar Contexto Global de Sucursal
+                useLocationStore.getState().switchLocation(selectedLocation);
+                console.log('🔄 Session token restored to localStorage and Location synchronized');
             } catch (e) {
                 console.error('Failed to restore session token', e);
             }
@@ -322,6 +341,17 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
         }
         return () => clearTimeout(timer);
     }, [isMySession, isActiveSession]);
+
+    // --- NEW: Opening Mode Selection (RESUME vs NEW) ---
+    const [openingMode, setOpeningMode] = useState<'SELECT' | 'MANUAL'>('MANUAL');
+
+    useEffect(() => {
+        if (suggestedInfo) {
+            setOpeningMode('SELECT');
+        } else {
+            setOpeningMode('MANUAL');
+        }
+    }, [suggestedInfo]);
 
     if (!isOpen) return null;
 
@@ -418,6 +448,9 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                 result.sessionId // ← Pasar sessionId real de la DB
             );
 
+            // C. Sincronizar Contexto Global de Sucursal
+            useLocationStore.getState().switchLocation(selectedLocation);
+
             toast.success('Turno abierto correctamente');
 
             // 🤖 AUTO-CHECK-IN FEEDBACK
@@ -448,17 +481,6 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
             setIsSubmitting(false);
         }
     };
-
-    // --- NEW: Opening Mode Selection (RESUME vs NEW) ---
-    const [openingMode, setOpeningMode] = useState<'SELECT' | 'MANUAL'>('MANUAL');
-
-    useEffect(() => {
-        if (suggestedInfo) {
-            setOpeningMode('SELECT');
-        } else {
-            setOpeningMode('MANUAL');
-        }
-    }, [suggestedInfo]);
 
     const handleSelectMode = (mode: 'RESUME' | 'NEW') => {
         if (mode === 'RESUME' && suggestedInfo) {
@@ -594,51 +616,60 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                                                     <option key={loc.id} value={loc.id}>{loc.name}</option>
                                                 ))}
                                             </select>
+                                            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                                                <ChevronDown size={14} />
+                                            </div>
                                         </div>
                                     </div>
 
                                     {/* Terminal Select - GOD LEVEL UX */}
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-1">Terminal</label>
-                                        <select
-                                            value={selectedTerminal}
-                                            onChange={(e) => setSelectedTerminal(e.target.value)}
-                                            disabled={!selectedLocation}
-                                            className={`w-full p-3 border rounded-xl focus:ring-2 outline-none disabled:opacity-50 transition-colors bg-slate-50
-                                                ${selectedTerminalData?.status === 'OPEN'
-                                                    ? (isMySession ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-red-300 bg-red-50 text-red-800')
-                                                    : 'border-slate-200 focus:ring-cyan-500'
-                                                }
-                                            `}
-                                        >
-                                            <option value="">
-                                                {!selectedLocation ? 'Primero seleccione sucursal' : 'Seleccione Terminal...'}
-                                            </option>
-                                            {displayTerminals.map(t => {
-                                                // Lógica simplificada: usar status directamente
-                                                const isMine = t.current_cashier_id === user?.id && t.status === 'OPEN';
-                                                // Una terminal está ocupada si está OPEN y NO es mía
-                                                const isOccupied = t.status === 'OPEN' && !isMine;
-                                                // Disponible si está CLOSED o si no tiene cajero asignado
-                                                const isAvailable = t.status === 'CLOSED' || t.status !== 'OPEN';
+                                        <div className="relative">
+                                            <select
+                                                value={selectedTerminal}
+                                                onChange={(e) => setSelectedTerminal(e.target.value)}
+                                                disabled={!selectedLocation}
+                                                className={`w-full p-3 border rounded-xl focus:ring-2 outline-none disabled:opacity-50 transition-colors bg-slate-50 appearance-none
+                                                    ${selectedTerminalData?.status === 'OPEN'
+                                                        ? (isMySession ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-red-300 bg-red-50 text-red-800')
+                                                        : 'border-slate-200 focus:ring-cyan-500'
+                                                    }
+                                                `}
+                                            >
+                                                <option value="">
+                                                    {!selectedLocation ? 'Primero seleccione sucursal' : 'Seleccione Terminal...'}
+                                                </option>
+                                                {displayTerminals.map(t => {
+                                                    // Lógica simplificada: usar status directamente
+                                                    const isMine = t.current_cashier_id === user?.id && t.status === 'OPEN';
+                                                    // Una terminal está ocupada si está OPEN y NO es mía
+                                                    const isOccupied = t.status === 'OPEN' && !isMine;
+                                                    // Disponible si está CLOSED o si no tiene cajero asignado
+                                                    const isAvailable = t.status === 'CLOSED' || t.status !== 'OPEN';
 
-                                                // Icon/Text Logic
-                                                let statusLabel = '';
-                                                if (isMine) statusLabel = '🟠 (Tu Turno)';
-                                                else if (isOccupied) statusLabel = '🔴 (Ocupada)';
-                                                else statusLabel = '🟢 (Disponible)';
+                                                    // Icon/Text Logic
+                                                    let statusLabel = '';
+                                                    if (isMine) statusLabel = '🟠 (Tu Turno)';
+                                                    else if (isOccupied) statusLabel = '🔴 (Ocupada)';
+                                                    else statusLabel = '🟢 (Disponible)';
 
-                                                return (
-                                                    <option
-                                                        key={t.id}
-                                                        value={t.id}
-                                                        className={isMine ? "text-amber-600 font-bold" : (isOccupied ? "text-red-500 font-bold" : "text-slate-700")}
-                                                    >
-                                                        {t.name} {statusLabel}
-                                                    </option>
-                                                );
-                                            })}
-                                        </select>
+                                                    return (
+                                                        <option
+                                                            key={t.id}
+                                                            value={t.id}
+                                                            className={isMine ? "text-amber-600 font-bold" : (isOccupied ? "text-red-500 font-bold" : "text-slate-700")}
+                                                            disabled={isOccupied}
+                                                        >
+                                                            {t.name} {statusLabel}
+                                                        </option>
+                                                    );
+                                                })}
+                                            </select>
+                                            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                                                <ChevronDown size={14} />
+                                            </div>
+                                        </div>
 
                                         {/* UX INTELLIGENTE: Contextual Help & Actions */}
                                         {selectedTerminal && (
@@ -702,16 +733,21 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                                     {/* Cashier & Money (Only if not active session, which is handled by ternary above) */}
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-1">Cajero Asignado</label>
-                                        <select
-                                            value={selectedCashier}
-                                            onChange={(e) => setSelectedCashier(e.target.value)}
-                                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-cyan-500 outline-none"
-                                        >
-                                            <option value="">Seleccione Cajero...</option>
-                                            {cashiers.map(c => (
-                                                <option key={c.id} value={c.id}>{c.name}</option>
-                                            ))}
-                                        </select>
+                                        <div className="relative">
+                                            <select
+                                                value={selectedCashier}
+                                                onChange={(e) => setSelectedCashier(e.target.value)}
+                                                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-cyan-500 outline-none appearance-none"
+                                            >
+                                                <option value="">Seleccione Cajero...</option>
+                                                {cashiers.map(c => (
+                                                    <option key={c.id} value={c.id}>{c.name}</option>
+                                                ))}
+                                            </select>
+                                            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                                                <ChevronDown size={14} />
+                                            </div>
+                                        </div>
                                     </div>
 
                                     {/* OPENING MODE SELECTION vs MANUAL INPUT */}

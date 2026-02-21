@@ -1,7 +1,9 @@
 'use server';
 
-import { getClient } from '../lib/db';
+import { getClient, type PoolClient } from '../lib/db';
 import { revalidatePath } from 'next/cache';
+import { logger } from '@/lib/logger';
+import * as Sentry from '@sentry/nextjs';
 
 export type NotificationType = 'HR' | 'INVENTORY' | 'CASH' | 'WMS' | 'SYSTEM' | 'CONFIG' | 'STOCK_CRITICAL' | 'GENERAL';
 export type NotificationSeverity = 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR' | 'CRITICAL';
@@ -54,8 +56,9 @@ export async function createNotificationSecure(data: CreateNotificationDTO) {
 
 export async function getNotificationsSecure(locationId?: string, limit = 50) {
     const session = await getSession();
-    const client = await getClient();
+    let client: PoolClient | null = null;
     try {
+        client = await getClient();
         const currentUserId = session?.userId;
 
         // Base Query:
@@ -100,13 +103,32 @@ export async function getNotificationsSecure(locationId?: string, limit = 50) {
         return {
             success: true,
             data: res.rows,
-            unreadCount: parseInt(unreadCountRes.rows[0]?.count || '0')
+            unreadCount: parseInt(unreadCountRes.rows[0]?.count || '0', 10)
         };
-    } catch (error) {
-        console.error('Failed to fetch notifications:', error);
+    } catch (error: unknown) {
+        logger.error({
+            error,
+            locationId,
+            limit,
+            userId: session?.userId || null,
+        }, '[Notifications] Failed to fetch notifications');
+
+        Sentry.captureException(error, {
+            tags: {
+                module: 'notifications-v2',
+                action: 'getNotificationsSecure',
+            },
+            extra: {
+                locationId: locationId || null,
+                limit,
+                hasSession: !!session,
+                userId: session?.userId || null,
+            },
+        });
+
         return { success: false, error: 'Failed to fetch notifications' };
     } finally {
-        client.release();
+        client?.release();
     }
 }
 

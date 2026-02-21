@@ -64,8 +64,8 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
                         productId: inventoryItem?.product_id || inventoryItem?.id, // Try to get master ID
                         sku: item.sku,
                         name: item.name,
-                        quantity: item.quantity_ordered || 0, // Ensure default
-                        cost_price: item.cost_price || 0,
+                        quantity: item.quantity_ordered || (item as any).quantity || 1, // Ensure default is at least 1
+                        cost_price: item.cost_price || (item as any).cost || (item as any).unit_cost || 0,
                         sale_price: inventoryItem?.price_sell_unit || inventoryItem?.price || 0,
                         stock_actual: inventoryItem?.stock_actual || 0,
                         stock_max: inventoryItem?.stock_max || 100,
@@ -178,6 +178,7 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
 
         setIsSaving(true);
         const updates: Promise<any>[] = [];
+        let savedOrderId: string | undefined;
 
         // 1. Check for Cost Updates
         for (const item of orderItems) {
@@ -220,7 +221,7 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
 
         const dbPayload = {
             id: customOrderId,
-            supplierId: selectedSupplierId || null,
+            supplierId: selectedSupplierId && selectedSupplierId !== 'TRANSFER' ? selectedSupplierId : null,
             targetWarehouseId: currentWarehouseId || '98d9ccca-583d-4720-9993-4fd73347e834', // Usar store o hardcoded como último recurso
             items: activeItems.map(i => ({
                 sku: i.sku,
@@ -242,7 +243,7 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
                     setIsSaving(false);
                     return;
                 }
-                serverOrderId = initialOrder.id;
+                serverOrderId = result.orderId || initialOrder.id;
             } else {
                 const result = await createPurchaseOrderSecure(dbPayload, user.id);
                 if (!result.success) {
@@ -252,11 +253,12 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
                 }
                 serverOrderId = result.orderId;
             }
+            savedOrderId = serverOrderId;
 
             // 3. Update local state (Zustand) for UI immediacy
             const orderData = {
-                supplier_id: selectedSupplierId,
-                supplier_name: selectedSupplier?.fantasy_name,
+                supplier_id: selectedSupplierId && selectedSupplierId !== 'TRANSFER' ? selectedSupplierId : null,
+                supplier_name: selectedSupplierId === 'TRANSFER' ? 'TRASPASO INTERNO' : selectedSupplier?.fantasy_name,
                 target_warehouse_id: currentWarehouseId || '98d9ccca-583d-4720-9993-4fd73347e834',
                 destination_location_id: currentLocationId || 'BODEGA_CENTRAL',
                 status: (status === 'SENT' ? 'APPROVED' : 'DRAFT') as any,
@@ -273,7 +275,12 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
             };
 
             if (initialOrder) {
-                updatePurchaseOrder(initialOrder.id, orderData);
+                updatePurchaseOrder(
+                    initialOrder.id,
+                    serverOrderId && serverOrderId !== initialOrder.id
+                        ? { ...orderData, id: serverOrderId }
+                        : orderData
+                );
                 toast.success(status === 'SENT' ? 'Orden enviada correctamente' : 'Borrador actualizado en nube');
             } else {
                 const newOrder: PurchaseOrder = {
@@ -300,10 +307,10 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
                     type: 'INVENTORY',
                     severity: 'INFO',
                     title: initialOrder ? 'Orden Actualizada y Enviada' : 'Orden de Compra Enviada',
-                    message: `Orden ${initialOrder?.id || 'Nueva'} enviada a ${selectedSupplier?.fantasy_name}`,
+                    message: `Orden ${savedOrderId || initialOrder?.id || 'Nueva'} enviada a ${selectedSupplierId === 'TRANSFER' ? 'Traspaso Interno' : (selectedSupplier?.fantasy_name || 'Proveedor por definir')}`,
                     metadata: {
-                        orderId: initialOrder?.id,
-                        supplier: selectedSupplier?.fantasy_name,
+                        orderId: savedOrderId || initialOrder?.id,
+                        supplier: selectedSupplierId === 'TRANSFER' ? 'TRASPASO INTERNO' : selectedSupplier?.fantasy_name,
                         roleTarget: 'MANAGER'
                     }
                 });
@@ -354,13 +361,16 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
                         <div className="space-y-2">
                             <label className="text-sm font-bold text-gray-700">Proveedor</label>
                             <select
-                                value={selectedSupplierId}
+                                className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500 appearance-none"
+                                value={selectedSupplierId || ''}
                                 onChange={(e) => setSelectedSupplierId(e.target.value)}
-                                className="w-full p-3 border border-gray-200 rounded-xl focus:border-cyan-500 focus:outline-none bg-gray-50"
                             >
                                 <option value="">Por definir / Después</option>
-                                {suppliers.map(s => (
-                                    <option key={s.id} value={s.id}>{s.fantasy_name}</option>
+                                <option value="TRANSFER">📦 Traspaso Interno</option>
+                                {suppliers.filter(s => s.is_active !== false).map(supplier => (
+                                    <option key={supplier.id} value={supplier.id}>
+                                        {supplier.business_name}
+                                    </option>
                                 ))}
                             </select>
                             {selectedSupplier && (
@@ -475,7 +485,6 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
                                             </tr>
                                         )}
                                         <tr className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">
-                                            <th className="px-2 py-2">Producto</th>
                                             <th className="px-2 py-2 w-8">
                                                 <input
                                                     type="checkbox"
@@ -487,6 +496,7 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
                                                     className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
                                                 />
                                             </th>
+                                            <th className="px-2 py-2">Producto</th>
                                             <th className="px-2 py-2 text-center w-20">Cant.</th>
                                             <th className="px-2 py-2 text-right w-32">Costo Neto (Unit)</th>
                                             <th className="px-2 py-2 text-right w-24">IVA</th>
@@ -511,25 +521,25 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
 
                                             return (
                                                 <tr key={item.sku} className={`bg-white shadow-sm rounded-xl hover:shadow-md transition-all ${!selectedSkus.has(item.sku) ? 'opacity-60 grayscale-[0.5]' : ''}`}>
-                                                    <td className="px-2 py-3 rounded-l-xl">
-                                                        <div className="flex items-center gap-3">
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={selectedSkus.has(item.sku)}
-                                                                onChange={() => {
-                                                                    setSelectedSkus(prev => {
-                                                                        const next = new Set(prev);
-                                                                        if (next.has(item.sku)) next.delete(item.sku);
-                                                                        else next.add(item.sku);
-                                                                        return next;
-                                                                    });
-                                                                }}
-                                                                className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
-                                                            />
-                                                            <div className="flex-1">
-                                                                <div className="font-bold text-gray-800 text-xs line-clamp-1" title={item.name}>{item.name}</div>
-                                                                <div className="text-[9px] font-mono text-gray-400">{item.sku}</div>
-                                                            </div>
+                                                    <td className="px-2 py-3 rounded-l-xl text-center">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={selectedSkus.has(item.sku)}
+                                                            onChange={() => {
+                                                                setSelectedSkus(prev => {
+                                                                    const next = new Set(prev);
+                                                                    if (next.has(item.sku)) next.delete(item.sku);
+                                                                    else next.add(item.sku);
+                                                                    return next;
+                                                                });
+                                                            }}
+                                                            className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+                                                        />
+                                                    </td>
+                                                    <td className="px-2 py-3">
+                                                        <div className="flex flex-col">
+                                                            <div className="font-bold text-gray-800 text-xs line-clamp-1" title={item.name}>{item.name}</div>
+                                                            <div className="text-[9px] font-mono text-gray-400">{item.sku}</div>
                                                         </div>
                                                     </td>
                                                     <td className="px-2 py-3 text-center">

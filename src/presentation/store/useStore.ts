@@ -181,6 +181,7 @@ interface PharmaState {
     uploadLogisticsDocument: (shipmentId: string, type: 'INVOICE' | 'GUIDE' | 'PHOTO', url: string, observations?: string) => void;
     cancelShipment: (shipmentId: string) => void;
     refreshShipments: (locationId?: string) => Promise<void>;
+    refreshPurchaseOrders: (locationId?: string) => Promise<void>;
 
     // Import
     importInventory: (items: InventoryBatch[]) => void;
@@ -236,7 +237,7 @@ export const usePharmaStore = create<PharmaState>()(
     persist(
         (set, get) => ({
             // --- Multi-Branch State ---
-            currentLocationId: '', // Default empty to force selection
+            currentLocationId: 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6', // Default to Santiago
             currentWarehouseId: '', // Default empty
             currentTerminalId: '', // Default empty
             setCurrentLocation: (loc, wh, term) => {
@@ -333,23 +334,33 @@ export const usePharmaStore = create<PharmaState>()(
                                     const assignedLoc = locRes.data.find(l => l.id === authenticatedUser!.assigned_location_id);
                                     if (assignedLoc) {
                                         const warehouseId = assignedLoc.default_warehouse_id || '';
-                                        const currentLoc = get().currentLocationId;
+                                        const currentLocId = get().currentLocationId;
+                                        const userRole = authenticatedUser!.role;
 
-                                        // Only update if location changed or not set
-                                        if (currentLoc !== assignedLoc.id) {
-                                            console.log(`📍 Auto-Setting Context: Location=${assignedLoc.name}, Warehouse=${warehouseId}`);
+                                        // Only force location if:
+                                        // A. No location is currently set (Initial Load)
+                                        // B. User is NOT an Admin/Manager (They must be restricted to their location)
+                                        const shouldForce = !currentLocId || (userRole !== 'ADMIN' && userRole !== 'MANAGER' && userRole !== 'QF');
+
+                                        if (shouldForce && currentLocId !== assignedLoc.id) {
+                                            console.log(`📍 Auto-Setting Context (${userRole}): Location=${assignedLoc.name}, Warehouse=${warehouseId}`);
                                             set({
                                                 currentLocationId: assignedLoc.id,
                                                 currentWarehouseId: warehouseId,
-                                                currentTerminalId: '' // Reset terminal only on location change
+                                                currentTerminalId: ''
                                             });
-
-                                            // ⚡️ Refresh Inventory for the new context (Non-blocking)
-                                            // if (warehouseId) {
-                                            //    get().fetchInventory(assignedLoc.id, warehouseId).catch(console.error);
-                                            // }
+                                            // 🔗 Sync Global Location Store
+                                            import('./useLocationStore').then(({ useLocationStore }) => {
+                                                useLocationStore.getState().switchLocation(assignedLoc.id);
+                                            });
                                         } else {
-                                            console.log('📍 Context stable. Preserving session.');
+                                            console.log('📍 Context preserved or user has privileges to maintain selection.');
+                                            // Ensure LocationStore is synced even if preserved (Safety)
+                                            if (currentLocId) {
+                                                import('./useLocationStore').then(({ useLocationStore }) => {
+                                                    useLocationStore.getState().switchLocation(currentLocId);
+                                                });
+                                            }
                                         }
                                     }
                                 }
@@ -377,6 +388,11 @@ export const usePharmaStore = create<PharmaState>()(
                                 currentLocationId: locationId,
                                 currentWarehouseId: warehouseId,
                                 currentTerminalId: ''
+                            });
+
+                            // 🔗 Sync Global Location Store
+                            import('./useLocationStore').then(({ useLocationStore }) => {
+                                useLocationStore.getState().switchLocation(locationId);
                             });
 
                             // ⚡️ PERFORMANCE FIX: Fire-and-forget data fetching
@@ -526,7 +542,7 @@ export const usePharmaStore = create<PharmaState>()(
                             // 3. Others (Lighter)
                             const cashMovements = await TigerDataService.fetchCashMovements();
                             const shipments = await TigerDataService.fetchShipments(currentStoreState.currentLocationId);
-                            const purchaseOrders = await TigerDataService.fetchPurchaseOrders();
+                            const purchaseOrders = await TigerDataService.fetchPurchaseOrders(currentStoreState.currentLocationId);
 
                             // Background Update
                             set({
@@ -2021,6 +2037,12 @@ export const usePharmaStore = create<PharmaState>()(
                 const { TigerDataService } = await import('../../domain/services/TigerDataService');
                 const shipments = await TigerDataService.fetchShipments(effectiveId);
                 set({ shipments: shipments || [] });
+            },
+            refreshPurchaseOrders: async (locationId) => {
+                const effectiveId = locationId || get().currentLocationId;
+                const { TigerDataService } = await import('../../domain/services/TigerDataService');
+                const purchaseOrders = await TigerDataService.fetchPurchaseOrders(effectiveId);
+                set({ purchaseOrders: purchaseOrders || [] });
             },
 
 

@@ -28,6 +28,7 @@ import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
 import { logger } from '@/lib/logger';
+import { getSessionSecure } from './auth-v2';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -870,6 +871,65 @@ export async function getPurchaseOrderHistory(filters?: {
 /**
  * 🧠 Generate Restock Suggestion (MRP Algorithm - Secure)
  */
+const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function normalizeUuid(value?: string | null): string | null {
+    if (!value) return null;
+    return UUID_V4_REGEX.test(value) ? value : null;
+}
+
+interface SuggestionHistoryPayload {
+    supplier_id?: string | null;
+    supplier_name?: string | null;
+    days_to_cover: number;
+    analysis_window: number;
+    location_id?: string | null;
+    stock_threshold?: number | null;
+    search_query?: string | null;
+    limit: number;
+    total_results: number;
+    critical_count: number;
+    transfer_count: number;
+    total_estimated: number;
+}
+
+async function saveSuggestionAnalysisHistory(params: SuggestionHistoryPayload): Promise<void> {
+    try {
+        const session = await getSessionSecure();
+        if (!session) return;
+
+        const safeLocationId = normalizeUuid(params.location_id || null);
+        const supplierName = params.supplier_name || null;
+        const payload = {
+            ...params,
+            supplier_name: supplierName,
+            stock_threshold: params.stock_threshold ?? null,
+            search_query: params.search_query ?? null
+        };
+
+        await pool.query(`
+            INSERT INTO audit_log (
+                user_id,
+                user_role,
+                user_name,
+                location_id,
+                action_code,
+                entity_type,
+                new_values,
+                created_at
+            ) VALUES ($1, $2, $3, $4, 'REPORT_GENERATE', 'PROCUREMENT_SUGGESTIONS', $5::jsonb, NOW())
+        `, [
+            session.userId,
+            session.role,
+            session.userName,
+            safeLocationId,
+            JSON.stringify(payload)
+        ]);
+    } catch (error) {
+        logger.warn({ error }, '[PROCUREMENT-V2] Suggestion history audit skipped');
+    }
+}
+
 /**
  * 🧠 Generate Restock Suggestion (MRP Algorithm - Secure)
  * Enhanced with Multi-Supplier, Search, and Top N Logic
@@ -881,7 +941,8 @@ export async function generateRestockSuggestionSecure(
     locationId?: string,
     stockThreshold?: number, // New: 0.1 to 1.0 (or >1 for overstock)
     searchQuery?: string,    // New: Filter by name/sku
-    limit: number = 100      // New: Top N results
+    limit: number = 100,     // New: Top N results
+    trackHistory: boolean = false
 ): Promise<{
     success: boolean;
     data?: Record<string, unknown>[];
@@ -973,7 +1034,7 @@ export async function generateRestockSuggestionSecure(
             WITH 
             TargetProducts AS (
                 SELECT 
-                    p.id as product_id, 
+                    p.id::uuid as product_id, 
                     p.name as product_name, 
                     p.sku as product_sku, 
                     NULL as image_url,
@@ -992,7 +1053,7 @@ export async function generateRestockSuggestionSecure(
                                 ps.is_preferred
                             FROM product_suppliers ps
                             JOIN suppliers s ON ps.supplier_id = s.id
-                            WHERE ps.product_id::text = p.id
+                            WHERE ps.product_id = p.id::uuid
                             AND s.status = 'ACTIVE'
                             -- If specific supplier selected, only show that one (or prioritize it)
                             AND ($1::uuid IS NULL OR ps.supplier_id = $1::uuid)
@@ -1011,7 +1072,7 @@ export async function generateRestockSuggestionSecure(
                     AND (
                         $1::uuid IS NULL OR EXISTS (
                             SELECT 1 FROM product_suppliers ps 
-                            WHERE ps.product_id::text = p.id AND ps.supplier_id = $1::uuid
+                            WHERE ps.product_id = p.id::uuid AND ps.supplier_id = $1::uuid
                         )
                     )
             ),
@@ -1027,7 +1088,7 @@ export async function generateRestockSuggestionSecure(
             ),
             IncomingStock AS (
                 SELECT 
-                    p.id as product_id, 
+                    p.id::uuid as product_id, 
                     SUM(poi.quantity_ordered - COALESCE(poi.quantity_received, 0)) as incoming
                 FROM purchase_order_items poi
                 JOIN purchase_orders po ON poi.purchase_order_id = po.id
@@ -1038,7 +1099,7 @@ export async function generateRestockSuggestionSecure(
                 AND w.is_active = true
                 AND l.is_active = true
                 ${locationId ? `AND l.id = $${queryParams.length}::uuid` : ''} 
-                GROUP BY p.id
+                GROUP BY p.id::uuid
             ),
             SalesHistory AS (
                 SELECT 
@@ -1065,6 +1126,7 @@ export async function generateRestockSuggestionSecure(
                 JOIN locations l ON ib.location_id = l.id
                 WHERE s.timestamp >= NOW() - INTERVAL '365 days'
                 AND l.is_active = true
+                AND ib.product_id IN (SELECT product_id FROM TargetProducts)
                 ${locationFilterSales}
                 GROUP BY ib.product_id
             ),
@@ -1075,6 +1137,7 @@ export async function generateRestockSuggestionSecure(
                     jsonb_agg(jsonb_build_object(
                         'location_id', location_id,
                         'location_name', location_name,
+                        'location_type', location_type,
                         'available_qty', location_total
                     )) as stock_by_location
                 FROM (
@@ -1082,13 +1145,15 @@ export async function generateRestockSuggestionSecure(
                         ib.product_id,
                         ib.location_id,
                         l.name as location_name,
+                        l.type as location_type,
                         SUM(ib.quantity_real) as location_total
                     FROM inventory_batches ib
                     JOIN locations l ON ib.location_id = l.id
                     WHERE ib.quantity_real > 0 AND l.is_active = true
+                    AND ib.product_id IN (SELECT product_id FROM TargetProducts)
                     -- Exclude current location to find "Other" stock
                     ${locationId ? `AND ib.location_id != $${paramIndex - 1}::uuid` : ''}
-                    GROUP BY ib.product_id, ib.location_id, l.name
+                    GROUP BY ib.product_id, ib.location_id, l.name, l.type
                 ) sub
                 GROUP BY product_id
             )
@@ -1119,21 +1184,25 @@ export async function generateRestockSuggestionSecure(
                 COALESCE(sh.total_sold_max_window, 0) as total_sold_in_period,
                 COALESCE(sh.weekly_sales, '[]'::jsonb) as sales_history
             FROM TargetProducts tp
-            LEFT JOIN CurrentStock cs ON tp.product_id::text = cs.product_id::text
-            LEFT JOIN IncomingStock incs ON tp.product_id::text = incs.product_id::text
-            LEFT JOIN SalesHistory sh ON tp.product_id::text = sh.product_id::text
-            LEFT JOIN GlobalStockDetail gs ON tp.product_id::text = gs.product_id::text
+            LEFT JOIN CurrentStock cs ON tp.product_id = cs.product_id
+            LEFT JOIN IncomingStock incs ON tp.product_id = incs.product_id
+            LEFT JOIN SalesHistory sh ON tp.product_id = sh.product_id
+            LEFT JOIN GlobalStockDetail gs ON tp.product_id = gs.product_id
             
             -- Sort by highest sales volume first (Top N)
             ORDER BY total_sold_in_period DESC, tp.product_name ASC
             LIMIT $3
         `;
 
+        // Aumentar el límite real enviado a la DB para compensar el filtrado de "ceros" posterior
+        // Si limit es 500, el $3 será 1500 para tener margen de encontrar 500 accionables.
+        queryParams[2] = Math.min(limit * 5, 2000);
+
         const res = await pool.query(finalSql, queryParams);
 
         // Calculate Formula in JS for precision control
         // Suggested = CEIL(Velocity * (DaysToCover + LeadTime) + Safety - Stock - Incoming)
-        const suggestions = await Promise.all(res.rows.map(async (row) => {
+        const suggestions = await Promise.all(res.rows.map(async (row, idx) => {
             // Calculate velocities for all windows
             const velocities: Record<number, number> = {
                 7: Number(row.sold_7d) / 7,
@@ -1167,7 +1236,18 @@ export async function generateRestockSuggestionSecure(
             const leadTime = 0; // Default
 
             // Estima el Stock Máximo Dinámico basado en la cobertura deseada
-            const maxStock = Math.ceil((velocity * (daysToCover + leadTime)) + safety);
+            // Si no hay ventas (velocity = 0), el maxStock será al menos el doble del stock de seguridad 
+            // o un valor mínimo razonable para asegurar visibilidad.
+            const targetCoverageStock = Math.ceil(velocity * (daysToCover + leadTime));
+
+            // Stock Crítico / Seguridad (Floor)
+            // Si safety es 0, usamos 5 como fallback razonable para productos en catálogo
+            const effectiveSafety = safety > 0 ? safety : 5;
+
+            // El Stock Objetivo (maxStock) es el mayor entre:
+            // 1. La demanda proyectada + safety
+            // 2. El stock de seguridad absoluto (como mínimo)
+            const maxStock = Math.max(effectiveSafety, Math.ceil(targetCoverageStock + safety));
 
             const netNeeds = maxStock - stock - incoming;
 
@@ -1200,7 +1280,7 @@ export async function generateRestockSuggestionSecure(
             let aiConfidence = undefined;
             let aiAction: 'PURCHASE' | 'TRANSFER' | 'PARTIAL_TRANSFER' = 'PURCHASE';
 
-            // 📦 TRANSFER DETECTION (antes de IA para que la IA pueda overridear)
+            // 📦 TRANSFER DETECTION
             // Si otra sucursal tiene suficiente stock, sugerir traspaso
             if (suggested > 0 && globalStock > 0 && locationId) {
                 if (globalStock >= suggested) {
@@ -1212,49 +1292,8 @@ export async function generateRestockSuggestionSecure(
                 }
             }
 
-            // 🧠 AI ENHANCEMENT (Hybrid)
-            // Solo analizar si es crítico (Stockout < 7 días) o alto valor
-            const isCritical = daysUntilStockout <= 7;
-            const isHighValue = (suggested * Number(row.unit_cost)) > 100000;
-
-            if (isCritical || isHighValue) {
-                try {
-                    // Dynamic Import to avoid bundle issues
-                    const { AIForecastingService } = await import('@/services/ai-forecasting');
-
-                    const aiResult = await AIForecastingService.predictDemand({
-                        productName: row.product_name,
-                        currentStock: stock,
-                        branchName: 'Sucursal Actual', // Deberíamos pasar el nombre real si lo tenemos
-                        salesHistory: [], // Not needed, utilizing weeklySales
-                        weeklySales: row.sales_history,
-                        context: `Days to cover: ${daysToCover}. Lead time: ${leadTime} days.`,
-                        globalStock,
-                        supplierName: row.suppliers_data?.[0]?.name || 'Unknown'
-                    });
-
-                    // Merge AI Logic
-                    if (aiResult.confidence === 'HIGH' || aiResult.confidence === 'MEDIUM') {
-                        // Si la IA sugiere, usamos su sugerencia pero respetamos el techo del maxStock si es 'PURCHASE'
-                        // A veces la IA puede sugerir más por tendencias estacionales no capturadas en el promedio simple
-                        suggested = aiResult.suggestedOrderQty;
-                        reason = `🤖 IA: ${aiResult.reasoning}`;
-                        aiConfidence = aiResult.confidence;
-                        aiAction = ((aiResult as { suggestedAction?: string }).suggestedAction as 'PURCHASE' | 'TRANSFER' | 'PARTIAL_TRANSFER') || 'PURCHASE';
-
-                        // If AI suggests TRANSFER, set purchase qty to 0 (or reflect transfer logic)
-                        if (aiAction === 'TRANSFER') {
-                            // suggestion remains but marked as transfer needed
-                            reason = `📦 TRANSFERENCIA SUGERIDA: ${aiResult.reasoning}`;
-                        }
-                    }
-                } catch {
-                    console.warn('AI Forecast skipped for item:', row.sku);
-                }
-            }
             // 🛑 COST OPTIMIZATION OVERRIDE
-            // Even if AI suggests PURCHASE, if we have enough Global Stock, we MUST TRANSFER.
-            // Internal stock transfer is free/cheaper than buying new stock.
+            // Priorizar siempre el traspaso si hay stock global suficiente para ahorrar compras.
             if (suggested > 0 && globalStock >= suggested && locationId) {
                 aiAction = 'TRANSFER';
                 reason = `📦 TRASPASO PRIORITARIO: Stock global suficiente (${globalStock}u). Ahorro de compra detectado.`;
@@ -1287,9 +1326,10 @@ export async function generateRestockSuggestionSecure(
             const rawStockByLocation = row.stock_by_location || [];
             const transferSources = (Array.isArray(rawStockByLocation) ? rawStockByLocation : [])
                 .filter((src: { available_qty: number }) => src.available_qty > 0)
-                .map((src: { location_id: string; location_name: string; available_qty: number }) => ({
+                .map((src: { location_id: string; location_name: string; location_type: string; available_qty: number }) => ({
                     location_id: src.location_id,
                     location_name: src.location_name,
+                    location_type: src.location_type,
                     available_qty: src.available_qty
                 }));
 
@@ -1326,29 +1366,193 @@ export async function generateRestockSuggestionSecure(
             };
         }));
 
-        // Filter out nulls (items that didn't pass threshold)
-        const validSuggestions = suggestions.filter(s => s !== null);
+        // Filter out nulls
+        let validSuggestions = suggestions.filter(s => s !== null) as any[];
+
+        // REGLA DE NEGOCIO: Si NO hay una búsqueda específica, ocultar items con sugerencia = 0
+        // Esto evita que el usuario vea 500 productos donde 470 dicen "Pedido Sugerido: 0"
+        if (!searchQuery) {
+            validSuggestions = validSuggestions.filter(s => s.suggested_order_qty > 0);
+        }
 
         // Sort: High Urgency First, then High Velocity
         const sortedSuggestions = validSuggestions.sort((a, b) => {
             // 1. Urgency 
             if (a.urgency === 'HIGH' && b.urgency !== 'HIGH') return -1;
             if (b.urgency === 'HIGH' && a.urgency !== 'HIGH') return 1;
+            if (a.urgency === 'MEDIUM' && b.urgency === 'LOW') return -1;
+            if (b.urgency === 'MEDIUM' && a.urgency === 'LOW') return 1;
 
             // 2. Stockout Days (Ascending)
             if (a.days_until_stockout !== b.days_until_stockout) {
-                return a.days_until_stockout - b.days_until_stockout;
+                return (a.days_until_stockout || 0) - (b.days_until_stockout || 0);
             }
 
             // 3. Velocity (Descending)
-            return b.daily_velocity - a.daily_velocity;
+            return (b.daily_velocity || 0) - (a.daily_velocity || 0);
         });
 
-        return { success: true, data: sortedSuggestions };
+        // Aplicar el límite final después de filtrar los ceros
+        const finalResults = sortedSuggestions.slice(0, limit);
+
+        if (trackHistory) {
+            const supplierName = supplierValidated
+                ? (finalResults.find(item => item.supplier_id === supplierValidated)?.supplier_name as string | undefined) || null
+                : null;
+
+            const totalEstimated = finalResults.reduce((sum, item) => sum + Number(item.total_estimated || 0), 0);
+            const criticalCount = finalResults.filter(item => item.urgency === 'HIGH').length;
+            const transferCount = finalResults.filter(item => item.action_type === 'TRANSFER' || item.action_type === 'PARTIAL_TRANSFER').length;
+
+            void saveSuggestionAnalysisHistory({
+                supplier_id: supplierValidated || null,
+                supplier_name: supplierName,
+                days_to_cover: daysToCover,
+                analysis_window: analysisWindow,
+                location_id: normalizeUuid(locationId),
+                stock_threshold: stockThreshold ?? null,
+                search_query: searchQuery ?? null,
+                limit,
+                total_results: finalResults.length,
+                critical_count: criticalCount,
+                transfer_count: transferCount,
+                total_estimated: Number(totalEstimated.toFixed(2))
+            });
+        }
+
+        return { success: true, data: finalResults };
 
     } catch (error: unknown) {
         console.error('[PROCUREMENT-V2] MRP error:', error);
         return { success: false, error: 'Error generando sugerencias: ' + (error instanceof Error ? error.message : 'Error desconocido') };
+    }
+}
+
+export interface TransferDetail {
+    sku: string;
+    product_name: string;
+    quantity: number;
+    from_location_name: string;
+    to_location_name: string;
+}
+
+export interface SuggestionAnalysisHistoryItem {
+    history_id: string;
+    executed_at: string;
+    executed_by: string;
+    location_id: string | null;
+    location_name: string;
+    supplier_id: string | null;
+    supplier_name: string | null;
+    days_to_cover: number;
+    analysis_window: number;
+    stock_threshold: number | null;
+    search_query: string | null;
+    limit: number;
+    total_results: number;
+    critical_count: number;
+    transfer_count: number;
+    total_estimated: number;
+}
+
+/**
+ * 📋 Historial del Motor de Sugerencias (reciente y liviano)
+ */
+export async function getSuggestionAnalysisHistorySecure(params?: {
+    locationId?: string;
+    limit?: number;
+}): Promise<{ success: boolean; data?: SuggestionAnalysisHistoryItem[]; error?: string }> {
+    try {
+        const limit = Math.min(Math.max(params?.limit || 10, 1), 50);
+        const safeLocationId = normalizeUuid(params?.locationId);
+
+        const result = await pool.query(`
+            SELECT
+                al.id::text AS history_id,
+                al.created_at AT TIME ZONE 'America/Santiago' AS executed_at,
+                COALESCE(al.user_name, u.name, 'Sistema') AS executed_by,
+                COALESCE(al.location_id::text, al.new_values->>'location_id') AS location_id,
+                COALESCE(al.new_values->>'location_name', l.name, 'Todas') AS location_name,
+                NULLIF(al.new_values->>'supplier_id', '') AS supplier_id,
+                NULLIF(al.new_values->>'supplier_name', '') AS supplier_name,
+                CASE
+                    WHEN NULLIF(al.new_values->>'days_to_cover', '') ~ '^[0-9]+$'
+                        THEN (al.new_values->>'days_to_cover')::int
+                    ELSE 15
+                END AS days_to_cover,
+                CASE
+                    WHEN NULLIF(al.new_values->>'analysis_window', '') ~ '^[0-9]+$'
+                        THEN (al.new_values->>'analysis_window')::int
+                    ELSE 30
+                END AS analysis_window,
+                CASE
+                    WHEN NULLIF(al.new_values->>'stock_threshold', '') ~ '^-?[0-9]+(\\.[0-9]+)?$'
+                        THEN (al.new_values->>'stock_threshold')::numeric
+                    ELSE NULL
+                END AS stock_threshold,
+                NULLIF(al.new_values->>'search_query', '') AS search_query,
+                CASE
+                    WHEN NULLIF(al.new_values->>'limit', '') ~ '^[0-9]+$'
+                        THEN (al.new_values->>'limit')::int
+                    ELSE 100
+                END AS limit_value,
+                CASE
+                    WHEN NULLIF(al.new_values->>'total_results', '') ~ '^[0-9]+$'
+                        THEN (al.new_values->>'total_results')::int
+                    ELSE 0
+                END AS total_results,
+                CASE
+                    WHEN NULLIF(al.new_values->>'critical_count', '') ~ '^[0-9]+$'
+                        THEN (al.new_values->>'critical_count')::int
+                    ELSE 0
+                END AS critical_count,
+                CASE
+                    WHEN NULLIF(al.new_values->>'transfer_count', '') ~ '^[0-9]+$'
+                        THEN (al.new_values->>'transfer_count')::int
+                    ELSE 0
+                END AS transfer_count,
+                CASE
+                    WHEN NULLIF(al.new_values->>'total_estimated', '') ~ '^-?[0-9]+(\\.[0-9]+)?$'
+                        THEN (al.new_values->>'total_estimated')::numeric
+                    ELSE 0
+                END AS total_estimated
+            FROM audit_log al
+            LEFT JOIN users u ON al.user_id::text = u.id::text
+            LEFT JOIN locations l ON al.location_id::text = l.id::text
+            WHERE al.action_code = 'REPORT_GENERATE'
+              AND al.entity_type = 'PROCUREMENT_SUGGESTIONS'
+              AND (
+                $2::text IS NULL
+                OR al.location_id::text = $2::text
+                OR al.new_values->>'location_id' = $2::text
+              )
+            ORDER BY al.created_at DESC
+            LIMIT $1
+        `, [limit, safeLocationId]);
+
+        const history = result.rows.map((row) => ({
+            history_id: String(row.history_id),
+            executed_at: String(row.executed_at),
+            executed_by: String(row.executed_by || 'Sistema'),
+            location_id: row.location_id ? String(row.location_id) : null,
+            location_name: String(row.location_name || 'Todas'),
+            supplier_id: row.supplier_id ? String(row.supplier_id) : null,
+            supplier_name: row.supplier_name ? String(row.supplier_name) : null,
+            days_to_cover: Number(row.days_to_cover || 15),
+            analysis_window: Number(row.analysis_window || 30),
+            stock_threshold: row.stock_threshold !== null && row.stock_threshold !== undefined ? Number(row.stock_threshold) : null,
+            search_query: row.search_query ? String(row.search_query) : null,
+            limit: Number(row.limit_value || 100),
+            total_results: Number(row.total_results || 0),
+            critical_count: Number(row.critical_count || 0),
+            transfer_count: Number(row.transfer_count || 0),
+            total_estimated: Number(row.total_estimated || 0)
+        }));
+
+        return { success: true, data: history };
+    } catch (error) {
+        logger.error({ error }, '[PROCUREMENT-V2] Suggestion history error');
+        return { success: false, error: 'Error cargando historial del motor de sugerencias' };
     }
 }
 
@@ -1360,44 +1564,130 @@ export async function getTransferHistorySecure(params?: {
     limit?: number;
 }): Promise<{ success: boolean; data?: Record<string, unknown>[]; error?: string }> {
     try {
-        const limit = params?.limit || 50;
-        const locationFilter = params?.locationId
-            ? `AND (sm_out.location_id = $2::uuid OR sm_in.location_id = $2::uuid)`
-            : '';
-        const queryParams: (number | string)[] = [limit];
-        if (params?.locationId) queryParams.push(params.locationId);
+        const limit = Math.min(Math.max(params?.limit || 10, 1), 50);
+        const safeLocationId = normalizeUuid(params?.locationId);
 
         const result = await pool.query(`
+            WITH latest_transfers AS (
+                SELECT 
+                    sm.reference_id AS transfer_id,
+                    MAX(sm.timestamp) AS executed_at,
+                    MAX(sm.location_id::text) AS from_location_id,
+                    MAX(sm.user_id::text) AS user_id,
+                    MAX(sm.notes) AS reason
+                FROM stock_movements sm
+                WHERE sm.movement_type = 'TRANSFER_OUT'
+                  AND sm.reference_type = 'LOCATION_TRANSFER'
+                  AND sm.reference_id IS NOT NULL
+                  AND (
+                    $2::text IS NULL
+                    OR sm.location_id::text = $2::text
+                    OR EXISTS (
+                        SELECT 1
+                        FROM stock_movements sm_in
+                        WHERE sm_in.reference_id::text = sm.reference_id::text
+                          AND sm_in.movement_type = 'TRANSFER_IN'
+                          AND sm_in.reference_type = 'LOCATION_TRANSFER'
+                          AND sm_in.location_id::text = $2::text
+                    )
+                  )
+                GROUP BY sm.reference_id
+                ORDER BY MAX(sm.timestamp) DESC
+                LIMIT $1
+            ),
+            aggregated_out AS (
+                SELECT 
+                    sm.reference_id AS transfer_id,
+                    COUNT(DISTINCT sm.sku) AS items_count,
+                    SUM(ABS(sm.quantity)) AS total_quantity,
+                    MAX(sm.location_id::text) AS from_location_id
+                FROM stock_movements sm
+                JOIN latest_transfers lt ON lt.transfer_id = sm.reference_id
+                WHERE sm.movement_type = 'TRANSFER_OUT'
+                  AND sm.reference_type = 'LOCATION_TRANSFER'
+                GROUP BY sm.reference_id
+            ),
+            aggregated_in AS (
+                SELECT 
+                    sm.reference_id AS transfer_id,
+                    MAX(sm.location_id::text) AS to_location_id
+                FROM stock_movements sm
+                JOIN latest_transfers lt ON lt.transfer_id = sm.reference_id
+                WHERE sm.movement_type = 'TRANSFER_IN'
+                  AND sm.reference_type = 'LOCATION_TRANSFER'
+                GROUP BY sm.reference_id
+            )
             SELECT 
-                sm_out.reference_id as transfer_id,
-                sm_out.timestamp AT TIME ZONE 'America/Santiago' as executed_at,
-                sm_out.sku,
-                sm_out.product_name,
-                sm_out.location_id as from_location_id,
-                l_from.name as from_location_name,
-                sm_in.location_id as to_location_id,
-                l_to.name as to_location_name,
-                ABS(sm_out.quantity) as quantity,
-                u.name as executed_by,
-                sm_out.notes as reason
-            FROM stock_movements sm_out
-            JOIN stock_movements sm_in 
-                ON sm_in.reference_id = sm_out.reference_id
-                AND sm_in.sku = sm_out.sku
-                AND sm_in.movement_type = 'TRANSFER_IN'
-            LEFT JOIN locations l_from ON sm_out.location_id = l_from.id
-            LEFT JOIN locations l_to ON sm_in.location_id = l_to.id
-            LEFT JOIN users u ON sm_out.user_id = u.id
-            WHERE sm_out.movement_type = 'TRANSFER_OUT'
-            AND sm_out.reference_type = 'LOCATION_TRANSFER'
-            ${locationFilter}
-            ORDER BY sm_out.timestamp DESC
-            LIMIT $1
-        `, queryParams);
+                lt.transfer_id::text AS transfer_id,
+                lt.executed_at AT TIME ZONE 'America/Santiago' AS executed_at,
+                aout.from_location_id,
+                l_from.name AS from_location_name,
+                ain.to_location_id,
+                l_to.name AS to_location_name,
+                aout.items_count,
+                aout.total_quantity AS quantity,
+                u.name AS executed_by,
+                lt.reason
+            FROM latest_transfers lt
+            JOIN aggregated_out aout ON lt.transfer_id = aout.transfer_id
+            LEFT JOIN aggregated_in ain ON lt.transfer_id = ain.transfer_id
+            LEFT JOIN locations l_from ON aout.from_location_id = l_from.id::text
+            LEFT JOIN locations l_to ON ain.to_location_id = l_to.id::text
+            LEFT JOIN users u ON lt.user_id = u.id::text
+            ORDER BY lt.executed_at DESC
+        `, [limit, safeLocationId]);
 
         return { success: true, data: result.rows as Record<string, unknown>[] };
     } catch (error: unknown) {
         logger.error({ error }, '[PROCUREMENT-V2] Transfer history error');
         return { success: false, error: 'Error consultando historial: ' + (error instanceof Error ? error.message : 'Error desconocido') };
+    }
+}
+
+/**
+ * 🔎 Get Transfer Detail - Obtiene el detalle de un traspaso específico por su ID de referencia
+ */
+export async function getTransferDetailHistorySecure(transferId: string): Promise<{ success: boolean; data?: TransferDetail[]; error?: string }> {
+    try {
+        const result = await pool.query(`
+            WITH aggregated_out AS (
+                SELECT 
+                    sku,
+                    MAX(product_name) as product_name,
+                    MAX(location_id::text) as from_location_id,
+                    SUM(ABS(quantity)) as total_quantity
+                FROM stock_movements
+                WHERE reference_id = $1 
+                AND movement_type = 'TRANSFER_OUT'
+                AND reference_type = 'LOCATION_TRANSFER'
+                GROUP BY sku
+            ),
+            aggregated_in AS (
+                SELECT 
+                    sku,
+                    MAX(location_id::text) as to_location_id
+                FROM stock_movements
+                WHERE reference_id = $1 
+                AND movement_type = 'TRANSFER_IN'
+                AND reference_type = 'LOCATION_TRANSFER'
+                GROUP BY sku
+            )
+            SELECT 
+                aout.sku,
+                aout.product_name,
+                aout.total_quantity as quantity,
+                l_from.name as from_location_name,
+                l_to.name as to_location_name
+            FROM aggregated_out aout
+            JOIN aggregated_in ain ON aout.sku = ain.sku
+            LEFT JOIN locations l_from ON aout.from_location_id = l_from.id::text
+            LEFT JOIN locations l_to ON ain.to_location_id = l_to.id::text
+            ORDER BY aout.product_name ASC
+        `, [transferId]);
+
+        return { success: true, data: result.rows as TransferDetail[] };
+    } catch (error: unknown) {
+        logger.error({ error }, '[PROCUREMENT-V2] Transfer detail history error');
+        return { success: false, error: 'Error consultando detalle del historial' };
     }
 }

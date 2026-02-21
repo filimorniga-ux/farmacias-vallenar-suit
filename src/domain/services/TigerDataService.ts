@@ -136,6 +136,30 @@ export const TigerDataService = {
     },
 
     /**
+     * 1.1 Fetch Inventory Lite (WMS)
+     * Solo lotes con stock disponible para acelerar Transferencia/Despacho
+     */
+    fetchInventoryWMS: async (locationId?: string): Promise<InventoryBatch[]> => {
+        console.log('🐯 [Tiger Data] Fetching WMS inventory (lite) for location:', locationId);
+
+        if (!locationId) return [];
+
+        try {
+            const { getWMSInventorySecure } = await import('../../actions/inventory-v2');
+            const result = await getWMSInventorySecure(locationId);
+
+            if (result.success && result.data) {
+                console.log(`✅ [Tiger Data] Loaded ${result.data.length} items (WMS lite) from DB`);
+                return result.data as InventoryBatch[];
+            }
+            return [];
+        } catch (error) {
+            console.error('❌ [Tiger Data] WMS Inventory Fetch failed:', error);
+            return [];
+        }
+    },
+
+    /**
      * 1.1 Fetch Inventory Paged (For Management UI)
      */
     fetchInventoryPaged: async (
@@ -378,12 +402,39 @@ export const TigerDataService = {
     /**
      * 🛒 Fetch Purchase Orders (Real)
      */
-    fetchPurchaseOrders: async (): Promise<any[]> => {
+    fetchPurchaseOrders: async (locationId?: string): Promise<any[]> => {
+        console.log('🐯 [Tiger Data] Fetching purchase orders for location:', locationId);
+
         try {
-            const { getPurchaseOrderHistory } = await import('../../actions/procurement-v2');
-            const result = await getPurchaseOrderHistory();
-            return result.success ? (result.data?.orders || []) : [];
+            const { getPurchaseOrdersSecure } = await import('../../actions/wms-v2');
+            const result = await getPurchaseOrdersSecure({
+                locationId: locationId || undefined,
+                page: 1,
+                pageSize: 200
+            });
+
+            if (result.success && result.data?.purchaseOrders) {
+                console.log(`✅ [Tiger Data] Loaded ${result.data.purchaseOrders.length} purchase orders (WMS source)`);
+                return result.data.purchaseOrders;
+            }
         } catch (error) {
+            console.error('❌ [Tiger Data] Primary purchase order fetch failed:', error);
+        }
+
+        try {
+            const { getSupplyOrdersHistory } = await import('../../actions/supply-v2');
+            const fallback = await getSupplyOrdersHistory({ page: 1, pageSize: 200 });
+            const orders = fallback.success ? (fallback.data || []) : [];
+            const filtered = locationId
+                ? orders.filter((order: Record<string, unknown>) =>
+                    order.location_id === locationId || order.destination_location_id === locationId
+                )
+                : orders;
+
+            console.log(`⚠️ [Tiger Data] Loaded ${filtered.length} purchase orders (fallback source)`);
+            return filtered;
+        } catch (error) {
+            console.error('❌ [Tiger Data] Fallback purchase order fetch failed:', error);
             return [];
         }
     },

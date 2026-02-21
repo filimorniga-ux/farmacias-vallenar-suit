@@ -106,6 +106,17 @@ const NetworkPage = () => {
         }
     };
 
+    const handleLocationSwitch = (locId: string) => {
+        const target = locations.find(l => l.id === locId);
+        if (target) {
+            switchLocation(locId);
+            const { setCurrentLocation } = usePharmaStore.getState();
+            const warehouseId = target.default_warehouse_id || target.id;
+            setCurrentLocation(target.id, warehouseId, '');
+            console.log('🔄 NetworkPage: Contexto sincronizado a:', target.name);
+        }
+    };
+
 
     // --- RENDERERS ---
 
@@ -361,7 +372,7 @@ const NetworkPage = () => {
                     <select
                         className="bg-white text-slate-800 border border-slate-300 rounded-lg px-3 py-1 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 shadow-sm"
                         value={currentLocation?.id}
-                        onChange={(e) => switchLocation(e.target.value)}
+                        onChange={(e) => handleLocationSwitch(e.target.value)}
                     >
                         {locations.filter(l => l.is_active !== false).map(loc => (
                             <option key={loc.id} value={loc.id}>{loc.name}</option>

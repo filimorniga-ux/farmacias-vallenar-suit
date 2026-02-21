@@ -1,6 +1,5 @@
 name: Build & Release Electron
 
-# 1. CONFIGURACIÓN DE PERMISOS (ESTO ES LO QUE FALTABA)
 permissions:
   contents: write
 
@@ -8,17 +7,18 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'v*'
+      - "v*"
   release:
     types: [created]
 
-jobs:
-  release:
-    runs-on: ${{ matrix.os }}
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
 
-    strategy:
-      matrix:
-        os: [macos-latest, windows-latest]
+jobs:
+  release-windows:
+    name: Release Windows
+    runs-on: windows-latest
 
     steps:
       - name: Check out Git repository
@@ -28,19 +28,63 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
+          cache: "npm"
 
-      - name: Install Dependencies
-        run: npm install
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Build Next.js App
-        run: npm run build
-
-      - name: Build & Publish Electron App
+      - name: Build and publish Windows installer
         env:
+          CI: "true"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_LINK: "${{ secrets.BUILD_CERTIFICATE_BASE64 }}"
-          CSC_KEY_PASSWORD: "${{ secrets.P12_PASSWORD }}"
-          APPLE_ID: "${{ secrets.APPLE_ID }}"
-          APPLE_APP_SPECIFIC_PASSWORD: "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}"
-        run: npx electron-builder --publish always
+        run: npx electron-builder --win --x64 --publish always
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-release-artifacts
+          path: |
+            dist-desktop/*.exe
+            dist-desktop/*.yml
+            dist-desktop/*.blockmap
+          retention-days: 7
+
+  release-macos:
+    name: Release macOS
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and publish macOS app
+        env:
+          CI: "true"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: npx electron-builder --mac --arm64 --publish always
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-release-artifacts
+          path: |
+            dist-desktop/*.dmg
+            dist-desktop/*.zip
+            dist-desktop/*.yml
+            dist-desktop/*.blockmap
+          retention-days: 7

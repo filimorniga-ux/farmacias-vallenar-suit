@@ -28,6 +28,7 @@ vi.mock('next/headers', () => ({
     headers: vi.fn()
 }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn() }));
 vi.mock('crypto', () => ({ randomUUID: vi.fn(() => 'new-uuid') }));
 
 describe('Notifications V2 - Security', () => {
@@ -136,5 +137,35 @@ describe('Notifications V2 - RBAC for Cleanup', () => {
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('7 días');
+    });
+});
+
+describe('Notifications V2 - Database Timeout Handling', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockClient.query.mockReset();
+    });
+
+    it('should return controlled error if acquiring db client fails', async () => {
+        const mockHeaders = await import('next/headers');
+        vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map([
+            ['x-user-id', 'user-1'],
+            ['x-user-role', 'MANAGER'],
+        ]) as any);
+
+        const mockDb = await import('@/lib/db');
+        vi.mocked(mockDb.getClient).mockRejectedValueOnce(
+            new Error('Connection terminated due to connection timeout')
+        );
+
+        const loggerModule = await import('@/lib/logger');
+        const sentry = await import('@sentry/nextjs');
+
+        const result = await notificationsV2.getNotificationsSecure('550e8400-e29b-41d4-a716-446655440000');
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Failed to fetch notifications');
+        expect(vi.mocked(loggerModule.logger.error)).toHaveBeenCalledTimes(1);
+        expect(vi.mocked(sentry.captureException)).toHaveBeenCalledTimes(1);
     });
 });

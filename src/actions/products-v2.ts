@@ -699,11 +699,11 @@ export async function updatePriceSecure(data: z.infer<typeof UpdatePriceSchema>)
             }
         }
 
-        // Update price
         await client.query(`
             UPDATE products 
             SET price = $1, 
-                price_cost = COALESCE($2, price_cost),
+                cost_net = COALESCE($2, cost_net),
+                cost_price = COALESCE($2, cost_price),
                 updated_at = NOW()
             WHERE id = $3
         `, [newPrice, validated.data.newCostPrice, validated.data.productId]);
@@ -713,10 +713,10 @@ export async function updatePriceSecure(data: z.infer<typeof UpdatePriceSchema>)
             actionCode: 'PRODUCT_PRICE_CHANGED',
             userId: validated.data.userId,
             productId: validated.data.productId,
-            oldValues: { price: currentPrice, price_cost: current.price_cost },
+            oldValues: { price: currentPrice, cost_price: current.cost_price },
             newValues: {
                 price: newPrice,
-                price_cost: validated.data.newCostPrice,
+                cost_price: validated.data.newCostPrice,
                 change_percent: (priceChangePercent * 100).toFixed(2) + '%',
                 reason: validated.data.reason
             }

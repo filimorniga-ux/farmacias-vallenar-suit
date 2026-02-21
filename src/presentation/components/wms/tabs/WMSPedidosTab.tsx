@@ -11,6 +11,7 @@ import { WMSReportPanel } from '../WMSReportPanel';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { getSuppliersListSecure } from '@/actions/suppliers-v2';
 import { executeStockMovementSecure } from '@/actions/wms-v2';
+import { exportStockMovementsSecure } from '@/actions/inventory-export-v2';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
@@ -117,6 +118,25 @@ export const WMSPedidosTab: React.FC = () => {
             toast.error('Error de conexión');
         }
         finally { setSubmitting(false); }
+    };
+
+    const handleExportExcel = async (filters: any) => {
+        const res = await exportStockMovementsSecure({
+            startDate: filters.startDate,
+            endDate: filters.endDate,
+            locationId: currentLocationId,
+            movementType: filters.movementType,
+            limit: 5000
+        });
+
+        if (res.success && res.data && res.filename) {
+            const link = document.createElement('a');
+            link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${res.data}`;
+            link.download = res.filename;
+            link.click();
+        } else {
+            throw new Error(res.error || 'Error al exportar');
+        }
     };
 
     return (
@@ -238,7 +258,14 @@ export const WMSPedidosTab: React.FC = () => {
                 </div>
             </div>
 
-            {showRep && <WMSReportPanel activeTab="PEDIDOS" locationId={currentLocationId} onClose={() => setShowRep(false)} />}
+            {showRep && (
+                <WMSReportPanel
+                    activeTab="PEDIDOS"
+                    locationId={currentLocationId}
+                    onClose={() => setShowRep(false)}
+                    onExportExcel={handleExportExcel}
+                />
+            )}
         </div>
     );
 };
