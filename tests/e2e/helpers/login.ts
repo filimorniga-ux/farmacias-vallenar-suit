@@ -1,4 +1,4 @@
-import { Page, expect } from '@playwright/test';
+import { Page } from '@playwright/test';
 
 export interface LoginOptions {
     branch?: string;
@@ -141,6 +141,39 @@ async function fillPinAndSubmit(page: Page, pin: string): Promise<void> {
     }
 }
 
+async function submitLoginWithRetry(page: Page, pin: string, maxAttempts = 3): Promise<void> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        await fillPinAndSubmit(page, pin);
+
+        const successPromise = Promise.race([
+            page.waitForURL(/dashboard|pos|caja|warehouse|inventory|finance|supply-chain/i, { timeout: 12000 }),
+            page.getByText('Resumen General', { exact: true }).waitFor({ state: 'visible', timeout: 12000 }),
+        ]).then(() => 'success').catch(() => null);
+
+        const errorLocator = page.locator('p.text-red-500, .text-red-500').first();
+        const errorPromise = errorLocator.waitFor({ state: 'visible', timeout: 12000 })
+            .then(async () => (await errorLocator.innerText().catch(() => '')).trim())
+            .catch(() => '');
+
+        const [successResult, errorText] = await Promise.all([successPromise, errorPromise]);
+        if (successResult === 'success') return;
+
+        const normalized = (errorText || '').toLowerCase();
+        const transient = /timeout|temporalmente|no disponible|conexi[oó]n|servidor|reintento/.test(normalized);
+
+        if (!transient) {
+            throw new Error(errorText || 'LOGIN_FAILED_NO_RETRY');
+        }
+
+        if (attempt < maxAttempts) {
+            await page.waitForTimeout(2000 * attempt);
+            continue;
+        }
+    }
+
+    throw new Error('LOGIN_TRANSIENT_FAILURE_RETRIES_EXHAUSTED');
+}
+
 export async function loginAsManager(page: Page, options?: LoginOptions): Promise<boolean> {
     const cfg = { ...DEFAULT_OPTIONS, ...(options ?? {}) };
 
@@ -167,12 +200,7 @@ export async function loginAsManager(page: Page, options?: LoginOptions): Promis
     await openModuleForLogin(page, cfg.module);
     await waitLoginModal(page);
     await chooseUser(page, cfg.user);
-    await fillPinAndSubmit(page, cfg.pin);
-
-    await Promise.race([
-        expect(page).toHaveURL(/dashboard|pos|caja|warehouse|inventory|finance|supply-chain/i, { timeout: 20000 }),
-        page.getByText('Resumen General', { exact: true }).waitFor({ state: 'visible', timeout: 20000 }),
-    ]);
+    await submitLoginWithRetry(page, cfg.pin);
 
     await page.waitForLoadState('networkidle').catch(() => undefined);
     return true;
