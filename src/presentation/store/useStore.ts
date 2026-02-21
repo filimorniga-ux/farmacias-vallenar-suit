@@ -34,6 +34,7 @@ import { createTerminalSecure, deleteTerminalSecure, updateTerminalSecure } from
 import { toast } from 'sonner';
 import { buildSoldQuantityByBatch, resolveCartBatchIds } from '../../domain/logic/cartStock';
 import type { ActionFailure } from '@/lib/action-response';
+import { resolveLoginTimeoutMs } from '@/lib/login-resilience';
 // Mocks removed
 // Mocks removed
 
@@ -279,10 +280,11 @@ export const usePharmaStore = create<PharmaState>()(
                 try {
                     // Dynamic import of Server Action (using secure v2 with bcrypt)
                     const { authenticateUserSecure } = await import('../../actions/auth-v2');
+                    const loginTimeoutMs = resolveLoginTimeoutMs(process.env.NEXT_PUBLIC_LOGIN_TIMEOUT_MS);
 
-                    // Add timeout to prevent indefinite hanging (60 seconds) -- Increased for cold starts
+                    // Add timeout to prevent indefinite hanging on unstable DB/network
                     const timeoutPromise = new Promise<LoginServerResponse>((_, reject) =>
-                        setTimeout(() => reject(new Error('Login timeout')), 60000)
+                        setTimeout(() => reject(new Error('Login timeout')), loginTimeoutMs)
                     );
 
                     const result = await Promise.race<LoginServerResponse>([

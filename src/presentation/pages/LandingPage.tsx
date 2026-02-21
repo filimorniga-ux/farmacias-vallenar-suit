@@ -6,6 +6,7 @@ import { Store, UserCircle, Clock, Ticket, ArrowRight, Loader2, RefreshCw, Searc
 import { motion, AnimatePresence } from 'framer-motion';
 import { EmployeeProfile, Role } from '../../domain/types';
 import PriceCheckerModal from '../components/public/PriceCheckerModal';
+import { resolveLoginRetryCooldownMs } from '@/lib/login-resilience';
 
 import { getUsersForLogin } from '../actions/login';
 
@@ -25,6 +26,7 @@ const LandingPage: React.FC = () => {
     const [pin, setPin] = useState('');
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [retryCooldownMs, setRetryCooldownMs] = useState(0);
     const [searchTerm, setSearchTerm] = useState('');
 
     // Security PIN State
@@ -51,8 +53,17 @@ const LandingPage: React.FC = () => {
             setSelectedEmployee(null);
             setPin('');
             setError('');
+            setRetryCooldownMs(0);
         }
     }, [isLoginOpen]);
+
+    useEffect(() => {
+        if (retryCooldownMs <= 0) return;
+        const timer = window.setInterval(() => {
+            setRetryCooldownMs((prev) => Math.max(0, prev - 1000));
+        }, 1000);
+        return () => window.clearInterval(timer);
+    }, [retryCooldownMs]);
 
     useEffect(() => {
         // Check for session revocation flag to prevent infinite loops
@@ -134,6 +145,7 @@ const LandingPage: React.FC = () => {
 
         setIsLoading(true);
         setError('');
+        const clearLoading = () => setIsLoading(false);
 
         try {
             // Login success triggers 'user' update in store
@@ -151,13 +163,21 @@ const LandingPage: React.FC = () => {
                 const baseError = result.error || 'Credenciales inválidas o sin permiso en esta sucursal';
                 const supportRef = result.correlationId ? ` Ref: ${result.correlationId.slice(0, 8)}` : '';
                 setError(`${baseError}${supportRef}`);
+                const cooldown = resolveLoginRetryCooldownMs({
+                    code: result.code,
+                    retryable: result.retryable
+                });
+                if (cooldown > 0) {
+                    setRetryCooldownMs(cooldown);
+                }
                 setPin('');
-                setIsLoading(false);
+                clearLoading();
             }
         } catch (err) {
             console.error(err);
             setError('Error de conexión');
-            setIsLoading(false);
+            setRetryCooldownMs((prev) => Math.max(prev, 6000));
+            clearLoading();
         }
     };
 
@@ -539,15 +559,20 @@ const LandingPage: React.FC = () => {
                                         />
 
                                         {error && <p className="text-red-500 text-sm text-center font-bold">{error}</p>}
+                                        {retryCooldownMs > 0 && (
+                                            <p className="text-amber-600 text-xs text-center font-semibold">
+                                                Servicio de datos inestable. Reintento disponible en {Math.ceil(retryCooldownMs / 1000)}s.
+                                            </p>
+                                        )}
 
                                         <div className="grid grid-cols-2 gap-3">
                                             <button type="button" onClick={() => setSelectedEmployee(null)} className="py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100">Atrás</button>
                                             <button
                                                 type="submit"
-                                                disabled={isLoading || pin.length < 4}
+                                                disabled={isLoading || pin.length < 4 || retryCooldownMs > 0}
                                                 className="py-3 rounded-xl font-bold bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50 transition-colors"
                                             >
-                                                {isLoading ? '...' : 'Entrar'}
+                                                {isLoading ? '...' : retryCooldownMs > 0 ? 'Espera...' : 'Entrar'}
                                             </button>
                                         </div>
                                     </form>
