@@ -38,8 +38,8 @@ if (!isProduction) {
 const connectionConfig = {
     connectionString: dbUrl,
     ssl: sslConfig,
-    max: 20, // Increased to 20 to handle concurrent sync operations
-    connectionTimeoutMillis: 15000, // 15s timeout for handshake
+    max: 10, // Serverless limit logic
+    connectionTimeoutMillis: 8000, // 8s timeout to avoid Vercel 10s hard kill
     idleTimeoutMillis: 30000,
     keepAlive: true,
 };
