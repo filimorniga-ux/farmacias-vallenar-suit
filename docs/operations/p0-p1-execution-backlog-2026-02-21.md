@@ -6,22 +6,25 @@ Zona horaria oficial: `America/Santiago`
 ## P0 - Esta semana
 - [x] Resiliencia login Vercel: errores tipados + bloqueo degradado.
 - [x] Healthcheck DB protegido (`/api/health/db`).
-- [ ] Corregir queries ambiguas en WMS (`status`, casteos UUID, parámetros SQL tipados).
-- [ ] Endurecer flujo transferencia/recepción con trazabilidad completa.
-- [ ] Exportes WMS/Supply corporativos con columnas de origen/destino/actor.
-- [ ] Reducir latencia de búsqueda inventario en Transferencia/Despacho (`p95 < 800ms`).
+- [x] Corregir queries ambiguas en WMS (`status`, casteos UUID, parámetros SQL tipados).
+- [x] Endurecer flujo transferencia/recepción con trazabilidad completa.
+- [x] Exportes WMS/Supply corporativos con columnas de origen/destino/actor.
+- [x] Reducir latencia de búsqueda inventario en Transferencia/Despacho (`p95 < 800ms`).
+- [x] Fix `Invalid UUID` en edición/envío de órdenes manuales (sanitización supplier/warehouse/product).
+- [x] Resiliencia Kanban Suministros (fallback ubicación -> global -> histórico).
 
 ## P1 - Siguiente bloque
-- [ ] Contrato unificado de movimientos WMS (transferencia/recepción/despacho).
-- [ ] Generación de lote nuevo por artículo transferido con `batchColor`.
-- [ ] Tab de tránsito bidireccional con filtros entrante/saliente.
+- [x] Contrato unificado de movimientos WMS (transferencia/recepción/despacho).
+- [x] Generación de lote nuevo por artículo transferido con `batchColor`.
+- [x] Tab de tránsito bidireccional con filtros entrante/saliente.
 - [ ] Smoke Desktop Windows/macOS en cada release candidate.
-- [ ] Matriz Playwright para flujos críticos cross-platform.
+- [~] Matriz Playwright para flujos críticos cross-platform (suite lista, bloqueada por timeout DB en entorno de ejecución).
 
 ## Dependencias
 1. Resolver datos legacy de sucursales eliminadas vs activas.
 2. Confirmar índices DB en tablas de movimientos e inventario.
 3. Alinear schema de exportes con stakeholders de operación.
+4. Estabilizar conectividad DB en CI/Vercel para eliminar skips E2E por timeout.
 
 ## KPIs de control
 - `login_success_rate` > 99%.
