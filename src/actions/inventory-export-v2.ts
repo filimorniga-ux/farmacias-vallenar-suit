@@ -30,7 +30,8 @@ const DateSchema = z.string().refine(val => !isNaN(Date.parse(val)), 'Fecha inv�
 const ExportParamsSchema = z.object({
     startDate: DateSchema,
     endDate: DateSchema,
-    locationId: UUIDSchema.optional(),
+    locationId: z.string().optional().nullable().transform(val => (val === '' || val === 'ALL') ? undefined : val).optional(),
+    movementType: z.string().optional().nullable().transform(val => (val === '' || val === 'ALL') ? undefined : val).optional(),
     limit: z.number().min(1).max(10000).default(5000),
 });
 
@@ -87,19 +88,52 @@ export async function exportStockMovementsSecure(
         const sqlParams: any[] = [startDate, endDate];
         let whereClause = 'WHERE sm.timestamp >= $1::timestamp AND sm.timestamp <= $2::timestamp';
 
-        if (locationId) {
-            whereClause += ` AND sm.location_id = $3::uuid`;
+        if (locationId && locationId !== 'ALL') {
+            whereClause += ` AND sm.location_id = $${sqlParams.length + 1}::uuid`;
             sqlParams.push(locationId);
         }
 
+        if (validated.data.movementType && validated.data.movementType !== 'ALL') {
+            whereClause += ` AND sm.movement_type = $${sqlParams.length + 1}`;
+            sqlParams.push(validated.data.movementType);
+        }
+
+        // Asegurar que endDate incluya todo el día (hasta 23:59:59)
+        const finalEndDate = endDate.includes('T') ? endDate : `${endDate} 23:59:59`;
+        sqlParams[1] = finalEndDate;
+
         const res = await query(`
-            SELECT 
-                sm.timestamp, sm.movement_type, sm.quantity, sm.stock_after,
-                sm.notes, sm.product_name, sm.sku, u.name as user_name, u.rut as user_rut, 
-                l.name as location_name
+            SELECT
+                sm.timestamp,
+                sm.movement_type,
+                sm.quantity,
+                sm.stock_after,
+                sm.notes,
+                sm.product_name,
+                sm.sku,
+                sm.reference_type,
+                sm.reference_id,
+                u.name as user_name,
+                u.rut as user_rut,
+                l.name as location_name,
+                sh.type as shipment_type,
+                sh.status as shipment_status,
+                ol.name as origin_location_name,
+                dl.name as destination_location_name,
+                CASE
+                    WHEN sm.reference_type = 'SHIPMENT' AND sh.type = 'OUTBOUND' THEN 'DESPACHO'
+                    WHEN sm.reference_type = 'SHIPMENT' AND sh.type = 'INBOUND' THEN 'RECEPCION'
+                    WHEN sm.reference_type = 'SHIPMENT' AND sh.type = 'INTER_BRANCH' AND sm.movement_type = 'TRANSFER_OUT' THEN 'TRASPASO SALIDA'
+                    WHEN sm.reference_type = 'SHIPMENT' AND sh.type = 'INTER_BRANCH' AND sm.movement_type = 'TRANSFER_IN' THEN 'TRASPASO RECEPCION'
+                    WHEN sm.reference_type = 'PURCHASE_ORDER' THEN 'PEDIDO'
+                    ELSE sm.movement_type
+                END as operation_scope
             FROM stock_movements sm
-            LEFT JOIN users u ON sm.user_id = u.id
-            LEFT JOIN locations l ON sm.location_id = l.id
+            LEFT JOIN users u ON sm.user_id::text = u.id::text
+            LEFT JOIN locations l ON sm.location_id::text = l.id::text
+            LEFT JOIN shipments sh ON sm.reference_type = 'SHIPMENT' AND sm.reference_id::text = sh.id::text
+            LEFT JOIN locations ol ON sh.origin_location_id::text = ol.id::text
+            LEFT JOIN locations dl ON sh.destination_location_id::text = dl.id::text
             ${whereClause}
             ORDER BY sm.timestamp DESC
             LIMIT $${sqlParams.length + 1}
@@ -107,11 +141,14 @@ export async function exportStockMovementsSecure(
 
         const data = res.rows.map((row: any) => ({
             date: formatDateTimeCL(row.timestamp),
-            type: row.movement_type,
+            operation_scope: row.operation_scope || row.movement_type,
+            movement_type: row.movement_type,
             sku: row.sku,
             product: row.product_name,
             qty: Number(row.quantity),
             stock: Number(row.stock_after),
+            origin: row.origin_location_name || (row.quantity < 0 ? (row.location_name || '-') : '-'),
+            destination: row.destination_location_name || (row.quantity > 0 ? (row.location_name || '-') : '-'),
             user: row.user_name ? `${row.user_name} (${row.user_rut || '-'})` : 'Sistema',
             location: row.location_name || '-',
             notes: row.notes || '-',
@@ -119,19 +156,22 @@ export async function exportStockMovementsSecure(
 
         const excel = new ExcelService();
         const buffer = await excel.generateReport({
-            title: 'Kardex Consolidado de Movimientos - Farmacias Vallenar',
+            title: 'Reporte Corporativo de Movimientos WMS - Farmacias Vallenar',
             subtitle: `Reporte de Trazabilidad: ${formatDateCL(startDate)} al ${formatDateCL(endDate)}`,
             sheetName: 'Movimientos',
             creator: session.userName,
             columns: [
                 { header: 'Fecha y Hora (CL)', key: 'date', width: 22 },
-                { header: 'Operación', key: 'type', width: 18 },
+                { header: 'Flujo Operación', key: 'operation_scope', width: 20 },
+                { header: 'Tipo Movimiento', key: 'movement_type', width: 18 },
                 { header: 'SKU', key: 'sku', width: 15 },
                 { header: 'Descripción Producto', key: 'product', width: 35 },
                 { header: 'Cantidad', key: 'qty', width: 12 },
                 { header: 'Stock Final', key: 'stock', width: 12 },
+                { header: 'Origen', key: 'origin', width: 24 },
+                { header: 'Destino', key: 'destination', width: 24 },
                 { header: 'Responsable', key: 'user', width: 30 },
-                { header: 'Sucursal/Bodega', key: 'location', width: 20 },
+                { header: 'Ubicación Movimiento', key: 'location', width: 24 },
                 { header: 'Observaciones', key: 'notes', width: 40 },
             ],
             data,
@@ -142,7 +182,8 @@ export async function exportStockMovementsSecure(
 
     } catch (error: any) {
         logger.error({ error }, '[Export] Stock movements error');
-        return { success: false, error: 'Error exportando movimientos' };
+        const message = error instanceof Error ? error.message : 'Error desconocido';
+        return { success: false, error: `Error exportando movimientos: ${message}` };
     }
 }
 
@@ -247,6 +288,9 @@ export async function exportKardexSecure(
         }
 
         const sqlParams: any[] = [sku, startDate, endDate];
+        // Asegurar día completo
+        if (!endDate.includes('T')) sqlParams[2] = `${endDate} 23:59:59`;
+
         let locationFilter = '';
         if (locationId) {
             locationFilter = 'AND sm.location_id = $4::uuid';
@@ -259,7 +303,7 @@ export async function exportKardexSecure(
                 u.name as user_name, u.rut as user_rut,
                 p.name as product_name
             FROM stock_movements sm
-            LEFT JOIN users u ON sm.user_id = u.id
+            LEFT JOIN users u ON sm.user_id::text = u.id::text
             LEFT JOIN products p ON sm.sku = p.sku
             WHERE sm.sku = $1
               AND sm.timestamp >= $2::timestamp AND sm.timestamp <= $3::timestamp
@@ -429,7 +473,7 @@ export async function exportPurchaseOrdersSecure(
             WHERE po.created_at >= $1::timestamp AND po.created_at <= $2::timestamp
             ORDER BY po.created_at DESC
             LIMIT $3
-        `, [startDate, endDate, limit]);
+        `, [startDate, endDate.includes('T') ? endDate : `${endDate} 23:59:59`, limit]);
 
         const data = res.rows.map((row: any) => ({
             id: row.id.slice(0, 8),

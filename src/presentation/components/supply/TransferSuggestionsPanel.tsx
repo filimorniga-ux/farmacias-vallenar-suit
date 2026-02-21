@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeftRight, ArrowRight, CheckCircle, Clock, DollarSign, MapPin, Package, RefreshCw, Truck, TrendingUp } from 'lucide-react';
-import { getTransferHistorySecure } from '@/actions/procurement-v2';
+import { ArrowLeftRight, ArrowRight, CheckCircle, Clock, DollarSign, MapPin, Package, RefreshCw, Truck, TrendingUp, ChevronDown } from 'lucide-react';
+import { getTransferHistorySecure, getTransferDetailHistorySecure, TransferDetail } from '@/actions/procurement-v2';
+import { exportTransferDetailSecure } from '@/actions/transfer-export';
 import TransferExecutionModal from './TransferExecutionModal';
+import TransferDetailModal from './TransferDetailModal';
 import { toast } from 'sonner';
 
 interface TransferSource {
     location_id: string;
     location_name: string;
+    location_type?: 'STORE' | 'WAREHOUSE' | 'HQ';
     available_qty: number;
 }
 
@@ -27,11 +30,10 @@ interface TransferSuggestion {
 interface TransferHistoryItem {
     transfer_id: string;
     executed_at: string;
-    sku: string;
-    product_name: string;
     from_location_name: string;
     to_location_name: string;
     quantity: number;
+    items_count?: number;
     executed_by: string;
     reason: string;
 }
@@ -40,6 +42,7 @@ interface TransferSuggestionsPanelProps {
     suggestions: TransferSuggestion[];
     targetLocationId: string;
     targetLocationName: string;
+    defaultWarehouseId?: string;
     onTransferComplete: () => void;
     onGoBack?: () => void;
 }
@@ -48,6 +51,7 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
     suggestions,
     targetLocationId,
     targetLocationName,
+    defaultWarehouseId,
     onTransferComplete,
     onGoBack
 }) => {
@@ -58,24 +62,100 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
     const [history, setHistory] = useState<TransferHistoryItem[]>([]);
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
-    // Auto-select best source (most stock) for each suggestion
+    // Detailed View State
+    const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+    const [selectedTransfer, setSelectedTransfer] = useState<{
+        id: string;
+        date: string;
+        user: string;
+        reason: string;
+        items: TransferDetail[];
+    } | null>(null);
+    const [isExporting, setIsExporting] = useState(false);
+
+    // Auto-select best source for each suggestion with priority for WAREHOUSE
     useEffect(() => {
         const defaults: Record<string, string> = {};
         suggestions.forEach(s => {
             if (s.transfer_sources && s.transfer_sources.length > 0) {
-                const best = s.transfer_sources.reduce((a, b) => a.available_qty > b.available_qty ? a : b);
-                defaults[s.sku] = best.location_id;
+                // Priority logic:
+                // 1. Assigned Default Warehouse (if specified and has stock)
+                // 2. WAREHOUSE with most stock
+                // 3. STORE with most stock
+                const sorted = [...s.transfer_sources].sort((a, b) => {
+                    // Highest priority: default assigned warehouse
+                    if (defaultWarehouseId) {
+                        if (a.location_id === defaultWarehouseId) return -1;
+                        if (b.location_id === defaultWarehouseId) return 1;
+                    }
+
+                    // Second priority: any WAREHOUSE
+                    if (a.location_type === 'WAREHOUSE' && b.location_type !== 'WAREHOUSE') return -1;
+                    if (a.location_type !== 'WAREHOUSE' && b.location_type === 'WAREHOUSE') return 1;
+
+                    // Finally, by quantity
+                    return b.available_qty - a.available_qty;
+                });
+                defaults[s.sku] = sorted[0].location_id;
             }
         });
         setSelectedSources(defaults);
-        // Load history automatically when component mounts
-        loadHistory();
+    }, [suggestions, defaultWarehouseId]);
+
+    // Bulk Source Selector Logic
+    const allAvailableOrigins = React.useMemo(() => {
+        const origins = new Map<string, { id: string; name: string; type: string }>();
+        suggestions.forEach(s => {
+            s.transfer_sources?.forEach(src => {
+                origins.set(src.location_id, { id: src.location_id, name: src.location_name, type: src.location_type || 'STORE' });
+            });
+        });
+        return Array.from(origins.values());
     }, [suggestions]);
+
+    const setOriginForAll = (locationId: string) => {
+        if (!locationId) return;
+        const newSources = { ...selectedSources };
+        suggestions.forEach(s => {
+            const hasSource = s.transfer_sources?.some(src => src.location_id === locationId);
+            if (hasSource) {
+                newSources[s.sku] = locationId;
+            }
+        });
+        setSelectedSources(newSources);
+        toast.success(`Origen actualizado para todos los productos disponibles en esa ubicación`);
+    };
+
+    const setByTypeForAll = (type: 'WAREHOUSE' | 'STORE') => {
+        const newSources = { ...selectedSources };
+        let count = 0;
+        suggestions.forEach(s => {
+            if (s.transfer_sources && s.transfer_sources.length > 0) {
+                const bestOfType = s.transfer_sources
+                    .filter(src => src.location_type === type)
+                    .sort((a, b) => b.available_qty - a.available_qty)[0];
+
+                if (bestOfType) {
+                    newSources[s.sku] = bestOfType.location_id;
+                    count++;
+                }
+            }
+        });
+        setSelectedSources(newSources);
+        toast.info(`Origen cambiado a ${type === 'WAREHOUSE' ? 'Bodegas' : 'Sucursales'} para ${count} productos`);
+    };
+
+    // Load history when component mounts or location changes
+    useEffect(() => {
+        if (targetLocationId) {
+            loadHistory();
+        }
+    }, [targetLocationId]);
 
     const loadHistory = async () => {
         setIsLoadingHistory(true);
         try {
-            const result = await getTransferHistorySecure({ locationId: targetLocationId, limit: 30 });
+            const result = await getTransferHistorySecure({ locationId: targetLocationId, limit: 10 });
             if (result.success && result.data) {
                 setHistory(result.data as unknown as TransferHistoryItem[]);
             } else if (!result.success) {
@@ -85,6 +165,59 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
             toast.error('Error cargando historial');
         } finally {
             setIsLoadingHistory(false);
+        }
+    };
+
+    const handleViewDetail = async (transferId: string) => {
+        const item = history.find(h => h.transfer_id === transferId);
+        if (!item) return;
+
+        try {
+            const result = await getTransferDetailHistorySecure(transferId);
+            if (result.success && result.data) {
+                setSelectedTransfer({
+                    id: transferId,
+                    date: formatDate(item.executed_at),
+                    user: item.executed_by,
+                    reason: item.reason,
+                    items: result.data as any[]
+                });
+                setIsDetailModalOpen(true);
+            }
+        } catch {
+            toast.error('Error cargando detalle del traspaso');
+        }
+    };
+
+    const handleExportTransfer = async () => {
+        if (!selectedTransfer) return;
+        setIsExporting(true);
+        try {
+            const result = await exportTransferDetailSecure({ transferId: selectedTransfer.id });
+            if (result.success && result.data) {
+                const byteCharacters = atob(result.data);
+                const byteNumbers = new Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = result.filename || `Traspaso_${selectedTransfer.id}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                toast.success('Excel generado exitosamente');
+            } else {
+                toast.error(result.error || 'Error al exportar');
+            }
+        } catch {
+            toast.error('Error al exportar');
+        } finally {
+            setIsExporting(false);
         }
     };
 
@@ -143,9 +276,6 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
     // Stats
     const totalTransfers = suggestions.length;
     const potentialSavings = suggestions.reduce((sum, s) => sum + (s.total_estimated || 0), 0);
-    const uniqueSources = new Set(
-        suggestions.flatMap(s => (s.transfer_sources || []).map(ts => ts.location_id))
-    ).size;
 
     const formatDate = (dateStr: string) => {
         try {
@@ -160,7 +290,7 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
         <div className="flex flex-col h-full">
             {/* Stats Header */}
             <div className="p-4 border-b border-slate-100 bg-gradient-to-r from-emerald-50 to-teal-50">
-                <div className="flex flex-wrap gap-4">
+                <div className="flex flex-wrap gap-4 items-end">
                     <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl shadow-sm border border-emerald-100">
                         <Package size={16} className="text-emerald-600" />
                         <div>
@@ -175,22 +305,63 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
                             <div className="text-lg font-bold text-emerald-700">${potentialSavings.toLocaleString()}</div>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl shadow-sm border border-emerald-100">
-                        <MapPin size={16} className="text-emerald-600" />
-                        <div>
-                            <div className="text-[10px] text-slate-400 uppercase font-bold">Sucursales</div>
-                            <div className="text-lg font-bold text-emerald-700">{uniqueSources}</div>
+
+                    {/* Selector Masivo de Origen */}
+                    <div className="flex-1 min-w-[300px] flex flex-col gap-1">
+                        <span className="text-[10px] text-slate-500 font-bold uppercase ml-1">Origen Masivo (Todas las Sugerencias)</span>
+                        <div className="flex gap-2">
+                            <div className="flex-1 relative">
+                                <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500" />
+                                <select
+                                    className="w-full pl-9 pr-4 py-2 bg-white border border-emerald-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition shadow-sm appearance-none"
+                                    onChange={(e) => setOriginForAll(e.target.value)}
+                                    defaultValue=""
+                                >
+                                    <option value="" disabled>Seleccionar origen para todos...</option>
+                                    <optgroup label="Bodegas (Prioridad)">
+                                        {allAvailableOrigins.filter(o => o.type === 'WAREHOUSE').map(o => (
+                                            <option key={o.id} value={o.id}>{o.name}</option>
+                                        ))}
+                                    </optgroup>
+                                    <optgroup label="Otros Locales">
+                                        {allAvailableOrigins.filter(o => o.type !== 'WAREHOUSE').map(o => (
+                                            <option key={o.id} value={o.id}>{o.name}</option>
+                                        ))}
+                                    </optgroup>
+                                </select>
+                                <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                            </div>
+                            <div className="flex p-1 bg-white border border-emerald-100 rounded-xl shadow-sm gap-1">
+                                <button
+                                    onClick={() => setByTypeForAll('WAREHOUSE')}
+                                    className="px-3 py-1 text-[10px] font-bold rounded-lg hover:bg-emerald-50 text-emerald-700 transition"
+                                    title="Priorizar Bodegas"
+                                >
+                                    Bodegas
+                                </button>
+                                <div className="w-[1px] bg-slate-100 my-1" />
+                                <button
+                                    onClick={() => setByTypeForAll('STORE')}
+                                    className="px-3 py-1 text-[10px] font-bold rounded-lg hover:bg-emerald-50 text-emerald-700 transition"
+                                    title="Priorizar Sucursales"
+                                >
+                                    Sucursales
+                                </button>
+                            </div>
                         </div>
                     </div>
-                    {selectedSkus.size > 0 && (
-                        <button
-                            onClick={handleExecuteSelected}
-                            className="ml-auto flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition shadow-md shadow-emerald-200 text-sm"
-                        >
-                            <Truck size={16} />
-                            Ejecutar {selectedSkus.size} traspaso(s)
-                        </button>
-                    )}
+
+                    <div className="flex items-center gap-3">
+                        {selectedSkus.size > 0 && (
+                            <button
+                                onClick={handleExecuteSelected}
+                                className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition shadow-lg shadow-emerald-200 text-sm whitespace-nowrap"
+                            >
+                                <Truck size={18} />
+                                Ejecutar {selectedSkus.size} traspaso(s)
+                            </button>
+                        )}
+                    </div>
                 </div>
             </div>
 
@@ -218,22 +389,34 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
                         </div>
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                            {history.map((h, i) => (
-                                <div key={`${h.transfer_id}-${h.sku}-${i}`} className="bg-white rounded-xl p-3 border border-slate-100 flex items-center gap-3 text-xs shadow-sm hover:border-emerald-200 transition-colors">
-                                    <div className="p-1.5 bg-emerald-50 rounded-lg shrink-0">
-                                        <CheckCircle size={14} className="text-emerald-500" />
+                            {history.filter((h, i, self) => self.findIndex(t => t.transfer_id === h.transfer_id) === i).map((h, i) => (
+                                <div
+                                    key={`${h.transfer_id}-${i}`}
+                                    onClick={() => handleViewDetail(h.transfer_id)}
+                                    className="bg-white rounded-xl p-3 border border-slate-100 flex items-center gap-3 text-xs shadow-sm hover:border-emerald-300 hover:shadow-md transition-all cursor-pointer group/card"
+                                >
+                                    <div className="p-1.5 bg-emerald-50 rounded-lg shrink-0 group-hover/card:bg-emerald-500 group-hover/card:text-white transition-colors">
+                                        <Package size={14} className="text-emerald-500 group-hover/card:text-white" />
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <div className="font-bold text-slate-800 truncate">{h.product_name}</div>
+                                        <div className="font-bold text-slate-800 truncate flex items-center gap-1.5">
+                                            Traslado masivo
+                                            <span className="text-[9px] font-mono text-slate-400">#{h.transfer_id.substring(0, 8)}</span>
+                                        </div>
                                         <div className="flex items-center gap-1.5 text-[10px] text-slate-500 mt-0.5">
                                             <span className="font-bold text-blue-600">{h.from_location_name}</span>
                                             <ArrowRight size={10} className="text-slate-300" />
-                                            <span className="font-bold text-emerald-600">{h.to_location_name}</span>
+                                            <span className="font-bold text-emerald-600 font-mono italic">
+                                                {h.items_count ? `${h.items_count} items` : 'Multiples items'}
+                                            </span>
                                         </div>
                                     </div>
                                     <div className="text-right shrink-0">
-                                        <div className="font-black text-emerald-700">{h.quantity}u</div>
                                         <div className="text-[9px] text-slate-400 font-medium">{formatDate(h.executed_at)}</div>
+                                        <div className="flex items-center gap-1 text-emerald-600 font-bold mt-0.5">
+                                            <span>Ver detalle</span>
+                                            <ChevronDown size={10} className="-rotate-90" />
+                                        </div>
                                     </div>
                                 </div>
                             ))}
@@ -331,24 +514,33 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
                                         </td>
                                         <td className="p-3">
                                             {item.transfer_sources && item.transfer_sources.length > 1 ? (
-                                                <select
-                                                    className="text-xs font-medium text-slate-700 bg-emerald-50 border border-emerald-200 rounded-lg p-1.5 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer w-full max-w-[160px]"
-                                                    value={selectedSources[item.sku] || ''}
-                                                    onChange={(e) => setSelectedSources(prev => ({ ...prev, [item.sku]: e.target.value }))}
-                                                >
-                                                    {item.transfer_sources.map(src => (
-                                                        <option key={src.location_id} value={src.location_id}>
-                                                            {src.location_name} ({src.available_qty}u)
-                                                        </option>
-                                                    ))}
-                                                </select>
+                                                <div className="relative group/source">
+                                                    <select
+                                                        className={`text-xs font-bold border rounded-lg p-1.5 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer w-full max-w-[160px] appearance-none pr-8 ${selectedSource?.location_type === 'WAREHOUSE'
+                                                            ? 'bg-blue-50 border-blue-200 text-blue-700'
+                                                            : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                                            }`}
+                                                        value={selectedSources[item.sku] || ''}
+                                                        onChange={(e) => setSelectedSources(prev => ({ ...prev, [item.sku]: e.target.value }))}
+                                                    >
+                                                        {item.transfer_sources.map(src => (
+                                                            <option key={src.location_id} value={src.location_id}>
+                                                                {src.location_type === 'WAREHOUSE' ? '🏢' : '🏪'} {src.location_name} ({src.available_qty}u)
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                                </div>
                                             ) : item.transfer_sources?.[0] ? (
-                                                <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-700">
-                                                    <MapPin size={12} />
-                                                    {item.transfer_sources[0].location_name}
+                                                <div className={`flex items-center gap-1.5 text-xs font-bold px-2 py-1 rounded-lg border ${item.transfer_sources[0].location_type === 'WAREHOUSE'
+                                                    ? 'bg-blue-50 border-blue-200 text-blue-700'
+                                                    : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                                    }`}>
+                                                    {item.transfer_sources[0].location_type === 'WAREHOUSE' ? <Package size={12} /> : <MapPin size={12} />}
+                                                    <span className="truncate">{item.transfer_sources[0].location_name}</span>
                                                 </div>
                                             ) : (
-                                                <span className="text-xs text-slate-400">N/A</span>
+                                                <span className="text-xs text-slate-400 italic">No hay stock disponible</span>
                                             )}
                                         </td>
                                         <td className="p-3 text-center font-bold text-emerald-600">
@@ -377,18 +569,20 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
                 )}
             </div>
 
-            {/* Transfer Execution Modal */}
-            <TransferExecutionModal
-                isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
-                items={modalItems}
-                targetLocationId={targetLocationId}
-                targetLocationName={targetLocationName}
-                onSuccess={() => {
-                    onTransferComplete();
-                    loadHistory();
-                }}
-            />
+            {/* Transfer Detail Modal */}
+            {selectedTransfer && (
+                <TransferDetailModal
+                    isOpen={isDetailModalOpen}
+                    onClose={() => setIsDetailModalOpen(false)}
+                    transferId={selectedTransfer.id}
+                    executedAt={selectedTransfer.date}
+                    executedBy={selectedTransfer.user}
+                    reason={selectedTransfer.reason}
+                    items={selectedTransfer.items}
+                    isExporting={isExporting}
+                    onExport={handleExportTransfer}
+                />
+            )}
         </div>
     );
 };

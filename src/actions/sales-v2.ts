@@ -301,22 +301,23 @@ export async function createSaleSecure(params: {
             `, [sortedBatchIds, locationId]);
         }
 
-        // 3.1 RECOVERY MODE: Si faltan batches, verificar si son Product IDs y resolver
+        // 3.1 RECOVERY MODE: Si faltan batches, verificar si son Product IDs o SKUs y resolver
         if (batchesRes.rows.length !== sortedBatchIds.length) {
             const foundIds = new Set(batchesRes.rows.map(r => r.id));
             const missingIds = sortedBatchIds.filter(id => !foundIds.has(id));
 
-            logger.warn({ missingIds, locationId }, '⚠️ [Sales v2] Batches not found. Attempting to resolve from Products table...');
+            logger.warn({ missingIds, locationId }, '⚠️ [Sales v2] Batches not found. Attempting to resolve from Products table (by ID or SKU)...');
 
             // Mapa para remapear los IDs en los items (OldID -> NewBatchID)
             const idRemap = new Map<string, string>();
 
             for (const missingId of missingIds) {
-                // Verificar si es un Producto válido
+                // Verificar si es un Producto válido (por ID o por SKU)
                 const productRes = await client.query(`
                     SELECT id, sku, name, price_sell_box, cost_price
                     FROM products 
-                    WHERE id = $1
+                    WHERE id::text = $1 OR sku = $1
+                    LIMIT 1
                 `, [missingId]);
 
                 if (productRes.rows.length > 0) {
@@ -336,9 +337,9 @@ export async function createSaleSecure(params: {
                     if (existingBatchRes.rows.length > 0) {
                         // Usar batch existente
                         realBatch = existingBatchRes.rows[0];
-                        logger.info({ missingId, resolvedBatchId: realBatch.id }, '✅ [Sales v2] Resolved ProductID to Existing Batch');
+                        logger.info({ missingId, resolvedBatchId: realBatch.id }, '✅ [Sales v2] Resolved Product/SKU to Existing Batch');
                     } else {
-                        // Resolver warehouse_id correcto para la ubicación
+                        // Resolver warehouse_id correcto para la ubicación (Fallback a la propia ubicación si no hay warehouse)
                         let targetWarehouseId = locationId;
                         try {
                             const whRes = await client.query(
@@ -349,10 +350,10 @@ export async function createSaleSecure(params: {
                                 targetWarehouseId = whRes.rows[0].default_warehouse_id;
                             }
                         } catch (e) {
-                            logger.warn({ err: e }, '⚠️ [Sales v2] Failed to resolve warehouse_id, using locationId fallback');
+                            logger.warn({ err: e }, '⚠️ [Sales v2] Failed to resolve warehouse_id');
                         }
 
-                        // Crear nuevo batch (auto-inicialización)
+                        // Crear nuevo batch (auto-inicialización con stock 0 para permitir venta negativa)
                         const newBatchId = uuidv4();
                         const lotNumber = `AUTO-${Date.now()}`;
 
@@ -362,13 +363,15 @@ export async function createSaleSecure(params: {
                                 location_id, warehouse_id, 
                                 quantity_real, lot_number,
                                 unit_cost, sale_price,
-                                stock_min, stock_max
+                                stock_min, stock_max,
+                                created_at, updated_at
                             ) VALUES (
                                 $1, $2, $3, $4, 
                                 $5, $6, 
                                 0, $7,
                                 $8, $9, 
-                                0, 100
+                                0, 100,
+                                NOW(), NOW()
                             )
                         `, [
                             newBatchId, product.id, product.sku, product.name,
@@ -384,17 +387,15 @@ export async function createSaleSecure(params: {
                             product_id: product.id,
                             location_id: locationId
                         };
-                        logger.info({ missingId, newBatchId, targetWarehouseId }, '✅ [Sales v2] Created New Batch for ProductID');
+                        logger.info({ missingId, newBatchId, sku: product.sku }, '✅ [Sales v2] Created New Batch for Product/SKU at location');
                     }
 
-                    // Agregar a la lista de batches encontrados
+                    // Agregar a la lista de batches encontrados para que pase la validación de UUID
                     batchesRes.rows.push(realBatch);
-
-                    // Registrar el remapeo
                     idRemap.set(missingId, realBatch.id);
 
                 } else {
-                    logger.error({ missingId }, '❌ [Sales v2] ID is neither Batch nor Product');
+                    logger.error({ missingId }, '❌ [Sales v2] ID is neither Batch, Product nor SKU');
                 }
             }
 
@@ -408,25 +409,25 @@ export async function createSaleSecure(params: {
             }
 
             // Re-verificar si seguimos teniendo faltantes (casos fatales)
-            const allIdsNow = batchesRes.rows.map(r => r.id); // Estos son UUIDs reales de batches
-            // OJO: sortedBatchIds tenía los IDs ORIGINALES. Ahora items tiene los NUEVOS.
-            // Necesitamos validar que todos los items.batch_id tengan correspondencia.
-
-            const currentItemBatchIds = items.map(i => i.batch_id).filter(id => {
-                const rawId = String(id || '').trim().toUpperCase();
-                return rawId !== 'MANUAL' && !rawId.startsWith('MANUAL');
-            });
-
-            const stillMissing = currentItemBatchIds.filter(id => !allIdsNow.find(found => found === id));
+            const allIdsNow = new Set(batchesRes.rows.map(r => r.id));
+            const stillMissing = items
+                .filter(i => {
+                    const rawId = String(i.batch_id || '').trim().toUpperCase();
+                    return rawId !== 'MANUAL' && !rawId.startsWith('MANUAL');
+                })
+                .map(i => i.batch_id)
+                .filter(id => !allIdsNow.has(id));
 
             if (stillMissing.length > 0) {
                 await client.query('ROLLBACK');
+                logger.error({ stillMissing }, '❌ [Sales v2] Fatal: Some products still missing after recovery');
                 return {
                     success: false,
-                    error: `Error crítico: Productos no encontrados en inventario ni catálogo. IDs: ${stillMissing.join(', ')}`
+                    error: `Error crítico: Productos no encontrados en inventario ni catálogo. SKU/IDs: ${stillMissing.join(', ')}`
                 };
             }
         }
+
 
         // Crear mapa de stock disponible
         const stockMap = new Map<string, { available: number; sku: string }>();

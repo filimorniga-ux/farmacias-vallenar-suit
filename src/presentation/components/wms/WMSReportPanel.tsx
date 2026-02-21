@@ -9,9 +9,8 @@
  */
 import React, { useState, useCallback } from 'react';
 import {
-    FileSpreadsheet, Calendar, Download, X, Filter,
-    Loader2, ChevronDown, Clock, User, ArrowUpDown,
-    Package, Search
+    FileSpreadsheet, Download, X, Filter,
+    Loader2, Clock, Package, Search
 } from 'lucide-react';
 import { getStockHistorySecure } from '@/actions/wms-v2';
 import { toast } from 'sonner';
@@ -67,6 +66,11 @@ interface ReportRow {
     notes?: string;
     location_id?: string;
     reference_type?: string;
+    user_name?: string;
+    operation_scope?: string;
+    origin_location_name?: string;
+    destination_location_name?: string;
+    movement_location_name?: string;
 }
 
 // Mapeo de tabs a tipos de movimiento
@@ -217,7 +221,8 @@ export const WMSReportPanel: React.FC<WMSReportPanelProps> = ({
             Sentry.captureException(error, {
                 tags: { module: 'WMS', component: 'ReportPanel', action: 'export' }
             });
-            toast.error('Error al exportar');
+            const message = error instanceof Error ? error.message : 'Error al exportar';
+            toast.error(message);
         } finally {
             setExporting(false);
         }
@@ -233,6 +238,18 @@ export const WMSReportPanel: React.FC<WMSReportPanelProps> = ({
             hour: '2-digit',
             minute: '2-digit',
         });
+    };
+
+    const getOriginLocation = (row: ReportRow): string => {
+        if (row.origin_location_name) return row.origin_location_name;
+        if (row.quantity < 0) return row.movement_location_name || '-';
+        return '-';
+    };
+
+    const getDestinationLocation = (row: ReportRow): string => {
+        if (row.destination_location_name) return row.destination_location_name;
+        if (row.quantity > 0) return row.movement_location_name || '-';
+        return '-';
     };
 
     return (
@@ -390,7 +407,7 @@ export const WMSReportPanel: React.FC<WMSReportPanelProps> = ({
                             <p className="text-sm font-medium">Sin resultados para estos filtros</p>
                         </div>
                     ) : (
-                        <table className="w-full">
+                        <table className="w-full min-w-[1600px]">
                             <thead className="bg-slate-50 sticky top-0">
                                 <tr>
                                     <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">
@@ -403,6 +420,9 @@ export const WMSReportPanel: React.FC<WMSReportPanelProps> = ({
                                         SKU
                                     </th>
                                     <th className="px-4 py-3 text-center text-xs font-bold text-slate-500 uppercase">
+                                        Flujo
+                                    </th>
+                                    <th className="px-4 py-3 text-center text-xs font-bold text-slate-500 uppercase">
                                         Tipo
                                     </th>
                                     <th className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase">
@@ -413,6 +433,15 @@ export const WMSReportPanel: React.FC<WMSReportPanelProps> = ({
                                     </th>
                                     <th className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase">
                                         Stock Después
+                                    </th>
+                                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">
+                                        Origen
+                                    </th>
+                                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">
+                                        Destino
+                                    </th>
+                                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">
+                                        Responsable
                                     </th>
                                     <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">
                                         Notas
@@ -432,6 +461,11 @@ export const WMSReportPanel: React.FC<WMSReportPanelProps> = ({
                                             {row.sku}
                                         </td>
                                         <td className="px-4 py-2.5 text-center">
+                                            <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-sky-100 text-sky-700">
+                                                {row.operation_scope || MOVEMENT_LABELS[row.movement_type] || row.movement_type}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-2.5 text-center">
                                             <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${row.quantity > 0
                                                 ? 'bg-emerald-100 text-emerald-700'
                                                 : 'bg-red-100 text-red-700'
@@ -448,6 +482,15 @@ export const WMSReportPanel: React.FC<WMSReportPanelProps> = ({
                                         </td>
                                         <td className="px-4 py-2.5 text-right text-sm text-slate-600">
                                             {row.stock_after}
+                                        </td>
+                                        <td className="px-4 py-2.5 text-xs text-slate-600 max-w-[180px] truncate">
+                                            {getOriginLocation(row)}
+                                        </td>
+                                        <td className="px-4 py-2.5 text-xs text-slate-600 max-w-[180px] truncate">
+                                            {getDestinationLocation(row)}
+                                        </td>
+                                        <td className="px-4 py-2.5 text-xs text-slate-600 max-w-[180px] truncate">
+                                            {row.user_name || 'Sistema'}
                                         </td>
                                         <td className="px-4 py-2.5 text-xs text-slate-500 max-w-[150px] truncate">
                                             {row.notes || '-'}

@@ -13,19 +13,34 @@ import { randomUUID } from 'crypto';
 import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
 import bcrypt from 'bcryptjs';
+import { ExcelService } from '@/lib/excel-generator';
+import { formatDateCL, formatDateTimeCL } from '@/lib/timezone';
 
 // ============================================================================
 // SCHEMAS
 // ============================================================================
 
 const UUIDSchema = z.string().uuid('ID inválido');
+const INTERNAL_SUPPLIER_MARKERS = new Set(['TRANSFER', 'TRASPASO_INTERNO', 'INTERNAL_TRANSFER']);
+
+const SupplierIdSchema = z.string().optional().nullable()
+    .transform((value) => {
+        if (value === null || value === undefined) return null;
+        const trimmed = value.trim();
+        if (!trimmed) return null;
+        if (INTERNAL_SUPPLIER_MARKERS.has(trimmed.toUpperCase())) return null;
+        return trimmed;
+    })
+    .refine((value) => value === null || UUIDSchema.safeParse(value).success, {
+        message: 'ID de proveedor inválido'
+    });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DBRow = any;
 
 const CreatePOSchema = z.object({
     id: z.string().optional(),
-    supplierId: z.union([z.string().uuid(), z.literal('')]).nullable().optional().transform(val => val === '' ? null : val),
+    supplierId: SupplierIdSchema,
     targetWarehouseId: z.string().uuid('ID de Bodega inválido'),
     items: z.array(z.object({
         sku: z.string().min(1),
@@ -49,6 +64,27 @@ const ReceivePOSchema = z.object({
         expiryDate: z.number().optional(),
     })).optional(),
     managerPin: z.string().min(4).optional(),
+});
+
+const SupplyHistoryFiltersSchema = z.object({
+    locationId: z.string().uuid().optional(),
+    supplierId: z.string().uuid().optional(),
+    status: z.string().optional(),
+    type: z.enum(['PO', 'SHIPMENT']).optional(),
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
+    page: z.number().min(1).optional().default(1),
+    pageSize: z.number().min(1).max(200).optional().default(20),
+});
+
+const ExportSupplyHistorySchema = z.object({
+    locationId: z.string().uuid().optional(),
+    supplierId: z.string().uuid().optional(),
+    status: z.string().optional(),
+    type: z.enum(['PO', 'SHIPMENT', 'ALL']).default('ALL'),
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
+    limit: z.number().min(1).max(10000).default(5000),
 });
 
 // ============================================================================
@@ -134,7 +170,10 @@ export async function createPurchaseOrderSecure(
         }
 
 
-        const poId = data.id || randomUUID();
+        const requestedId = typeof validated.data.id === 'string' ? validated.data.id.trim() : '';
+        const poId = requestedId && UUIDSchema.safeParse(requestedId).success
+            ? requestedId
+            : randomUUID();
 
         await client.query(`
             INSERT INTO purchase_orders (
@@ -354,7 +393,7 @@ export async function updatePurchaseOrderSecure(
     orderId: string,
     data: z.infer<typeof CreatePOSchema>,
     userId: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; orderId?: string; error?: string }> {
     logger.info({ orderId, status: data.status }, '📝 [Supply] Updating PO');
     const isTempId = orderId.startsWith('PO-AUTO-') || orderId.startsWith('ORD-') || !UUIDSchema.safeParse(orderId).success;
 
@@ -406,7 +445,7 @@ export async function updatePurchaseOrderSecure(
         revalidatePath('/supply-chain');
         revalidatePath('/warehouse');
         revalidatePath('/logistica'); // Fallback
-        return { success: true };
+        return { success: true, orderId };
     } catch (error: unknown) {
         await client.query('ROLLBACK');
         const message = error instanceof Error ? error.message : 'Error desconocido';
@@ -435,7 +474,7 @@ export async function getSupplyOrdersHistory(filters?: { status?: string; suppli
         const countQuery = `
             SELECT COUNT(*) as total 
             FROM purchase_orders po 
-            LEFT JOIN suppliers s ON po.supplier_id = s.id 
+            LEFT JOIN suppliers s ON po.supplier_id::text = s.id::text
             LEFT JOIN warehouses w ON po.target_warehouse_id = w.id
         `;
         const countRes = await query(countQuery, []);
@@ -444,7 +483,7 @@ export async function getSupplyOrdersHistory(filters?: { status?: string; suppli
         const res = await query(`
             SELECT po.*, w.location_id as destination_location_id, s.business_name as supplier_name 
             FROM purchase_orders po 
-            LEFT JOIN suppliers s ON po.supplier_id = s.id 
+            LEFT JOIN suppliers s ON po.supplier_id::text = s.id::text
             LEFT JOIN warehouses w ON po.target_warehouse_id = w.id
             ORDER BY po.created_at DESC 
             LIMIT $1 OFFSET $2
@@ -461,12 +500,20 @@ export async function getSupplyChainHistorySecure(filters?: {
     supplierId?: string;
     status?: string;
     type?: 'PO' | 'SHIPMENT';
+    startDate?: string;
+    endDate?: string;
     page?: number;
     pageSize?: number;
 }): Promise<{ success: boolean; data?: DBRow[]; total?: number; error?: string }> {
     try {
-        const page = filters?.page || 1;
-        const pageSize = filters?.pageSize || 20;
+        const validated = SupplyHistoryFiltersSchema.safeParse(filters || {});
+        if (!validated.success) {
+            return { success: false, error: validated.error.issues[0]?.message || 'Filtros inválidos' };
+        }
+
+        const { locationId, supplierId, status, type, startDate, endDate } = validated.data;
+        const page = validated.data.page || 1;
+        const pageSize = validated.data.pageSize || 20;
         const offset = (page - 1) * pageSize;
 
         const params: (string | number)[] = [];
@@ -488,14 +535,24 @@ export async function getSupplyChainHistorySecure(filters?: {
                 l.name as location_name,
                 po.created_at,
                 NULL as updated_at,
+                NULL as received_at,
                 po.notes,
                 (SELECT COUNT(*) FROM purchase_order_items WHERE purchase_order_id = po.id) as items_count,
                 NULL as origin_location_id,
-                NULL as origin_location_name
+                NULL as origin_location_name,
+                po.created_by::text as created_by_id,
+                u_created.name as created_by_name,
+                po.approved_by::text as authorized_by_id,
+                u_approved.name as authorized_by_name,
+                po.received_by::text as received_by_id,
+                u_received.name as received_by_name
             FROM purchase_orders po
-            LEFT JOIN suppliers s ON po.supplier_id = s.id
+            LEFT JOIN suppliers s ON po.supplier_id::text = s.id::text
             LEFT JOIN warehouses w ON po.target_warehouse_id = w.id
-            LEFT JOIN locations l ON w.location_id = l.id
+            LEFT JOIN locations l ON w.location_id::text = l.id::text
+            LEFT JOIN users u_created ON po.created_by::text = u_created.id::text
+            LEFT JOIN users u_approved ON po.approved_by::text = u_approved.id::text
+            LEFT JOIN users u_received ON po.received_by::text = u_received.id::text
         `;
 
         const shipQuery = `
@@ -511,36 +568,60 @@ export async function getSupplyChainHistorySecure(filters?: {
                 dl.name as location_name,
                 s.created_at,
                 s.updated_at,
+                NULLIF(s.transport_data->>'received_at', '') as received_at,
                 s.notes,
                 (SELECT COUNT(*) FROM shipment_items WHERE shipment_id = s.id) as items_count,
                 s.origin_location_id,
-                ol.name as origin_location_name
+                ol.name as origin_location_name,
+                s.created_by::text as created_by_id,
+                u_created.name as created_by_name,
+                NULLIF(s.transport_data->>'authorized_by_id', '') as authorized_by_id,
+                u_authorized.name as authorized_by_name,
+                NULLIF(s.transport_data->>'received_by_id', '') as received_by_id,
+                u_received.name as received_by_name
             FROM shipments s
-            LEFT JOIN locations dl ON s.destination_location_id = dl.id
-            LEFT JOIN locations ol ON s.origin_location_id = ol.id
+            LEFT JOIN locations dl ON s.destination_location_id::text = dl.id::text
+            LEFT JOIN locations ol ON s.origin_location_id::text = ol.id::text
+            LEFT JOIN users u_created ON s.created_by::text = u_created.id::text
+            LEFT JOIN users u_authorized ON u_authorized.id::text = (s.transport_data->>'authorized_by_id')
+            LEFT JOIN users u_received ON u_received.id::text = (s.transport_data->>'received_by_id')
         `;
 
         const poWhere: string[] = [];
         const shipWhere: string[] = [];
 
-        if (filters?.locationId) {
-            poWhere.push(`w.location_id = $${pIdx}`);
-            shipWhere.push(`(s.destination_location_id = $${pIdx} OR s.origin_location_id = $${pIdx})`);
-            params.push(filters.locationId);
+        if (locationId) {
+            poWhere.push(`w.location_id::text = $${pIdx}::text`);
+            shipWhere.push(`(s.destination_location_id::text = $${pIdx}::text OR s.origin_location_id::text = $${pIdx}::text)`);
+            params.push(locationId);
             pIdx++;
         }
 
-        if (filters?.supplierId) {
-            poWhere.push(`po.supplier_id = $${pIdx}`);
+        if (supplierId) {
+            poWhere.push(`po.supplier_id::text = $${pIdx}::text`);
             shipWhere.push(`FALSE`); // Shipments don't have supplier_id directly usually
-            params.push(filters.supplierId);
+            params.push(supplierId);
             pIdx++;
         }
 
-        if (filters?.status) {
+        if (status) {
             poWhere.push(`po.status = $${pIdx}`);
             shipWhere.push(`s.status = $${pIdx}`);
-            params.push(filters.status);
+            params.push(status);
+            pIdx++;
+        }
+
+        if (startDate) {
+            poWhere.push(`po.created_at >= $${pIdx}::timestamp`);
+            shipWhere.push(`s.created_at >= $${pIdx}::timestamp`);
+            params.push(startDate);
+            pIdx++;
+        }
+
+        if (endDate) {
+            poWhere.push(`po.created_at <= $${pIdx}::timestamp`);
+            shipWhere.push(`s.created_at <= $${pIdx}::timestamp`);
+            params.push(endDate.includes('T') ? endDate : `${endDate} 23:59:59`);
             pIdx++;
         }
 
@@ -548,9 +629,9 @@ export async function getSupplyChainHistorySecure(filters?: {
         const finalShipQuery = shipWhere.length > 0 ? `${shipQuery} WHERE ${shipWhere.join(' AND ')}` : shipQuery;
 
         let combinedQuery = "";
-        if (filters?.type === 'PO') {
+        if (type === 'PO') {
             combinedQuery = finalPoQuery;
-        } else if (filters?.type === 'SHIPMENT') {
+        } else if (type === 'SHIPMENT') {
             combinedQuery = finalShipQuery;
         } else {
             combinedQuery = `(${finalPoQuery}) UNION ALL (${finalShipQuery})`;
@@ -568,6 +649,190 @@ export async function getSupplyChainHistorySecure(filters?: {
         return { success: true, data: dataRes.rows, total };
     } catch (error: unknown) {
         logger.error({ error }, '[Supply] getSupplyChainHistorySecure error');
+        const message = error instanceof Error ? error.message : 'Error desconocido';
+        return { success: false, error: message };
+    }
+}
+
+export async function exportSupplyChainHistorySecure(
+    filters: z.infer<typeof ExportSupplyHistorySchema>
+): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
+    const { getSessionSecure } = await import('@/actions/auth-v2');
+    const session = await getSessionSecure();
+    if (!session) return { success: false, error: 'No autenticado' };
+    if (!MANAGER_ROLES.includes(session.role)) return { success: false, error: 'Acceso denegado' };
+
+    const validated = ExportSupplyHistorySchema.safeParse(filters || {});
+    if (!validated.success) {
+        return { success: false, error: validated.error.issues[0]?.message || 'Filtros inválidos' };
+    }
+
+    try {
+        const { locationId, supplierId, status, type, startDate, endDate, limit } = validated.data;
+        const params: (string | number)[] = [];
+        let pIdx = 1;
+
+        const poWhere: string[] = [];
+        const shipWhere: string[] = [];
+
+        if (locationId) {
+            poWhere.push(`w.location_id::text = $${pIdx}::text`);
+            shipWhere.push(`(sh.destination_location_id::text = $${pIdx}::text OR sh.origin_location_id::text = $${pIdx}::text)`);
+            params.push(locationId);
+            pIdx++;
+        }
+
+        if (supplierId) {
+            poWhere.push(`po.supplier_id::text = $${pIdx}::text`);
+            shipWhere.push(`FALSE`);
+            params.push(supplierId);
+            pIdx++;
+        }
+
+        if (status) {
+            poWhere.push(`po.status = $${pIdx}`);
+            shipWhere.push(`sh.status = $${pIdx}`);
+            params.push(status);
+            pIdx++;
+        }
+
+        if (startDate) {
+            poWhere.push(`po.created_at >= $${pIdx}::timestamp`);
+            shipWhere.push(`sh.created_at >= $${pIdx}::timestamp`);
+            params.push(startDate);
+            pIdx++;
+        }
+
+        if (endDate) {
+            poWhere.push(`po.created_at <= $${pIdx}::timestamp`);
+            shipWhere.push(`sh.created_at <= $${pIdx}::timestamp`);
+            params.push(endDate.includes('T') ? endDate : `${endDate} 23:59:59`);
+            pIdx++;
+        }
+
+        const poWhereSql = poWhere.length > 0 ? `WHERE ${poWhere.join(' AND ')}` : '';
+        const shipWhereSql = shipWhere.length > 0 ? `WHERE ${shipWhere.join(' AND ')}` : '';
+
+        const poSql = `
+            SELECT
+                'PO' as movement_type,
+                po.id as movement_id,
+                po.status,
+                po.created_at,
+                NULL::timestamp as received_at,
+                NULL::text as origin_location_name,
+                l.name as destination_location_name,
+                s.business_name as supplier_name,
+                poi.sku,
+                poi.name as product_name,
+                poi.quantity_ordered as quantity,
+                u_created.name as created_by_name,
+                u_approved.name as authorized_by_name,
+                u_received.name as received_by_name,
+                po.notes
+            FROM purchase_orders po
+            LEFT JOIN purchase_order_items poi ON poi.purchase_order_id = po.id
+            LEFT JOIN suppliers s ON po.supplier_id::text = s.id::text
+            LEFT JOIN warehouses w ON po.target_warehouse_id = w.id
+            LEFT JOIN locations l ON w.location_id::text = l.id::text
+            LEFT JOIN users u_created ON po.created_by::text = u_created.id::text
+            LEFT JOIN users u_approved ON po.approved_by::text = u_approved.id::text
+            LEFT JOIN users u_received ON po.received_by::text = u_received.id::text
+            ${poWhereSql}
+        `;
+
+        const shipSql = `
+            SELECT
+                'SHIPMENT' as movement_type,
+                sh.id as movement_id,
+                sh.status,
+                sh.created_at,
+                NULLIF(sh.transport_data->>'received_at', '')::timestamp as received_at,
+                ol.name as origin_location_name,
+                dl.name as destination_location_name,
+                NULL::text as supplier_name,
+                si.sku,
+                si.name as product_name,
+                si.quantity as quantity,
+                u_created.name as created_by_name,
+                u_authorized.name as authorized_by_name,
+                u_received.name as received_by_name,
+                sh.notes
+            FROM shipments sh
+            LEFT JOIN shipment_items si ON si.shipment_id = sh.id
+            LEFT JOIN locations dl ON sh.destination_location_id::text = dl.id::text
+            LEFT JOIN locations ol ON sh.origin_location_id::text = ol.id::text
+            LEFT JOIN users u_created ON sh.created_by::text = u_created.id::text
+            LEFT JOIN users u_authorized ON u_authorized.id::text = (sh.transport_data->>'authorized_by_id')
+            LEFT JOIN users u_received ON u_received.id::text = (sh.transport_data->>'received_by_id')
+            ${shipWhereSql}
+        `;
+
+        const unionSql =
+            type === 'PO'
+                ? poSql
+                : type === 'SHIPMENT'
+                    ? shipSql
+                    : `(${poSql}) UNION ALL (${shipSql})`;
+
+        const result = await query(`
+            SELECT *
+            FROM (${unionSql}) history
+            ORDER BY created_at DESC
+            LIMIT $${pIdx}
+        `, [...params, limit]);
+
+        const data = result.rows.map((row: DBRow) => ({
+            tipo: row.movement_type === 'PO' ? 'Orden de Compra' : 'Transferencia/Despacho',
+            id_movimiento: row.movement_id,
+            estado: row.status,
+            fecha_creacion: row.created_at ? formatDateTimeCL(row.created_at) : '-',
+            fecha_recepcion: row.received_at ? formatDateTimeCL(row.received_at) : '-',
+            origen: row.origin_location_name || '-',
+            destino: row.destination_location_name || '-',
+            proveedor: row.supplier_name || '-',
+            sku: row.sku || '-',
+            producto: row.product_name || '-',
+            cantidad: Number(row.quantity || 0),
+            creado_por: row.created_by_name || 'Sistema',
+            autorizado_por: row.authorized_by_name || '-',
+            recibido_por: row.received_by_name || '-',
+            notas: row.notes || '-',
+        }));
+
+        const excel = new ExcelService();
+        const buffer = await excel.generateReport({
+            title: 'Historial Corporativo de Logística',
+            subtitle: `Corte: ${formatDateCL(new Date())} | Registros: ${data.length}`,
+            sheetName: 'Logistica',
+            creator: session.userName,
+            columns: [
+                { header: 'Tipo', key: 'tipo', width: 22 },
+                { header: 'ID Movimiento', key: 'id_movimiento', width: 38 },
+                { header: 'Estado', key: 'estado', width: 14 },
+                { header: 'Fecha Creación', key: 'fecha_creacion', width: 20 },
+                { header: 'Fecha Recepción', key: 'fecha_recepcion', width: 20 },
+                { header: 'Origen', key: 'origen', width: 24 },
+                { header: 'Destino', key: 'destino', width: 24 },
+                { header: 'Proveedor', key: 'proveedor', width: 24 },
+                { header: 'SKU', key: 'sku', width: 16 },
+                { header: 'Producto', key: 'producto', width: 42 },
+                { header: 'Cantidad', key: 'cantidad', width: 12 },
+                { header: 'Creado por', key: 'creado_por', width: 24 },
+                { header: 'Autorizado por', key: 'autorizado_por', width: 24 },
+                { header: 'Recibido por', key: 'recibido_por', width: 24 },
+                { header: 'Notas', key: 'notas', width: 38 },
+            ],
+            data,
+        });
+
+        return {
+            success: true,
+            data: buffer.toString('base64'),
+            filename: `Historial_Logistica_Corporativo_${new Date().toISOString().split('T')[0]}.xlsx`,
+        };
+    } catch (error: unknown) {
+        logger.error({ error }, '[Supply] exportSupplyChainHistorySecure error');
         const message = error instanceof Error ? error.message : 'Error desconocido';
         return { success: false, error: message };
     }

@@ -75,6 +75,7 @@ import {
     fractionateBatchSecureDetailed,
     clearLocationInventorySecure,
     getInventorySecure,
+    getWMSInventorySecure,
 } from '@/actions/inventory-v2';
 
 // Hardcoded thresholds (cannot export from 'use server' files)
@@ -762,6 +763,84 @@ describe('getInventorySecure', () => {
         expect(result.data[0].is_retail_lot).toBe(false);
         expect(result.data[1].stock_actual).toBe(20);
         expect(result.data[1].is_retail_lot).toBe(true);
+    });
+});
+
+describe('getWMSInventorySecure', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockDirectQuery.mockResolvedValue({ rows: [] });
+    });
+
+    it('should reject invalid location ID', async () => {
+        const result = await getWMSInventorySecure('invalid-uuid');
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('inválido');
+    });
+
+    it('should return only mapped stock rows for WMS fast load', async () => {
+        let capturedSql = '';
+        mockDirectQuery.mockImplementationOnce((sql: unknown) => {
+            capturedSql = String(sql);
+            return Promise.resolve({
+                rows: [{
+                    id: VALID_BATCH_ID,
+                    product_id: '123e4567-e89b-12d3-a456-426614174199',
+                    sku: 'WMS-001',
+                    name: 'Producto WMS',
+                    dci: 'DCI Test',
+                    laboratory: 'Laboratorio',
+                    category: 'MEDICAMENTOS',
+                    condition: 'VD',
+                    barcode: '7801234567890',
+                    location_id: VALID_LOCATION_ID,
+                    warehouse_id: VALID_WAREHOUSE_ID,
+                    stock_actual: 22,
+                    stock_min: 4,
+                    expiry_date: null,
+                    lot_number: 'LOT-WMS',
+                    cost_net: 800,
+                    price_sell_box: 1400,
+                    price_sell_unit: 1400,
+                    price: 1400,
+                    units_per_box: 1,
+                    is_fractionable: true,
+                    units_stock_actual: 0,
+                    is_retail_lot: false,
+                    original_batch_id: null,
+                    source_system: 'MANUAL',
+                    created_at: null,
+                }],
+            });
+        });
+
+        const result = await getWMSInventorySecure(VALID_LOCATION_ID);
+
+        expect(result.success).toBe(true);
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].id).toBe(VALID_BATCH_ID);
+        expect(result.data[0].sku).toBe('WMS-001');
+        expect(result.data[0].stock_actual).toBe(22);
+        expect(result.data[0].location_id).toBe(VALID_LOCATION_ID);
+        expect(capturedSql).toContain('ib.warehouse_id IN');
+        expect(capturedSql).toContain('SELECT id FROM warehouses WHERE location_id = $1::uuid');
+    });
+
+    it('should include warehouse scope in getInventorySecure fallback query', async () => {
+        let capturedSql = '';
+        mockDirectQuery.mockImplementationOnce((sql: unknown) => {
+            capturedSql = String(sql);
+            return Promise.resolve({
+                rows: [],
+            });
+        });
+
+        const result = await getInventorySecure(VALID_LOCATION_ID, { pagination: false });
+
+        expect(result.success).toBe(true);
+        expect(capturedSql).toContain('ib.warehouse_id IN');
+        expect(capturedSql).toContain('SELECT id FROM warehouses WHERE location_id = $1::uuid');
     });
 });
 

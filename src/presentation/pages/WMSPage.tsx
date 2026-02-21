@@ -11,29 +11,31 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
     Warehouse, Truck, PackageCheck, ArrowLeftRight,
-    PackagePlus, MapPin, RefreshCw
+    PackagePlus, MapPin, RefreshCw, Route, History
 } from 'lucide-react';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { useQueryClient } from '@tanstack/react-query';
 import { usePlatform } from '@/hooks/usePlatform';
+import { useInventoryQuery } from '@/presentation/hooks/useInventoryQuery';
 import { WMSDespachoTab } from '@/presentation/components/wms/tabs/WMSDespachoTab';
 import { WMSRecepcionTab } from '@/presentation/components/wms/tabs/WMSRecepcionTab';
 import { WMSTransferenciaTab } from '@/presentation/components/wms/tabs/WMSTransferenciaTab';
+import { WMSTransitoTab } from '@/presentation/components/wms/tabs/WMSTransitoTab';
 import { WMSPedidosTab } from '@/presentation/components/wms/tabs/WMSPedidosTab';
 import { WMSBottomTabBar } from '@/presentation/components/wms/WMSBottomTabBar';
 import { PurchaseOrderReceivingModal } from '@/presentation/components/scm/PurchaseOrderReceivingModal';
 import ManualOrderModal from '@/presentation/components/supply/ManualOrderModal';
 import SupplyKanban from '../components/supply/SupplyKanban';
 import { SupplyChainHistoryTab } from '@/presentation/components/scm/SupplyChainHistoryTab';
-import { History } from 'lucide-react';
 
-export type WMSTab = 'despacho' | 'recepcion' | 'transferencia' | 'pedidos' | 'suministros' | 'historial';
+export type WMSTab = 'despacho' | 'recepcion' | 'transferencia' | 'transito' | 'pedidos' | 'suministros' | 'historial';
 
 const DESKTOP_TABS: { key: WMSTab; label: string; icon: React.ReactNode; color: string }[] = [
     { key: 'despacho', label: 'Despacho', icon: <Truck size={18} />, color: 'sky' },
     { key: 'recepcion', label: 'Recepción', icon: <PackageCheck size={18} />, color: 'emerald' },
     { key: 'transferencia', label: 'Transferencia', icon: <ArrowLeftRight size={18} />, color: 'purple' },
+    { key: 'transito', label: 'En Tránsito', icon: <Route size={18} />, color: 'indigo' },
     { key: 'pedidos', label: 'Recep. Pedidos', icon: <PackagePlus size={18} />, color: 'amber' },
     { key: 'suministros', label: 'Kanban Suministros', icon: <Truck size={18} />, color: 'cyan' },
     { key: 'historial', label: 'Historial', icon: <History size={18} />, color: 'slate' },
@@ -43,19 +45,12 @@ const TAB_COLORS: Record<string, { active: string; ring: string }> = {
     sky: { active: 'bg-sky-500 text-white shadow-sky-500/30', ring: 'ring-sky-200' },
     emerald: { active: 'bg-emerald-500 text-white shadow-emerald-500/30', ring: 'ring-emerald-200' },
     purple: { active: 'bg-purple-500 text-white shadow-purple-500/30', ring: 'ring-purple-200' },
+    indigo: { active: 'bg-indigo-500 text-white shadow-indigo-500/30', ring: 'ring-indigo-200' },
     amber: { active: 'bg-amber-500 text-white shadow-amber-500/30', ring: 'ring-amber-200' },
     cyan: { active: 'bg-cyan-500 text-white shadow-cyan-500/30', ring: 'ring-cyan-200' },
     slate: { active: 'bg-slate-700 text-white shadow-slate-700/30', ring: 'ring-slate-300' },
 };
 
-const TAB_CONTENT: Record<WMSTab, React.ReactNode> = {
-    despacho: <WMSDespachoTab />,
-    recepcion: <WMSRecepcionTab />,
-    transferencia: <WMSTransferenciaTab />,
-    pedidos: <WMSPedidosTab />,
-    suministros: null, // Handled conditionally in rendering
-    historial: <SupplyChainHistoryTab />,
-};
 
 export const WMSPage: React.FC = () => {
     const [activeTab, setActiveTab] = useState<WMSTab>('despacho');
@@ -64,6 +59,7 @@ export const WMSPage: React.FC = () => {
     const [selectedOrder, setSelectedOrder] = useState<any>(null);
     const [isReceptionModalOpen, setIsReceptionModalOpen] = useState(false);
     const [isManualOrderModalOpen, setIsManualOrderModalOpen] = useState(false);
+    const [preselectedReceptionShipmentId, setPreselectedReceptionShipmentId] = useState<string | null>(null);
 
     const {
         currentLocationId,
@@ -72,7 +68,10 @@ export const WMSPage: React.FC = () => {
         setCurrentLocation,
         locations: pharmaLocations,
         user,
-        receivePurchaseOrder
+        receivePurchaseOrder,
+        setInventory,
+        refreshShipments,
+        refreshPurchaseOrders
     } = usePharmaStore();
     const locationStoreCurrent = useLocationStore(s => s.currentLocation);
     const locationStoreLocations = useLocationStore(s => s.locations);
@@ -133,13 +132,93 @@ export const WMSPage: React.FC = () => {
         user?.assigned_location_id,
     ]);
 
-    const handleRefresh = () => {
+    // 🚀 Load inventory via React Query (Same pattern as POSMainScreen for consistency)
+    const activeLocationId = currentLocationId || locationStoreCurrent?.id;
+    const shouldLoadInventory = activeTab === 'despacho' || activeTab === 'transferencia';
+    const { data: inventoryData, isLoading: isLoadingInventory } = useInventoryQuery(activeLocationId, {
+        mode: 'wms-lite',
+        enabled: shouldLoadInventory && !!activeLocationId,
+    });
+
+    // Sync React Query data to Zustand Store for compatibility with WMS Tabs
+    useEffect(() => {
+        if (inventoryData) {
+            console.log('🔄 [WMS] Syncing Inventory Query -> Zustand');
+            setInventory(inventoryData);
+        }
+    }, [inventoryData, setInventory]);
+
+    const handleRefresh = async () => {
+        if (activeLocationId) {
+            await Promise.all([
+                refreshShipments(activeLocationId),
+                refreshPurchaseOrders(activeLocationId)
+            ]);
+        }
         queryClient.invalidateQueries({ queryKey: ['inventory'] });
         if ('vibrate' in navigator) navigator.vibrate(10);
     };
 
     const handleTabChange = (tab: WMSTab) => {
         setActiveTab(tab);
+    };
+
+    const renderTabContent = () => {
+        switch (activeTab) {
+            case 'despacho':
+                return <WMSDespachoTab isLoading={isLoadingInventory} />;
+            case 'recepcion':
+                return (
+                    <WMSRecepcionTab
+                        preselectedShipmentId={preselectedReceptionShipmentId}
+                        onPreselectionHandled={() => setPreselectedReceptionShipmentId(null)}
+                    />
+                );
+            case 'transferencia':
+                return <WMSTransferenciaTab isLoading={isLoadingInventory} />;
+            case 'transito':
+                return (
+                    <WMSTransitoTab
+                        onReceiveShipment={(shipmentId) => {
+                            setPreselectedReceptionShipmentId(shipmentId);
+                            setActiveTab('recepcion');
+                        }}
+                    />
+                );
+            case 'pedidos':
+                return <WMSPedidosTab />;
+            case 'historial':
+                return <SupplyChainHistoryTab />;
+            case 'suministros':
+                return (
+                    <div className="space-y-4">
+                        <div className={isMobile
+                            ? "bg-white p-4 rounded-2xl shadow-sm border border-slate-200"
+                            : "bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
+                        }>
+                            <h3 className={isMobile ? "font-bold text-slate-800 mb-1" : "text-xl font-bold text-slate-800 mb-2"}>
+                                Espejo de Suministros
+                            </h3>
+                            <p className={isMobile ? "text-xs text-slate-500 mb-4" : "text-sm text-slate-500 mb-6"}>
+                                {isMobile ? "Órdenes de compra sincronizadas." : "Visualización en tiempo real de órdenes de compra pendientes y recibidas."}
+                            </p>
+                            <SupplyKanban
+                                direction={isMobile ? 'col' : 'row'}
+                                onEditOrder={(po: any) => {
+                                    setSelectedOrder(po);
+                                    setIsManualOrderModalOpen(true);
+                                }}
+                                onReceiveOrder={(po: any) => {
+                                    setSelectedOrder(po);
+                                    setIsReceptionModalOpen(true);
+                                }}
+                            />
+                        </div>
+                    </div>
+                );
+            default:
+                return null;
+        }
     };
 
     // ─────────────────────────────────────────────
@@ -187,27 +266,7 @@ export const WMSPage: React.FC = () => {
                 {/* Scrollable Content — fills space between header and bottom bar */}
                 <main className="flex-1 overflow-y-auto wms-content-scroll px-4 py-4 pb-36">
                     <div className="animate-in fade-in duration-200">
-                        {activeTab === 'suministros' ? (
-                            <div className="space-y-4">
-                                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
-                                    <h3 className="font-bold text-slate-800 mb-1">Espejo de Suministros</h3>
-                                    <p className="text-xs text-slate-500 mb-4">Órdenes de compra sincronizadas.</p>
-                                    <SupplyKanban
-                                        direction="col"
-                                        onEditOrder={(po: any) => {
-                                            setSelectedOrder(po);
-                                            setIsManualOrderModalOpen(true);
-                                        }}
-                                        onReceiveOrder={(po: any) => {
-                                            setSelectedOrder(po);
-                                            setIsReceptionModalOpen(true);
-                                        }}
-                                    />
-                                </div>
-                            </div>
-                        ) : (
-                            TAB_CONTENT[activeTab as keyof typeof TAB_CONTENT]
-                        )}
+                        {renderTabContent()}
                     </div>
                 </main>
 
@@ -312,27 +371,7 @@ export const WMSPage: React.FC = () => {
             {/* Desktop Content */}
             <div className="max-w-5xl mx-auto px-4 py-6">
                 <div className="animate-in fade-in duration-200">
-                    {activeTab === 'suministros' ? (
-                        <div className="space-y-4">
-                            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-                                <h3 className="text-xl font-bold text-slate-800 mb-2">Espejo de Suministros</h3>
-                                <p className="text-sm text-slate-500 mb-6">Visualización en tiempo real de órdenes de compra pendientes y recibidas.</p>
-                                <SupplyKanban
-                                    direction={isMobile ? 'col' : 'row'}
-                                    onEditOrder={(po: any) => {
-                                        setSelectedOrder(po);
-                                        setIsManualOrderModalOpen(true);
-                                    }}
-                                    onReceiveOrder={(po: any) => {
-                                        setSelectedOrder(po);
-                                        setIsReceptionModalOpen(true);
-                                    }}
-                                />
-                            </div>
-                        </div>
-                    ) : (
-                        TAB_CONTENT[activeTab as keyof typeof TAB_CONTENT]
-                    )}
+                    {renderTabContent()}
                 </div>
             </div>
 

@@ -11,6 +11,7 @@ import { WMSReportPanel } from '../WMSReportPanel';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { executeTransferSecure } from '@/actions/wms-v2';
+import { exportStockMovementsSecure } from '@/actions/inventory-export-v2';
 import { InventoryBatch } from '@/domain/types';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
@@ -18,7 +19,7 @@ import * as Sentry from '@sentry/nextjs';
 
 const PIN_THRESHOLD = 100;
 
-export const WMSTransferenciaTab: React.FC = () => {
+export const WMSTransferenciaTab: React.FC<{ isLoading?: boolean }> = ({ isLoading = false }) => {
     const qc = useQueryClient();
     const { inventory, currentLocationId, currentWarehouseId } = usePharmaStore();
     const user = usePharmaStore(s => s.user);
@@ -71,7 +72,7 @@ export const WMSTransferenciaTab: React.FC = () => {
                 userId: user?.id || '', notes, supervisorPin: needsPin ? pin : undefined,
             });
             if (r.success) {
-                toast.success('Transferencia exitosa');
+                toast.success(`Transferencia enviada a tránsito ${r.shipmentId ? `#${r.shipmentId.slice(0, 8)}` : ''}`);
                 setCart([]); setDestId(''); setNotes(''); setPin('');
                 await qc.invalidateQueries({ queryKey: ['inventory'] });
             } else toast.error(r.error || 'Error');
@@ -85,13 +86,37 @@ export const WMSTransferenciaTab: React.FC = () => {
         finally { setSubmitting(false); }
     };
 
+    const handleExportExcel = async (filters: any) => {
+        const res = await exportStockMovementsSecure({
+            startDate: filters.startDate,
+            endDate: filters.endDate,
+            locationId: effectiveLocationId,
+            movementType: filters.movementType,
+            limit: 5000
+        });
+
+        if (res.success && res.data && res.filename) {
+            const link = document.createElement('a');
+            link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${res.data}`;
+            link.download = res.filename;
+            link.click();
+        } else {
+            throw new Error(res.error || 'Error al exportar');
+        }
+    };
+
     return (
         <div className="space-y-6">
             <div>
                 <label className="text-sm font-bold text-slate-700 mb-2 block flex items-center gap-2">
                     <ArrowLeftRight size={16} className="text-sky-500" /> Productos para Transferir
                 </label>
-                <WMSProductScanner inventory={inventory} onProductSelected={addProduct} placeholder="Escanear o buscar producto..." />
+                <WMSProductScanner
+                    inventory={inventory}
+                    onProductSelected={addProduct}
+                    placeholder="Escanear o buscar producto..."
+                    isLoading={isLoading}
+                />
             </div>
             <WMSProductCart items={cart} onUpdateItem={(id, q) => setCart(p => p.map(i => i.id === id ? { ...i, quantity: q } : i))} onRemoveItem={id => setCart(p => p.filter(i => i.id !== id))} title="Productos a Transferir" disabled={submitting} />
             {cart.length > 0 && (
@@ -129,7 +154,14 @@ export const WMSTransferenciaTab: React.FC = () => {
                     </button>
                 </div>
             </div>
-            {showRep && <WMSReportPanel activeTab="TRANSFERENCIA" locationId={effectiveLocationId} onClose={() => setShowRep(false)} />}
+            {showRep && (
+                <WMSReportPanel
+                    activeTab="TRANSFERENCIA"
+                    locationId={effectiveLocationId}
+                    onClose={() => setShowRep(false)}
+                    onExportExcel={handleExportExcel}
+                />
+            )}
         </div>
     );
 };

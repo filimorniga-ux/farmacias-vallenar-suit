@@ -21,19 +21,20 @@ jobs:
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm install
-
-      - name: Build Next.js App
-        run: npm run build
+        run: npm ci
 
       - name: Build Windows Installer
         env:
+          CI: "true"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build:win
+        run: npx electron-builder --win --x64 --publish never
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: dist-desktop/*.exe
+          path: |
+            dist-desktop/*.exe
+            dist-desktop/*.yml
+            dist-desktop/*.blockmap
           retention-days: 5

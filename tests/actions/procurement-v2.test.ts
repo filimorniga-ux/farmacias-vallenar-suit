@@ -5,7 +5,8 @@ import {
     approvePurchaseOrderSecure,
     cancelPurchaseOrderSecure,
     receivePurchaseOrderSecure,
-    deletePurchaseOrderSecure
+    deletePurchaseOrderSecure,
+    getSuggestionAnalysisHistorySecure
 } from '@/actions/procurement-v2';
 import * as dbModule from '@/lib/db';
 
@@ -63,6 +64,43 @@ describe('Procurement V2 Logic', () => {
         it('should fail with invalid supplier UUID', async () => {
             const res = await generateRestockSuggestionSecure('invalid-uuid');
             expect(res.success).toBe(false);
+        });
+
+        it('should load suggestion analysis history with mapped values', async () => {
+            vi.mocked(dbModule.pool.query).mockResolvedValue({
+                rows: [{
+                    history_id: 'hist-1',
+                    executed_at: '2026-02-18T12:00:00.000Z',
+                    executed_by: 'Manager',
+                    location_id: validUuid,
+                    location_name: 'Sucursal Centro',
+                    supplier_id: mockSupplierId,
+                    supplier_name: 'Proveedor Uno',
+                    days_to_cover: 15,
+                    analysis_window: 30,
+                    stock_threshold: 0.25,
+                    search_query: 'PARA500',
+                    limit_value: 100,
+                    total_results: 40,
+                    critical_count: 5,
+                    transfer_count: 7,
+                    total_estimated: 12345
+                }]
+            } as any);
+
+            const res = await getSuggestionAnalysisHistorySecure({ locationId: validUuid, limit: 10 });
+
+            expect(res.success).toBe(true);
+            expect(res.data?.[0]).toMatchObject({
+                history_id: 'hist-1',
+                location_id: validUuid,
+                supplier_id: mockSupplierId,
+                total_results: 40,
+                critical_count: 5,
+                transfer_count: 7,
+                total_estimated: 12345
+            });
+            expect(dbModule.pool.query).toHaveBeenCalledWith(expect.stringContaining("REPORT_GENERATE"), [10, validUuid]);
         });
     });
 

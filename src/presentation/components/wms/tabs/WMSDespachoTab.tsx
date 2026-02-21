@@ -14,12 +14,13 @@ import { WMSReportPanel } from '../WMSReportPanel';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { createDispatchSecure } from '@/actions/wms-v2';
+import { exportStockMovementsSecure } from '@/actions/inventory-export-v2';
 import { InventoryBatch } from '@/domain/types';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
 
-export const WMSDespachoTab: React.FC = () => {
+export const WMSDespachoTab: React.FC<{ isLoading?: boolean }> = ({ isLoading = false }) => {
     const queryClient = useQueryClient();
     const { inventory, currentLocationId } = usePharmaStore();
     const locationStoreCurrent = useLocationStore(s => s.currentLocation);
@@ -118,7 +119,7 @@ export const WMSDespachoTab: React.FC = () => {
             });
 
             if (result.success) {
-                toast.success('Despacho creado exitosamente');
+                toast.success(`Despacho enviado a tránsito ${result.shipmentId ? `#${result.shipmentId.slice(0, 8)}` : ''}`);
                 // Reset
                 setCartItems([]);
                 setDestinationId('');
@@ -139,6 +140,25 @@ export const WMSDespachoTab: React.FC = () => {
             toast.error('Error de conexión');
         } finally {
             setIsSubmitting(false);
+        }
+    };
+
+    const handleExportExcel = async (filters: any) => {
+        const res = await exportStockMovementsSecure({
+            startDate: filters.startDate,
+            endDate: filters.endDate,
+            locationId: effectiveLocationId,
+            movementType: filters.movementType,
+            limit: 5000
+        });
+
+        if (res.success && res.data && res.filename) {
+            const link = document.createElement('a');
+            link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${res.data}`;
+            link.download = res.filename;
+            link.click();
+        } else {
+            throw new Error(res.error || 'Error al exportar');
         }
     };
 
@@ -167,6 +187,7 @@ export const WMSDespachoTab: React.FC = () => {
                     inventory={inventory}
                     onProductSelected={handleProductSelected}
                     placeholder="Escanear o buscar producto para despachar..."
+                    isLoading={isLoading}
                 />
             </div>
 
@@ -268,6 +289,7 @@ export const WMSDespachoTab: React.FC = () => {
                     activeTab="DESPACHO"
                     locationId={effectiveLocationId}
                     onClose={() => setShowReports(false)}
+                    onExportExcel={handleExportExcel}
                 />
             )}
 

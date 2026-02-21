@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { Location, KioskConfig } from '../../domain/types';
 import { toast } from 'sonner';
+import * as Sentry from '@sentry/nextjs';
 
 interface LocationState {
     locations: Location[];
@@ -17,6 +18,7 @@ interface LocationState {
     fetchLocations: (force?: boolean) => Promise<void>; // Sync with Backend
     isLoading?: boolean;
     lastFetch?: number;
+    loadingSince?: number;
 
     registerKiosk: (kiosk: KioskConfig) => void;
     updateKioskStatus: (id: string, status: 'ACTIVE' | 'INACTIVE') => void;
@@ -27,13 +29,15 @@ interface LocationState {
 const INITIAL_LOCATIONS: Location[] = [];
 
 const INITIAL_KIOSKS: KioskConfig[] = [];
+const CACHE_DURATION_MS = 5 * 60 * 1000;
+const SYNC_TIMEOUT_MS = 90000;
 
 export const useLocationStore = create<LocationState>()(
     persist(
         (set, get) => ({
             locations: INITIAL_LOCATIONS,
             kiosks: INITIAL_KIOSKS,
-            currentLocation: null, // No default location
+            currentLocation: null,
 
             addLocation: (location) => set((state) => ({
                 locations: [...state.locations, location]
@@ -42,36 +46,48 @@ export const useLocationStore = create<LocationState>()(
             setLocations: (locations) => set({ locations }),
 
             isLoading: false,
-            lastFetch: Date.now(),
+            lastFetch: 0,
+            loadingSince: undefined,
 
             fetchLocations: async (force = false) => {
                 const state = get() as any;
                 const now = Date.now();
-                // Cache invalidation: 5 minutes
-                const CACHE_DURATION = 5 * 60 * 1000;
+                const shouldUseCache = !force
+                    && state.locations.length > 0
+                    && typeof state.lastFetch === 'number'
+                    && now - state.lastFetch < CACHE_DURATION_MS;
+
+                if (shouldUseCache) {
+                    return;
+                }
 
                 if (state.isLoading) {
                     console.log('📍 [LocationStore] Fetch already in progress, skipping.');
                     // Safety: If stuck for more than 20s, allow retry
-                    if (now - (state.lastFetch || 0) > 20000) {
+                    if (now - (state.loadingSince || 0) > 20000) {
                         console.warn('📍 [LocationStore] Fetch seems stuck, resetting isLoading...');
-                        set({ isLoading: false });
+                        set({ isLoading: false, loadingSince: undefined });
                     } else {
                         return;
                     }
                 }
 
-                set({ isLoading: true });
+                set({ isLoading: true, loadingSince: now });
 
                 // Safety Timeout (Extended for Cloud Latency / Dev Cold Start)
                 const timeout = setTimeout(() => {
                     const currentState = get() as any;
                     if (currentState.isLoading) {
-                        console.error('📍 [LocationStore] Sync TIMEOUT after 60s - Retry advised');
+                        Sentry.captureMessage('[LocationStore] Sync timeout while fetching locations', {
+                            level: 'warning',
+                            tags: { module: 'LocationStore', action: 'fetchLocations' },
+                            extra: { force, locationCount: currentState.locations?.length || 0 },
+                        });
+                        console.warn('📍 [LocationStore] Sync TIMEOUT after 90s - Retry advised');
                         toast.error('La sincronización de ubicaciones está tardando más de lo esperado. Por favor recargue si persiste.');
-                        set({ isLoading: false });
+                        set({ isLoading: false, loadingSince: undefined });
                     }
-                }, 60000);
+                }, SYNC_TIMEOUT_MS);
 
                 try {
                     const { usePharmaStore } = await import('./useStore'); // Import store to get user
@@ -82,7 +98,6 @@ export const useLocationStore = create<LocationState>()(
                         // Secure Fetch (Full Org Structure)
                         const { getOrganizationStructureSecure } = await import('@/actions/network-v2');
                         const res = await getOrganizationStructureSecure(user.id);
-                        set({ isLoading: false, lastFetch: Date.now() });
 
                         if (res.success && res.data?.locations) {
                             const newLocations = res.data.locations || [];
@@ -95,7 +110,8 @@ export const useLocationStore = create<LocationState>()(
 
                                 return {
                                     locations: newLocations,
-                                    currentLocation: updatedCurrentLocation
+                                    currentLocation: updatedCurrentLocation,
+                                    lastFetch: Date.now()
                                 };
                             });
                         } else {
@@ -105,25 +121,29 @@ export const useLocationStore = create<LocationState>()(
                         // Public Fetch (Basic Locations for Context Selector)
                         const { getPublicLocationsSecure } = await import('@/actions/public-network-v2');
                         const res = await getPublicLocationsSecure();
-                        set({ isLoading: false, lastFetch: Date.now() });
 
                         if (res.success && res.data) {
                             set({
                                 locations: res.data.map(l => ({
                                     ...l,
                                     associated_kiosks: [] // Default value for public fetch
-                                }))
+                                })),
+                                lastFetch: Date.now()
                             });
                             console.log('📍 [LocationStore] Public locations updated:', res.data.length);
                         } else {
                             console.error('📍 [LocationStore] Public fetch failed:', res.error);
                         }
                     }
-                } catch (error) {
+                } catch (error: unknown) {
+                    Sentry.captureException(error, {
+                        tags: { module: 'LocationStore', action: 'fetchLocations' },
+                        extra: { force },
+                    });
                     console.error('Failed to sync locations', error);
                 } finally {
                     clearTimeout(timeout);
-                    set({ isLoading: false });
+                    set({ isLoading: false, loadingSince: undefined });
                 }
             },
 

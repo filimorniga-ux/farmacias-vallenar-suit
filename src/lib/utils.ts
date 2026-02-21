@@ -88,6 +88,30 @@ export function formatChileTimeOnly(date: Date | string, withSeconds = false): s
 }
 
 /**
+ * Format a date as a friendly ID: DD-MM-YYYY-HH-mm-ss
+ */
+export function formatFriendlyId(date: Date | string): string {
+  if (!date) return '-';
+  const d = typeof date === 'string' ? new Date(date) : date;
+
+  const formatter = new Intl.DateTimeFormat('es-CL', {
+    timeZone: 'America/Santiago',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+
+  const parts = formatter.formatToParts(d);
+  const find = (type: string) => parts.find(p => p.type === type)?.value || '00';
+
+  return `${find('day')}-${find('month')}-${find('year')}-${find('hour')}-${find('minute')}-${find('second')}`;
+}
+
+/**
  * Retry a function with exponential backoff
  */
 export async function retryWithBackoff<T>(

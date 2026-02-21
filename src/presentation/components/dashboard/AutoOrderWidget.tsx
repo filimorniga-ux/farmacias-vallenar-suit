@@ -4,6 +4,7 @@ import { Truck, Sparkles, TrendingUp, AlertTriangle, ArrowRight, Loader } from '
 import { generateRestockSuggestionSecure } from '@/actions/procurement-v2';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import { usePharmaStore } from '../../store/useStore';
 
 interface SuggestionStats {
     totalItems: number;
@@ -23,9 +24,11 @@ export const AutoOrderWidget: React.FC = () => {
 
     const loadSuggestions = async () => {
         try {
-            // Analizar para Santiago por defecto (o tomar del user context si fuera necesario)
-            // Location ID: Farmacia Vallenar santiago (bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6)
-            const result = await generateRestockSuggestionSecure(undefined, 15, 30, 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6');
+            const { currentLocationId } = usePharmaStore.getState();
+            // Analizar para la sucursal actual (o Santiago como fallback histórico)
+            const targetLocId = currentLocationId || 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6';
+
+            const result = await generateRestockSuggestionSecure(undefined, 15, 30, targetLocId);
 
             if (result.success && result.data) {
                 const suggestions = result.data.filter((item: any) => item.suggested_quantity > 0);
@@ -49,7 +52,7 @@ export const AutoOrderWidget: React.FC = () => {
 
     useEffect(() => {
         loadSuggestions();
-    }, []);
+    }, [usePharmaStore.getState().currentLocationId]);
 
     if (stats.isLoading) {
         return (

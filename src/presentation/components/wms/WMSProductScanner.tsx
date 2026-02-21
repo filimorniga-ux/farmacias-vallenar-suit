@@ -7,8 +7,10 @@
  * 
  * Skills activos: arquitecto-offline, timezone-santiago
  */
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Search, ScanBarcode, X, Package, Camera, Smartphone } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import {
+    ScanBarcode, Search, X, Loader2, Camera, Package, Smartphone
+} from 'lucide-react';
 import { InventoryBatch } from '@/domain/types';
 import { MobileScanner } from '@/components/shared/MobileScanner';
 import { usePlatform } from '@/hooks/usePlatform';
@@ -25,6 +27,8 @@ interface WMSProductScannerProps {
     autoFocus?: boolean;
     /** Deshabilitar input */
     disabled?: boolean;
+    /** Mostrar spinner de carga en el input */
+    isLoading?: boolean;
 }
 
 // Constantes para detección de barcode scanner
@@ -37,6 +41,7 @@ export const WMSProductScanner: React.FC<WMSProductScannerProps> = ({
     placeholder = 'Escanear código o buscar producto...',
     autoFocus = true,
     disabled = false,
+    isLoading = false,
 }) => {
     const { isMobile } = usePlatform();
     const [searchTerm, setSearchTerm] = useState('');
@@ -49,6 +54,26 @@ export const WMSProductScanner: React.FC<WMSProductScannerProps> = ({
     const inputBuffer = useRef<string>('');
     const barcodeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+
+    const exactCodeIndex = useMemo(() => {
+        const map = new Map<string, InventoryBatch>();
+        for (const item of inventory) {
+            map.set(item.sku, item);
+            if (item.barcode) map.set(item.barcode, item);
+        }
+        return map;
+    }, [inventory]);
+
+    const indexedInventory = useMemo(() => {
+        return inventory.map(item => ({
+            item,
+            name: item.name.toLowerCase(),
+            sku: item.sku.toLowerCase(),
+            barcode: item.barcode?.toLowerCase() || '',
+            laboratory: item.laboratory?.toLowerCase() || '',
+            dci: item.dci?.toLowerCase() || '',
+        }));
+    }, [inventory]);
 
     // Detectar si hay cámara disponible (móvil o HTTPS)
     useEffect(() => {
@@ -97,9 +122,7 @@ export const WMSProductScanner: React.FC<WMSProductScannerProps> = ({
         barcodeTimer.current = setTimeout(() => {
             if (inputBuffer.current.length >= BARCODE_MIN_LENGTH) {
                 // Intentar encontrar por barcode exacto
-                const exactMatch = inventory.find(
-                    p => p.barcode === inputBuffer.current || p.sku === inputBuffer.current
-                );
+                const exactMatch = exactCodeIndex.get(inputBuffer.current);
                 if (exactMatch) {
                     setIsBarcodeScan(true);
                     onProductSelected(exactMatch);
@@ -110,13 +133,11 @@ export const WMSProductScanner: React.FC<WMSProductScannerProps> = ({
                 }
             }
         }, 150); // Esperar 150ms después del último char
-    }, [inventory, onProductSelected]);
+    }, [exactCodeIndex, onProductSelected]);
 
     // Callback cuando la cámara escanea un código
     const handleCameraScan = useCallback((code: string) => {
-        const match = inventory.find(
-            p => p.barcode === code || p.sku === code
-        );
+        const match = exactCodeIndex.get(code);
         if (match) {
             onProductSelected(match);
             toast.success(`✅ ${match.name} agregado`);
@@ -124,30 +145,35 @@ export const WMSProductScanner: React.FC<WMSProductScannerProps> = ({
         } else {
             toast.error(`Producto no encontrado: ${code}`);
         }
-    }, [inventory, onProductSelected]);
+    }, [exactCodeIndex, onProductSelected]);
 
     // Filtrar productos por búsqueda
-    const filteredProducts = searchTerm.length >= 2
-        ? (() => {
-            const term = searchTerm.toLowerCase();
-            // Deduplicar por SKU y mostrar el de mayor stock
-            const skuMap = new Map<string, InventoryBatch>();
-            inventory.forEach(p => {
-                const matches = p.name.toLowerCase().includes(term)
-                    || p.sku.toLowerCase().includes(term)
-                    || p.barcode?.toLowerCase().includes(term)
-                    || p.laboratory?.toLowerCase().includes(term)
-                    || p.dci?.toLowerCase().includes(term);
-                if (matches) {
-                    const existing = skuMap.get(p.sku);
-                    if (!existing || p.stock_actual > existing.stock_actual) {
-                        skuMap.set(p.sku, p);
-                    }
-                }
-            });
-            return Array.from(skuMap.values()).slice(0, 15);
-        })()
-        : [];
+    const filteredProducts = useMemo(() => {
+        if (searchTerm.length < 2) return [];
+
+        const term = searchTerm.toLowerCase();
+        const skuMap = new Map<string, InventoryBatch>();
+
+        for (const candidate of indexedInventory) {
+            const matches =
+                candidate.name.includes(term) ||
+                candidate.sku.includes(term) ||
+                candidate.barcode.includes(term) ||
+                candidate.laboratory.includes(term) ||
+                candidate.dci.includes(term);
+
+            if (!matches) continue;
+
+            const existing = skuMap.get(candidate.item.sku);
+            if (!existing || candidate.item.stock_actual > existing.stock_actual) {
+                skuMap.set(candidate.item.sku, candidate.item);
+            }
+
+            if (skuMap.size >= 15) break;
+        }
+
+        return Array.from(skuMap.values()).slice(0, 15);
+    }, [indexedInventory, searchTerm]);
 
     const handleSelectProduct = (product: InventoryBatch) => {
         onProductSelected(product);
@@ -169,7 +195,11 @@ export const WMSProductScanner: React.FC<WMSProductScannerProps> = ({
                 <div className="flex gap-2">
                     <div className="relative flex-1">
                         <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
-                            <ScanBarcode size={20} />
+                            {isLoading ? (
+                                <Loader2 size={20} className="animate-spin" />
+                            ) : (
+                                <ScanBarcode size={20} className={isBarcodeScan ? 'text-sky-500' : ''} />
+                            )}
                         </div>
                         <input
                             ref={inputRef}

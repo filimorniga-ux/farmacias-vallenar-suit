@@ -759,12 +759,12 @@ export async function transferStockBetweenLocationsSecure(
         if (batchUpdates.length > 0) {
             for (let i = 0; i < batchUpdates.length; i += 100) {
                 const chunk = batchUpdates.slice(i, i + 100);
-                const values = chunk.map((_, idx) => `($${idx * 2 + 1}, $${idx * 2 + 2})`).join(',');
+                const values = chunk.map((_, idx) => `($${idx * 2 + 1}::uuid, $${idx * 2 + 2}::integer)`).join(',');
                 await client.query(`
                     UPDATE inventory_batches AS ib
                     SET quantity_real = v.qty, updated_at = NOW()
                     FROM (VALUES ${values}) AS v(id, qty)
-                    WHERE ib.id::text = v.id::text
+                    WHERE ib.id = v.id
                 `, chunk.flatMap(u => [u.id, u.quantity]));
             }
         }
@@ -773,12 +773,12 @@ export async function transferStockBetweenLocationsSecure(
         if (targetBatchUpdates.length > 0) {
             for (let i = 0; i < targetBatchUpdates.length; i += 100) {
                 const chunk = targetBatchUpdates.slice(i, i + 100);
-                const values = chunk.map((_, idx) => `($${idx * 2 + 1}, $${idx * 2 + 2})`).join(',');
+                const values = chunk.map((_, idx) => `($${idx * 2 + 1}::uuid, $${idx * 2 + 2}::integer)`).join(',');
                 await client.query(`
                     UPDATE inventory_batches AS ib
                     SET quantity_real = v.qty, updated_at = NOW()
                     FROM (VALUES ${values}) AS v(id, qty)
-                    WHERE ib.id::text = v.id::text
+                    WHERE ib.id = v.id
                 `, chunk.flatMap(u => [u.id, u.quantity]));
             }
         }

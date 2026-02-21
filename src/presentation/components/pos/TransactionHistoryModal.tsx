@@ -11,7 +11,7 @@ import { toast } from 'sonner';
 import { printSaleTicket } from '../../utils/print-utils';
 import { SaleTransaction } from '../../../domain/types';
 import ReturnsModal from './ReturnsModal';
-import { getChileDate, formatChileDate } from '@/lib/utils';
+import { getChileDate, formatChileDate, formatFriendlyId } from '@/lib/utils';
 
 interface TransactionHistoryModalProps {
     isOpen: boolean;
@@ -588,7 +588,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
                                                         {formatChileDate(item.timestamp, { hour: '2-digit', minute: '2-digit' })}
                                                     </span>
                                                     <h3 className="font-bold text-slate-800 text-sm truncate max-w-[200px]">
-                                                        {item.type === 'SALE' ? `Venta #${item.reason?.split('#')[1] || item.id.slice(0, 6)}` : item.type === 'EXTRA_INCOME' ? 'Ingreso Extra' : 'Gasto / Retiro'}
+                                                        {item.type === 'SALE' ? `Venta #${item.dte_folio || formatFriendlyId(item.timestamp)}` : item.type === 'EXTRA_INCOME' ? 'Ingreso Extra' : 'Gasto / Retiro'}
                                                     </h3>
                                                 </div>
                                                 <span className={`px-2 py-1 rounded text-xs font-bold ${conf.color} ${conf.bg}`}>
@@ -633,7 +633,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
                                 <div className="flex justify-between items-start mb-6">
                                     <div>
                                         <h2 className="text-xl font-bold text-slate-800">Detalle de {selectedItem.type === 'SALE' ? 'Venta' : 'Caja'}</h2>
-                                        <p className="text-sm text-slate-500 break-all">{selectedItem.id}</p>
+                                        <p className="text-sm text-slate-500 break-all">{formatFriendlyId(selectedItem.timestamp)}</p>
                                     </div>
                                     <button onClick={() => setSelectedItem(null)} className="md:hidden text-slate-400"><X /></button>
                                 </div>

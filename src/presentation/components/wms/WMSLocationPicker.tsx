@@ -129,7 +129,7 @@ export const WMSLocationPicker: React.FC<WMSLocationPickerProps> = ({
 
     // Modo transferencia (origen/destino por warehouse_id)
     // Regla: mismo grupo (Sucursal<->Sucursal o Bodega<->Bodega).
-    const transferOptions = locations
+    const transferOptionsRaw = locations
         .filter(location => {
             const group = getLocationGroup(location.type);
             if (!group || !currentGroup) return false;
@@ -137,6 +137,13 @@ export const WMSLocationPicker: React.FC<WMSLocationPickerProps> = ({
         })
         .map(location => ({ location, warehouseId: getWarehouseValue(location) }))
         .filter(option => Boolean(option.warehouseId));
+
+    const seenTransferWarehouses = new Set<string>();
+    const transferOptions = transferOptionsRaw.filter(({ warehouseId }) => {
+        if (!warehouseId || seenTransferWarehouses.has(warehouseId)) return false;
+        seenTransferWarehouses.add(warehouseId);
+        return true;
+    });
 
     const originOptions = transferOptions.filter(option => option.warehouseId !== selectedDestination);
     const destinationTransferOptions = transferOptions.filter(

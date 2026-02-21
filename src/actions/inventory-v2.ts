@@ -1154,6 +1154,102 @@ export async function clearLocationInventorySecure(params: {
 // =====================================================
 
 /**
+ * Obtiene inventario optimizado para WMS (solo lotes con stock > 0)
+ */
+export async function getWMSInventorySecure(
+    locationId: string
+): Promise<{ success: boolean; data: any[]; error?: string }> {
+    if (!z.string().uuid().safeParse(locationId).success) {
+        return { success: false, error: 'ID de ubicación inválido', data: [] };
+    }
+
+    try {
+        const res = await query(`
+            SELECT
+                ib.id::text as id,
+                ib.product_id::text as product_id,
+                ib.sku,
+                COALESCE(ib.name, p.name, 'Producto') as name,
+                p.dci,
+                p.laboratory,
+                p.category,
+                COALESCE(p.condicion_venta, 'VD') as condition,
+                p.barcode,
+                ib.location_id::text as location_id,
+                ib.warehouse_id::text as warehouse_id,
+                ib.quantity_real as stock_actual,
+                COALESCE(ib.stock_min, p.stock_minimo_seguridad, 0) as stock_min,
+                ib.expiry_date,
+                ib.lot_number,
+                COALESCE(ib.cost_net, p.cost_net, 0) as cost_net,
+                COALESCE(ib.price_sell_box, p.price_sell_box, p.price, 0) as price_sell_box,
+                COALESCE(p.price_sell_unit, p.price, 0) as price_sell_unit,
+                COALESCE(ib.sale_price, ib.price_sell_box, p.price, 0) as price,
+                COALESCE(ib.units_per_box, p.units_per_box, 1) as units_per_box,
+                COALESCE(ib.is_fractionable, true) as is_fractionable,
+                COALESCE(ib.units_stock_actual, 0) as units_stock_actual,
+                COALESCE(ib.is_retail_lot, false) as is_retail_lot,
+                ib.original_batch_id::text as original_batch_id,
+                ib.source_system,
+                ib.created_at
+            FROM inventory_batches ib
+            LEFT JOIN products p ON ib.product_id::text = p.id::text
+            WHERE (
+                ib.location_id = $1::uuid
+                OR ib.warehouse_id IN (
+                    SELECT id FROM warehouses WHERE location_id = $1::uuid
+                )
+            )
+            AND ib.quantity_real > 0
+            ORDER BY COALESCE(ib.name, p.name) ASC, ib.expiry_date ASC NULLS LAST
+        `, [locationId]);
+
+        const inventory = res.rows.map(row => ({
+            id: row.id,
+            product_id: row.product_id || undefined,
+            sku: row.sku,
+            name: row.name,
+            dci: row.dci || undefined,
+            laboratory: row.laboratory || undefined,
+            category: row.category || 'GENERAL',
+            condition: row.condition || 'VD',
+            barcode: row.barcode || undefined,
+            location_id: row.location_id || locationId,
+            warehouse_id: row.warehouse_id || undefined,
+            stock_actual: Number(row.stock_actual || 0),
+            stock_min: Number(row.stock_min || 0),
+            stock_max: 1000,
+            expiry_date: row.expiry_date ? new Date(row.expiry_date).getTime() : 0,
+            lot_number: row.lot_number || undefined,
+            cost_net: Number(row.cost_net || 0),
+            tax_percent: 19,
+            price_sell_box: Number(row.price_sell_box || row.price || 0),
+            price_sell_unit: Number(row.price_sell_unit || row.price || 0),
+            price: Number(row.price || 0),
+            cost_price: Number(row.cost_net || 0),
+            concentration: '',
+            unit_count: 1,
+            is_generic: false,
+            bioequivalent_status: 'NO_BIOEQUIVALENTE',
+            allows_commission: false,
+            active_ingredients: [],
+            units_per_box: Number(row.units_per_box || 1),
+            is_fractionable: Boolean(row.is_fractionable),
+            units_stock_actual: Number(row.units_stock_actual || 0),
+            is_retail_lot: Boolean(row.is_retail_lot),
+            original_batch_id: row.original_batch_id || undefined,
+            source_system: row.source_system || undefined,
+            created_at: row.created_at ? new Date(row.created_at).getTime() : undefined,
+        }));
+
+        return { success: true, data: inventory };
+    } catch (error: any) {
+        logger.error({ err: error, locationId }, '[InventoryV2] Error fetching WMS inventory');
+        return { success: false, error: error.message || 'Error obteniendo inventario WMS', data: [] };
+    }
+}
+
+/**
  * Obtiene inventario de una ubicación con validación
  */
 /**
@@ -1299,7 +1395,12 @@ export async function getInventorySecure(
                     ib.created_at
                 FROM inventory_batches ib
                 LEFT JOIN products p ON ib.product_id::text = p.id
-                WHERE ib.location_id = $1::uuid
+                WHERE (
+                    ib.location_id = $1::uuid
+                    OR ib.warehouse_id IN (
+                        SELECT id FROM warehouses WHERE location_id = $1::uuid
+                    )
+                )
                 AND (p.is_active = true OR p.id IS NULL) -- Allow orphaned batches or active products
                 
                 UNION ALL
@@ -1338,7 +1439,13 @@ export async function getInventorySecure(
                 AND p.is_active = true
                 AND NOT EXISTS (
                     SELECT 1 FROM inventory_batches ib 
-                    WHERE ib.sku = p.sku AND ib.location_id = $1::uuid
+                    WHERE ib.sku = p.sku
+                    AND (
+                        ib.location_id = $1::uuid
+                        OR ib.warehouse_id IN (
+                            SELECT id FROM warehouses WHERE location_id = $1::uuid
+                        )
+                    )
                 )
             ),
             grouped_inventory AS (
@@ -1383,7 +1490,9 @@ export async function getInventorySecure(
                             'is_fractionable', is_fractionable,
                             'units_stock_actual', units_stock_actual,
                             'is_retail_lot', is_retail_lot,
-                            'original_batch_id', original_batch_id
+                            'original_batch_id', original_batch_id,
+                            'source_system', source_system,
+                            'created_at', created_at
                         ) 
                     ) FILTER (WHERE batch_id IS NOT NULL) as batches,
                     
@@ -1457,6 +1566,8 @@ export async function getInventorySecure(
                         units_stock_actual?: number;
                         is_retail_lot?: boolean;
                         original_batch_id?: string;
+                        source_system?: string;
+                        created_at?: string | number | null;
                     }>;
 
                     return typedBatches.map((batch) => {
@@ -1489,7 +1600,8 @@ export async function getInventorySecure(
                             is_retail_lot: batchIsRetail,
                             original_batch_id: batch.original_batch_id || undefined,
                             is_express_entry: false,
-                            source_system: row.source_system
+                            source_system: batch.source_system || row.source_system,
+                            created_at: batch.created_at ? new Date(batch.created_at).getTime() : undefined
                         };
                     });
                 }
@@ -1520,7 +1632,8 @@ export async function getInventorySecure(
                     is_retail_lot: false,
                     original_batch_id: undefined,
                     is_express_entry: false,
-                    source_system: row.source_system
+                    source_system: row.source_system,
+                    created_at: undefined
                 }];
             });
 

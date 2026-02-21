@@ -6,14 +6,15 @@ import { PurchaseOrderReceivingModal } from '../components/scm/PurchaseOrderRece
 import ManualOrderModal from '../components/supply/ManualOrderModal';
 import { useNotificationStore } from '../store/useNotificationStore';
 import { toast } from 'sonner';
-import { generateRestockSuggestionSecure } from '../../actions/procurement-v2';
+import { generateRestockSuggestionSecure, type SuggestionAnalysisHistoryItem } from '../../actions/procurement-v2';
 import { deletePurchaseOrderSecure } from '../../actions/supply-v2';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { CameraScanner } from '../components/ui/CameraScanner';
 import SupplyKanban from '../components/supply/SupplyKanban';
 import TransferSuggestionsPanel from '../components/supply/TransferSuggestionsPanel';
+import SuggestionAnalysisHistoryPanel from '../components/supply/SuggestionAnalysisHistoryPanel';
 import { exportSuggestedOrdersSecure } from '../../actions/procurement-export';
-import { FileDown, Download } from 'lucide-react';
+import { FileDown } from 'lucide-react';
 
 // Extended type for frontend logic
 interface ExtendedSuggestion extends AutoOrderSuggestion {
@@ -71,6 +72,7 @@ const SupplyChainPage: React.FC = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [topLimit, setTopLimit] = useState(100);
     const [isExporting, setIsExporting] = useState(false);
+    const [analysisHistoryRefreshKey, setAnalysisHistoryRefreshKey] = useState(0);
 
     // ... (scanner hook and useEffects remain same)
     // Barcode Scanner Integration (Keyboard Wedge)
@@ -95,14 +97,8 @@ const SupplyChainPage: React.FC = () => {
         }
     }, [currentLocationId]);
 
-    useEffect(() => {
-        const timeoutId = setTimeout(() => {
-            // Live Search & Filter
-            runIntelligentAnalysis();
-        }, 600); // 600ms delay to avoid typing lag
-
-        return () => clearTimeout(timeoutId);
-    }, [searchQuery, stockFilter, selectedLocation, analysisWindow, daysToCover, topLimit, selectedSupplier]);
+    // Intelligent ordering analysis is now manual to allow users to configure filters first.
+    // The analysis only runs when the "Analizar" button is clicked or "Enter" is pressed in the search box.
 
     // Helper to recalculate single item suggestion
     const recalculateItem = (item: ExtendedSuggestion, windowDays: number, coverageDays: number): ExtendedSuggestion => {
@@ -113,7 +109,13 @@ const SupplyChainPage: React.FC = () => {
         const safetyContent = item.safety_stock || 0;
         const leadTime = 0;
 
-        const maxStock = Math.ceil((velocity * (coverageDays + leadTime)) + safetyContent);
+        // Effective safety fallback to 5 units if set to 0 in DB
+        const effectiveSafety = safetyContent > 0 ? safetyContent : 5;
+
+        // Goal stock is the max between projected demand + safety and the absolute safety floor
+        const targetCoverageStock = Math.ceil(velocity * (coverageDays + leadTime));
+        const maxStock = Math.max(effectiveSafety, Math.ceil(targetCoverageStock + safetyContent));
+
         const netNeeds = maxStock - item.current_stock - (item.incoming_stock || 0);
 
         const newSuggested = Math.max(0, Math.ceil(netNeeds));
@@ -142,7 +144,8 @@ const SupplyChainPage: React.FC = () => {
                 selectedLocation || undefined,
                 stockFilter || undefined,
                 searchQuery || undefined,
-                topLimit
+                topLimit,
+                true
             );
 
             if (!result.success || !result.data) {
@@ -164,6 +167,7 @@ const SupplyChainPage: React.FC = () => {
             });
 
             setSuggestions(initializedSuggestions);
+            setAnalysisHistoryRefreshKey((prev) => prev + 1);
 
             // Auto-select only critical/high urgency items to avoid massive accidental orders
             const criticalSkus = new Set(typedData.filter((s) => s.urgency === 'HIGH' || s.urgency === 'MEDIUM').map((s) => s.sku));
@@ -191,6 +195,60 @@ const SupplyChainPage: React.FC = () => {
             setIsAnalyzing(false);
         }
     };
+
+    const handleRestoreAnalysis = async (entry: SuggestionAnalysisHistoryItem) => {
+        setIsAnalyzing(true);
+        setSuggestions([]);
+
+        // Sync local states so UI reflects what was restored
+        setAnalysisWindow(entry.analysis_window);
+        setDaysToCover(entry.days_to_cover);
+        setSelectedSupplier(entry.supplier_id || '');
+        setSelectedLocation(entry.location_id || '');
+        setStockFilter(entry.stock_threshold);
+        setSearchQuery(entry.search_query || '');
+        setTopLimit(entry.limit);
+
+        try {
+            const result = await generateRestockSuggestionSecure(
+                entry.supplier_id || undefined,
+                entry.days_to_cover,
+                entry.analysis_window,
+                entry.location_id || undefined,
+                entry.stock_threshold ?? undefined,
+                entry.search_query || undefined,
+                entry.limit,
+                false // Don't track history again for a restoration
+            );
+
+            if (!result.success || !result.data) {
+                toast.error(result.error || 'Error al restaurar análisis');
+                setIsAnalyzing(false);
+                return;
+            }
+
+            const typedData = result.data as unknown as ExtendedSuggestion[];
+            const initializedSuggestions = typedData.map((item: ExtendedSuggestion) => {
+                const baseItem = {
+                    ...item,
+                    velocities: item.velocities || { [entry.analysis_window]: item.daily_velocity }
+                };
+                return recalculateItem(baseItem, entry.analysis_window, entry.days_to_cover);
+            });
+
+            setSuggestions(initializedSuggestions);
+            const criticalSkus = new Set(typedData.filter((s) => s.urgency === 'HIGH' || s.urgency === 'MEDIUM').map((s) => s.sku));
+            setSelectedSkus(criticalSkus);
+
+            toast.success(`Análisis restaurado: ${result.data.length} sugerencias cargadas.`);
+        } catch (error) {
+            console.error('Error restoring analysis:', error);
+            toast.error('Error inesperado al restaurar análisis');
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
+
 
     const updateSuggestion = (sku: string, field: keyof ExtendedSuggestion, value: any) => {
         setSuggestions(items =>
@@ -607,6 +665,13 @@ const SupplyChainPage: React.FC = () => {
                                 </div>
                             </div>
 
+                            <SuggestionAnalysisHistoryPanel
+                                locationId={selectedLocation || undefined}
+                                isActive={activeTab === 'suggestions'}
+                                refreshKey={analysisHistoryRefreshKey}
+                                onRestore={handleRestoreAnalysis}
+                            />
+
                             <div className="flex-1 overflow-y-auto p-0 scrollbar-hide bg-slate-50/50">
                                 {isAnalyzing ? (
                                     <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-4">
@@ -835,6 +900,7 @@ const SupplyChainPage: React.FC = () => {
                             suggestions={suggestions.filter(s => s.action_type === 'TRANSFER' || s.action_type === 'PARTIAL_TRANSFER')}
                             targetLocationId={selectedLocation || currentLocationId || ''}
                             targetLocationName={locations?.find(l => l.id === (selectedLocation || currentLocationId))?.name || 'Sucursal Actual'}
+                            defaultWarehouseId={locations?.find(l => l.id === (selectedLocation || currentLocationId))?.default_warehouse_id}
                             onTransferComplete={() => runIntelligentAnalysis()}
                             onGoBack={() => setActiveTab('suggestions')}
                         />

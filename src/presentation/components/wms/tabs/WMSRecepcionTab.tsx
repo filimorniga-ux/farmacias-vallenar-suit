@@ -11,7 +11,9 @@ import {
 } from 'lucide-react';
 import { WMSReportPanel } from '../WMSReportPanel';
 import { usePharmaStore } from '@/presentation/store/useStore';
+import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { getShipmentsSecure, processReceptionSecure } from '@/actions/wms-v2';
+import { exportStockMovementsSecure } from '@/actions/inventory-export-v2';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
@@ -20,8 +22,11 @@ interface PendingShipment {
     id: string;
     type: string;
     status: string;
+    direction?: 'INCOMING' | 'OUTGOING' | 'BOTH';
     origin_location_name?: string;
     destination_location_name?: string;
+    created_by_name?: string;
+    authorized_by_name?: string;
     carrier?: string;
     tracking_number?: string;
     items: Array<{
@@ -44,9 +49,19 @@ interface ReceivedItem {
     condition: 'GOOD' | 'DAMAGED';
 }
 
-export const WMSRecepcionTab: React.FC = () => {
+interface WMSRecepcionTabProps {
+    preselectedShipmentId?: string | null;
+    onPreselectionHandled?: () => void;
+}
+
+export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
+    preselectedShipmentId,
+    onPreselectionHandled
+}) => {
     const queryClient = useQueryClient();
     const { currentLocationId } = usePharmaStore();
+    const locationStoreCurrent = useLocationStore(s => s.currentLocation);
+    const effectiveLocationId = currentLocationId || locationStoreCurrent?.id || '';
 
     // State
     const [pendingShipments, setPendingShipments] = useState<PendingShipment[]>([]);
@@ -62,8 +77,9 @@ export const WMSRecepcionTab: React.FC = () => {
         setLoadingShipments(true);
         try {
             const res = await getShipmentsSecure({
-                locationId: currentLocationId,
+                locationId: effectiveLocationId || undefined,
                 status: 'IN_TRANSIT',
+                direction: 'INCOMING',
                 page: 1,
                 pageSize: 50,
             });
@@ -74,20 +90,20 @@ export const WMSRecepcionTab: React.FC = () => {
         } catch (error) {
             Sentry.captureException(error, {
                 tags: { module: 'WMS', tab: 'Recepcion', action: 'fetchPending' },
-                extra: { currentLocationId }
+                extra: { currentLocationId: effectiveLocationId }
             });
             toast.error('Error al cargar envíos');
         } finally {
             setLoadingShipments(false);
         }
-    }, [currentLocationId]);
+    }, [effectiveLocationId]);
 
     useEffect(() => {
         fetchPending();
     }, [fetchPending]);
 
     // Seleccionar envío para recepcionar
-    const handleSelectShipment = (shipment: PendingShipment) => {
+    const handleSelectShipment = useCallback((shipment: PendingShipment) => {
         setSelectedShipment(shipment);
         // Preparar items para recepción
         setReceivedItems(
@@ -100,7 +116,27 @@ export const WMSRecepcionTab: React.FC = () => {
                 condition: 'GOOD' as const,
             }))
         );
-    };
+    }, []);
+
+    useEffect(() => {
+        if (!preselectedShipmentId || loadingShipments || selectedShipment) return;
+
+        const target = pendingShipments.find(item => item.id === preselectedShipmentId);
+        if (target) {
+            handleSelectShipment(target);
+        } else {
+            toast.warning('El envío seleccionado no está disponible para esta ubicación');
+        }
+
+        onPreselectionHandled?.();
+    }, [
+        preselectedShipmentId,
+        pendingShipments,
+        loadingShipments,
+        selectedShipment,
+        handleSelectShipment,
+        onPreselectionHandled,
+    ]);
 
     // Actualizar cantidad recibida
     const handleQtyChange = (itemId: string, value: string) => {
@@ -168,6 +204,25 @@ export const WMSRecepcionTab: React.FC = () => {
         setReceptionNotes('');
     };
 
+    const handleExportExcel = async (filters: any) => {
+        const res = await exportStockMovementsSecure({
+            startDate: filters.startDate,
+            endDate: filters.endDate,
+            locationId: effectiveLocationId || undefined,
+            movementType: filters.movementType,
+            limit: 5000
+        });
+
+        if (res.success && res.data && res.filename) {
+            const link = document.createElement('a');
+            link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${res.data}`;
+            link.download = res.filename;
+            link.click();
+        } else {
+            throw new Error(res.error || 'Error al exportar');
+        }
+    };
+
     // Formatear fecha
     const formatDate = (ts: number) => {
         return new Date(ts).toLocaleDateString('es-CL', {
@@ -212,6 +267,14 @@ export const WMSRecepcionTab: React.FC = () => {
                                 {selectedShipment.carrier && `${selectedShipment.carrier} • `}
                                 {formatDate(selectedShipment.created_at)}
                             </p>
+                            <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate-500">
+                                {selectedShipment.created_by_name && (
+                                    <span>Creó: <strong className="text-slate-700">{selectedShipment.created_by_name}</strong></span>
+                                )}
+                                {selectedShipment.authorized_by_name && (
+                                    <span>Autorizó: <strong className="text-slate-700">{selectedShipment.authorized_by_name}</strong></span>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -396,6 +459,12 @@ export const WMSRecepcionTab: React.FC = () => {
                                         </span>
                                         <span>•</span>
                                         <span>{shipment.items.length} producto{shipment.items.length !== 1 ? 's' : ''}</span>
+                                        {shipment.created_by_name && (
+                                            <>
+                                                <span>•</span>
+                                                <span>Creó: {shipment.created_by_name}</span>
+                                            </>
+                                        )}
                                         {shipment.carrier && (
                                             <><span>•</span><span>{shipment.carrier}</span></>
                                         )}
@@ -417,8 +486,9 @@ export const WMSRecepcionTab: React.FC = () => {
             {showReports && (
                 <WMSReportPanel
                     activeTab="RECEPCION"
-                    locationId={currentLocationId}
+                    locationId={effectiveLocationId}
                     onClose={() => setShowReports(false)}
+                    onExportExcel={handleExportExcel}
                 />
             )}
         </div>

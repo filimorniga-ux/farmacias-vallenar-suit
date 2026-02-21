@@ -1,99 +1,111 @@
 import React, { useEffect, useState } from 'react';
 import {
-    Search, Filter, Calendar, Package, Truck,
-    ArrowRight, ChevronRight, History, Download,
-    SearchX, RefreshCw, Warehouse, Store
+    Download, Filter, History, Package, RefreshCw, SearchX, Truck, ArrowRight, ChevronRight, CalendarDays
 } from 'lucide-react';
-import { getSupplyChainHistorySecure } from '@/actions/supply-v2';
-import { MovementDetailModal } from './MovementDetailModal';
 import { toast } from 'sonner';
+import { usePharmaStore } from '@/presentation/store/useStore';
+import { exportSupplyChainHistorySecure, getSupplyChainHistorySecure } from '@/actions/supply-v2';
+import { MovementDetailModal } from './MovementDetailModal';
 
-import { exportPurchaseOrdersSecure } from '@/actions/inventory-export-v2';
+type HistoryType = 'PO' | 'SHIPMENT' | '';
+
+const formatDate = (value: string | number | Date) => {
+    const date = new Date(value);
+    return date.toLocaleDateString('es-CL', {
+        timeZone: 'America/Santiago',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+    });
+};
+
+const formatTime = (value: string | number | Date) => {
+    const date = new Date(value);
+    return date.toLocaleTimeString('es-CL', {
+        timeZone: 'America/Santiago',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+};
 
 export const SupplyChainHistoryTab: React.FC = () => {
+    const { currentLocationId } = usePharmaStore();
     const [history, setHistory] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
     const [pageSize] = useState(15);
-
-    // Filters
-    const [typeFilter, setTypeFilter] = useState<'PO' | 'SHIPMENT' | ''>('');
-    const [statusFilter, setStatusFilter] = useState('');
-
-    // Modal
-    const [selectedMovement, setSelectedMovement] = useState<any>(null);
-    const [isModalOpen, setIsModalOpen] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
 
-    useEffect(() => {
-        loadHistory();
-    }, [page, typeFilter, statusFilter]);
+    const [typeFilter, setTypeFilter] = useState<HistoryType>('');
+    const [statusFilter, setStatusFilter] = useState('');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
+
+    const [selectedMovement, setSelectedMovement] = useState<any>(null);
+    const [isModalOpen, setIsModalOpen] = useState(false);
 
     const loadHistory = async () => {
         setIsLoading(true);
         try {
-            const res = await getSupplyChainHistorySecure({
+            const result = await getSupplyChainHistorySecure({
+                locationId: currentLocationId || undefined,
                 type: typeFilter || undefined,
                 status: statusFilter || undefined,
+                startDate: startDate || undefined,
+                endDate: endDate || undefined,
                 page,
-                pageSize
+                pageSize,
             });
-            if (res.success) {
-                setHistory(res.data || []);
-                setTotal(res.total || 0);
+
+            if (result.success) {
+                setHistory(result.data || []);
+                setTotal(result.total || 0);
             } else {
-                toast.error(res.error || 'Error al cargar historial');
+                toast.error(result.error || 'No se pudo cargar el historial');
             }
-        } catch (error) {
+        } catch {
             toast.error('Error inesperado al cargar historial');
         } finally {
             setIsLoading(false);
         }
     };
 
-    const handleRowClick = (movement: any) => {
-        setSelectedMovement(movement);
-        setIsModalOpen(true);
-    };
+    useEffect(() => {
+        loadHistory();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [page, pageSize, typeFilter, statusFilter, startDate, endDate, currentLocationId]);
 
     const handleExport = async () => {
         setIsExporting(true);
         try {
-            const today = new Date();
-            const startStr = new Date(today.getFullYear(), today.getMonth(), 1).toISOString(); // First day of month
-            const endStr = today.toISOString();
-
-            const result = await exportPurchaseOrdersSecure({
-                startDate: startStr,
-                endDate: endStr,
-                limit: 1000
+            const result = await exportSupplyChainHistorySecure({
+                locationId: currentLocationId || undefined,
+                type: typeFilter || 'ALL',
+                status: statusFilter || undefined,
+                startDate: startDate || undefined,
+                endDate: endDate || undefined,
+                limit: 5000,
             });
 
-            if (result.success && result.data) {
-                const byteCharacters = atob(result.data);
-                const byteNumbers = new Array(byteCharacters.length);
-                for (let i = 0; i < byteCharacters.length; i++) {
-                    byteNumbers[i] = byteCharacters.charCodeAt(i);
-                }
-                const byteArray = new Uint8Array(byteNumbers);
-                const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = result.filename || `Historial_Compras_${new Date().toISOString().split('T')[0]}.xlsx`;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
-                toast.success('Reporte de compras generado');
-            } else {
-                toast.error(result.error || 'Error al exportar compras');
+            if (!result.success || !result.data) {
+                toast.error(result.error || 'No se pudo exportar el historial');
+                return;
             }
-        } catch (error) {
-            console.error('Export error:', error);
-            toast.error('Error inesperado al exportar historial');
+
+            const bytes = Uint8Array.from(atob(result.data), c => c.charCodeAt(0));
+            const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = result.filename || `Historial_Logistica_${new Date().toISOString().slice(0, 10)}.xlsx`;
+            document.body.appendChild(link);
+            link.click();
+            URL.revokeObjectURL(url);
+            document.body.removeChild(link);
+            toast.success('Excel corporativo generado');
+        } catch {
+            toast.error('Error inesperado al exportar');
         } finally {
             setIsExporting(false);
         }
@@ -101,19 +113,18 @@ export const SupplyChainHistoryTab: React.FC = () => {
 
     return (
         <div className="space-y-4">
-            {/* Filters Bar */}
-            <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-200 flex flex-wrap gap-4 items-center justify-between">
-                <div className="flex flex-wrap gap-3 items-center">
+            <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-200 flex flex-wrap gap-3 items-end justify-between">
+                <div className="flex flex-wrap gap-2 items-end">
                     <div className="relative">
                         <Filter size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                         <select
                             value={typeFilter}
-                            onChange={(e) => { setTypeFilter(e.target.value as any); setPage(1); }}
-                            className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-sky-500/20 transition-all appearance-none cursor-pointer"
+                            onChange={(event) => { setTypeFilter(event.target.value as HistoryType); setPage(1); }}
+                            className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-sky-500/20 appearance-none"
                         >
                             <option value="">Todos los Tipos</option>
                             <option value="PO">Órdenes de Compra</option>
-                            <option value="SHIPMENT">Despachos / Envíos</option>
+                            <option value="SHIPMENT">Traspasos / Despachos</option>
                         </select>
                     </div>
 
@@ -121,8 +132,8 @@ export const SupplyChainHistoryTab: React.FC = () => {
                         <History size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                         <select
                             value={statusFilter}
-                            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-                            className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-sky-500/20 transition-all appearance-none cursor-pointer"
+                            onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }}
+                            className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-sky-500/20 appearance-none"
                         >
                             <option value="">Todos los Estados</option>
                             <option value="DRAFT">Borrador</option>
@@ -132,6 +143,28 @@ export const SupplyChainHistoryTab: React.FC = () => {
                             <option value="DELIVERED">Entregado</option>
                             <option value="CANCELLED">Cancelado</option>
                         </select>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <div className="relative">
+                            <CalendarDays size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input
+                                type="date"
+                                value={startDate}
+                                onChange={(event) => { setStartDate(event.target.value); setPage(1); }}
+                                className="pl-10 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-sky-500/20"
+                            />
+                        </div>
+                        <ArrowRight size={14} className="text-slate-300" />
+                        <div className="relative">
+                            <CalendarDays size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input
+                                type="date"
+                                value={endDate}
+                                onChange={(event) => { setEndDate(event.target.value); setPage(1); }}
+                                className="pl-10 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-sky-500/20"
+                            />
+                        </div>
                     </div>
                 </div>
 
@@ -154,7 +187,6 @@ export const SupplyChainHistoryTab: React.FC = () => {
                 </div>
             </div>
 
-            {/* List / Table */}
             <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
                 {isLoading && history.length === 0 ? (
                     <div className="p-20 flex flex-col items-center justify-center text-slate-400">
@@ -167,7 +199,7 @@ export const SupplyChainHistoryTab: React.FC = () => {
                             <SearchX size={40} className="text-slate-300" />
                         </div>
                         <h3 className="font-bold text-slate-800 text-lg">No se encontraron movimientos</h3>
-                        <p className="text-sm max-w-[280px]">Prueba ajustando los filtros de búsqueda o cambia la ubicación.</p>
+                        <p className="text-sm max-w-[320px]">Prueba ajustando filtros de estado, tipo o rango de fechas.</p>
                     </div>
                 ) : (
                     <div className="overflow-x-auto">
@@ -177,30 +209,30 @@ export const SupplyChainHistoryTab: React.FC = () => {
                                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tipo / ID</th>
                                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Origen / Destino</th>
                                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Estado</th>
+                                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Responsables</th>
                                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Items</th>
                                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Fecha</th>
                                     <th className="px-6 py-4"></th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
-                                {history.map((item) => (
+                                {history.map(item => (
                                     <tr
                                         key={`${item.main_type}-${item.id}`}
-                                        onClick={() => handleRowClick(item)}
+                                        onClick={() => { setSelectedMovement(item); setIsModalOpen(true); }}
                                         className="group hover:bg-slate-50 transition-colors cursor-pointer"
                                     >
                                         <td className="px-6 py-4">
                                             <div className="flex items-center gap-3">
-                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm ${item.main_type === 'PO' ? 'bg-purple-50 text-purple-600' : 'bg-cyan-50 text-cyan-600'
-                                                    }`}>
+                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm ${item.main_type === 'PO' ? 'bg-purple-50 text-purple-600' : 'bg-cyan-50 text-cyan-600'}`}>
                                                     {item.main_type === 'PO' ? <Package size={20} /> : <Truck size={20} />}
                                                 </div>
                                                 <div>
                                                     <div className="font-bold text-slate-900 text-sm">
                                                         {item.main_type === 'PO' ? 'Orden de Compra' : 'Movimiento WMS'}
                                                     </div>
-                                                    <div className="text-[10px] font-mono text-slate-400 truncate max-w-[80px]">
-                                                        {item.id.split('-')[0]}...
+                                                    <div className="text-[10px] font-mono text-slate-400 truncate max-w-[160px]">
+                                                        {item.id}
                                                     </div>
                                                 </div>
                                             </div>
@@ -208,24 +240,13 @@ export const SupplyChainHistoryTab: React.FC = () => {
                                         <td className="px-6 py-4">
                                             {item.main_type === 'PO' ? (
                                                 <div className="space-y-0.5">
-                                                    <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium">
-                                                        <Truck size={12} /> Proveedor
-                                                    </div>
-                                                    <div className="font-bold text-slate-800 text-xs">
-                                                        {item.supplier_name || 'Desconocido'}
-                                                    </div>
+                                                    <div className="text-[10px] font-bold text-slate-400 uppercase">Proveedor</div>
+                                                    <div className="text-xs font-bold text-slate-700">{item.supplier_name || 'Sin proveedor'}</div>
                                                 </div>
                                             ) : (
-                                                <div className="flex items-center gap-2">
-                                                    <div className="text-center">
-                                                        <div className="text-[10px] font-bold text-slate-400 uppercase">Desde</div>
-                                                        <div className="text-xs font-bold text-slate-700">{item.origin_location_name || 'Almacén'}</div>
-                                                    </div>
-                                                    <ArrowRight size={14} className="text-slate-300" />
-                                                    <div className="text-center">
-                                                        <div className="text-[10px] font-bold text-slate-400 uppercase">Hacia</div>
-                                                        <div className="text-xs font-bold text-slate-700">{item.location_name || 'Destino'}</div>
-                                                    </div>
+                                                <div className="space-y-0.5">
+                                                    <div className="text-xs font-semibold text-slate-700">{item.origin_location_name || 'Origen'}</div>
+                                                    <div className="text-[10px] text-slate-400">→ {item.location_name || 'Destino'}</div>
                                                 </div>
                                             )}
                                         </td>
@@ -237,9 +258,17 @@ export const SupplyChainHistoryTab: React.FC = () => {
                                                     : item.status === 'IN_TRANSIT'
                                                         ? 'bg-sky-50 text-sky-600 border border-sky-100'
                                                         : 'bg-amber-50 text-amber-600 border border-amber-100'
-                                                }`}>
+                                                }`}
+                                            >
                                                 {item.status}
                                             </span>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <div className="text-[11px] text-slate-600 space-y-0.5">
+                                                <div>Creó: <strong className="text-slate-700">{item.created_by_name || 'Sistema'}</strong></div>
+                                                <div>Autorizó: <strong className="text-slate-700">{item.authorized_by_name || '-'}</strong></div>
+                                                <div>Recibió: <strong className="text-slate-700">{item.received_by_name || '-'}</strong></div>
+                                            </div>
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="flex items-center gap-1.5 font-bold text-slate-700 text-sm">
@@ -248,12 +277,8 @@ export const SupplyChainHistoryTab: React.FC = () => {
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
-                                            <div className="text-xs font-bold text-slate-700">
-                                                {new Date(item.created_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' })}
-                                            </div>
-                                            <div className="text-[10px] text-slate-400">
-                                                {new Date(item.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
-                                            </div>
+                                            <div className="text-xs font-bold text-slate-700">{formatDate(item.created_at)}</div>
+                                            <div className="text-[10px] text-slate-400">{formatTime(item.created_at)}</div>
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="w-8 h-8 rounded-full bg-slate-50 group-hover:bg-slate-900 group-hover:text-white flex items-center justify-center transition-all">
@@ -268,7 +293,6 @@ export const SupplyChainHistoryTab: React.FC = () => {
                 )}
             </div>
 
-            {/* Pagination (Simplified) */}
             {total > pageSize && (
                 <div className="flex items-center justify-between px-2 text-sm">
                     <span className="text-slate-500 font-medium">Mostrando {history.length} de {total} movimientos</span>
@@ -291,7 +315,6 @@ export const SupplyChainHistoryTab: React.FC = () => {
                 </div>
             )}
 
-            {/* Detail Modal */}
             <MovementDetailModal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
@@ -300,3 +323,4 @@ export const SupplyChainHistoryTab: React.FC = () => {
         </div>
     );
 };
+

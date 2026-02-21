@@ -1,5 +1,6 @@
 import 'server-only';
 import { Pool, type PoolClient } from 'pg';
+import { isTransientPgConnectionError } from './db-errors';
 export type { PoolClient };
 
 // Detectar entorno
@@ -112,22 +113,13 @@ export async function query(text: string, params?: (string | number | boolean | 
             const duration = Date.now() - start;
             const pgError = error as { code?: string; message?: string };
             const isLastAttempt = attempt === MAX_RETRIES;
-            const isTransientError = pgError.code && [
-                'ECONNREFUSED',
-                'ECONNRESET',
-                'ETIMEDOUT',
-                '57P01', // admin_shutdown
-                '57P02', // crash_shutdown
-                '57P03', // cannot_connect_now
-                '08001', // sql_client_unable_to_establish_sql_connection
-                '08003', // connection_does_not_exist
-                '08006', // connection_failure
-            ].includes(pgError.code) || pgError.message?.includes('aborted');
+            const isTransientError = isTransientPgConnectionError(pgError);
 
             if (isLastAttempt || !isTransientError) {
                 console.error(`❌ [DB] Error Fatal (Intento ${attempt}/${MAX_RETRIES}):`, {
                     message: pgError.message,
                     code: pgError.code,
+                    duration,
                     pool: {
                         total: pool.totalCount,
                         idle: pool.idleCount,
@@ -148,6 +140,7 @@ export async function query(text: string, params?: (string | number | boolean | 
 export async function getClient() {
     const MAX_RETRIES = 3;
     const RETRY_DELAY = 1500;
+    const start = Date.now();
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
@@ -156,14 +149,23 @@ export async function getClient() {
         } catch (error: unknown) {
             const pgError = error as { code?: string; message?: string };
             const isLastAttempt = attempt === MAX_RETRIES;
-            const isTransient = pgError.code === 'ECONNRESET' || pgError.code === 'ECONNREFUSED' || pgError.message?.includes('aborted');
+            const isTransient = isTransientPgConnectionError(pgError);
 
             if (isLastAttempt || !isTransient) {
-                console.error(`❌ [DB] Error obteniendo cliente (Intento ${attempt}/${MAX_RETRIES}):`, pgError.message);
+                console.error(`❌ [DB] Error obteniendo cliente (Intento ${attempt}/${MAX_RETRIES}):`, {
+                    message: pgError.message,
+                    code: pgError.code,
+                    duration: Date.now() - start,
+                    pool: {
+                        total: pool.totalCount,
+                        idle: pool.idleCount,
+                        waiting: pool.waitingCount,
+                    },
+                });
                 throw error;
             }
 
-            console.warn(`⚠️ [DB] Reintentando conexión (Intento ${attempt}/${MAX_RETRIES})...`);
+            console.warn(`⚠️ [DB] Reintentando conexión por error transitorio "${pgError.code || pgError.message || 'unknown'}" (Intento ${attempt}/${MAX_RETRIES})...`);
             await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempt));
         }
     }

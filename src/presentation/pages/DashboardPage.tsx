@@ -121,8 +121,15 @@ const DashboardPage: React.FC = () => {
     };
 
     const handleLocationSwitch = (locId: string) => {
-        switchLocation(locId);
-        setIsLocationMenuOpen(false);
+        const target = locations.find(l => l.id === locId);
+        if (target) {
+            switchLocation(locId);
+            const { setCurrentLocation } = usePharmaStore.getState();
+            const warehouseId = target.default_warehouse_id || target.id;
+            setCurrentLocation(target.id, warehouseId, '');
+            setIsLocationMenuOpen(false);
+            console.log('🔄 Dashboard: Contexto sincronizado a:', target.name);
+        }
     };
 
     // --- NAVIGATION & LOGIN LOGIC ---
