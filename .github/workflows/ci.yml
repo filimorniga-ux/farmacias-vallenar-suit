@@ -42,8 +42,8 @@ jobs:
           echo "Skipping Smoke DB Health check because secrets are not set."
         fi
       env:
-        APP_URL: ${{ secrets.APP_URL }}
-        HEALTHCHECK_TOKEN: ${{ secrets.HEALTHCHECK_TOKEN }}
+        APP_URL: ${{ fromJson(toJson(secrets)).APP_URL }}
+        HEALTHCHECK_TOKEN: ${{ fromJson(toJson(secrets)).HEALTHCHECK_TOKEN }}
 
   actions:
     name: Server Actions Validation
