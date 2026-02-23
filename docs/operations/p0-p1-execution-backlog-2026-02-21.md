@@ -18,7 +18,7 @@ Zona horaria oficial: `America/Santiago`
 - [x] Generación de lote nuevo por artículo transferido con `batchColor`.
 - [x] Tab de tránsito bidireccional con filtros entrante/saliente.
 - [x] Smoke Desktop Windows/macOS en cada release candidate (gating agregado en `.github/workflows/release.yml`).
-- [~] Matriz Playwright para flujos críticos cross-platform (suite lista, bloqueada por timeout DB en entorno de ejecución).
+- [x] Matriz Playwright para flujos críticos cross-platform (corrida `test:e2e:prod` estable: 49 passed, 21 skipped, 0 failed).
 
 ## Dependencias
 1. Resolver datos legacy de sucursales eliminadas vs activas.
