@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { render, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SupplyKanban from '@/presentation/components/supply/SupplyKanban';
 
@@ -27,6 +27,10 @@ const mocks = vi.hoisted(() => {
     const refreshPurchaseOrdersMock = vi.fn<(locationId?: string) => Promise<void>>();
     const removePurchaseOrderMock = vi.fn<(id: string) => void>();
     const updatePurchaseOrderMock = vi.fn<(id: string, data: unknown) => void>();
+    const updatePurchaseOrderSecureMock = vi.fn();
+    const getHistoryItemDetailsSecureMock = vi.fn();
+    const toastErrorMock = vi.fn();
+    const toastSuccessMock = vi.fn();
 
     const pharmaState: PharmaState = {
         currentLocationId: undefined,
@@ -55,6 +59,10 @@ const mocks = vi.hoisted(() => {
         pharmaState,
         refreshShipmentsMock,
         refreshPurchaseOrdersMock,
+        updatePurchaseOrderSecureMock,
+        getHistoryItemDetailsSecureMock,
+        toastErrorMock,
+        toastSuccessMock,
         usePharmaStoreMock,
         useLocationStoreMock,
         setLocationState: (next: { currentLocation: NullableLocation }) => {
@@ -67,6 +75,10 @@ const {
     pharmaState,
     refreshShipmentsMock,
     refreshPurchaseOrdersMock,
+    updatePurchaseOrderSecureMock,
+    getHistoryItemDetailsSecureMock,
+    toastErrorMock,
+    toastSuccessMock,
     setLocationState,
 } = mocks;
 
@@ -80,13 +92,14 @@ vi.mock('@/presentation/store/useLocationStore', () => ({
 
 vi.mock('@/actions/supply-v2', () => ({
     deletePurchaseOrderSecure: vi.fn(),
-    updatePurchaseOrderSecure: vi.fn(),
+    getHistoryItemDetailsSecure: mocks.getHistoryItemDetailsSecureMock,
+    updatePurchaseOrderSecure: mocks.updatePurchaseOrderSecureMock,
 }));
 
 vi.mock('sonner', () => ({
     toast: {
-        error: vi.fn(),
-        success: vi.fn(),
+        error: mocks.toastErrorMock,
+        success: mocks.toastSuccessMock,
     },
 }));
 
@@ -105,6 +118,8 @@ describe('SupplyKanban fallback de ubicación', () => {
 
         refreshShipmentsMock.mockResolvedValue(undefined);
         refreshPurchaseOrdersMock.mockResolvedValue(undefined);
+        updatePurchaseOrderSecureMock.mockResolvedValue({ success: true });
+        getHistoryItemDetailsSecureMock.mockResolvedValue({ success: true, data: [] });
     });
 
     it('usa scope corporativo cuando el locationId efectivo no es UUID válido', async () => {
@@ -145,5 +160,89 @@ describe('SupplyKanban fallback de ubicación', () => {
         expect(refreshPurchaseOrdersMock.mock.calls[0]?.[0]).toBe('550e8400-e29b-41d4-a716-446655440000');
         expect(refreshShipmentsMock.mock.calls[1]?.[0]).toBeUndefined();
         expect(refreshPurchaseOrdersMock.mock.calls[1]?.[0]).toBeUndefined();
+    });
+
+    it('marca enviada usando warehouse_id legacy y line_items cuando falta target_warehouse_id/items', async () => {
+        pharmaState.purchaseOrders = [
+            {
+                id: '550e8400-e29b-41d4-a716-446655440100',
+                status: 'APPROVED',
+                supplier_name: 'Proveedor Legacy',
+                warehouse_id: '550e8400-e29b-41d4-a716-446655440200',
+                items_count: 1,
+                line_items: [
+                    {
+                        sku: 'SKU-001',
+                        name: 'Producto Test',
+                        quantity_ordered: 2,
+                        cost_price: 1000,
+                        product_id: '550e8400-e29b-41d4-a716-446655440300',
+                    },
+                ],
+            },
+        ];
+
+        render(
+            <SupplyKanban
+                onEditOrder={vi.fn()}
+                onReceiveOrder={vi.fn()}
+            />
+        );
+
+        fireEvent.click(await screen.findByRole('button', { name: 'MARCAR ENVIADA' }));
+        expect(updatePurchaseOrderSecureMock).not.toHaveBeenCalled();
+        fireEvent.click(await screen.findByRole('button', { name: 'Confirmar envío' }));
+
+        await waitFor(() => {
+            expect(updatePurchaseOrderSecureMock).toHaveBeenCalledTimes(1);
+        });
+
+        const payload = updatePurchaseOrderSecureMock.mock.calls[0]?.[1] as { targetWarehouseId?: string };
+        expect(payload?.targetWarehouseId).toBe('550e8400-e29b-41d4-a716-446655440200');
+        expect(toastErrorMock).not.toHaveBeenCalledWith('La orden no tiene bodega de destino');
+        expect(toastErrorMock).not.toHaveBeenCalledWith('La orden no tiene items para enviar');
+        expect(toastSuccessMock).toHaveBeenCalledWith('Orden marcada como enviada');
+    });
+
+    it('recupera items desde backend cuando la tarjeta no trae detalle', async () => {
+        pharmaState.purchaseOrders = [
+            {
+                id: '550e8400-e29b-41d4-a716-446655440101',
+                status: 'APPROVED',
+                supplier_name: 'Proveedor Sin Detalle',
+                target_warehouse_id: '550e8400-e29b-41d4-a716-446655440201',
+                items_count: 2,
+            },
+        ];
+        getHistoryItemDetailsSecureMock.mockResolvedValue({
+            success: true,
+            data: [
+                {
+                    sku: 'SKU-API-1',
+                    name: 'Producto API',
+                    quantity: 3,
+                    cost: 1200,
+                    product_id: '550e8400-e29b-41d4-a716-446655440301',
+                },
+            ],
+        });
+
+        render(
+            <SupplyKanban
+                onEditOrder={vi.fn()}
+                onReceiveOrder={vi.fn()}
+            />
+        );
+
+        fireEvent.click(await screen.findByRole('button', { name: 'MARCAR ENVIADA' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Confirmar envío' }));
+
+        await waitFor(() => {
+            expect(getHistoryItemDetailsSecureMock).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440101', 'PO');
+            expect(updatePurchaseOrderSecureMock).toHaveBeenCalledTimes(1);
+        });
+
+        expect(toastErrorMock).not.toHaveBeenCalledWith('La orden no tiene items para enviar');
+        expect(toastSuccessMock).toHaveBeenCalledWith('Orden marcada como enviada');
     });
 });

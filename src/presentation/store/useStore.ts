@@ -1760,6 +1760,7 @@ export const usePharmaStore = create<PharmaState>()(
             logoutShift: () => {
                 try {
                     localStorage.removeItem('pos_session_id');
+                    localStorage.removeItem('pos_session_metadata');
                 } catch (e) { }
 
                 const state = get();
@@ -1769,16 +1770,16 @@ export const usePharmaStore = create<PharmaState>()(
                 // para evitar el bug de "sesión fantasma" en la interfaz.
                 if (state.currentTerminalId) {
                     updatedTerminals = state.terminals.map(t =>
-                        t.id === state.currentTerminalId ? { ...t, status: 'CLOSED', current_cashier_id: null } : t
+                        t.id === state.currentTerminalId ? { ...t, status: 'CLOSED', current_cashier_id: undefined } : t
                     );
                 }
 
-                set((state) => ({
+                set(() => ({
                     currentShift: null,
                     cart: [],
                     currentCustomer: null,
                     terminals: updatedTerminals,
-                    currentTerminalId: null // Fundamental: Rompe el lock UI-Backend
+                    currentTerminalId: undefined // Fundamental: Rompe el lock UI-Backend
                 }));
             },
 

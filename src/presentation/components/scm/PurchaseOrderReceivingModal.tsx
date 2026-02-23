@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Truck, CheckCircle, AlertTriangle, Calendar, Package } from 'lucide-react';
+import { Truck, CheckCircle, Calendar, Package } from 'lucide-react';
 import { PurchaseOrder } from '../../../domain/types';
 import { toast } from 'sonner';
+import { getHistoryItemDetailsSecure } from '@/actions/supply-v2';
 
 interface PurchaseOrderReceivingModalProps {
     isOpen: boolean;
@@ -12,26 +13,100 @@ interface PurchaseOrderReceivingModalProps {
 
 interface ItemReceptionState {
     sku: string;
+    name: string;
     expectedQty: number;
     receivedQty: number;
     lotNumber: string;
     expiryDate: string; // YYYY-MM-DD
 }
 
+function normalizeQty(item: Record<string, unknown>): number {
+    const raw = item.quantity_ordered ?? item.quantity ?? 0;
+    const normalized = Number(raw);
+    return Number.isFinite(normalized) ? normalized : 0;
+}
+
+function resolveOrderItemRecords(order: PurchaseOrder | null): Record<string, unknown>[] {
+    if (!order) return [];
+    const source = order as unknown as Record<string, unknown>;
+    const candidates: unknown[] = [
+        source.items,
+        source.order_items,
+        source.line_items,
+        source.items_detail,
+    ];
+
+    for (const candidate of candidates) {
+        if (Array.isArray(candidate)) {
+            return candidate.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object');
+        }
+    }
+
+    return [];
+}
+
+function mapToReceptionState(item: Record<string, unknown>): ItemReceptionState | null {
+    const sku = typeof item.sku === 'string' ? item.sku : '';
+    if (!sku) return null;
+    const expectedQty = normalizeQty(item);
+    const name = typeof item.name === 'string' && item.name.trim().length > 0 ? item.name : 'Producto';
+
+    return {
+        sku,
+        name,
+        expectedQty,
+        receivedQty: expectedQty, // Pre-fill with expected
+        lotNumber: '',
+        expiryDate: ''
+    };
+}
+
 export const PurchaseOrderReceivingModal: React.FC<PurchaseOrderReceivingModalProps> = ({ isOpen, order, onReceive, onClose }) => {
     const [items, setItems] = useState<ItemReceptionState[]>([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isLoadingItems, setIsLoadingItems] = useState(false);
 
     useEffect(() => {
-        if (order) {
-            setItems(order.items.map(item => ({
-                sku: item.sku,
-                expectedQty: item.quantity_ordered,
-                receivedQty: item.quantity_ordered, // Pre-fill with expected
-                lotNumber: '',
-                expiryDate: ''
-            })));
+        if (!order) {
+            setItems([]);
+            return;
         }
+
+        let isCancelled = false;
+        const bootstrapItems = async () => {
+            const payloadItems = resolveOrderItemRecords(order)
+                .map(mapToReceptionState)
+                .filter((item): item is ItemReceptionState => item !== null);
+
+            if (payloadItems.length > 0) {
+                if (!isCancelled) setItems(payloadItems);
+                return;
+            }
+
+            setIsLoadingItems(true);
+            try {
+                const details = await getHistoryItemDetailsSecure(String(order.id), 'PO');
+                const detailItems = (details.success && Array.isArray(details.data) ? details.data : [])
+                    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+                    .map(mapToReceptionState)
+                    .filter((item): item is ItemReceptionState => item !== null);
+
+                if (!isCancelled) {
+                    setItems(detailItems);
+                }
+            } catch {
+                if (!isCancelled) {
+                    setItems([]);
+                }
+            } finally {
+                if (!isCancelled) setIsLoadingItems(false);
+            }
+        };
+
+        void bootstrapItems();
+        return () => {
+            isCancelled = true;
+        };
     }, [order]);
 
     if (!isOpen || !order) return null;
@@ -43,6 +118,11 @@ export const PurchaseOrderReceivingModal: React.FC<PurchaseOrderReceivingModalPr
     };
 
     const handleSubmit = async () => {
+        if (items.length === 0) {
+            toast.warning('La orden no tiene ítems disponibles para recepcionar');
+            return;
+        }
+
         // Validate
         const invalidItems = items.filter(i => i.receivedQty > 0 && (!i.lotNumber || !i.expiryDate));
         if (invalidItems.length > 0) {
@@ -84,7 +164,9 @@ export const PurchaseOrderReceivingModal: React.FC<PurchaseOrderReceivingModalPr
                             <Truck size={24} className="text-emerald-400" />
                             Recepción de Orden #{order.id.slice(0, 8)}
                         </h3>
-                        <p className="text-slate-400 text-sm mt-1">Proveedor: {order.supplier_id} • Bodega Destino: {order.destination_location_id}</p>
+                        <p className="text-slate-400 text-sm mt-1">
+                            Proveedor: {order.supplier_name || order.supplier_id || '-'} • Bodega Destino: {order.destination_location_id || order.location_id || '-'}
+                        </p>
                     </div>
                     <button onClick={onClose} className="text-slate-400 hover:text-white transition bg-slate-800 p-2 rounded-lg hover:bg-slate-700">✕</button>
                 </div>
@@ -103,14 +185,27 @@ export const PurchaseOrderReceivingModal: React.FC<PurchaseOrderReceivingModalPr
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
+                            {isLoadingItems && (
+                                <tr>
+                                    <td colSpan={6} className="p-6 text-center text-sm text-slate-500">
+                                        Cargando ítems de la orden...
+                                    </td>
+                                </tr>
+                            )}
+                            {!isLoadingItems && items.length === 0 && (
+                                <tr>
+                                    <td colSpan={6} className="p-6 text-center text-sm text-slate-500">
+                                        Esta orden no tiene ítems disponibles.
+                                    </td>
+                                </tr>
+                            )}
                             {items.map((item, idx) => {
-                                const product = order.items.find(pi => pi.sku === item.sku);
                                 const isMismatch = item.receivedQty !== item.expectedQty;
 
                                 return (
                                     <tr key={item.sku} className="hover:bg-slate-50 transition">
                                         <td className="p-4">
-                                            <div className="font-bold text-slate-800">{product?.name}</div>
+                                            <div className="font-bold text-slate-800">{item.name}</div>
                                             <div className="text-xs text-slate-400 font-mono">{item.sku}</div>
                                         </td>
                                         <td className="p-4 text-center font-medium text-slate-600">
@@ -185,7 +280,7 @@ export const PurchaseOrderReceivingModal: React.FC<PurchaseOrderReceivingModalPr
                     </button>
                     <button
                         onClick={handleSubmit}
-                        disabled={isSubmitting || totalReceived === 0}
+                        disabled={isSubmitting || isLoadingItems || totalReceived === 0 || items.length === 0}
                         className="px-8 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-lg shadow-emerald-600/20 disabled:opacity-50 disabled:shadow-none transition flex items-center gap-2"
                     >
                         {isSubmitting ? 'Procesando...' : (

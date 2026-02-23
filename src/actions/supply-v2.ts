@@ -134,6 +134,62 @@ async function validateManagerPin(
     }
 }
 
+async function runAuditInsertSafely(client: DBRow, operation: () => Promise<void>): Promise<boolean> {
+    const savepoint = 'audit_supply_safe';
+
+    try {
+        await client.query(`SAVEPOINT ${savepoint}`);
+        await operation();
+        await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+        return true;
+    } catch (error) {
+        try {
+            await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+            await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+        } catch (rollbackError) {
+            logger.warn({ error: rollbackError }, '[Supply] Audit savepoint rollback failed');
+        }
+
+        logger.warn({ error }, '[Supply] Audit insert failed (non-critical)');
+        return false;
+    }
+}
+
+async function insertSupplyAuditSafe(client: DBRow, params: {
+    userId: string;
+    actionCode: string;
+    entityType: string;
+    entityId: string;
+    newValues?: Record<string, unknown>;
+}): Promise<void> {
+    const payload = JSON.stringify(params.newValues || {});
+
+    const insertedPrimary = await runAuditInsertSafely(client, async () => {
+        await client.query(`
+            INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at)
+            VALUES ($1, $2, $3, $4, $5::jsonb, NOW())
+        `, [params.userId, params.actionCode, params.entityType, params.entityId, payload]);
+    });
+
+    if (insertedPrimary) return;
+
+    const insertedLegacySchema = await runAuditInsertSafely(client, async () => {
+        await client.query(`
+            INSERT INTO audit_logs (usuario, accion, detalle, fecha)
+            VALUES ($1, $2, $3, NOW())
+        `, [params.userId, params.actionCode, payload]);
+    });
+
+    if (insertedLegacySchema) return;
+
+    await runAuditInsertSafely(client, async () => {
+        await client.query(`
+            INSERT INTO audit_logs (user_id, action_code, entity_type, entity_id, new_values, created_at)
+            VALUES ($1, $2, $3, $4, $5::jsonb, NOW())
+        `, [params.userId, params.actionCode, params.entityType, params.entityId, payload]);
+    });
+}
+
 // ============================================================================
 // CREATE PURCHASE ORDER
 // ============================================================================
@@ -202,10 +258,13 @@ export async function createPurchaseOrderSecure(
             `, [randomUUID(), poId, item.sku, item.name, item.quantity, item.cost]);
         }
 
-        await client.query(`
-            INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at)
-            VALUES ($1, 'PO_CREATED', 'PURCHASE_ORDER', $2, $3::jsonb, NOW())
-        `, [userId, poId, JSON.stringify({ supplier_id: supplierId, items_count: items.length })]);
+        await insertSupplyAuditSafe(client, {
+            userId,
+            actionCode: 'PO_CREATED',
+            entityType: 'PURCHASE_ORDER',
+            entityId: poId,
+            newValues: { supplier_id: supplierId, items_count: items.length },
+        });
 
         await client.query('COMMIT');
         logger.info({ poId, userId }, '📦 [Supply] PO created');
@@ -273,18 +332,25 @@ export async function receivePurchaseOrderSecure(
         const warehouseId = po.target_warehouse_id;
         let locationId = po.location_id;
 
-        // If for some reason location_id is not in PO, try to get it from default_location_id or any location in warehouse
+        // If location_id is not in PO, resolve from warehouse schema current fields.
         if (!locationId) {
-            const whRes = await client.query('SELECT default_location_id FROM warehouses WHERE id = $1', [warehouseId]);
-            if (whRes.rows.length > 0 && whRes.rows[0].default_location_id) {
-                locationId = whRes.rows[0].default_location_id;
-            } else {
-                // Fallback to first available location in that warehouse
-                const locRes = await client.query('SELECT id FROM warehouse_locations WHERE warehouse_id = $1 LIMIT 1', [warehouseId]);
-                if (locRes.rows.length > 0) {
-                    locationId = locRes.rows[0].id;
-                }
+            const whRes = await client.query('SELECT location_id FROM warehouses WHERE id = $1', [warehouseId]);
+            if (whRes.rows.length > 0 && whRes.rows[0].location_id) {
+                locationId = whRes.rows[0].location_id;
             }
+        }
+
+        // Final fallback for legacy/inconsistent data where PO and warehouse lack location.
+        if (!locationId) {
+            const locRes = await client.query('SELECT id FROM locations ORDER BY created_at ASC NULLS LAST, id ASC LIMIT 1');
+            if (locRes.rows.length > 0 && locRes.rows[0].id) {
+                locationId = locRes.rows[0].id;
+            }
+        }
+
+        if (!locationId) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'No se pudo resolver ubicación de destino para recepcionar la orden' };
         }
 
         const itemsToReceive = (receivedItems && receivedItems.length > 0) ? receivedItems : itemsRes.rows.map((i: DBRow) => ({
@@ -334,7 +400,13 @@ export async function receivePurchaseOrderSecure(
         }
 
         await client.query('UPDATE purchase_orders SET status = \'RECEIVED\', received_by = $2 WHERE id = $1', [purchaseOrderId, userId]);
-        await client.query('INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, created_at) VALUES ($1, \'PURCHASE_ORDER_RECEIVED\', \'PURCHASE_ORDER\', $2, NOW())', [userId, purchaseOrderId]);
+        await insertSupplyAuditSafe(client, {
+            userId,
+            actionCode: 'PURCHASE_ORDER_RECEIVED',
+            entityType: 'PURCHASE_ORDER',
+            entityId: purchaseOrderId,
+            newValues: { items_received: itemsToReceive.length },
+        });
 
         await client.query('COMMIT');
         revalidatePath('/supply-chain');

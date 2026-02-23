@@ -1464,11 +1464,8 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
                 cu.name as created_by_name,
                 au.name as approved_by_name,
                 ru.name as received_by_name,
-                (
-                    SELECT COUNT(*)
-                    FROM purchase_order_items poi
-                    WHERE poi.purchase_order_id = po.id
-                ) as items_count
+                COALESCE(poi_agg.items_count, 0) as items_count,
+                COALESCE(poi_agg.items, '[]'::json) as items
             FROM purchase_orders po
             LEFT JOIN suppliers s ON po.supplier_id::text = s.id::text
             LEFT JOIN warehouses w ON po.target_warehouse_id::text = w.id::text
@@ -1476,36 +1473,73 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
             LEFT JOIN users cu ON po.created_by::text = cu.id::text
             LEFT JOIN users au ON po.approved_by::text = au.id::text
             LEFT JOIN users ru ON po.received_by::text = ru.id::text
+            LEFT JOIN LATERAL (
+                SELECT
+                    COUNT(*)::int as items_count,
+                    COALESCE(
+                        json_agg(
+                            json_build_object(
+                                'sku', poi.sku,
+                                'name', poi.name,
+                                'quantity', COALESCE(poi.quantity_ordered, 0),
+                                'quantity_ordered', COALESCE(poi.quantity_ordered, 0),
+                                'cost', COALESCE(poi.cost_price, 0),
+                                'cost_price', COALESCE(poi.cost_price, 0),
+                                'product_id', poi.product_id
+                            )
+                            ORDER BY poi.sku
+                        ) FILTER (WHERE poi.id IS NOT NULL),
+                        '[]'::json
+                    ) as items
+                FROM purchase_order_items poi
+                WHERE poi.purchase_order_id = po.id
+            ) poi_agg ON true
             ${whereClause}
             ORDER BY po.created_at DESC
             LIMIT $${paramIndex++} OFFSET $${paramIndex++}
         `, params);
 
         // Map to consistent format
-        const purchaseOrders = purchaseOrdersResult.rows.map(row => ({
-            id: row.id,
-            supplier_id: row.supplier_id,
-            supplier_name: row.supplier_name,
-            location_id: row.location_id, // This will now come from the join (w.location_id) but I should probably alias it in the SELECT
-            location_name: row.location_name,
-            status: row.status,
-            total_amount: Number(row.total_amount) || 0,
-            tax_amount: Number(row.tax_amount) || 0,
-            items: row.items || [],
-            items_count: Number(row.items_count) || 0,
-            created_at: row.created_at ? new Date(row.created_at).getTime() : null,
-            updated_at: row.updated_at ? new Date(row.updated_at).getTime() : null,
-            expected_delivery: row.expected_delivery ? new Date(row.expected_delivery).getTime() : null,
-            delivery_date: row.delivery_date ? new Date(row.delivery_date).getTime() : null,
-            created_by: row.created_by,
-            created_by_name: row.created_by_name,
-            approved_by: row.approved_by,
-            approved_by_name: row.approved_by_name,
-            received_by: row.received_by,
-            received_by_name: row.received_by_name,
-            notes: row.notes,
-            documents: row.documents || []
-        }));
+        const purchaseOrders = purchaseOrdersResult.rows.map(row => {
+            let parsedItems: unknown[] = [];
+            if (Array.isArray(row.items)) {
+                parsedItems = row.items;
+            } else if (typeof row.items === 'string') {
+                try {
+                    const candidate = JSON.parse(row.items);
+                    parsedItems = Array.isArray(candidate) ? candidate : [];
+                } catch {
+                    parsedItems = [];
+                }
+            }
+
+            return {
+                id: row.id,
+                supplier_id: row.supplier_id,
+                supplier_name: row.supplier_name,
+                target_warehouse_id: row.target_warehouse_id,
+                targetWarehouseId: row.target_warehouse_id,
+                location_id: row.location_id, // This will now come from the join (w.location_id) but I should probably alias it in the SELECT
+                location_name: row.location_name,
+                status: row.status,
+                total_amount: Number(row.total_amount) || 0,
+                tax_amount: Number(row.tax_amount) || 0,
+                items: parsedItems,
+                items_count: Number(row.items_count) || 0,
+                created_at: row.created_at ? new Date(row.created_at).getTime() : null,
+                updated_at: row.updated_at ? new Date(row.updated_at).getTime() : null,
+                expected_delivery: row.expected_delivery ? new Date(row.expected_delivery).getTime() : null,
+                delivery_date: row.delivery_date ? new Date(row.delivery_date).getTime() : null,
+                created_by: row.created_by,
+                created_by_name: row.created_by_name,
+                approved_by: row.approved_by,
+                approved_by_name: row.approved_by_name,
+                received_by: row.received_by,
+                received_by_name: row.received_by_name,
+                notes: row.notes,
+                documents: row.documents || []
+            };
+        });
 
         return {
             success: true,

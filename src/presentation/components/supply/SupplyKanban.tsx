@@ -3,7 +3,7 @@ import { CheckCircle, Package, RefreshCw, Trash2, Truck } from 'lucide-react';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { toast } from 'sonner';
-import { deletePurchaseOrderSecure, updatePurchaseOrderSecure } from '@/actions/supply-v2';
+import { deletePurchaseOrderSecure, getHistoryItemDetailsSecure, updatePurchaseOrderSecure } from '@/actions/supply-v2';
 import {
     buildSupplyKanbanEntries,
     SupplyKanbanColumnKey,
@@ -43,6 +43,35 @@ function isPurchaseOrderEntry(entry: SupplyKanbanEntry): boolean {
     return entry.source === 'PO';
 }
 
+function resolveTargetWarehouseId(payload: Record<string, unknown>): string {
+    const candidates: unknown[] = [
+        payload.target_warehouse_id,
+        payload.targetWarehouseId,
+        payload.warehouse_id,
+        payload.warehouseId,
+    ];
+
+    const resolved = candidates.find((candidate) => typeof candidate === 'string' && candidate.trim().length > 0);
+    return typeof resolved === 'string' ? resolved.trim() : '';
+}
+
+function resolveOrderItems(payload: Record<string, unknown>): Record<string, unknown>[] {
+    const candidates: unknown[] = [
+        payload.items,
+        payload.order_items,
+        payload.line_items,
+        payload.items_detail,
+    ];
+
+    for (const candidate of candidates) {
+        if (Array.isArray(candidate)) {
+            return candidate.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object');
+        }
+    }
+
+    return [];
+}
+
 const KanbanColumn: React.FC<KanbanColumnProps> = ({
     title,
     columnKey,
@@ -57,13 +86,14 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
     updatePurchaseOrder,
 }) => {
     const columnEntries = entries.filter((entry) => entry.column === columnKey);
+    const [pendingMarkAsSentId, setPendingMarkAsSentId] = useState<string | null>(null);
+    const [submittingMarkAsSentId, setSubmittingMarkAsSentId] = useState<string | null>(null);
 
     const handleMarkAsSent = async (entry: SupplyKanbanEntry) => {
         const po = entry.payload;
-        if (!confirm('¿Marcar esta orden como enviada al proveedor?')) return;
+        if (submittingMarkAsSentId === entry.id) return;
 
-        const rawItems = Array.isArray(po.items) ? po.items : [];
-        const targetWarehouseId = po.target_warehouse_id ? String(po.target_warehouse_id) : '';
+        const targetWarehouseId = resolveTargetWarehouseId(po);
 
         if (!targetWarehouseId) {
             toast.error('La orden no tiene bodega de destino');
@@ -76,6 +106,21 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
         }
 
         try {
+            setSubmittingMarkAsSentId(entry.id);
+            let rawItems = resolveOrderItems(po);
+
+            if (rawItems.length === 0) {
+                const details = await getHistoryItemDetailsSecure(String(po.id), 'PO');
+                if (details.success && Array.isArray(details.data)) {
+                    rawItems = details.data.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object');
+                }
+            }
+
+            if (rawItems.length === 0) {
+                toast.error('La orden no tiene items para enviar');
+                return;
+            }
+
             const mappedData = {
                 id: String(po.id),
                 supplierId: po.supplier_id ? String(po.supplier_id) : null,
@@ -96,11 +141,14 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
             if (res.success) {
                 updatePurchaseOrder(entry.id, { ...po, status: 'SENT' });
                 toast.success('Orden marcada como enviada');
+                setPendingMarkAsSentId(null);
             } else {
                 toast.error(res.error || 'Error al actualizar');
             }
         } catch (err: any) {
             toast.error(err?.message || 'Error de red al conectar con el servidor');
+        } finally {
+            setSubmittingMarkAsSentId((current) => (current === entry.id ? null : current));
         }
     };
 
@@ -123,6 +171,8 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
                         const canDelete = isPurchaseOrderEntry(entry) && (columnKey === 'DRAFT' || columnKey === 'APPROVED' || columnKey === 'SENT');
                         const canMarkSent = isPurchaseOrderEntry(entry) && columnKey === 'APPROVED';
                         const canReceive = isPurchaseOrderEntry(entry) && (columnKey === 'SENT' || columnKey === 'APPROVED');
+                        const isPendingMarkAsSent = pendingMarkAsSentId === entry.id;
+                        const isSubmittingMarkAsSent = submittingMarkAsSentId === entry.id;
 
                         return (
                             <div
@@ -189,12 +239,45 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
                                 )}
 
                                 {canMarkSent && (
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); void handleMarkAsSent(entry); }}
-                                        className="w-full py-2 mb-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-[10px] font-bold shadow-sm shadow-amber-200 transition-all active:scale-95"
-                                    >
-                                        MARCAR ENVIADA
-                                    </button>
+                                    isPendingMarkAsSent ? (
+                                        <div className="mb-2 p-2 rounded-xl border border-amber-200 bg-amber-50">
+                                            <p className="text-[10px] font-semibold text-amber-800 mb-2">
+                                                Confirmar envío al proveedor
+                                            </p>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setPendingMarkAsSentId(null);
+                                                    }}
+                                                    disabled={isSubmittingMarkAsSent}
+                                                    className="py-1.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-[10px] font-bold hover:bg-slate-50 disabled:opacity-50"
+                                                >
+                                                    Cancelar
+                                                </button>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        void handleMarkAsSent(entry);
+                                                    }}
+                                                    disabled={isSubmittingMarkAsSent}
+                                                    className="py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-bold disabled:opacity-50"
+                                                >
+                                                    {isSubmittingMarkAsSent ? 'Enviando...' : 'Confirmar envío'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setPendingMarkAsSentId(entry.id);
+                                            }}
+                                            className="w-full py-2 mb-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-[10px] font-bold shadow-sm shadow-amber-200 transition-all active:scale-95"
+                                        >
+                                            MARCAR ENVIADA
+                                        </button>
+                                    )
                                 )}
 
                                 {canReceive && (

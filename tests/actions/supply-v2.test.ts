@@ -168,3 +168,154 @@ describe('Supply V2 - Legacy filter resilience', () => {
         expect(vi.mocked(mockDb.query)).not.toHaveBeenCalled();
     });
 });
+
+describe('Supply V2 - Receive PO schema compatibility', () => {
+    it('should receive PO resolving warehouse location_id without default_location_id', async () => {
+        const mockDb = await import('@/lib/db');
+        const userId = '550e8400-e29b-41d4-a716-446655440901';
+        const purchaseOrderId = '550e8400-e29b-41d4-a716-446655440902';
+        const warehouseId = '550e8400-e29b-41d4-a716-446655440903';
+        const locationId = '550e8400-e29b-41d4-a716-446655440904';
+        const productId = '550e8400-e29b-41d4-a716-446655440905';
+
+        const clientQuery = vi.fn(async (sql: string) => {
+            if (sql === 'BEGIN ISOLATION LEVEL SERIALIZABLE' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+                return { rows: [], rowCount: 0 } as any;
+            }
+            if (sql.includes('SELECT * FROM purchase_orders WHERE id = $1 FOR UPDATE NOWAIT')) {
+                return {
+                    rows: [{
+                        id: purchaseOrderId,
+                        status: 'SENT',
+                        total_amount: 1000,
+                        target_warehouse_id: warehouseId,
+                        location_id: null,
+                    }],
+                    rowCount: 1
+                } as any;
+            }
+            if (sql.includes('SELECT * FROM purchase_order_items WHERE purchase_order_id = $1')) {
+                return { rows: [{ sku: 'SKU-TEST-01', quantity_ordered: 2 }], rowCount: 1 } as any;
+            }
+            if (sql.includes('SELECT location_id FROM warehouses WHERE id = $1')) {
+                return { rows: [{ location_id: locationId }], rowCount: 1 } as any;
+            }
+            if (sql.includes('SELECT id, name, sale_price, cost_price FROM products WHERE sku = $1')) {
+                return {
+                    rows: [{ id: productId, name: 'Producto Test', sale_price: 1200, cost_price: 800 }],
+                    rowCount: 1
+                } as any;
+            }
+            if (sql.includes('SELECT id, quantity_real FROM inventory_batches')) {
+                return { rows: [], rowCount: 0 } as any;
+            }
+            if (
+                sql.includes('INSERT INTO inventory_batches') ||
+                sql.includes('INSERT INTO stock_movements') ||
+                sql.includes('UPDATE purchase_order_items SET quantity_received') ||
+                sql.includes('UPDATE purchase_orders SET status = \'RECEIVED\'') ||
+                sql.includes('INSERT INTO audit_log')
+            ) {
+                return { rows: [], rowCount: 1 } as any;
+            }
+            return { rows: [], rowCount: 0 } as any;
+        });
+
+        vi.mocked(mockDb.pool.connect).mockResolvedValue({
+            query: clientQuery,
+            release: vi.fn()
+        } as any);
+
+        const result = await supplyV2.receivePurchaseOrderSecure(
+            { purchaseOrderId },
+            userId
+        );
+
+        expect(result.success).toBe(true);
+        expect(clientQuery).toHaveBeenCalledWith('SELECT location_id FROM warehouses WHERE id = $1', [warehouseId]);
+        const sqlCalls = clientQuery.mock.calls.map((call) => String(call[0] || ''));
+        expect(sqlCalls.some((sql) => sql.includes('default_location_id'))).toBe(false);
+        expect(sqlCalls.some((sql) => sql.includes('warehouse_locations'))).toBe(false);
+    });
+
+    it('should keep receive flow successful when audit_log table does not exist', async () => {
+        const mockDb = await import('@/lib/db');
+        const userId = '550e8400-e29b-41d4-a716-446655440911';
+        const purchaseOrderId = '550e8400-e29b-41d4-a716-446655440912';
+        const warehouseId = '550e8400-e29b-41d4-a716-446655440913';
+        const locationId = '550e8400-e29b-41d4-a716-446655440914';
+        const productId = '550e8400-e29b-41d4-a716-446655440915';
+
+        const clientQuery = vi.fn(async (sql: string) => {
+            if (
+                sql === 'BEGIN ISOLATION LEVEL SERIALIZABLE' ||
+                sql === 'COMMIT' ||
+                sql === 'ROLLBACK' ||
+                sql.startsWith('SAVEPOINT audit_supply_safe') ||
+                sql.startsWith('ROLLBACK TO SAVEPOINT audit_supply_safe') ||
+                sql.startsWith('RELEASE SAVEPOINT audit_supply_safe')
+            ) {
+                return { rows: [], rowCount: 0 } as any;
+            }
+            if (sql.includes('SELECT * FROM purchase_orders WHERE id = $1 FOR UPDATE NOWAIT')) {
+                return {
+                    rows: [{
+                        id: purchaseOrderId,
+                        status: 'SENT',
+                        total_amount: 1000,
+                        target_warehouse_id: warehouseId,
+                        location_id: null,
+                    }],
+                    rowCount: 1
+                } as any;
+            }
+            if (sql.includes('SELECT * FROM purchase_order_items WHERE purchase_order_id = $1')) {
+                return { rows: [{ sku: 'SKU-TEST-02', quantity_ordered: 1 }], rowCount: 1 } as any;
+            }
+            if (sql.includes('SELECT location_id FROM warehouses WHERE id = $1')) {
+                return { rows: [{ location_id: locationId }], rowCount: 1 } as any;
+            }
+            if (sql.includes('SELECT id, name, sale_price, cost_price FROM products WHERE sku = $1')) {
+                return {
+                    rows: [{ id: productId, name: 'Producto Audit Fallback', sale_price: 900, cost_price: 500 }],
+                    rowCount: 1
+                } as any;
+            }
+            if (sql.includes('SELECT id, quantity_real FROM inventory_batches')) {
+                return { rows: [], rowCount: 0 } as any;
+            }
+            if (
+                sql.includes('INSERT INTO inventory_batches') ||
+                sql.includes('INSERT INTO stock_movements') ||
+                sql.includes('UPDATE purchase_order_items SET quantity_received') ||
+                sql.includes('UPDATE purchase_orders SET status = \'RECEIVED\'')
+            ) {
+                return { rows: [], rowCount: 1 } as any;
+            }
+            if (sql.includes('INSERT INTO audit_log')) {
+                const relationError = new Error('relation "audit_log" does not exist') as Error & { code?: string };
+                relationError.code = '42P01';
+                throw relationError;
+            }
+            if (sql.includes('INSERT INTO audit_logs (usuario, accion, detalle, fecha)')) {
+                return { rows: [], rowCount: 1 } as any;
+            }
+            return { rows: [], rowCount: 0 } as any;
+        });
+
+        vi.mocked(mockDb.pool.connect).mockResolvedValue({
+            query: clientQuery,
+            release: vi.fn()
+        } as any);
+
+        const result = await supplyV2.receivePurchaseOrderSecure(
+            { purchaseOrderId },
+            userId
+        );
+
+        expect(result.success).toBe(true);
+        expect(clientQuery).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO audit_log'), expect.any(Array));
+        expect(clientQuery).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO audit_logs (usuario, accion, detalle, fecha)'), expect.any(Array));
+        expect(clientQuery).toHaveBeenCalledWith('COMMIT');
+    });
+});
