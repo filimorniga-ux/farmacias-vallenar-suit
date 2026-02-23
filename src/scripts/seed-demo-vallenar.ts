@@ -23,8 +23,8 @@ const pool = new Pool({
 
 // --- CONSTANTS ---
 const BRANCHES = [
-    { name: 'Farmacia Vallenar Centro', address: 'Calle Prat 123, Vallenar', email: 'centro@farmaciasvallenar.cl', phone: '+56 51 261 1111' },
-    { name: 'Farmacia Vallenar Prat', address: 'Calle Ramírez 456, Vallenar', email: 'prat@farmaciasvallenar.cl', phone: '+56 51 261 2222' }
+    { name: 'Farmacia Centro', address: 'Calle Prat 123, Vallenar', email: 'centro@farmaciasvallenar.cl', phone: '+56 51 261 1111' },
+    { name: 'Farmacia Prat', address: 'Calle Ramírez 456, Vallenar', email: 'prat@farmaciasvallenar.cl', phone: '+56 51 261 2222' }
 ];
 
 const WAREHOUSES = [

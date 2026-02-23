@@ -35,6 +35,7 @@ import { toast } from 'sonner';
 import { buildSoldQuantityByBatch, resolveCartBatchIds } from '../../domain/logic/cartStock';
 import type { ActionFailure } from '@/lib/action-response';
 import { resolveLoginTimeoutMs } from '@/lib/login-resilience';
+import * as Sentry from '@sentry/nextjs';
 // Mocks removed
 // Mocks removed
 
@@ -2083,15 +2084,39 @@ export const usePharmaStore = create<PharmaState>()(
             }),
             refreshShipments: async (locationId) => {
                 const effectiveId = locationId || get().currentLocationId;
-                const { TigerDataService } = await import('../../domain/services/TigerDataService');
-                const shipments = await TigerDataService.fetchShipments(effectiveId);
-                set({ shipments: shipments || [] });
+                try {
+                    const { TigerDataService } = await import('../../domain/services/TigerDataService');
+                    const shipments = await TigerDataService.fetchShipments(effectiveId);
+                    set({ shipments: shipments || [] });
+                } catch (error) {
+                    Sentry.captureException(error, {
+                        tags: {
+                            module: 'useStore',
+                            action: 'refreshShipments',
+                        },
+                        extra: {
+                            locationId: effectiveId || null,
+                        }
+                    });
+                }
             },
             refreshPurchaseOrders: async (locationId) => {
                 const effectiveId = locationId || get().currentLocationId;
-                const { TigerDataService } = await import('../../domain/services/TigerDataService');
-                const purchaseOrders = await TigerDataService.fetchPurchaseOrders(effectiveId);
-                set({ purchaseOrders: purchaseOrders || [] });
+                try {
+                    const { TigerDataService } = await import('../../domain/services/TigerDataService');
+                    const purchaseOrders = await TigerDataService.fetchPurchaseOrders(effectiveId);
+                    set({ purchaseOrders: purchaseOrders || [] });
+                } catch (error) {
+                    Sentry.captureException(error, {
+                        tags: {
+                            module: 'useStore',
+                            action: 'refreshPurchaseOrders',
+                        },
+                        extra: {
+                            locationId: effectiveId || null,
+                        }
+                    });
+                }
             },
 
 

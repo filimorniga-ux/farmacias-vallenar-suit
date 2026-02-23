@@ -12,9 +12,11 @@
  * - Sanitización de output
  */
 
+import * as Sentry from '@sentry/nextjs';
 import { query } from '@/lib/db';
-import { headers } from 'next/headers';
-import { unstable_cache } from 'next/cache';
+import { classifyPgError } from '@/lib/db-errors';
+import { createCorrelationId, type ActionFailure } from '@/lib/action-response';
+import { logger } from '@/lib/logger';
 
 export interface PublicLocation {
     id: string;
@@ -23,12 +25,14 @@ export interface PublicLocation {
     type: 'STORE' | 'WAREHOUSE' | 'HQ';
 }
 
-export async function getPublicLocationsSecure(): Promise<{
-    success: boolean;
-    data?: PublicLocation[];
-    error?: string;
-}> {
-    console.time('⏱️ [PublicNetwork] getPublicLocationsSecure');
+export type PublicLocationsResult =
+    | { success: true; data: PublicLocation[] }
+    | ActionFailure;
+
+export async function getPublicLocationsSecure(): Promise<PublicLocationsResult> {
+    const correlationId = createCorrelationId();
+    const start = Date.now();
+
     try {
         const res = await query(`
             SELECT id, name, address, type 
@@ -44,11 +48,51 @@ export async function getPublicLocationsSecure(): Promise<{
             type: row.type,
         }));
 
-        console.timeEnd('⏱️ [PublicNetwork] getPublicLocationsSecure');
+        logger.info(
+            {
+                correlationId,
+                count: data.length,
+                elapsedMs: Date.now() - start,
+            },
+            'Public locations fetched'
+        );
+
         return { success: true, data };
 
-    } catch (error: any) {
-        console.error('getPublicLocationsSecure Error:', error);
-        return { success: false, error: `Error al cargar sucursales: ${error.message || 'Desconocido'}` };
+    } catch (error) {
+        const classified = classifyPgError(error);
+
+        Sentry.captureException(error, {
+            tags: {
+                module: 'public-network-v2',
+                action: 'getPublicLocationsSecure',
+                code: classified.code,
+            },
+            extra: {
+                correlationId,
+                retryable: classified.retryable,
+                elapsedMs: Date.now() - start,
+            },
+        });
+
+        logger.error(
+            {
+                correlationId,
+                code: classified.code,
+                retryable: classified.retryable,
+                technicalMessage: classified.technicalMessage,
+                elapsedMs: Date.now() - start,
+            },
+            'Public locations fetch failed'
+        );
+
+        return {
+            success: false,
+            error: classified.userMessage,
+            code: classified.code,
+            retryable: classified.retryable,
+            correlationId,
+            userMessage: classified.userMessage,
+        };
     }
 }

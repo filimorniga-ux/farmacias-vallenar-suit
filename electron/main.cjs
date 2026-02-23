@@ -34,6 +34,7 @@ let retryCount = 0;
 const MAX_RETRIES = 3;
 
 function createWindow() {
+    const isDev = !app.isPackaged;
     const win = new BrowserWindow({
         width: 1280,
         height: 800,
@@ -46,13 +47,15 @@ function createWindow() {
             contextIsolation: true,
             preload: path.join(__dirname, 'preload.cjs'),
             sandbox: false, // Required for some integrations
-            devTools: true  // Enable DevTools for debugging
+            devTools: isDev  // Enable DevTools only in development
         },
     });
 
-    // Maximize on start for better experience
-    win.maximize();
-    win.show();
+    win.once('ready-to-show', () => {
+        // Maximize on first paint for desktop parity without white flash.
+        win.maximize();
+        win.show();
+    });
 
     // HANDLE RENDER PROCESS CRASHES
     win.webContents.on('render-process-gone', (event, details) => {
@@ -74,7 +77,6 @@ function createWindow() {
     });
 
     // URL CONFIGURATION
-    const isDev = !app.isPackaged;
     const startUrl = isDev ? 'http://localhost:3000' : 'https://farmaciasvallenar.vercel.app';
     log.info('Loading URL:', startUrl);
 
@@ -269,4 +271,3 @@ app.on('will-quit', () => {
     // Unregister shortcuts
     globalShortcut.unregisterAll();
 });
-

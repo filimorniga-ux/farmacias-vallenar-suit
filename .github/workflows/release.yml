@@ -16,8 +16,54 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  desktop-smoke:
+    name: Desktop Smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: macos
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web app (parity baseline)
+        run: npm run build
+        env:
+          DATABASE_URL: "postgres://mock:mock@localhost:5432/mock"
+          NEXT_PUBLIC_APP_URL: "http://localhost:3000"
+
+      - name: Build unpacked Windows app (smoke)
+        if: matrix.platform == 'windows'
+        env:
+          CI: "true"
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --win --x64 --dir --publish never
+
+      - name: Build unpacked macOS app (smoke)
+        if: matrix.platform == 'macos'
+        env:
+          CI: "true"
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --mac --dir --publish never
+
   release-windows:
     name: Release Windows
+    needs: desktop-smoke
     runs-on: windows-latest
 
     steps:
@@ -52,6 +98,7 @@ jobs:
 
   release-macos:
     name: Release macOS
+    needs: desktop-smoke
     runs-on: macos-latest
 
     steps:

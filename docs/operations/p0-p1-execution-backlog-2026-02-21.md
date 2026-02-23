@@ -17,7 +17,7 @@ Zona horaria oficial: `America/Santiago`
 - [x] Contrato unificado de movimientos WMS (transferencia/recepción/despacho).
 - [x] Generación de lote nuevo por artículo transferido con `batchColor`.
 - [x] Tab de tránsito bidireccional con filtros entrante/saliente.
-- [ ] Smoke Desktop Windows/macOS en cada release candidate.
+- [x] Smoke Desktop Windows/macOS en cada release candidate (gating agregado en `.github/workflows/release.yml`).
 - [~] Matriz Playwright para flujos críticos cross-platform (suite lista, bloqueada por timeout DB en entorno de ejecución).
 
 ## Dependencias

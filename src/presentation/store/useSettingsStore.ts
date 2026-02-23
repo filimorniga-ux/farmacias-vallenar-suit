@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { HardwareConfig } from '../../domain/types';
+import { safeLocalStorageStateStorage } from './indexedDBStorage';
 
 interface SettingsState {
     enable_sii_integration: boolean;
@@ -77,6 +78,7 @@ export const useSettingsStore = create<SettingsState>()(
         }),
         {
             name: 'settings-storage',
+            storage: createJSONStorage(() => safeLocalStorageStateStorage),
         }
     )
 );

@@ -20,7 +20,7 @@ if (!process.env.DATABASE_URL) {
 
 // Configuración robusta
 const dbUrl = process.env.DATABASE_URL || '';
-const isCloudDB = dbUrl.includes('tsdb.cloud.timescale.com') || dbUrl.includes('m1xugm0lj9');
+const isCloudDB = dbUrl.includes('tsdb.cloud.timescale.com') || dbUrl.includes('m1xugm0lj9') || dbUrl.includes('supabase.com');
 const isLocalhost = dbUrl.includes('localhost') || dbUrl.includes('127.0.0.1');
 
 // SSL Config: Force rejectUnauthorized: false for cloud/remote
@@ -39,7 +39,7 @@ const connectionConfig = {
     connectionString: dbUrl,
     ssl: sslConfig,
     max: 10, // Serverless limit logic
-    connectionTimeoutMillis: 15000, // Aumentado a 15s para dar margen a la resolución de red
+    connectionTimeoutMillis: 8000, // Reducido a 8s (Supabase es más rápido por su pooling IPv4)
     idleTimeoutMillis: 30000,
     keepAlive: true,
 };

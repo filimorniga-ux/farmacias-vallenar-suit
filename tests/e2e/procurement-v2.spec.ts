@@ -19,7 +19,12 @@ test.describe('Procurement V2 - Supply Chain', () => {
         const pageContainer = page.locator('[data-testid="supply-chain-page"]');
         const heading = page.getByRole('heading', { name: /Cadena de Suministro/i });
 
-        await expect(pageContainer.or(heading)).toBeVisible({ timeout: 90000 });
+        const hasContainer = await pageContainer.isVisible().catch(() => false);
+        if (hasContainer) {
+            await expect(pageContainer).toBeVisible({ timeout: 90000 });
+        } else {
+            await expect(heading).toBeVisible({ timeout: 90000 });
+        }
 
         const analyzeBtn = page.locator('[data-testid="analyze-stock-btn"]');
         const hasAnalyzeButton = await analyzeBtn.isVisible().catch(() => false);

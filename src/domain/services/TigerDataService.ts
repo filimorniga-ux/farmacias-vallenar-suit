@@ -12,6 +12,7 @@ import { SaleTransaction, InventoryBatch, EmployeeProfile, CashMovement, Expense
 
 const SIMULATE_NETWORK_DELAY = 200; // ms - Faster for dev
 const SIMULATE_FAILURE_RATE = 0; // 0% chance of failure - Stable for dev
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // Simulated in-memory storage (will be replaced by real DB)
 const inMemoryStorage = {
@@ -21,6 +22,13 @@ const inMemoryStorage = {
     products: [] as InventoryBatch[],
     employees: [] as EmployeeProfile[]
 };
+
+function normalizeLocationId(locationId?: string): string | undefined {
+    if (typeof locationId !== 'string') return undefined;
+    const trimmed = locationId.trim();
+    if (!trimmed) return undefined;
+    return UUID_REGEX.test(trimmed) ? trimmed : undefined;
+}
 
 /**
  * Simulate network delay and potential failures
@@ -115,14 +123,15 @@ export const TigerDataService = {
      * Calls secure action with pagination: false
      */
     fetchInventory: async (locationId?: string): Promise<InventoryBatch[]> => {
-        console.log('🐯 [Tiger Data] Fetching FULL inventory for location:', locationId);
+        const normalizedLocationId = normalizeLocationId(locationId);
+        console.log('🐯 [Tiger Data] Fetching FULL inventory for location:', normalizedLocationId || 'ALL');
 
-        if (!locationId) return [];
+        if (!normalizedLocationId) return [];
 
         try {
             const { getInventorySecure } = await import('../../actions/inventory-v2');
             // Explicitly disable pagination to get all items
-            const result = await getInventorySecure(locationId, { pagination: false });
+            const result = await getInventorySecure(normalizedLocationId, { pagination: false });
 
             if (result.success && result.data) {
                 console.log(`✅ [Tiger Data] Loaded ${result.data.length} items (FULL) from DB`);
@@ -347,7 +356,8 @@ export const TigerDataService = {
         endDate?: number,
         sessionId?: string
     ): Promise<SaleTransaction[]> {
-        console.log(`🐯 [Tiger Data] Fetching sales history... Loc:${locationId} Session:${sessionId}`);
+        const normalizedLocationId = normalizeLocationId(locationId);
+        console.log(`🐯 [Tiger Data] Fetching sales history... Loc:${normalizedLocationId || 'ALL'} Session:${sessionId}`);
         try {
             const { getSalesHistory } = await import('../../actions/sales-v2');
 
@@ -357,7 +367,7 @@ export const TigerDataService = {
 
             const result = await getSalesHistory({
                 limit: 200, // Aumentamos límite para turnos ocupados
-                locationId,
+                locationId: normalizedLocationId,
                 sessionId,
                 startDate: start,
                 endDate: end
@@ -379,9 +389,7 @@ export const TigerDataService = {
      * 🚚 Fetch Shipments (Real)
      */
     fetchShipments: async (locationId?: string): Promise<any[]> => {
-        const normalizedLocationId = typeof locationId === 'string' && locationId.trim()
-            ? locationId.trim()
-            : undefined;
+        const normalizedLocationId = normalizeLocationId(locationId);
 
         console.log('🐯 [Tiger Data] Fetching shipments for location:', normalizedLocationId || 'ALL');
         try {
@@ -469,9 +477,7 @@ export const TigerDataService = {
      * 🛒 Fetch Purchase Orders (Real)
      */
     fetchPurchaseOrders: async (locationId?: string): Promise<any[]> => {
-        const normalizedLocationId = typeof locationId === 'string' && locationId.trim()
-            ? locationId.trim()
-            : undefined;
+        const normalizedLocationId = normalizeLocationId(locationId);
 
         console.log('🐯 [Tiger Data] Fetching purchase orders for location:', normalizedLocationId || 'ALL');
 

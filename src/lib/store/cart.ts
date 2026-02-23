@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { safeBrowserStateStorage } from './safePersistStorage';
 
 export interface Product {
     id: string | number;  // Support both numeric and UUID IDs
@@ -79,6 +80,7 @@ export const useCartStore = create<CartState>()(
         }),
         {
             name: 'farmacias-vallenar-cart',
+            storage: createJSONStorage(() => safeBrowserStateStorage),
         }
     )
 );

@@ -14,6 +14,7 @@ type WMSTab = 'despacho' | 'recepcion' | 'transferencia' | 'transito' | 'pedidos
 interface WMSBottomTabBarProps {
     activeTab: WMSTab;
     onTabChange: (tab: WMSTab) => void;
+    bottomOffset?: number;
 }
 
 const TABS: { key: WMSTab; label: string; icon: typeof Truck; color: string; activeColor: string }[] = [
@@ -36,7 +37,7 @@ const DOT_COLORS: Record<WMSTab, string> = {
     historial: 'bg-slate-700',
 };
 
-export const WMSBottomTabBar: React.FC<WMSBottomTabBarProps> = ({ activeTab, onTabChange }) => {
+export const WMSBottomTabBar: React.FC<WMSBottomTabBarProps> = ({ activeTab, onTabChange, bottomOffset = 68 }) => {
 
     const handleTabPress = (tab: WMSTab) => {
         // Haptic feedback en dispositivos que lo soporten
@@ -47,7 +48,10 @@ export const WMSBottomTabBar: React.FC<WMSBottomTabBarProps> = ({ activeTab, onT
     };
 
     return (
-        <div className="fixed bottom-[68px] left-0 right-0 z-[51] no-select lg:hidden">
+        <div
+            className="fixed left-0 right-0 z-[51] no-select lg:hidden"
+            style={{ bottom: `${bottomOffset}px` }}
+        >
             {/* Glassmorphism bar */}
             <div className="bg-white/80 backdrop-blur-xl border-t border-slate-200/60
                           shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">

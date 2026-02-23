@@ -1,0 +1,3 @@
+{"sent_at":"2026-02-22T01:36:47.999Z","sdk":{"name":"sentry.javascript.nextjs","version":"10.34.0"},"dsn":"https://2fa7f3bacbbd3a389b2212a730debb9f@o4510737423269888.ingest.us.sentry.io/4510737442471936"}
+{"type":"session"}
+{"sid":"26bdab68eff840e49eb7b0689d8c6dc1","init":true,"started":"2026-02-22T01:36:47.998Z","timestamp":"2026-02-22T01:36:47.998Z","status":"ok","errors":0,"attrs":{"release":"7b4c206cdf92cc3ab4f4c168ca3332336ae203c1","environment":"development","user_agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.7499.4 Safari/537.36"}}

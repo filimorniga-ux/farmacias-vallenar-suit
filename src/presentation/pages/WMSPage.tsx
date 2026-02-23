@@ -54,7 +54,7 @@ const TAB_COLORS: Record<string, { active: string; ring: string }> = {
 
 export const WMSPage: React.FC = () => {
     const [activeTab, setActiveTab] = useState<WMSTab>('despacho');
-    const { isMobile } = usePlatform();
+    const { isMobile, isDesktopLike, isLandscape } = usePlatform();
     const queryClient = useQueryClient();
     const [selectedOrder, setSelectedOrder] = useState<any>(null);
     const [isReceptionModalOpen, setIsReceptionModalOpen] = useState(false);
@@ -90,6 +90,7 @@ export const WMSPage: React.FC = () => {
 
     const currentLocationName = resolvedLocation?.name || 'Sin ubicación';
     const currentLocationType = resolvedLocation?.type || 'STORE';
+    const useMobileLayout = isMobile && !isDesktopLike;
 
     useEffect(() => {
         const fallbackIds: string[] = [];
@@ -192,18 +193,18 @@ export const WMSPage: React.FC = () => {
             case 'suministros':
                 return (
                     <div className="space-y-4">
-                        <div className={isMobile
+                        <div className={useMobileLayout
                             ? "bg-white p-4 rounded-2xl shadow-sm border border-slate-200"
                             : "bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
                         }>
-                            <h3 className={isMobile ? "font-bold text-slate-800 mb-1" : "text-xl font-bold text-slate-800 mb-2"}>
+                            <h3 className={useMobileLayout ? "font-bold text-slate-800 mb-1" : "text-xl font-bold text-slate-800 mb-2"}>
                                 Espejo de Suministros
                             </h3>
-                            <p className={isMobile ? "text-xs text-slate-500 mb-4" : "text-sm text-slate-500 mb-6"}>
-                                {isMobile ? "Órdenes de compra sincronizadas." : "Visualización en tiempo real de órdenes de compra pendientes y recibidas."}
+                            <p className={useMobileLayout ? "text-xs text-slate-500 mb-4" : "text-sm text-slate-500 mb-6"}>
+                                {useMobileLayout ? "Órdenes de compra sincronizadas." : "Visualización en tiempo real de órdenes de compra pendientes y recibidas."}
                             </p>
                             <SupplyKanban
-                                direction={isMobile ? 'col' : 'row'}
+                                direction={useMobileLayout ? 'col' : 'row'}
                                 onEditOrder={(po: any) => {
                                     setSelectedOrder(po);
                                     setIsManualOrderModalOpen(true);
@@ -224,7 +225,7 @@ export const WMSPage: React.FC = () => {
     // ─────────────────────────────────────────────
     // MOBILE LAYOUT — Native app feel
     // ─────────────────────────────────────────────
-    if (isMobile) {
+    if (useMobileLayout) {
         return (
             <div className="h-dvh flex flex-col bg-slate-50 no-select">
                 {/* Sticky Header with Safe Area */}
@@ -264,7 +265,7 @@ export const WMSPage: React.FC = () => {
                 </header>
 
                 {/* Scrollable Content — fills space between header and bottom bar */}
-                <main className="flex-1 overflow-y-auto wms-content-scroll px-4 py-4 pb-36">
+                <main className={`flex-1 overflow-y-auto wms-content-scroll px-4 py-4 ${isLandscape ? 'pb-24' : 'pb-36'}`}>
                     <div className="animate-in fade-in duration-200">
                         {renderTabContent()}
                     </div>
@@ -274,6 +275,7 @@ export const WMSPage: React.FC = () => {
                 <WMSBottomTabBar
                     activeTab={activeTab}
                     onTabChange={handleTabChange}
+                    bottomOffset={isLandscape ? 0 : 68}
                 />
 
                 {/* Modals for Supply Integration */}
@@ -309,7 +311,7 @@ export const WMSPage: React.FC = () => {
         <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100">
             {/* Header */}
             <div className="bg-white border-b border-slate-200 shadow-sm">
-                <div className="max-w-5xl mx-auto px-4 py-4">
+                <div className="max-w-[1400px] mx-auto px-4 py-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-sky-600 flex items-center justify-center shadow-lg shadow-sky-500/20">
@@ -347,8 +349,8 @@ export const WMSPage: React.FC = () => {
 
             {/* Desktop Tabs */}
             <div className="bg-white border-b border-slate-200">
-                <div className="max-w-5xl mx-auto px-4">
-                    <div className="flex gap-1.5 py-2 overflow-x-auto">
+                <div className="max-w-[1400px] mx-auto px-4">
+                    <div className="flex flex-wrap gap-1.5 py-2">
                         {DESKTOP_TABS.map(tab => {
                             const isActive = activeTab === tab.key;
                             const colors = TAB_COLORS[tab.color];
@@ -369,7 +371,7 @@ export const WMSPage: React.FC = () => {
             </div>
 
             {/* Desktop Content */}
-            <div className="max-w-5xl mx-auto px-4 py-6">
+            <div className="max-w-[1400px] mx-auto px-4 py-6">
                 <div className="animate-in fade-in duration-200">
                     {renderTabContent()}
                 </div>

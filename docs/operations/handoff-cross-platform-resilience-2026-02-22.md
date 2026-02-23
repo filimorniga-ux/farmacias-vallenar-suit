@@ -110,6 +110,46 @@
 - `src/presentation/store/useLocationStore.ts`
   - Persistencia migrada a `safeLocalStorageStateStorage` para no romper render si `location-storage-v2` quedó truncado/corrupto.
 
+### 8) Eliminación de warning SSR `--localstorage-file` en Node 22+
+
+- Hallazgo raíz:
+  - El warning no venía de `NODE_OPTIONS` en shell, sino de acceso a `localStorage` durante SSR/SSG (Node 22 expone Web Storage global).
+  - Se confirmó con `--trace-warnings` en build: stack dentro de middleware `persist` de Zustand.
+- Cambios aplicados:
+  - `src/lib/store/safePersistStorage.ts` (nuevo)
+    - storage seguro para navegador real (`window.localStorage`) con guardas SSR.
+  - Stores migrados a `createJSONStorage(() => safeBrowserStateStorage)`:
+    - `src/lib/store/auth.ts`
+    - `src/lib/store/cart.ts`
+    - `src/lib/store/offlineSales.ts`
+    - `src/lib/store/outboxStore.ts`
+    - `src/lib/store/useAuthStore.ts`
+    - `src/presentation/hooks/useCalculator.ts`
+  - `src/presentation/store/useSettingsStore.ts`
+    - persistencia explícita segura con `createJSONStorage` + storage protegido.
+- Resultado:
+  - `next dev` y `next build` dejaron de emitir el warning `--localstorage-file`.
+
+### 9) Smoke Desktop Windows/macOS automatizado en release candidate
+
+- `.github/workflows/release.yml`
+  - Nuevo job `desktop-smoke` con matriz `windows-latest` + `macos-latest`.
+  - Gating de release: `release-windows` y `release-macos` ahora dependen de `desktop-smoke`.
+  - Validación en cada RC:
+    - `npm run build` (baseline de paridad web).
+    - `electron-builder --dir --publish never` por plataforma (artefacto unpacked, sin firma).
+  - Configuración de smoke sin firma (`CSC_IDENTITY_AUTO_DISCOVERY=false`) para evitar falsos negativos de certificados.
+
+### 10) Toolchain Capacitor estabilizado (type-check + tests)
+
+- `package.json` / `package-lock.json`
+  - Restauradas dependencias de plataforma móvil que estaban ausentes en el lock efectivo:
+    - `@capacitor/core`, `@capacitor/cli`, `@capacitor/android`, `@capacitor/ios`, `@capacitor/splash-screen`, `@capacitor/status-bar`.
+  - Resultado: `type-check` vuelve a resolver correctamente `capacitor.config.ts` y hooks de plataforma.
+- `tests/presentation/usePlatform.test.tsx`
+  - Ajustado el test a la implementación actual (detección por `navigator.userAgent`).
+  - Se elimina mock innecesario de `@capacitor/core` y se agrega helper explícito de user-agent para escenarios desktop/móvil.
+
 ## Tests agregados/actualizados
 
 - `tests/actions/public-network-v2.test.ts` (nuevo)
@@ -127,6 +167,12 @@
 - `tests/e2e/procurement-v2.spec.ts` (actualizado)
   - Se corrige validación inicial para evitar `strict mode violation` por uso de `locator.or(...)`.
   - Ahora valida visibilidad de forma determinística (`container` o `heading`).
+- `tests/e2e/helpers/login.ts` (actualizado)
+  - Reintenta carga de usuarios en modal de login (`Reintentar carga`) antes de fallar con `LOGIN_NO_USERS_AVAILABLE`.
+- `tests/e2e/wms-tabs.spec.ts` (actualizado)
+  - Robustecida detección de selección de producto (verifica que realmente se agregue al carrito).
+  - Selectores de destino compatibles con layout móvil/landscape.
+  - Eliminados `skip` por falta de inventario: ahora valida estado vacío y botón confirmar deshabilitado.
 
 ## Validación ejecutada
 
@@ -137,6 +183,10 @@
 - `npm run test -- tests/actions/wms-v2.test.ts` ✅
 - `npm run test:e2e:dev -- tests/e2e/procurement-v2.spec.ts` ✅
 - `npm run test -- tests/presentation/supply-kanban.test.tsx tests/presentation/supply-kanban-utils.test.ts tests/presentation/usePlatform.test.tsx tests/actions/public-network-v2.test.ts tests/presentation/indexedDBStorage.test.ts` ✅
+- `npm run test:e2e:dev -- tests/e2e/wms-tabs.spec.ts --project=mobile-landscape --reporter=list` ✅ (2 passed)
+- `npm run build` ✅ (sin warning `--localstorage-file`)
+- `npm run type-check` ✅ (post-fix toolchain Capacitor)
+- `npm run test -- tests/presentation/usePlatform.test.tsx tests/actions/public-network-v2.test.ts` ✅ (post-fix toolchain Capacitor)
 
 ## Runner E2E (Playwright) - endurecimiento
 
@@ -153,23 +203,21 @@
 
 - Smoke `procurement-v2` en `next dev` local:
   - Resultado actual: **PASS**.
-  - El warning `--localstorage-file` sigue apareciendo en el entorno local (no bloqueante).
+  - Sin warning `--localstorage-file` tras hardening de stores persistentes.
 - Smoke `procurement-v2` en modo `prod` (`build + start`):
-  - Bloqueado por error de build preexistente en prerender:
-    - `/_not-found` y `/forgot-password`
-    - `TypeError: Cannot read properties of null (reading 'useState')`
+  - Build destrabado y estable tras fix de `not-found`.
+  - Pendiente solo ejecutar smoke completo en `prod` para cerrar matriz.
 - Conclusión operativa:
   - Flujo E2E local operativo en `dev`.
-  - Queda pendiente atacar el fallo de prerender para habilitar smoke E2E `prod`.
+  - WMS tabs en `mobile-landscape` ya ejecuta en verde.
 
 ## Observaciones para siguiente agente
 
 1. Existen warnings de lint heredados en varios archivos legacy (`any`, imports no usados). `LandingPage` ya quedó saneado de `set-state-in-effect`.
 2. Hay cambios no relacionados ya presentes en el working tree (reportes Playwright, seeds y otros artefactos). Revisar antes de commit final para no mezclar entregables.
 3. Recomendado siguiente bloque (P1):
-   - Resolver bug de prerender `useState` nulo en `next build` para destrabar smoke E2E `prod`.
-   - Ejecutar smoke E2E de `wms-tabs` en landscape móvil real (portrait+landscape).
-   - Investigar origen de `NODE_OPTIONS=--localstorage-file` en entorno local/CI para quitar warning residual.
+   - Correr smoke E2E `prod` completo (`test:e2e:prod`) para certificar release funcional sobre build final.
+   - Extender cobertura landscape a `/supply-chain` + `/warehouse` con asserts visuales adicionales.
 
 ## Comandos de verificación rápida sugeridos
 

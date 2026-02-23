@@ -25,13 +25,17 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [isLandscape, setIsLandscape] = useState(false);
+    const [isCompactViewport, setIsCompactViewport] = useState(false);
     const { isCenterOpen, setCenterOpen } = useNotificationStore();
     const openCalculator = useCalculatorStore((s: any) => s.open);
 
     useEffect(() => {
         const checkOrientation = () => {
-            // Check if width > height and width is small (mobile)
-            setIsLandscape(window.innerWidth > window.innerHeight && window.innerWidth < 1024);
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            setIsCompactViewport(width < 1024);
+            // Landscape compact mode for phones/tablets, useful to avoid hidden controls.
+            setIsLandscape(width > height && width < 1024);
         };
 
         checkOrientation();
@@ -39,7 +43,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
         return () => window.removeEventListener('resize', checkOrientation);
     }, []);
 
-
+    const showMobileBottomNav = isCompactViewport && !isLandscape;
 
     const menuItems = [
         { icon: LayoutDashboard, label: 'Resumen General', path: '/dashboard', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'DASHBOARD', color: 'sky' as AppThemeColor },
@@ -191,13 +195,13 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
             </motion.aside>
 
             {/* Main Content */}
-            <main className="flex-1 flex flex-col h-full overflow-hidden relative pb-20 md:pb-0 bg-slate-50/50">
+            <main className={`flex-1 flex flex-col h-full overflow-hidden relative ${showMobileBottomNav ? 'pb-20 md:pb-0' : 'pb-0'} bg-slate-50/50`}>
                 {/* Mobile Header */}
                 <header className="lg:hidden bg-white p-4 shadow-sm flex justify-between items-center z-40 border-b border-slate-100 sticky top-0">
                     <div className="flex items-center gap-2">
                         <button
                             onClick={() => setIsMobileMenuOpen(true)}
-                            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg hidden md:block lg:hidden"
+                            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg lg:hidden"
                         >
                             <Menu size={24} />
                         </button>
@@ -278,7 +282,9 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                 </div>
 
                 {/* Mobile Bottom Navigation */}
-                <MobileBottomNav onMenuClick={() => setIsMobileMenuOpen(true)} />
+                {showMobileBottomNav && (
+                    <MobileBottomNav onMenuClick={() => setIsMobileMenuOpen(true)} />
+                )}
 
                 {/* Notification Center Portal */}
                 {isCenterOpen && (

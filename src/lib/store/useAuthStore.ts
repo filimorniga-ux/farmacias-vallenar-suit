@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { safeBrowserStateStorage } from './safePersistStorage';
 
 export type Role = 'ADMIN' | 'QF' | 'VENDEDOR' | 'GERENTE_GENERAL' | 'MANAGER';
 
@@ -32,6 +33,7 @@ export const useAuthStore = create<AuthState>()(
         }),
         {
             name: 'farmacias-vallenar-auth',
+            storage: createJSONStorage(() => safeBrowserStateStorage),
             onRehydrateStorage: () => (state) => {
                 state?.setHasHydrated(true);
             },

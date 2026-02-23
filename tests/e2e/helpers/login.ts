@@ -93,7 +93,23 @@ async function waitLoginModal(page: Page): Promise<void> {
 }
 
 async function chooseUser(page: Page, user: string): Promise<void> {
-    if (await page.getByText(/No se encontraron usuarios/i).first().isVisible().catch(() => false)) {
+    const noUsersVisible = () => page.getByText(/No se encontraron usuarios/i).first().isVisible().catch(() => false);
+    const retryButton = page.getByRole('button', { name: /Reintentar carga|Reintentando/i }).first();
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+        if (!(await noUsersVisible())) break;
+
+        if (await retryButton.isVisible().catch(() => false)) {
+            const isRetryDisabled = await retryButton.isDisabled().catch(() => true);
+            if (!isRetryDisabled) {
+                await retryButton.click();
+            }
+        }
+
+        await page.waitForTimeout(1400 * attempt);
+    }
+
+    if (await noUsersVisible()) {
         throw new Error('LOGIN_NO_USERS_AVAILABLE');
     }
 

@@ -15,9 +15,12 @@
  */
 
 import { query } from '@/lib/db';
+import * as Sentry from '@sentry/nextjs';
 import { headers } from 'next/headers';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
+import { classifyPgError } from '@/lib/db-errors';
+import { createCorrelationId, type ActionFailure } from '@/lib/action-response';
 import { InventoryBatch, Location } from '@/domain/types';
 
 // ============================================================================
@@ -262,7 +265,8 @@ export async function fetchEmployeesSecure(
  */
 export async function getUsersForLoginSecure(
     locationId?: string
-): Promise<{ success: boolean; data?: SafeEmployeeProfile[]; error?: string }> {
+): Promise<{ success: true; data: SafeEmployeeProfile[] } | ActionFailure> {
+    const correlationId = createCorrelationId();
     try {
         // No checks de sesión aquí - es público para el login
 
@@ -308,9 +312,41 @@ export async function getUsersForLoginSecure(
 
         return { success: true, data };
 
-    } catch (error: any) {
-        logger.error({ error }, '[Sync] Get Users For Login error');
-        return { success: false, error: 'Error obteniendo usuarios' };
+    } catch (error) {
+        const classified = classifyPgError(error);
+
+        Sentry.captureException(error, {
+            tags: {
+                module: 'sync-v2',
+                action: 'getUsersForLoginSecure',
+                code: classified.code,
+            },
+            extra: {
+                correlationId,
+                locationId: locationId || null,
+                retryable: classified.retryable,
+            },
+        });
+
+        logger.error(
+            {
+                correlationId,
+                code: classified.code,
+                retryable: classified.retryable,
+                technicalMessage: classified.technicalMessage,
+                locationId: locationId || null,
+            },
+            '[Sync] Get users for login failed'
+        );
+
+        return {
+            success: false,
+            error: classified.userMessage,
+            code: classified.code,
+            retryable: classified.retryable,
+            correlationId,
+            userMessage: classified.userMessage,
+        };
     }
 }
 

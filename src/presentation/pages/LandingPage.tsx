@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePharmaStore } from '../store/useStore';
 import { Store, UserCircle, Clock, Ticket, ArrowRight, Loader2, RefreshCw, Search, Monitor, Command, Download, Smartphone } from 'lucide-react';
@@ -16,7 +16,17 @@ const LandingPage: React.FC = () => {
     const [localEmployees, setLocalEmployees] = useState<EmployeeProfile[]>([]);
 
     // Context State
-    const [context, setContext] = useState<{ id: string, name: string, type: string } | null>(null);
+    const context = useMemo(() => {
+        if (typeof window === 'undefined') return null;
+        const locId = localStorage.getItem('preferred_location_id');
+        if (!locId) return null;
+
+        return {
+            id: locId,
+            name: localStorage.getItem('preferred_location_name') || 'Sucursal Identificada',
+            type: localStorage.getItem('preferred_location_type') || 'STORE',
+        };
+    }, []);
 
     // Login UI State
     const [isLoginOpen, setIsLoginOpen] = useState(false);
@@ -28,6 +38,8 @@ const LandingPage: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [retryCooldownMs, setRetryCooldownMs] = useState(0);
     const [searchTerm, setSearchTerm] = useState('');
+    const [usersLoadError, setUsersLoadError] = useState('');
+    const [isRetryingUsers, setIsRetryingUsers] = useState(false);
 
     // Security PIN State
     const [isPinModalOpen, setIsPinModalOpen] = useState(false);
@@ -42,20 +54,33 @@ const LandingPage: React.FC = () => {
     const [requiredRoles, setRequiredRoles] = useState<Role[] | null>(null);
     const [targetUrl, setTargetUrl] = useState<string>('/dashboard');
 
-    // 🚀 AUTO-REDIRECT: Si ya hay sesión, ir directo al dashboard
-    // 🚀 AUTO-REDIRECT
-    useEffect(() => {
-        // Reset login state when modal closes
-        if (!isLoginOpen) {
-            setRequiredRoles(null);
-            setTargetUrl('/dashboard');
-            setLoginMode('GENERAL');
-            setSelectedEmployee(null);
-            setPin('');
-            setError('');
-            setRetryCooldownMs(0);
-        }
-    }, [isLoginOpen]);
+    const resetLoginModalState = useCallback(() => {
+        setRequiredRoles(null);
+        setTargetUrl('/dashboard');
+        setLoginMode('GENERAL');
+        setSelectedEmployee(null);
+        setPin('');
+        setSearchTerm('');
+        setError('');
+        setRetryCooldownMs(0);
+    }, []);
+
+    const openLoginModal = useCallback((params: {
+        mode: 'GENERAL' | 'LOGISTICS';
+        roles?: Role[] | null;
+        targetPath?: string;
+    }) => {
+        resetLoginModalState();
+        setLoginMode(params.mode);
+        setRequiredRoles(params.roles ?? null);
+        setTargetUrl(params.targetPath || '/dashboard');
+        setIsLoginOpen(true);
+    }, [resetLoginModalState]);
+
+    const closeLoginModal = useCallback(() => {
+        setIsLoginOpen(false);
+        resetLoginModalState();
+    }, [resetLoginModalState]);
 
     useEffect(() => {
         if (retryCooldownMs <= 0) return;
@@ -92,51 +117,39 @@ const LandingPage: React.FC = () => {
         }
     }, [user, navigate, syncData]);
 
-    // URL redirect mapping for consistency
-    const getRedirectPath = (role: Role | string) => {
-        if (role === 'CASHIER') return '/pos';
-        if (role === 'WAREHOUSE' || role === 'WAREHOUSE_CHIEF') return '/warehouse';
-        return '/dashboard';
-    };
-
     // Initial Check - Location Context
     useEffect(() => {
-        let isMounted = true;
-        const locId = localStorage.getItem('preferred_location_id');
-        if (!locId) {
-            if (isMounted) navigate('/select-context');
+        if (!context) {
+            navigate('/select-context');
+        }
+    }, [context, navigate]);
+
+    const loadLoginUsers = useCallback(async () => {
+        setIsRetryingUsers(true);
+        setUsersLoadError('');
+
+        const result = await getUsersForLogin();
+        if (result.success) {
+            setLocalEmployees(result.data);
+            setIsRetryingUsers(false);
             return;
         }
 
-        if (isMounted) {
-            setContext({
-                id: locId,
-                name: localStorage.getItem('preferred_location_name') || 'Sucursal Identificada',
-                type: localStorage.getItem('preferred_location_type') || 'STORE'
-            });
-        }
-        return () => { isMounted = false; };
-    }, [navigate]);
+        setLocalEmployees([]);
+        const supportRef = result.correlationId ? ` Ref: ${result.correlationId.slice(0, 8)}` : '';
+        setUsersLoadError(`${result.userMessage || result.error || 'No fue posible cargar usuarios.'}${supportRef}`);
+        setIsRetryingUsers(false);
+    }, []);
 
     // Fetch employees if store is empty (Login Fix)
     useEffect(() => {
-        let isMounted = true;
-        if (employees.length > 0) {
-            console.log('📋 Using store employees:', employees.length);
-            if (isMounted) setLocalEmployees(employees);
-        } else {
-            console.log('📋 Fetching employees via server action...');
-            getUsersForLogin()
-                .then((users) => {
-                    console.log('📋 Fetched employees:', users.length, users.map(u => u.name));
-                    if (isMounted) setLocalEmployees(users);
-                })
-                .catch(err => {
-                    console.error('❌ Error fetching employees:', err);
-                });
-        }
-        return () => { isMounted = false; };
-    }, [employees]);
+        if (employees.length > 0) return;
+        const loadTimer = window.setTimeout(() => {
+            void loadLoginUsers();
+        }, 0);
+
+        return () => window.clearTimeout(loadTimer);
+    }, [employees.length, loadLoginUsers]);
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -208,8 +221,11 @@ const LandingPage: React.FC = () => {
         );
     }
 
+    const employeesForSelection = employees.length > 0 ? employees : localEmployees;
+    const effectiveUsersLoadError = employees.length > 0 ? '' : usersLoadError;
+
     // Filter active employees
-    const validEmployees = localEmployees.filter(e => {
+    const validEmployees = employeesForSelection.filter(e => {
         if (e.status !== 'ACTIVE') return false;
 
         // Admins and Managers are typically visible everywhere
@@ -295,9 +311,10 @@ const LandingPage: React.FC = () => {
                         whileHover={{ scale: 1.02, y: -5 }}
                         whileTap={{ scale: 0.98 }}
                         onClick={() => {
-                            setLoginMode('GENERAL');
-                            setRequiredRoles(['ADMIN', 'MANAGER', 'GERENTE_GENERAL']); // STRICT ADMIN FILTER
-                            setIsLoginOpen(true);
+                            openLoginModal({
+                                mode: 'GENERAL',
+                                roles: ['ADMIN', 'MANAGER', 'GERENTE_GENERAL'],
+                            });
                         }}
                         className="cursor-pointer bg-white border border-sky-100 rounded-3xl p-8 relative overflow-hidden shadow-xl shadow-sky-900/5 group hover:border-sky-300 transition-all hover:shadow-2xl hover:shadow-sky-900/10"
                     >
@@ -317,9 +334,11 @@ const LandingPage: React.FC = () => {
                         whileHover={{ scale: 1.02, y: -5 }}
                         whileTap={{ scale: 0.98 }}
                         onClick={() => {
-                            setRequiredRoles(['CASHIER', 'QF']); // Cashiers and Pharmacists primarily
-                            setTargetUrl('/pos');
-                            setIsLoginOpen(true);
+                            openLoginModal({
+                                mode: 'GENERAL',
+                                roles: ['CASHIER', 'QF'],
+                                targetPath: '/pos',
+                            });
                         }}
                         className="cursor-pointer bg-white border border-slate-100 rounded-3xl p-8 relative overflow-hidden shadow-lg shadow-slate-900/5 group hover:border-purple-300 transition-all hover:shadow-xl"
                     >
@@ -375,9 +394,10 @@ const LandingPage: React.FC = () => {
                         whileHover={{ scale: 1.02, y: -5 }}
                         whileTap={{ scale: 0.98 }}
                         onClick={() => {
-                            setLoginMode('LOGISTICS');
-                            setTargetUrl('/logistica');
-                            setIsLoginOpen(true);
+                            openLoginModal({
+                                mode: 'LOGISTICS',
+                                targetPath: '/logistica',
+                            });
                         }}
                         className="cursor-pointer bg-white border border-slate-100 rounded-3xl p-8 relative overflow-hidden shadow-lg shadow-slate-900/5 group hover:border-amber-300 transition-all hover:shadow-xl"
                     >
@@ -487,7 +507,7 @@ const LandingPage: React.FC = () => {
                                 exit={{ opacity: 0, scale: 0.95 }}
                                 className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md relative"
                             >
-                                <button onClick={() => setIsLoginOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600">✕</button>
+                                <button onClick={closeLoginModal} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600">✕</button>
 
                                 <div className="text-center mb-6">
                                     <h2 className="text-2xl font-bold text-slate-800">
@@ -513,7 +533,16 @@ const LandingPage: React.FC = () => {
 
                                         {filteredEmployees.length === 0 ? (
                                             <div className="text-center py-8 text-slate-400">
-                                                <p className="text-sm">No se encontraron usuarios.</p>
+                                                <p className="text-sm">{effectiveUsersLoadError || 'No se encontraron usuarios.'}</p>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void loadLoginUsers()}
+                                                    disabled={isRetryingUsers}
+                                                    className="mt-3 inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-60"
+                                                >
+                                                    {isRetryingUsers ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                                                    {isRetryingUsers ? 'Reintentando...' : 'Reintentar carga'}
+                                                </button>
                                             </div>
                                         ) : (
                                             filteredEmployees.map(emp => (

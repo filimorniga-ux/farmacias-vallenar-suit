@@ -100,7 +100,7 @@ const LocationSwitcher: React.FC = () => {
                             initial={{ opacity: 0, y: -10, scale: 0.95 }}
                             animate={{ opacity: 1, y: 0, scale: 1 }}
                             exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                            className="absolute top-full right-0 mt-3 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden z-50 ring-4 ring-black/5"
+                            className="absolute top-full right-0 mt-3 w-[min(88vw,20rem)] bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden z-50 ring-4 ring-black/5"
                         >
                             <div className="bg-slate-50 px-4 py-4 border-b border-gray-100">
                                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
@@ -176,14 +176,14 @@ const LocationSwitcher: React.FC = () => {
             </AnimatePresence>
 
             {/* Current Location Button */}
-            <div className="flex flex-col items-end mr-2 lg:hidden">
+            <div className="flex flex-col items-end mr-2 lg:hidden [@media(max-height:520px)]:hidden">
                 <span className="text-[10px] uppercase font-bold text-slate-400">Ubicación Actual</span>
             </div>
 
             <button
                 onClick={() => canSwitch && !isSwitching && setIsOpen(!isOpen)}
                 disabled={!canSwitch || isSwitching}
-                className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border transition-all group relative overflow-hidden ${canSwitch
+                className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border transition-all group relative overflow-hidden max-w-[min(76vw,22rem)] ${canSwitch
                     ? 'hover:shadow-md cursor-pointer hover:border-cyan-300'
                     : 'opacity-75 cursor-not-allowed bg-slate-50'
                     } bg-white text-slate-900 border-slate-200 shadow-sm`}
@@ -195,11 +195,11 @@ const LocationSwitcher: React.FC = () => {
                     {React.createElement(getLocationIcon(currentLocation.type), { className: 'w-5 h-5' })}
                 </div>
 
-                <div className="text-left">
+                <div className="text-left min-w-0">
                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                         {currentLocation.type === 'WAREHOUSE' ? 'Estás en Bodega' : 'Estás en Sucursal'}
                     </div>
-                    <div className="text-sm font-extrabold leading-tight text-slate-800">
+                    <div className="text-sm font-extrabold leading-tight text-slate-800 truncate">
                         {currentLocation.name.replace('Farmacia Vallenar ', '').replace('Bodega General ', '')}
                     </div>
                 </div>
@@ -223,7 +223,7 @@ const LocationSwitcher: React.FC = () => {
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: -10, scale: 0.95 }}
                         transition={{ duration: 0.2 }}
-                        className="absolute top-full right-0 mt-3 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden z-50 ring-4 ring-black/5"
+                        className="absolute top-full right-0 mt-3 w-[min(88vw,20rem)] bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden z-50 ring-4 ring-black/5"
                     >
                         {/* Header */}
                         <div className="bg-slate-50 px-4 py-4 border-b border-gray-100">

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { safeBrowserStateStorage } from '@/lib/store/safePersistStorage';
 
 interface HistoryEntry {
     expression: string;
@@ -197,6 +198,7 @@ export const useCalculatorStore = create<CalculatorState>()(
         }),
         {
             name: 'pharma-calculator',
+            storage: createJSONStorage(() => safeBrowserStateStorage),
             partialize: (state) => ({
                 history: state.history,
             }),

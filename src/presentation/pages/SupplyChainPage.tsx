@@ -15,6 +15,7 @@ import TransferSuggestionsPanel from '../components/supply/TransferSuggestionsPa
 import SuggestionAnalysisHistoryPanel from '../components/supply/SuggestionAnalysisHistoryPanel';
 import { exportSuggestedOrdersSecure } from '../../actions/procurement-export';
 import { FileDown } from 'lucide-react';
+import { usePlatform } from '@/hooks/usePlatform';
 
 // Extended type for frontend logic
 interface ExtendedSuggestion extends AutoOrderSuggestion {
@@ -73,6 +74,7 @@ const SupplyChainPage: React.FC = () => {
     const [topLimit, setTopLimit] = useState(100);
     const [isExporting, setIsExporting] = useState(false);
     const [analysisHistoryRefreshKey, setAnalysisHistoryRefreshKey] = useState(0);
+    const { isDesktopLike, isLandscape, viewportWidth } = usePlatform();
 
     const isValidUuid = (value: string | undefined): value is string =>
         !!value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -389,20 +391,22 @@ const SupplyChainPage: React.FC = () => {
 
     // ... Logic moved to SupplyKanban ...
 
+    const showSplitPanels = isDesktopLike || (isLandscape && viewportWidth >= 900);
+
     return (
-        <div data-testid="supply-chain-page" className="h-dvh p-4 md:p-6 pb-safe bg-slate-50 flex flex-col overflow-hidden">
-            <header className="mb-4 md:mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 flex-shrink-0">
+        <div data-testid="supply-chain-page" className="h-dvh p-3 md:p-6 pb-safe bg-slate-50 flex flex-col overflow-hidden">
+            <header className="mb-4 md:mb-6 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3 md:gap-4 flex-shrink-0">
                 <div>
                     <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 flex items-center gap-3">
                         <Truck className="text-cyan-600" /> Cadena de Suministro
                     </h1>
                     <p className="text-slate-500 text-sm">IA y Gestión Inteligente de Abastecimiento</p>
                 </div>
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-2 w-full lg:w-auto">
                     <button
                         onClick={handleGenerateOrders}
                         disabled={selectedSkus.size === 0}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition text-sm shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex-1 lg:flex-none min-w-[160px] flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition text-sm shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <Package size={18} /> Generar ({suggestions.filter(s => selectedSkus.has(s.sku)).length})
                     </button>
@@ -411,14 +415,14 @@ const SupplyChainPage: React.FC = () => {
                             setSelectedOrder(null);
                             setIsManualOrderModalOpen(true);
                         }}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold hover:bg-slate-50 transition text-sm shadow-sm"
+                        className="flex-1 lg:flex-none min-w-[160px] flex items-center justify-center gap-2 px-4 py-2.5 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold hover:bg-slate-50 transition text-sm shadow-sm"
                     >
                         <Plus size={18} /> Orden Manual
                     </button>
                     <button
                         onClick={handleExport}
                         disabled={isExporting}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition text-sm shadow-sm disabled:opacity-50"
+                        className="flex-1 lg:flex-none min-w-[160px] flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition text-sm shadow-sm disabled:opacity-50"
                         title="Exportar análisis actual a Excel corporativo"
                     >
                         {isExporting ? <RefreshCw className="animate-spin" size={18} /> : <FileDown size={18} />}
@@ -427,11 +431,11 @@ const SupplyChainPage: React.FC = () => {
                 </div>
             </header>
 
-            <div className="flex-1 flex flex-col lg:flex-row gap-6 overflow-hidden">
+            <div className={`flex-1 flex flex-col ${showSplitPanels ? 'sm:flex-row' : ''} gap-4 md:gap-6 overflow-hidden`}>
                 {/* Left: Predictive Analysis */}
                 <div className="flex-[3] bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col overflow-hidden">
                     {/* Tab Bar */}
-                    <div className="flex border-b border-slate-200 bg-slate-50/50 rounded-t-3xl">
+                    <div className="flex flex-wrap border-b border-slate-200 bg-slate-50/50 rounded-t-3xl">
                         <button
                             onClick={() => setActiveTab('suggestions')}
                             className={`flex items-center gap-2 px-5 py-3 text-sm font-bold transition-all border-b-2 ${activeTab === 'suggestions'
@@ -507,7 +511,7 @@ const SupplyChainPage: React.FC = () => {
                                             )}
 
                                             {/* Filters Row */}
-                                            <div className="flex gap-2 text-sm flex-wrap">
+                                            <div className="flex gap-2 text-sm flex-wrap w-full lg:w-auto">
 
                                                 {/* Supplier Selector */}
                                                 <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 min-w-[150px]">
@@ -667,7 +671,7 @@ const SupplyChainPage: React.FC = () => {
                                                 data-testid="analyze-stock-btn"
                                                 onClick={runIntelligentAnalysis}
                                                 disabled={isAnalyzing}
-                                                className="ml-auto px-6 py-2.5 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition disabled:opacity-50 shadow-md shadow-purple-200 flex items-center gap-2 whitespace-nowrap"
+                                                className="w-full sm:w-auto sm:ml-auto px-6 py-2.5 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition disabled:opacity-50 shadow-md shadow-purple-200 flex items-center justify-center gap-2 whitespace-nowrap"
                                             >
                                                 {isAnalyzing ? <RefreshCw className="animate-spin" size={16} /> : <Zap size={16} />}
                                                 {isAnalyzing ? 'Analizando...' : 'Analizar'}
@@ -704,7 +708,8 @@ const SupplyChainPage: React.FC = () => {
                                         </div>
                                     </div>
                                 ) : (
-                                    <table className="w-full text-left border-collapse">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full min-w-[1100px] text-left border-collapse">
                                         <thead className="bg-white text-slate-500 font-bold text-xs uppercase sticky top-0 z-10 shadow-sm">
                                             <tr>
                                                 <th className="p-4 w-10">
@@ -901,7 +906,8 @@ const SupplyChainPage: React.FC = () => {
                                                     </tr>
                                                 ))}
                                         </tbody>
-                                    </table>
+                                        </table>
+                                    </div>
                                 )}
                             </div>
                         </>)}
@@ -920,7 +926,7 @@ const SupplyChainPage: React.FC = () => {
                 </div>
 
                 {/* Right: Kanban Status */}
-                <div className="hidden lg:flex flex-1 flex-col overflow-hidden max-w-sm">
+                <div className={`${showSplitPanels ? 'flex' : 'hidden'} flex-1 flex-col overflow-hidden max-w-sm`}>
                     <SupplyKanban
                         onEditOrder={(po) => {
                             setSelectedOrder(po);
