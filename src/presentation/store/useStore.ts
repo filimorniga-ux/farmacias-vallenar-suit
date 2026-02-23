@@ -1762,10 +1762,23 @@ export const usePharmaStore = create<PharmaState>()(
                     localStorage.removeItem('pos_session_id');
                 } catch (e) { }
 
+                const state = get();
+                let updatedTerminals = state.terminals;
+
+                // Si había una terminal asociada, la marcamos como cerrada localmente
+                // para evitar el bug de "sesión fantasma" en la interfaz.
+                if (state.currentTerminalId) {
+                    updatedTerminals = state.terminals.map(t =>
+                        t.id === state.currentTerminalId ? { ...t, status: 'CLOSED', current_cashier_id: null } : t
+                    );
+                }
+
                 set((state) => ({
                     currentShift: null,
                     cart: [],
-                    currentCustomer: null
+                    currentCustomer: null,
+                    terminals: updatedTerminals,
+                    currentTerminalId: null // Fundamental: Rompe el lock UI-Backend
                 }));
             },
 
