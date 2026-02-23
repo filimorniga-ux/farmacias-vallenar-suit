@@ -10,7 +10,7 @@ Estado actual:
 - Paridad UX desktop-like (Windows/mac + landscape movil): **mejorada y validada en smoke local**.
 - Smoke desktop en pipeline de release: **implementado (gating)**.
 - E2E `dev` focalizado: **verde**.
-- E2E `prod` full-matrix: **aun no verde** (11 failed, 58 skipped, 1 passed) por caida del servidor durante corrida Playwright.
+- E2E `prod` full-matrix: **verde funcional** (49 passed, 21 skipped, 0 failed) sin caida del webServer.
 
 ## 2) Guardrails de operacion cumplidos
 
@@ -57,7 +57,7 @@ Durante toda la ejecucion se mantuvieron las restricciones solicitadas:
   - `@capacitor/core`, `@capacitor/cli`, `@capacitor/android`, `@capacitor/ios`, `@capacitor/splash-screen`, `@capacitor/status-bar`.
 - Se ajusto `tests/presentation/usePlatform.test.tsx` al comportamiento actual por `navigator.userAgent`.
 - Se ejecuto `test:e2e:prod` completo para cierre de matriz:
-  - resultado: **11 failed, 58 skipped, 1 passed**.
+  - resultado final verificado: **49 passed, 21 skipped, 0 failed**.
 
 ## 4) Cambios relevantes por frentes
 
@@ -150,7 +150,7 @@ Bloqueo **CERRADO Y RESUELTO**:
 
 - `npm run test:e2e:prod -- --reporter=list`
   - Resultado Anterior: `11 failed, 58 skipped, 1 passed` (Falla dominante: `ECONNREFUSED ::1:3000`).
-  - **Nuevo Resultado (2026-02-23): 50 Passed, 20 Skipped, 0 Failed.**
+  - **Nuevo Resultado (2026-02-23): 49 Passed, 21 Skipped, 0 Failed.**
   - **Diagnóstico y Fix**: Se descubrió que Playwright WebServer estaba inyectando silenciosamente la variable `NODE_ENV=test`, lo que colisionaba con el Server-Side Rendering (SSR) y hooks propios de React `useState` en el build optimizado de Next.js (que esperaba `NODE_ENV=production`).
   - **Action Taken**: Se aplicó una reasignación estricta de variables en `playwright.config.ts`, forzando `NODE_ENV: useProdServer ? 'production' : 'development'` en el bloque del \`webServer\`. Esto purificó el ciclo de vida del proceso `next start`, manteniendo el backend resiliente durante más de 8 minutos continuos y cerrando permanentemente el leak de estado.
 
