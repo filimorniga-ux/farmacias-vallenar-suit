@@ -495,6 +495,7 @@ describe('WMS V2 - getPurchaseOrdersSecure', () => {
                 rows: [{
                     id: poId,
                     supplier_id: '550e8400-e29b-41d4-a716-446655440302',
+                    target_warehouse_id: TEST_WAREHOUSE_ID,
                     location_id: TEST_LOCATION_ID,
                     location_name: 'Farmacia Santiago',
                     status: 'RECEIVED',
@@ -513,7 +514,7 @@ describe('WMS V2 - getPurchaseOrdersSecure', () => {
                     received_by_name: TEST_USERS.manager.name,
                     notes: 'Recepción completa',
                     documents: [],
-                    items: [],
+                    items: [{ sku: 'SKU-001', name: 'Producto', quantity: 2, cost: 1000 }],
                 }]
             });
 
@@ -526,6 +527,10 @@ describe('WMS V2 - getPurchaseOrdersSecure', () => {
         expect(result.success).toBe(true);
         expect(result.data?.total).toBe(1);
         expect(result.data?.purchaseOrders[0]?.items_count).toBe(4);
+        expect(result.data?.purchaseOrders[0]?.target_warehouse_id).toBe(TEST_WAREHOUSE_ID);
+        expect(result.data?.purchaseOrders[0]?.targetWarehouseId).toBe(TEST_WAREHOUSE_ID);
+        expect(Array.isArray(result.data?.purchaseOrders[0]?.items)).toBe(true);
+        expect(result.data?.purchaseOrders[0]?.items?.length).toBe(1);
 
         const countSql = String(mockPoolQuery.mock.calls[0]?.[0] || '');
         const dataSql = String(mockPoolQuery.mock.calls[1]?.[0] || '');

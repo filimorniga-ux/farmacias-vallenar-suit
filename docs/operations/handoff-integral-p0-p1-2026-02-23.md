@@ -171,3 +171,38 @@ Bloqueo **CERRADO Y RESUELTO**:
 - **El mayor pendiente tecnico para cierre P1 (`E2E prod full-matrix`) HA SIDO COMPLETO EXITOSAMENTE.**
 - No hubo intervenciones sobre datos operativos sensibles.
 - El repositorio está en calidad `Release Candidate` verde.
+
+## 9) Actualizacion posterior (2026-02-23 tarde) - RLS y recepcion de OC
+
+### A. Hardening RLS para eliminar `rls_enabled_no_policy` sin abrir API
+
+- `src/db/migrations/019_supabase_rls_baseline_policies.sql` (nuevo)
+  - Recorre tablas `public` con `RLS = true` y **sin ninguna policy**.
+  - Crea policy explicita de denegacion (`USING false / WITH CHECK false`) para roles API.
+  - Detecta dinamicamente roles `anon` y `authenticated`; si no existen (entorno no Supabase), usa `PUBLIC` para mantener compatibilidad.
+  - Script idempotente y seguro para re-ejecucion.
+
+### B. Correcciones funcionales en recepcion/kanban de OC
+
+- `src/actions/supply-v2.ts`
+  - Compatibilidad de esquema al recibir OC:
+    - usa `warehouses.location_id` (no `default_location_id` inexistente),
+    - fallback de auditoria cuando no existe `audit_log` (compatibilidad con variantes `audit_logs`).
+- `src/presentation/components/scm/PurchaseOrderReceivingModal.tsx`
+  - Evita crash cuando `order.items` no existe.
+  - Normaliza `items/order_items/line_items/items_detail` y hace fallback backend para detalle de items.
+- `src/presentation/components/supply/SupplyKanban.tsx`
+  - Resolucion de destino tolerante a payload legacy.
+  - Confirmacion inline para "marcar enviada" (sin `window.confirm` bloqueante).
+
+### C. Tests agregados/ajustados en este bloque
+
+- `tests/db/rls-baseline-policies-migration.test.ts` (nuevo)
+- `tests/presentation/purchase-order-receiving-modal.test.tsx` (actualizado)
+- `tests/actions/supply-v2.test.ts` (actualizado)
+- `tests/actions/wms-v2.test.ts` (actualizado)
+
+### D. Validacion ejecutada
+
+- `npm run type-check` ✅
+- `npm run test -- tests/db/rls-baseline-policies-migration.test.ts tests/presentation/purchase-order-receiving-modal.test.tsx` ✅
