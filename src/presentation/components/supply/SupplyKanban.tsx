@@ -244,14 +244,15 @@ const SupplyKanban: React.FC<SupplyKanbanProps> = ({ onEditOrder, onReceiveOrder
     }, []);
 
     const effectiveLocationId = currentLocationId || locationStoreCurrentId || localStorageLocationId || undefined;
+    const scopedLocationId = isUuid(effectiveLocationId) ? effectiveLocationId : undefined;
 
     const refreshKanban = useCallback(async () => {
         setIsRefreshing(true);
         setLastError(null);
         try {
             const [shipmentsResult, purchaseOrdersResult] = await Promise.allSettled([
-                refreshShipments(effectiveLocationId),
-                refreshPurchaseOrders(effectiveLocationId),
+                refreshShipments(scopedLocationId),
+                refreshPurchaseOrders(scopedLocationId),
             ]);
             const errors: string[] = [];
 
@@ -266,6 +267,32 @@ const SupplyKanban: React.FC<SupplyKanbanProps> = ({ onEditOrder, onReceiveOrder
                 const message = errors.join(' | ');
                 setLastError(message);
                 toast.error(message);
+                return;
+            }
+
+            const stateAfterScopedRefresh = usePharmaStore.getState();
+            const hasEntriesWithScope = stateAfterScopedRefresh.shipments.length > 0 || stateAfterScopedRefresh.purchaseOrders.length > 0;
+
+            if (scopedLocationId && !hasEntriesWithScope) {
+                const [globalShipmentsResult, globalPurchaseOrdersResult] = await Promise.allSettled([
+                    refreshShipments(undefined),
+                    refreshPurchaseOrders(undefined),
+                ]);
+                const globalErrors: string[] = [];
+
+                if (globalShipmentsResult.status === 'rejected') {
+                    globalErrors.push(globalShipmentsResult.reason instanceof Error ? globalShipmentsResult.reason.message : 'Error cargando envíos globales');
+                }
+                if (globalPurchaseOrdersResult.status === 'rejected') {
+                    globalErrors.push(globalPurchaseOrdersResult.reason instanceof Error ? globalPurchaseOrdersResult.reason.message : 'Error cargando órdenes globales');
+                }
+
+                if (globalErrors.length > 0) {
+                    const globalMessage = globalErrors.join(' | ');
+                    setLastError(globalMessage);
+                    toast.error(globalMessage);
+                    return;
+                }
             }
         } catch (error: any) {
             const message = error?.message || 'No se pudo actualizar el tablero';
@@ -274,7 +301,7 @@ const SupplyKanban: React.FC<SupplyKanbanProps> = ({ onEditOrder, onReceiveOrder
         } finally {
             setIsRefreshing(false);
         }
-    }, [effectiveLocationId, refreshPurchaseOrders, refreshShipments]);
+    }, [refreshPurchaseOrders, refreshShipments, scopedLocationId]);
 
     useEffect(() => {
         void refreshKanban();

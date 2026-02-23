@@ -1,33 +1,49 @@
-
 import { useState, useEffect } from 'react';
-import { Capacitor } from '@capacitor/core';
 
 export function usePlatform() {
-    const [isMobile, setIsMobile] = useState(false);
-    const [isNative, setIsNative] = useState(false);
-    const [isElectron, setIsElectron] = useState(false);
+    const detectNative = () => {
+        // Fallback Web-only detection para despliegues móviles 
+        // Ya no requerimos Capacitor nativo (Removido para estabilizar NextJS Web)
+        if (typeof navigator === 'undefined') return false;
+        return /android|ipad|iphone|ipod/i.test(navigator.userAgent.toLowerCase());
+    };
+
+    const detectElectron = () =>
+        typeof navigator !== 'undefined'
+        && navigator.userAgent.toLowerCase().includes(' electron/');
+
+    const [viewport, setViewport] = useState(() => ({
+        width: typeof window !== 'undefined' ? window.innerWidth : 0,
+        height: typeof window !== 'undefined' ? window.innerHeight : 0,
+    }));
+    const [isNative] = useState(detectNative);
+    const [isElectron] = useState(detectElectron);
 
     useEffect(() => {
-        // Detect Capacitor Native Platform
-        const platform = Capacitor.getPlatform();
-        setIsNative(platform === 'ios' || platform === 'android');
+        const handleResize = () => {
+            setViewport({
+                width: window.innerWidth,
+                height: window.innerHeight,
+            });
+        };
+        window.addEventListener('resize', handleResize);
 
-        // Detect Mobile Viewport
-        const checkMobile = () => setIsMobile(window.innerWidth < 768);
-        checkMobile();
-        window.addEventListener('resize', checkMobile);
-
-        // Detect Electron (User Agent)
-        const userAgent = navigator.userAgent.toLowerCase();
-        setIsElectron(userAgent.indexOf(' electron/') > -1);
-
-        return () => window.removeEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', handleResize);
     }, []);
 
+    const isLandscape = viewport.width > viewport.height;
+    const isDesktopLike = viewport.width >= 1024 || (isLandscape && viewport.width >= 740);
+    const isCompactMobileViewport = viewport.width < 768;
+    const isMobile = (isCompactMobileViewport || isNative) && !isDesktopLike;
+
     return {
-        isMobile: isMobile || isNative, // Treat tablet native as mobile interaction (touch)
+        isMobile,
+        isDesktopLike,
+        isLandscape,
         isNative,
         isElectron,
-        isWeb: !isNative && !isElectron
+        isWeb: !isNative && !isElectron,
+        viewportWidth: viewport.width,
+        viewportHeight: viewport.height,
     };
 }

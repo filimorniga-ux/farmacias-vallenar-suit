@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import { getChileISOString } from '../utils';
+import { safeBrowserStateStorage } from './safePersistStorage';
 
 export type OutboxItemType = 'CASH_MOVEMENT' | 'CLIENT_CREATE' | 'STOCK_ADJUST' | 'PRODUCT_CREATE';
 
@@ -65,6 +66,7 @@ export const useOutboxStore = create<OutboxState>()(
         }),
         {
             name: 'farmacias-vallenar-outbox',
+            storage: createJSONStorage(() => safeBrowserStateStorage),
             partialize: (state) => ({ queue: state.queue }), // Don't persist isSyncing
         }
     )

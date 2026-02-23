@@ -23,11 +23,16 @@ interface SupplierLike {
 const PO_STATUS_COLUMN_MAP: Record<string, SupplyKanbanColumnKey | undefined> = {
     SUGGESTED: 'DRAFT',
     DRAFT: 'DRAFT',
+    PENDING: 'DRAFT',
+    PENDING_APPROVAL: 'DRAFT',
     APPROVED: 'APPROVED',
     SENT: 'SENT',
     ORDERED: 'SENT',
     PARTIAL: 'SENT',
+    IN_TRANSIT: 'SENT',
+    PENDING_RECEIPT: 'SENT',
     RECEIVED: 'RECEIVED',
+    DELIVERED: 'RECEIVED',
     COMPLETED: 'RECEIVED',
 };
 
@@ -35,10 +40,21 @@ const SHIPMENT_STATUS_COLUMN_MAP: Record<string, SupplyKanbanColumnKey | undefin
     PREPARING: 'APPROVED',
     PENDING: 'APPROVED',
     APPROVED: 'APPROVED',
+    CREATED: 'APPROVED',
     IN_TRANSIT: 'SENT',
+    SENT: 'SENT',
+    PENDING_RECEIPT: 'SENT',
     DELIVERED: 'RECEIVED',
+    RECEIVED: 'RECEIVED',
+    COMPLETED: 'RECEIVED',
     RECEIVED_WITH_DISCREPANCY: 'RECEIVED',
 };
+
+function normalizeStatus(status: unknown): string | null {
+    if (typeof status !== 'string') return null;
+    const normalized = status.trim().replace(/[\s-]+/g, '_').toUpperCase();
+    return normalized || null;
+}
 
 function safeNumber(value: unknown, fallback = 0): number {
     const numeric = Number(value);
@@ -118,13 +134,15 @@ function shipmentItemCount(shipment: Record<string, unknown>): number {
 }
 
 export function resolvePOColumn(status: unknown): SupplyKanbanColumnKey | null {
-    if (typeof status !== 'string') return null;
-    return PO_STATUS_COLUMN_MAP[status] || null;
+    const normalized = normalizeStatus(status);
+    if (!normalized) return null;
+    return PO_STATUS_COLUMN_MAP[normalized] || null;
 }
 
 export function resolveShipmentColumn(status: unknown): SupplyKanbanColumnKey | null {
-    if (typeof status !== 'string') return null;
-    return SHIPMENT_STATUS_COLUMN_MAP[status] || null;
+    const normalized = normalizeStatus(status);
+    if (!normalized) return null;
+    return SHIPMENT_STATUS_COLUMN_MAP[normalized] || null;
 }
 
 export function buildSupplyKanbanEntries(params: {

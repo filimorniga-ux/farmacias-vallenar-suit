@@ -1,41 +1,62 @@
 
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Store, MapPin, ArrowRight, Loader2, Warehouse } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Store, MapPin, ArrowRight, Warehouse, RefreshCw } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { getPublicLocationsSecure, PublicLocation } from '../../actions/public-network-v2';
 
 const ContextSelectionPage: React.FC = () => {
-    const navigate = useNavigate();
     const [publicLocations, setPublicLocations] = useState<PublicLocation[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [errorRef, setErrorRef] = useState<string | null>(null);
+    const [fallbackLocation, setFallbackLocation] = useState<PublicLocation | null>(null);
+
+    const loadPublicLocations = useCallback(async () => {
+        setIsLoading(true);
+        setError(null);
+        setErrorRef(null);
+
+        try {
+            const res = await getPublicLocationsSecure();
+            if (res.success) {
+                setPublicLocations(res.data);
+                return;
+            }
+
+            const failure = res;
+            const userMessage = failure.userMessage || failure.error || 'Error desconocido al cargar sucursales';
+            setError(userMessage);
+            setErrorRef(failure.correlationId ? failure.correlationId.slice(0, 8) : null);
+        } catch {
+            setError('No fue posible cargar sucursales en este momento.');
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
 
     // Initial Load
     useEffect(() => {
         let isMounted = true;
-        const load = async () => {
-            if (isMounted) setIsLoading(true);
-            if (isMounted) setError(null);
+        const storedId = localStorage.getItem('preferred_location_id');
+        const storedName = localStorage.getItem('preferred_location_name');
+        const storedType = localStorage.getItem('preferred_location_type');
 
-            try {
-                const res = await getPublicLocationsSecure();
-                if (isMounted) {
-                    if (res.success && res.data) {
-                        setPublicLocations(res.data);
-                    } else {
-                        setError(res.error || 'Error desconocido al cargar sucursales');
-                    }
-                }
-            } catch (e) {
-                if (isMounted) setError('Excepción crítica al cargar sucursales');
-            } finally {
-                if (isMounted) setIsLoading(false);
-            }
-        };
-        load();
+        if (storedId && isMounted) {
+            const resolvedType = storedType === 'WAREHOUSE' || storedType === 'HQ' ? storedType : 'STORE';
+            setFallbackLocation({
+                id: storedId,
+                name: storedName || 'Última sucursal',
+                type: resolvedType,
+                address: '',
+            });
+        }
+
+        if (isMounted) {
+            void loadPublicLocations();
+        }
+
         return () => { isMounted = false; };
-    }, []);
+    }, [loadPublicLocations]);
 
     const handleLocationSelect = (loc: PublicLocation) => {
         // 1. Save preference locally (Client-Side State)
@@ -98,7 +119,28 @@ const ContextSelectionPage: React.FC = () => {
                             <Store size={48} className="mb-4 opacity-50" />
                             <h3 className="text-xl font-bold mb-2">Error de Conexión</h3>
                             <p className="text-sm font-mono max-w-md">{error}</p>
-                            <p className="text-xs mt-2 text-red-400">¿Estás conectado a internet?</p>
+                            {errorRef && (
+                                <p className="text-xs mt-2 text-red-400 font-semibold">Ref soporte: {errorRef}</p>
+                            )}
+                            <div className="mt-4 flex flex-wrap justify-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => void loadPublicLocations()}
+                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold transition-colors"
+                                >
+                                    <RefreshCw size={16} />
+                                    Reintentar
+                                </button>
+                                {fallbackLocation && (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleLocationSelect(fallbackLocation)}
+                                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-red-200 text-red-600 hover:bg-red-100 font-semibold transition-colors"
+                                    >
+                                        Usar última sucursal
+                                    </button>
+                                )}
+                            </div>
                         </div>
                     ) : publicLocations.length === 0 ? (
                         <div className="flex flex-col items-center justify-center p-12 text-center text-slate-500">

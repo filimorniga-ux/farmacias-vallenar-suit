@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { Location, KioskConfig } from '../../domain/types';
 import { toast } from 'sonner';
 import * as Sentry from '@sentry/nextjs';
+import { safeLocalStorageStateStorage } from './indexedDBStorage';
 
 interface LocationState {
     locations: Location[];
@@ -92,7 +93,6 @@ export const useLocationStore = create<LocationState>()(
                 try {
                     const { usePharmaStore } = await import('./useStore'); // Import store to get user
                     const user = usePharmaStore.getState().user;
-                    console.log('📍 [LocationStore] Fetching locations...', user ? `(User: ${user.id})` : '(Public Mode)');
 
                     if (user) {
                         // Secure Fetch (Full Org Structure)
@@ -101,7 +101,6 @@ export const useLocationStore = create<LocationState>()(
 
                         if (res.success && res.data?.locations) {
                             const newLocations = res.data.locations || [];
-                            console.log('📍 [LocationStore] Sync SUCCESS. Received config for:', newLocations.filter((l: any) => l.config).map((l: any) => l.name));
 
                             set(state => {
                                 const updatedCurrentLocation = state.currentLocation
@@ -115,14 +114,23 @@ export const useLocationStore = create<LocationState>()(
                                 };
                             });
                         } else {
-                            console.error('📍 [LocationStore] Secure fetch failed:', res.error);
+                            Sentry.captureMessage('[LocationStore] Secure fetch failed', {
+                                level: 'error',
+                                tags: { module: 'LocationStore', action: 'fetchLocations', mode: 'secure' },
+                                extra: {
+                                    error: res.error,
+                                    code: (res as { code?: string }).code,
+                                    correlationId: (res as { correlationId?: string }).correlationId,
+                                },
+                            });
+                            toast.error(res.error || 'No fue posible sincronizar ubicaciones.');
                         }
                     } else {
                         // Public Fetch (Basic Locations for Context Selector)
                         const { getPublicLocationsSecure } = await import('@/actions/public-network-v2');
                         const res = await getPublicLocationsSecure();
 
-                        if (res.success && res.data) {
+                        if (res.success) {
                             set({
                                 locations: res.data.map(l => ({
                                     ...l,
@@ -130,9 +138,17 @@ export const useLocationStore = create<LocationState>()(
                                 })),
                                 lastFetch: Date.now()
                             });
-                            console.log('📍 [LocationStore] Public locations updated:', res.data.length);
                         } else {
-                            console.error('📍 [LocationStore] Public fetch failed:', res.error);
+                            Sentry.captureMessage('[LocationStore] Public fetch failed', {
+                                level: 'error',
+                                tags: { module: 'LocationStore', action: 'fetchLocations', mode: 'public' },
+                                extra: {
+                                    error: res.error,
+                                    code: (res as { code?: string }).code,
+                                    correlationId: (res as { correlationId?: string }).correlationId,
+                                },
+                            });
+                            toast.error(res.error || 'No fue posible cargar sucursales.');
                         }
                     }
                 } catch (error: unknown) {
@@ -140,7 +156,7 @@ export const useLocationStore = create<LocationState>()(
                         tags: { module: 'LocationStore', action: 'fetchLocations' },
                         extra: { force },
                     });
-                    console.error('Failed to sync locations', error);
+                    toast.error('Error inesperado al sincronizar ubicaciones.');
                 } finally {
                     clearTimeout(timeout);
                     set({ isLoading: false, loadingSince: undefined });
@@ -198,7 +214,7 @@ export const useLocationStore = create<LocationState>()(
         {
             name: 'location-storage-v2',
             version: 2,
-            storage: createJSONStorage(() => localStorage),
+            storage: createJSONStorage(() => safeLocalStorageStateStorage),
             // EXCLUDE status fields from persistence to avoid "stuck" states on refresh
             partialize: (state) => ({
                 locations: state.locations,

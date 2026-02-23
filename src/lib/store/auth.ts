@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { safeBrowserStateStorage } from './safePersistStorage';
 
 export type UserRole = 'ADMIN' | 'QUIMICO' | 'VENDEDOR';
 
@@ -26,6 +27,7 @@ export const useAuthStore = create<AuthState>()(
         }),
         {
             name: 'auth-storage',
+            storage: createJSONStorage(() => safeBrowserStateStorage),
         }
     )
 );

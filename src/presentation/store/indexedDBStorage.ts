@@ -4,6 +4,19 @@ import { StateStorage } from 'zustand/middleware';
 const DB_NAME = 'farmacias-vallenar-store-db';
 const STORE_NAME = 'zustand-store';
 
+export function isValidPersistedStateJSON(value: string | null | undefined): boolean {
+    if (typeof value !== 'string') return false;
+    const trimmed = value.trim();
+    if (!trimmed) return false;
+
+    try {
+        JSON.parse(trimmed);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 const openDB = (): Promise<IDBDatabase> => {
     return new Promise((resolve, reject) => {
         if (typeof window === 'undefined') {
@@ -29,7 +42,22 @@ export const indexedDBStorage: StateStorage = {
                 const transaction = db.transaction(STORE_NAME, 'readonly');
                 const store = transaction.objectStore(STORE_NAME);
                 const request = store.get(name);
-                request.onsuccess = () => resolve(request.result || null);
+                request.onsuccess = () => {
+                    const rawValue = request.result || null;
+                    if (typeof rawValue === 'string' && !isValidPersistedStateJSON(rawValue)) {
+                        void indexedDBStorage.removeItem(name);
+                        if (typeof window !== 'undefined') {
+                            try {
+                                window.localStorage.removeItem(name);
+                            } catch {
+                                // ignore cleanup failures
+                            }
+                        }
+                        resolve(null);
+                        return;
+                    }
+                    resolve(rawValue);
+                };
                 request.onerror = () => reject(request.error);
             });
         } catch (e) {
@@ -79,6 +107,11 @@ export const indexedDBWithLocalStorageFallback: StateStorage = {
         try {
             const fallbackValue = window.localStorage.getItem(name);
             if (fallbackValue !== null) {
+                if (!isValidPersistedStateJSON(fallbackValue)) {
+                    window.localStorage.removeItem(name);
+                    await indexedDBStorage.removeItem(name);
+                    return null;
+                }
                 await indexedDBStorage.setItem(name, fallbackValue);
                 window.localStorage.removeItem(name);
                 return fallbackValue;
@@ -101,4 +134,48 @@ export const indexedDBWithLocalStorageFallback: StateStorage = {
             }
         }
     },
+};
+
+export const safeLocalStorageStateStorage: StateStorage = {
+    getItem: (name: string): string | null => {
+        if (typeof window === 'undefined') {
+            return null;
+        }
+
+        try {
+            const value = window.localStorage.getItem(name);
+            if (value === null) {
+                return null;
+            }
+
+            if (!isValidPersistedStateJSON(value)) {
+                window.localStorage.removeItem(name);
+                return null;
+            }
+
+            return value;
+        } catch {
+            return null;
+        }
+    },
+    setItem: (name: string, value: string): void => {
+        if (typeof window === 'undefined') {
+            return;
+        }
+        try {
+            window.localStorage.setItem(name, value);
+        } catch {
+            // ignore quota/write errors
+        }
+    },
+    removeItem: (name: string): void => {
+        if (typeof window === 'undefined') {
+            return;
+        }
+        try {
+            window.localStorage.removeItem(name);
+        } catch {
+            // ignore remove errors
+        }
+    }
 };

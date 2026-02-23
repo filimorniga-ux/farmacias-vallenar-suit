@@ -11,10 +11,14 @@ describe('Supply Kanban Utils', () => {
         expect(resolvePOColumn('ORDERED')).toBe('SENT');
         expect(resolvePOColumn('RECEIVED')).toBe('RECEIVED');
         expect(resolvePOColumn('CANCELLED')).toBeNull();
+        expect(resolvePOColumn(' pending_receipt ')).toBe('SENT');
+        expect(resolvePOColumn('delivered')).toBe('RECEIVED');
 
         expect(resolveShipmentColumn('IN_TRANSIT')).toBe('SENT');
         expect(resolveShipmentColumn('DELIVERED')).toBe('RECEIVED');
         expect(resolveShipmentColumn('CANCELLED')).toBeNull();
+        expect(resolveShipmentColumn('pending receipt')).toBe('SENT');
+        expect(resolveShipmentColumn('received')).toBe('RECEIVED');
     });
 
     it('builds unified kanban entries from purchase orders and shipments', () => {
@@ -67,5 +71,34 @@ describe('Supply Kanban Utils', () => {
             column: 'RECEIVED',
             itemCount: 1
         });
+    });
+
+    it('builds entries even when statuses are lowercase or spaced', () => {
+        const entries = buildSupplyKanbanEntries({
+            purchaseOrders: [
+                {
+                    id: 'po-lower',
+                    status: 'pending approval',
+                    supplier_name: 'Proveedor Legacy',
+                    items_count: 1,
+                    created_at: '2026-02-20T10:00:00.000Z'
+                }
+            ],
+            shipments: [
+                {
+                    id: 'sh-lower',
+                    status: 'pending receipt',
+                    type: 'INTER_BRANCH',
+                    origin_location_name: 'Bodega Central',
+                    destination_location_name: 'Farmacia Prat',
+                    items_count: 1,
+                    created_at: '2026-02-20T10:10:00.000Z'
+                }
+            ]
+        });
+
+        expect(entries).toHaveLength(2);
+        expect(entries.find((entry) => entry.id === 'po-lower')?.column).toBe('DRAFT');
+        expect(entries.find((entry) => entry.id === 'sh-lower')?.column).toBe('SENT');
     });
 });

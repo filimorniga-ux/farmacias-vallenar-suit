@@ -1,0 +1,4 @@
+:N1771724207659.099
+0:{"a":"$@1","f":"","b":"development"}
+1:D{"time":0.38758400000006077}
+1:{"success":true,"data":[{"id":"9e641e03-268a-47bc-9f21-386d59547bc7","name":"Bodega Auxiliar","address":"Calle Talca 789","type":"HQ"},{"id":"68a19d2b-bb49-47de-aa95-829ed94fcfb9","name":"Bodega General","address":"Panamericana Norte Km 660","type":"HQ"},{"id":"6c3f1b1d-6fb3-4456-be96-491b47e9d5b3","name":"Farmacia prat","address":"Arturo Prat 1085","type":"STORE"},{"id":"bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6","name":"Farmacia Vallenar santiago","address":"Santiago 668 vallenar","type":"STORE"}]}

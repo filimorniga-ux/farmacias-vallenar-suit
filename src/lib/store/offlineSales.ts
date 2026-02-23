@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import { CartItem } from './cart';
 import { getChileISOString } from '../utils';
+import { safeBrowserStateStorage } from './safePersistStorage';
 
 export interface OfflineSale {
     id: string;
@@ -65,6 +66,7 @@ export const useOfflineSales = create<OfflineSalesState>()(
         }),
         {
             name: 'farmacias-vallenar-offline-sales',
+            storage: createJSONStorage(() => safeBrowserStateStorage),
         }
     )
 );
