@@ -1017,6 +1017,7 @@ export async function getCashDrawerStatus(
         const isOpen = terminal.status === 'OPEN' && terminal.session_id;
 
         if (!isOpen) {
+            console.warn(`🚨 [DEBUG_CASH] Terminal ${terminalId} dice isOpen=false -> DB Status: ${terminal.status}, DB SessionId: ${terminal.session_id}`);
             return { success: true, data: { isOpen: false } };
         }
 
@@ -1075,6 +1076,7 @@ export async function getCashDrawerStatus(
 
     } catch (err: unknown) {
         logger.error({ error: err }, '[Cash] Get status error');
+        console.error('🚨 [DEBUG_CASH] Falla fatal getCashDrawerStatus:', err);
         return { success: false, error: 'Error obteniendo estado de caja' };
     }
 }

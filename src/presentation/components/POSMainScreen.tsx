@@ -180,20 +180,22 @@ const POSMainScreen: React.FC = () => {
 
                 const status = await getCashDrawerStatus(currentTerminalId);
 
+                // Si la consulta falló (error de BD o timeout), NO deslogueamos. 
+                // Tolerancia a fallos de red.
+                if (!status.success) {
+                    console.warn('⚠️ [POS] Failed to fetch server status. Preserving local session. Error:', status.error);
+                    return;
+                }
+
                 // --- CASE A: Validate Persisted Local Session ---
                 if (currentShift) {
-                    // If server says open and IDs match, we are good.
+                    // En este punto status.success es TRUE. Evaluamos la respuesta de negocio.
                     const serverSessionId = status.data?.isOpen ? status.data.sessionId : null;
 
                     if (serverSessionId !== currentShift.id) {
                         console.warn('⚠️ [POS] Local session mismatch with server. Invalidating local session.');
-                        // If we are here, frontend has a stale session.
-                        // Force logout local to unlock UI state.
                         usePharmaStore.getState().logoutShift();
                         toast.error('Sesión local no válida', { description: 'Su sesión expiró o fue cerrada remotamente.' });
-
-                        // After invalidating, we might want to recover if there is a valid one (e.g. system closed and re-opened?)
-                        // But usually this means we just reset to Blocked state.
                     } else {
                         console.log('✅ [POS] Local session validated with server.');
                     }
