@@ -8,6 +8,8 @@ interface PurchaseOrderReceivingModalProps {
     isOpen: boolean;
     order: PurchaseOrder | null;
     onReceive: (orderId: string, receivedItems: { sku: string; receivedQty: number; lotNumber?: string; expiryDate?: number }[]) => void;
+    onFinalizeReview?: (orderId: string, reviewNotes?: string) => Promise<void> | void;
+    mode?: 'RECEIVE' | 'VIEW' | 'REVIEW';
     onClose: () => void;
 }
 
@@ -45,37 +47,56 @@ function resolveOrderItemRecords(order: PurchaseOrder | null): Record<string, un
     return [];
 }
 
-function mapToReceptionState(item: Record<string, unknown>): ItemReceptionState | null {
+function mapToReceptionState(item: Record<string, unknown>, mode: 'RECEIVE' | 'VIEW' | 'REVIEW'): ItemReceptionState | null {
     const sku = typeof item.sku === 'string' ? item.sku : '';
     if (!sku) return null;
     const expectedQty = normalizeQty(item);
     const name = typeof item.name === 'string' && item.name.trim().length > 0 ? item.name : 'Producto';
+    const receivedRaw = item.quantity_received ?? item.received_qty ?? expectedQty;
+    const receivedQty = Number.isFinite(Number(receivedRaw)) ? Number(receivedRaw) : expectedQty;
+    const lotNumber = typeof item.lot_number === 'string' ? item.lot_number : '';
+    const expiryDateRaw = item.expiry_date;
+    const parsedExpiry = expiryDateRaw ? new Date(String(expiryDateRaw)) : null;
+    const expiryDate = parsedExpiry && !Number.isNaN(parsedExpiry.getTime())
+        ? parsedExpiry.toISOString().slice(0, 10)
+        : '';
 
     return {
         sku,
         name,
         expectedQty,
-        receivedQty: expectedQty, // Pre-fill with expected
-        lotNumber: '',
-        expiryDate: ''
+        receivedQty: mode === 'RECEIVE' ? expectedQty : receivedQty,
+        lotNumber,
+        expiryDate
     };
 }
 
-export const PurchaseOrderReceivingModal: React.FC<PurchaseOrderReceivingModalProps> = ({ isOpen, order, onReceive, onClose }) => {
+export const PurchaseOrderReceivingModal: React.FC<PurchaseOrderReceivingModalProps> = ({
+    isOpen,
+    order,
+    onReceive,
+    onFinalizeReview,
+    mode = 'RECEIVE',
+    onClose
+}) => {
     const [items, setItems] = useState<ItemReceptionState[]>([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isLoadingItems, setIsLoadingItems] = useState(false);
+    const [reviewNotes, setReviewNotes] = useState('');
 
     useEffect(() => {
         if (!order) {
             setItems([]);
+            setReviewNotes('');
+            setIsLoadingItems(false);
             return;
         }
 
+        setReviewNotes('');
         let isCancelled = false;
         const bootstrapItems = async () => {
             const payloadItems = resolveOrderItemRecords(order)
-                .map(mapToReceptionState)
+                .map((item) => mapToReceptionState(item, mode))
                 .filter((item): item is ItemReceptionState => item !== null);
 
             if (payloadItems.length > 0) {
@@ -88,7 +109,7 @@ export const PurchaseOrderReceivingModal: React.FC<PurchaseOrderReceivingModalPr
                 const details = await getHistoryItemDetailsSecure(String(order.id), 'PO');
                 const detailItems = (details.success && Array.isArray(details.data) ? details.data : [])
                     .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
-                    .map(mapToReceptionState)
+                    .map((item) => mapToReceptionState(item, mode))
                     .filter((item): item is ItemReceptionState => item !== null);
 
                 if (!isCancelled) {
@@ -107,7 +128,7 @@ export const PurchaseOrderReceivingModal: React.FC<PurchaseOrderReceivingModalPr
         return () => {
             isCancelled = true;
         };
-    }, [order]);
+    }, [order, mode]);
 
     if (!isOpen || !order) return null;
 
@@ -123,28 +144,42 @@ export const PurchaseOrderReceivingModal: React.FC<PurchaseOrderReceivingModalPr
             return;
         }
 
-        // Validate
-        const invalidItems = items.filter(i => i.receivedQty > 0 && (!i.lotNumber || !i.expiryDate));
-        if (invalidItems.length > 0) {
-            toast.warning('Por favor ingrese Lote y Vencimiento para todos los ítems recibidos');
-            return;
+        if (mode === 'RECEIVE') {
+            // Validate
+            const invalidItems = items.filter(i => i.receivedQty > 0 && (!i.lotNumber || !i.expiryDate));
+            if (invalidItems.length > 0) {
+                toast.warning('Por favor ingrese Lote y Vencimiento para todos los ítems recibidos');
+                return;
+            }
         }
 
         setIsSubmitting(true);
         try {
-            const formattedItems = items.map(i => ({
-                sku: i.sku,
-                receivedQty: Number(i.receivedQty),
-                lotNumber: i.lotNumber,
-                expiryDate: i.expiryDate ? new Date(i.expiryDate).getTime() : undefined
-            }));
+            if (mode === 'RECEIVE') {
+                const formattedItems = items.map(i => ({
+                    sku: i.sku,
+                    receivedQty: Number(i.receivedQty),
+                    lotNumber: i.lotNumber,
+                    expiryDate: i.expiryDate ? new Date(i.expiryDate).getTime() : undefined
+                }));
 
-            await onReceive(order.id, formattedItems);
-            // onReceive in parent (SupplyChainPage) handles the store call and toasts
-            onClose();
+                await onReceive(order.id, formattedItems);
+                // onReceive in parent handles store/action and toasts
+                onClose();
+                return;
+            }
+
+            if (mode === 'REVIEW') {
+                if (!onFinalizeReview) {
+                    toast.error('No se configuró la acción de cierre de revisión');
+                    return;
+                }
+                await onFinalizeReview(order.id, reviewNotes);
+                onClose();
+            }
         } catch (error) {
             console.error(error);
-            toast.error('Error al procesar la recepción');
+            toast.error(mode === 'REVIEW' ? 'Error al finalizar la revisión' : 'Error al procesar la recepción');
         } finally {
             setIsSubmitting(false);
         }
@@ -152,6 +187,13 @@ export const PurchaseOrderReceivingModal: React.FC<PurchaseOrderReceivingModalPr
 
     const totalExpected = items.reduce((sum, i) => sum + i.expectedQty, 0);
     const totalReceived = items.reduce((sum, i) => sum + Number(i.receivedQty || 0), 0);
+
+    const isReadOnly = mode === 'VIEW' || mode === 'REVIEW';
+    const modalTitle = mode === 'VIEW'
+        ? `Detalle de Orden #${order.id.slice(0, 8)}`
+        : mode === 'REVIEW'
+            ? `Revisión Final #${order.id.slice(0, 8)}`
+            : `Recepción de Orden #${order.id.slice(0, 8)}`;
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
@@ -162,7 +204,7 @@ export const PurchaseOrderReceivingModal: React.FC<PurchaseOrderReceivingModalPr
                     <div>
                         <h3 className="text-xl font-bold flex items-center gap-2">
                             <Truck size={24} className="text-emerald-400" />
-                            Recepción de Orden #{order.id.slice(0, 8)}
+                            {modalTitle}
                         </h3>
                         <p className="text-slate-400 text-sm mt-1">
                             Proveedor: {order.supplier_name || order.supplier_id || '-'} • Bodega Destino: {order.destination_location_id || order.location_id || '-'}
@@ -218,6 +260,7 @@ export const PurchaseOrderReceivingModal: React.FC<PurchaseOrderReceivingModalPr
                                                 className={`w-full p-2 border rounded-lg font-bold text-center outline-none focus:ring-2 ${isMismatch ? 'border-amber-300 bg-amber-50 text-amber-700 focus:ring-amber-500' : 'border-slate-200 focus:ring-indigo-500'}`}
                                                 value={item.receivedQty}
                                                 onChange={(e) => handleItemChange(idx, 'receivedQty', Number(e.target.value))}
+                                                disabled={isReadOnly}
                                             />
                                         </td>
                                         <td className="p-4">
@@ -229,6 +272,7 @@ export const PurchaseOrderReceivingModal: React.FC<PurchaseOrderReceivingModalPr
                                                     className="w-full p-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-500"
                                                     value={item.lotNumber}
                                                     onChange={(e) => handleItemChange(idx, 'lotNumber', e.target.value)}
+                                                    disabled={isReadOnly}
                                                 />
                                             </div>
                                         </td>
@@ -240,6 +284,7 @@ export const PurchaseOrderReceivingModal: React.FC<PurchaseOrderReceivingModalPr
                                                     className="w-full p-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-indigo-500"
                                                     value={item.expiryDate}
                                                     onChange={(e) => handleItemChange(idx, 'expiryDate', e.target.value)}
+                                                    disabled={isReadOnly}
                                                 />
                                             </div>
                                         </td>
@@ -268,6 +313,20 @@ export const PurchaseOrderReceivingModal: React.FC<PurchaseOrderReceivingModalPr
                             </p>
                         </div>
                     </div>
+
+                    {mode === 'REVIEW' && (
+                        <div className="mt-4">
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                                Notas de revisión / observaciones
+                            </label>
+                            <textarea
+                                value={reviewNotes}
+                                onChange={(e) => setReviewNotes(e.target.value)}
+                                placeholder="Ej: Llegaron 2 cajas dañadas / recepción parcial conforme..."
+                                className="w-full min-h-[88px] p-3 text-sm border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                        </div>
+                    )}
                 </div>
 
                 {/* Footer */}
@@ -278,17 +337,20 @@ export const PurchaseOrderReceivingModal: React.FC<PurchaseOrderReceivingModalPr
                     >
                         Cancelar
                     </button>
-                    <button
-                        onClick={handleSubmit}
-                        disabled={isSubmitting || isLoadingItems || totalReceived === 0 || items.length === 0}
-                        className="px-8 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-lg shadow-emerald-600/20 disabled:opacity-50 disabled:shadow-none transition flex items-center gap-2"
-                    >
-                        {isSubmitting ? 'Procesando...' : (
-                            <>
-                                <CheckCircle size={20} /> Confirmar Recepción
-                            </>
-                        )}
-                    </button>
+                    {mode !== 'VIEW' && (
+                        <button
+                            onClick={handleSubmit}
+                            disabled={isSubmitting || isLoadingItems || totalReceived === 0 || items.length === 0}
+                            className="px-8 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-lg shadow-emerald-600/20 disabled:opacity-50 disabled:shadow-none transition flex items-center gap-2"
+                        >
+                            {isSubmitting
+                                ? 'Procesando...'
+                                : mode === 'REVIEW'
+                                    ? <><CheckCircle size={20} /> Verificar y Cerrar</>
+                                    : <><CheckCircle size={20} /> Confirmar Recepción</>
+                            }
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

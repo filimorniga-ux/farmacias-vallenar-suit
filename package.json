@@ -42,7 +42,8 @@
     "terminals:force-close": "tsx src/cli/terminals.ts force-close",
     "terminals:cleanup": "tsx src/cli/terminals.ts cleanup",
     "migrate:pins": "tsx src/scripts/migrate-pins-to-bcrypt.ts",
-    "security:audit": "tsx src/scripts/audit-system-health.ts"
+    "security:audit": "tsx src/scripts/audit-system-health.ts",
+    "db:migrate:hotfixes": "tsx src/scripts/run-migrations.ts"
   },
   "build": {
     "appId": "com.farmaciasvallenar.erp",

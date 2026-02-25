@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
 import {
@@ -25,6 +25,7 @@ import InventorySkeleton from '../components/skeletons/InventorySkeleton';
 import { useInventoryPagedQuery } from '../hooks/useInventoryPagedQuery';
 import { formatSku, getEffectiveUnits } from '../../lib/utils/inventory-utils';
 import { getTransferLotVisualTag } from '../../lib/wms-batch-lot';
+import { getLastVisibleVirtualIndex, scheduleDeferredTask } from '../utils/virtualization';
 
 const getBatchTag = (batch: any): { label: string; className: string } | null => {
     const sourceSystem = String(batch?.source_system || '').toUpperCase();
@@ -79,7 +80,7 @@ interface InventoryListProps {
     activeLocation: any;
 }
 
-const InventoryList: React.FC<InventoryListProps> = React.memo(({
+export const InventoryList: React.FC<InventoryListProps> = React.memo(({
     items,
     isMobile,
     user,
@@ -116,12 +117,12 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
     // FIX: Memoize functions to prevent virtualizer thrashing
     const estimateSize = useCallback(() => isMobile ? 220 : 85, [isMobile]);
     const getScrollElement = useCallback(() => parentRef.current, []);
-
     const rowVirtualizer = useVirtualizer({
         count: hasNextPage ? items.length + 1 : items.length,
         getScrollElement,
         estimateSize,
-        overscan: 5,
+        overscan: 10, // Aumentamos overscan para mayor suavidad
+        useAnimationFrameWithResizeObserver: true,
     });
 
     // Recalcula alturas al expandir/cerrar filas para evitar cortes de scroll al final.
@@ -131,8 +132,9 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
         });
     }, [expandedGroups, rowVirtualizer]);
 
+
     const virtualItems = rowVirtualizer.getVirtualItems();
-    const lastVisibleIndex = virtualItems.length > 0 ? virtualItems[virtualItems.length - 1].index : -1;
+    const lastVisibleIndex = getLastVisibleVirtualIndex(virtualItems);
 
     useEffect(() => {
         if (
@@ -140,12 +142,8 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
             hasNextPage &&
             !isFetchingNextPage
         ) {
-            console.log('📜 Reached end of list, fetching next page...');
-            // Defer update to avoid flushSync error during render/effect cycle (React 18 conflict)
-            const timer = setTimeout(() => {
-                fetchNextPage();
-            }, 0);
-            return () => clearTimeout(timer);
+            // Defer update to avoid flushSync while React is rendering lifecycle work.
+            return scheduleDeferredTask(fetchNextPage);
         }
     }, [
         hasNextPage,
@@ -183,7 +181,7 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
                         </div>
                     )}
 
-                    {rowVirtualizer.getVirtualItems().map(virtualRow => {
+                    {virtualItems.map(virtualRow => {
                         const isLoaderRow = virtualRow.index > items.length - 1;
                         if (isLoaderRow) {
                             return (
@@ -284,7 +282,7 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
 
                                         {/* Expanded Batches (Mobile) */}
                                         {isExpanded && hasBatches && (
-                                            <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 space-y-2 animate-in slide-in-from-top-2">
+                                            <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 space-y-2">
                                                 <p className="text-xs font-bold text-slate-400 uppercase">Detalle de Lotes</p>
                                                 {item.batches.map((batch: any) => (
                                                     <div key={batch.id} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex justify-between items-center">
@@ -460,7 +458,7 @@ const InventoryList: React.FC<InventoryListProps> = React.memo(({
 
                                         {/* Expanded Batch List */}
                                         {isExpanded && hasBatches && (
-                                            <div className={`${item.is_retail_lot ? 'bg-amber-50/50 border-amber-100' : 'bg-slate-50/50 border-slate-100'} border-t pl-[5%] pr-4 py-2 animate-in slide-in-from-top-1`}>
+                                            <div className={`${item.is_retail_lot ? 'bg-amber-50/50 border-amber-100' : 'bg-slate-50/50 border-slate-100'} border-t pl-[5%] pr-4 py-2`}>
                                                 <div className="flex justify-end mb-2">
                                                     {canManageInventory && (
                                                         <button

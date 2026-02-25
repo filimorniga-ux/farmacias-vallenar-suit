@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { X, Search, Plus, Trash2, AlertTriangle, Save, Send, DollarSign, Calendar, Truck, Package } from 'lucide-react';
-import { usePharmaStore } from '../../store/useStore';
-import { useNotificationStore } from '../../store/useNotificationStore';
+import { usePharmaStore } from '@/presentation/store/useStore';
+import { useNotificationStore } from '@/presentation/store/useNotificationStore';
 import { toast } from 'sonner';
-import { InventoryBatch, PurchaseOrder, PurchaseOrderItem } from '../../../domain/types';
-import { createNotificationSecure } from '../../../actions/notifications-v2';
-import { createPurchaseOrderSecure, updatePurchaseOrderSecure } from '../../../actions/supply-v2';
-import { updatePriceSecure } from '../../../actions/products-v2';
+import { InventoryBatch, PurchaseOrder, PurchaseOrderItem } from '@/domain/types';
+import { createNotificationSecure } from '@/actions/notifications-v2';
+import { createPurchaseOrderSecure, updatePurchaseOrderSecure } from '@/actions/supply-v2';
+import { updatePriceSecure } from '@/actions/products-v2';
 import {
     DEFAULT_WAREHOUSE_FALLBACK_ID,
     isValidUuid,
@@ -62,8 +62,10 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
                 // Edit Mode
                 setSelectedSupplierId(initialOrder.supplier_id || '');
                 setCustomOrderId(initialOrder.id);
+                // Defensive: some legacy/server payloads can omit items on draft edit payloads.
+                const orderItemsSource = Array.isArray(initialOrder.items) ? initialOrder.items : [];
                 // Map existing items to OrderItem format
-                const mappedItems: OrderItem[] = initialOrder.items.map(item => {
+                const mappedItems: OrderItem[] = orderItemsSource.map(item => {
                     // Try to find current stock info from inventory
                     const inventoryItem = inventory.find(i => i.sku === item.sku);
                     return {

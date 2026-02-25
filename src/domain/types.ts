@@ -453,7 +453,17 @@ export interface SupplierCatalogFile {
     uploaded_at: string;
 }
 
-export type POStatus = 'SUGGESTED' | 'DRAFT' | 'SENT' | 'PARTIAL' | 'RECEIVED' | 'COMPLETED' | 'CANCELLED';
+export type POStatus =
+    | 'SUGGESTED'
+    | 'DRAFT'
+    | 'APPROVED'
+    | 'SENT'
+    | 'ORDERED'
+    | 'PARTIAL'
+    | 'REVIEW'
+    | 'RECEIVED'
+    | 'COMPLETED'
+    | 'CANCELLED';
 
 export interface CartItem {
     id: string; // Batch ID

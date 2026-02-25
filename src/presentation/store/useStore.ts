@@ -33,7 +33,7 @@ import { forceCloseTerminalShift } from '../../actions/terminals-v2';
 import { createTerminalSecure, deleteTerminalSecure, updateTerminalSecure } from '../../actions/network-v2';
 import { toast } from 'sonner';
 import { buildSoldQuantityByBatch, resolveCartBatchIds } from '../../domain/logic/cartStock';
-import type { ActionFailure } from '@/lib/action-response';
+import { createCorrelationId, type ActionFailure } from '@/lib/action-response';
 import { resolveLoginTimeoutMs } from '@/lib/login-resilience';
 import * as Sentry from '@sentry/nextjs';
 // Mocks removed
@@ -79,6 +79,7 @@ interface PharmaState {
     transferStock: (batchId: string, targetLocation: string, quantity: number) => Promise<void>;
     addPurchaseOrder: (po: PurchaseOrder) => void;
     receivePurchaseOrder: (poId: string, receivedItems: { sku: string, receivedQty: number; lotNumber?: string; expiryDate?: number }[], destinationLocationId: string) => Promise<void>;
+    finalizePurchaseOrderReview: (poId: string, reviewNotes?: string) => Promise<void>;
     cancelPurchaseOrder: (poId: string) => void;
     removePurchaseOrder: (poId: string) => void;
     updatePurchaseOrder: (id: string, data: Partial<PurchaseOrder>) => void;
@@ -317,6 +318,7 @@ export const usePharmaStore = create<PharmaState>()(
                 } catch (error) {
                     const runtimeError = error instanceof Error ? error.message : 'Error de conexión';
                     const isTimeout = /timeout/i.test(runtimeError);
+                    const correlationId = createCorrelationId();
                     serverFailure = {
                         success: false,
                         error: isTimeout
@@ -327,9 +329,12 @@ export const usePharmaStore = create<PharmaState>()(
                             : 'No fue posible validar sus credenciales con el servidor.',
                         code: isTimeout ? 'DB_TIMEOUT' : 'AUTH_CLIENT_ERROR',
                         retryable: true,
-                        correlationId: `client-${Date.now().toString(36)}`
+                        correlationId
                     };
-                    console.warn('⚠️ Online login failed/timeout:', runtimeError);
+                    console.warn('⚠️ Online login failed/timeout:', {
+                        runtimeError,
+                        correlationId
+                    });
                 }
 
                 // Producción: bloquear fallback offline cuando hay error de datos/infra
@@ -458,10 +463,19 @@ export const usePharmaStore = create<PharmaState>()(
                 };
             },
             logout: () => {
+                // Limpiar tokens de sesión POS para evitar "sesiones fantasma" entre usuarios
+                try {
+                    localStorage.removeItem('pos_session_id');
+                    localStorage.removeItem('pos_session_metadata');
+                } catch (e) { /* ignore */ }
+
                 // Limpiar sesión en store
                 set({
                     user: null,
                     currentTerminalId: '',
+                    currentShift: null,
+                    cart: [],
+                    currentCustomer: null,
                     // Mantener location para no forzar re-selección
                 });
                 // Limpiar cookies de sesión
@@ -713,17 +727,37 @@ export const usePharmaStore = create<PharmaState>()(
                 }, userId);
 
                 if (result.success) {
-                    import('sonner').then(({ toast }) => toast.success('Recepción de Orden exitosa'));
+                    import('sonner').then(({ toast }) => toast.success('Recepción registrada. Orden en revisión'));
                     // await get().fetchInventory(state.currentLocationId, state.currentWarehouseId);
 
                     // Update local PO list status optimistically or refetch
                     set((s) => ({
-                        purchaseOrders: s.purchaseOrders.map(p => p.id === poId ? { ...p, status: 'RECEIVED' } : p)
+                        purchaseOrders: s.purchaseOrders.map(p => p.id === poId ? { ...p, status: 'REVIEW' as any } : p)
                     }));
 
                 } else {
                     import('sonner').then(({ toast }) => toast.error('Error al recibir orden: ' + result.error));
                 }
+            },
+            finalizePurchaseOrderReview: async (poId, reviewNotes) => {
+                const state = get();
+                const { finalizePurchaseOrderReviewSecure } = await import('../../actions/supply-v2');
+                const userId = state.user?.id || 'SYSTEM';
+
+                const result = await finalizePurchaseOrderReviewSecure({
+                    purchaseOrderId: poId,
+                    reviewNotes: reviewNotes || undefined,
+                }, userId);
+
+                if (result.success) {
+                    import('sonner').then(({ toast }) => toast.success('Revisión finalizada. Inventario actualizado'));
+                    set((s) => ({
+                        purchaseOrders: s.purchaseOrders.map(p => p.id === poId ? { ...p, status: 'RECEIVED' as any } : p)
+                    }));
+                    return;
+                }
+
+                import('sonner').then(({ toast }) => toast.error('Error finalizando revisión: ' + result.error));
             },
 
             cancelPurchaseOrder: (poId) => set((state) => ({
@@ -1729,7 +1763,14 @@ export const usePharmaStore = create<PharmaState>()(
                 };
 
                 const updatedTerminals = state.terminals.map(t =>
-                    t.id === effectiveTerminalId ? { ...t, status: 'OPEN' as const, operator_id: userId } : t
+                    t.id === effectiveTerminalId
+                        ? {
+                            ...t,
+                            status: 'OPEN' as const,
+                            current_cashier_id: userId,
+                            session_id: effectiveSessionId
+                        }
+                        : t
                 );
 
                 // Actualizar estado
@@ -1751,7 +1792,16 @@ export const usePharmaStore = create<PharmaState>()(
 
                 set((state) => ({
                     currentShift: { ...shift, status: 'ACTIVE' },
-                    terminals: state.terminals.map(t => t.id === shift.terminal_id ? { ...t, status: 'OPEN' as const } : t),
+                    terminals: state.terminals.map(t =>
+                        t.id === shift.terminal_id
+                            ? {
+                                ...t,
+                                status: 'OPEN' as const,
+                                current_cashier_id: shift.user_id,
+                                session_id: shift.id
+                            }
+                            : t
+                    ),
                     currentTerminalId: shift.terminal_id
                 }));
                 import('sonner').then(({ toast }) => toast.success('Turno reanudado'));
@@ -1770,7 +1820,9 @@ export const usePharmaStore = create<PharmaState>()(
                 // para evitar el bug de "sesión fantasma" en la interfaz.
                 if (state.currentTerminalId) {
                     updatedTerminals = state.terminals.map(t =>
-                        t.id === state.currentTerminalId ? { ...t, status: 'CLOSED', current_cashier_id: undefined } : t
+                        t.id === state.currentTerminalId
+                            ? { ...t, status: 'CLOSED', current_cashier_id: undefined, session_id: undefined }
+                            : t
                     );
                 }
 
@@ -1823,7 +1875,9 @@ export const usePharmaStore = create<PharmaState>()(
 
                 // Update terminals
                 const updatedTerminals = state.terminals.map(t =>
-                    t.id === state.currentShift!.terminal_id ? { ...t, status: 'CLOSED' as const } : t
+                    t.id === state.currentShift!.terminal_id
+                        ? { ...t, status: 'CLOSED' as const, current_cashier_id: undefined, session_id: undefined }
+                        : t
                 );
 
                 // Remove Session ID

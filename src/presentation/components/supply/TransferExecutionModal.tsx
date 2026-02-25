@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { ArrowRight, Lock, Package, X, Loader2, CheckCircle, AlertTriangle, MapPin } from 'lucide-react';
-import { transferStockBetweenLocationsSecure } from '@/actions/locations-v2';
+import { ArrowRight, Package, X, Loader2, CheckCircle, AlertTriangle, MapPin } from 'lucide-react';
+import { createPurchaseOrderSecure } from '@/actions/supply-v2';
 import { toast } from 'sonner';
 
 interface TransferItem {
@@ -17,6 +17,8 @@ interface TransferExecutionModalProps {
     items: TransferItem[];
     targetLocationId: string;
     targetLocationName: string;
+    targetWarehouseId?: string;
+    userId?: string;
     onSuccess: () => void;
 }
 
@@ -26,17 +28,17 @@ const TransferExecutionModal: React.FC<TransferExecutionModalProps> = ({
     items,
     targetLocationId,
     targetLocationName,
+    targetWarehouseId,
+    userId,
     onSuccess
 }) => {
     const [editableItems, setEditableItems] = useState<TransferItem[]>(items);
-    const [pin, setPin] = useState('');
     const [reason, setReason] = useState('Traspaso sugerido por Motor MRP');
     const [isExecuting, setIsExecuting] = useState(false);
 
     // Update editable items when props change (re-opening modal with different selection)
     React.useEffect(() => {
         setEditableItems(items);
-        setPin(''); // Reset PIN for security
         setIsExecuting(false);
     }, [items, isOpen]);
 
@@ -55,35 +57,46 @@ const TransferExecutionModal: React.FC<TransferExecutionModalProps> = ({
     }, {} as Record<string, { location_name: string; location_id: string; items: TransferItem[] }>);
 
     const handleExecute = async () => {
-        if (!pin || pin.length < 4) {
-            toast.error('Ingrese PIN de Manager (mínimo 4 dígitos)');
+        if (!targetWarehouseId) {
+            toast.error('No se encontró bodega destino para crear la solicitud');
+            return;
+        }
+
+        if (!userId) {
+            toast.error('Sesión inválida. Reingrese para crear solicitud');
             return;
         }
 
         setIsExecuting(true);
 
         try {
-            // Execute transfers grouped by source location
-            const results: { success: boolean; source: string; error?: string }[] = [];
+            const results: Array<{ success: boolean; source: string; orderId?: string; error?: string }> = [];
 
             for (const [sourceId, group] of Object.entries(groupedBySource)) {
                 const validItems = group.items.filter(item => item.quantity > 0);
                 if (validItems.length === 0) continue;
 
-                const result = await transferStockBetweenLocationsSecure({
-                    sourceLocationId: sourceId,
-                    targetLocationId: targetLocationId,
-                    items: validItems.map(item => ({
+                const requestNotes =
+                    `[TRANSFER_REQUEST] ${reason} | ORIGEN:${group.location_name}(${sourceId}) | DESTINO:${targetLocationName}(${targetLocationId})`;
+
+                const result = await createPurchaseOrderSecure({
+                    supplierId: 'TRANSFER',
+                    targetWarehouseId,
+                    status: 'DRAFT',
+                    notes: requestNotes,
+                    items: validItems.map((item) => ({
                         sku: item.sku,
-                        quantity: item.quantity
-                    })),
-                    reason,
-                    managerPin: pin
-                });
+                        name: item.product_name,
+                        quantity: item.quantity,
+                        cost: 0,
+                        productId: null
+                    }))
+                }, userId);
 
                 results.push({
                     success: result.success,
                     source: group.location_name,
+                    orderId: result.orderId,
                     error: result.error
                 });
             }
@@ -92,7 +105,7 @@ const TransferExecutionModal: React.FC<TransferExecutionModalProps> = ({
             const failures = results.filter(r => !r.success);
 
             if (successes.length > 0) {
-                toast.success(`✅ ${successes.length} traspaso(s) ejecutados correctamente`);
+                toast.success(`✅ ${successes.length} solicitud(es) de traspaso creadas (estado: solicitada)`);
             }
             if (failures.length > 0) {
                 failures.forEach(f => toast.error(`❌ Error desde ${f.source}: ${f.error}`));
@@ -135,7 +148,7 @@ const TransferExecutionModal: React.FC<TransferExecutionModalProps> = ({
                             </div>
                             <div>
                                 <h2 className="text-lg font-bold">Confirmar Traspaso</h2>
-                                <p className="text-emerald-100 text-sm">{editableItems.length} producto(s) a traspasar</p>
+                                <p className="text-emerald-100 text-sm">{editableItems.length} producto(s) para solicitar traslado</p>
                             </div>
                         </div>
                         <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-xl transition">
@@ -206,31 +219,19 @@ const TransferExecutionModal: React.FC<TransferExecutionModalProps> = ({
 
                     {/* Reason */}
                     <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Motivo del traspaso</label>
+                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Motivo de la solicitud</label>
                         <input
                             type="text"
                             className="w-full p-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-slate-50"
                             value={reason}
                             onChange={(e) => setReason(e.target.value)}
-                            placeholder="Ej: Reabastecimiento sugerido por MRP"
+                            placeholder="Ej: Reabastecimiento sugerido por MRP / quiebre de stock"
                         />
                     </div>
 
-                    {/* PIN Input */}
-                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                            <Lock size={16} className="text-amber-600" />
-                            <label className="text-sm font-bold text-amber-800">PIN de Manager requerido</label>
-                        </div>
-                        <input
-                            type="password"
-                            inputMode="numeric"
-                            maxLength={6}
-                            className="w-full p-3 border-2 border-amber-300 rounded-xl text-center text-2xl font-bold tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
-                            value={pin}
-                            onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-                            placeholder="• • • •"
-                        />
+                    <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 text-xs text-sky-800">
+                        Se creará una solicitud en <span className="font-bold">Borradores</span>.
+                        Luego el flujo es: <span className="font-bold">Aprobar</span> → <span className="font-bold">Marcar enviada</span> → <span className="font-bold">Recepcionar</span>.
                     </div>
 
                     {/* Warning */}
@@ -252,18 +253,18 @@ const TransferExecutionModal: React.FC<TransferExecutionModalProps> = ({
                     </button>
                     <button
                         onClick={handleExecute}
-                        disabled={isExecuting || editableItems.length === 0 || pin.length < 4}
+                        disabled={isExecuting || editableItems.length === 0}
                         className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-emerald-200"
                     >
                         {isExecuting ? (
                             <>
                                 <Loader2 size={18} className="animate-spin" />
-                                Ejecutando...
+                                Creando...
                             </>
                         ) : (
                             <>
                                 <CheckCircle size={18} />
-                                Confirmar Traspaso
+                                Crear Solicitud
                             </>
                         )}
                     </button>

@@ -20,6 +20,15 @@ const ReportFilterSchema = z.object({
 
 type ReportParams = z.infer<typeof ReportFilterSchema>;
 
+const UuidSchema = z.string().uuid();
+
+function normalizeUuidFilter(value?: string): string | undefined {
+    if (!value || value === 'ALL') return undefined;
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    return UuidSchema.safeParse(trimmed).success ? trimmed : undefined;
+}
+
 // --- HELPER: DATE RANGE ---
 function getDateRange(period: string, startStr?: string, endStr?: string) {
     const now = new Date();
@@ -66,6 +75,8 @@ export async function exportProductSalesSecure(params: ReportParams): Promise<{
     try {
         const filters = ReportFilterSchema.parse(params);
         const { start, end } = getDateRange(filters.period, filters.startDate, filters.endDate);
+        const locationFilter = normalizeUuidFilter(filters.locationId);
+        const terminalFilter = normalizeUuidFilter(filters.terminalId);
 
         const queryParams: any[] = [start, end];
         let paramIndex = 3;
@@ -82,25 +93,25 @@ export async function exportProductSalesSecure(params: ReportParams): Promise<{
                 COUNT(DISTINCT s.id) as transaction_count
             FROM sale_items si
             JOIN inventory_batches ib ON si.batch_id = ib.id
-            JOIN products p ON ib.product_id = p.id
+            JOIN products p ON ib.product_id::text = p.id::text
             JOIN sales s ON si.sale_id = s.id
             WHERE s.timestamp >= $1 AND s.timestamp <= $2
         `;
 
-        if (filters.locationId && filters.locationId !== 'ALL') {
-            sql += ` AND s.location_id = $${paramIndex}::uuid`;
-            queryParams.push(filters.locationId);
+        if (locationFilter) {
+            sql += ` AND s.location_id::text = $${paramIndex}::text`;
+            queryParams.push(locationFilter);
             paramIndex++;
         }
 
-        if (filters.terminalId && filters.terminalId !== 'ALL') {
-            sql += ` AND s.terminal_id = $${paramIndex}::uuid`;
-            queryParams.push(filters.terminalId);
+        if (terminalFilter) {
+            sql += ` AND s.terminal_id::text = $${paramIndex}::text`;
+            queryParams.push(terminalFilter);
             paramIndex++;
         }
 
         if (filters.employeeId && filters.employeeId !== 'ALL') {
-            sql += ` AND s.user_id = $${paramIndex}`;
+            sql += ` AND s.user_id::text = $${paramIndex}::text`;
             queryParams.push(filters.employeeId);
             paramIndex++;
         }

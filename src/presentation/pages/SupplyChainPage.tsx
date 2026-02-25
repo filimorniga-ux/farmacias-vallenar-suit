@@ -4,6 +4,7 @@ import { AutoOrderSuggestion } from '../../domain/types';
 import { Package, Truck, CheckCircle, AlertCircle, Plus, Calendar, TrendingUp, RefreshCw, AlertTriangle, Zap, DollarSign, Trash2, Filter, Calculator, MapPin, Search, BarChart3, Users, ChevronDown, ScanBarcode, Settings, ArrowLeftRight } from 'lucide-react';
 import { PurchaseOrderReceivingModal } from '../components/scm/PurchaseOrderReceivingModal';
 import ManualOrderModal from '../components/supply/ManualOrderModal';
+import { MovementDetailModal } from '../components/scm/MovementDetailModal';
 import { useNotificationStore } from '../store/useNotificationStore';
 import { toast } from 'sonner';
 import { generateRestockSuggestionSecure, type SuggestionAnalysisHistoryItem } from '../../actions/procurement-v2';
@@ -49,11 +50,26 @@ interface ExtendedSuggestion extends AutoOrderSuggestion {
 
 const SupplyChainPage: React.FC = () => {
     // ... (store hooks remain same)
-    const { inventory, suppliers, purchaseOrders, addPurchaseOrder, receivePurchaseOrder, generateSuggestedPOs, locations, fetchLocations, currentLocationId, user } = usePharmaStore();
+    const {
+        inventory,
+        suppliers,
+        purchaseOrders,
+        addPurchaseOrder,
+        receivePurchaseOrder,
+        finalizePurchaseOrderReview,
+        generateSuggestedPOs,
+        locations,
+        fetchLocations,
+        currentLocationId,
+        user
+    } = usePharmaStore();
 
     const [isReceptionModalOpen, setIsReceptionModalOpen] = useState(false);
+    const [receptionModalMode, setReceptionModalMode] = useState<'RECEIVE' | 'VIEW' | 'REVIEW'>('RECEIVE');
     const [isManualOrderModalOpen, setIsManualOrderModalOpen] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState<any>(null);
+    const [selectedMovement, setSelectedMovement] = useState<any | null>(null);
+    const [isMovementDetailOpen, setIsMovementDetailOpen] = useState(false);
     const [selectedSupplier, setSelectedSupplier] = useState<string>('');
     const [selectedLocation, setSelectedLocation] = useState<string>('');
 
@@ -68,6 +84,7 @@ const SupplyChainPage: React.FC = () => {
     const [stockFilter, setStockFilter] = useState<number | null>(null);
     const [selectedSkus, setSelectedSkus] = useState<Set<string>>(new Set());
     const [activeTab, setActiveTab] = useState<'suggestions' | 'transfers'>('suggestions');
+    const [suggestedQtyDrafts, setSuggestedQtyDrafts] = useState<Record<string, string>>({});
 
     // NEW: Search & Limits
     const [searchQuery, setSearchQuery] = useState('');
@@ -180,16 +197,22 @@ const SupplyChainPage: React.FC = () => {
 
             toast.success(`Análisis completado. ${result.data.length} sugerencias encontradas.`);
 
-            // Notify if critical
+            // Notificar solo si hay productos críticos — con dedup para evitar spam si se repite el análisis
             const criticalCount = result.data.filter((s: any) => s.urgency === 'HIGH').length;
             if (criticalCount > 0) {
                 const { createNotificationSecure } = await import('../../actions/notifications-v2');
+                const today = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
                 await createNotificationSecure({
-                    type: 'STOCK_CRITICAL',
-                    severity: 'CRITICAL',
-                    title: 'Stock Crítico Detectado',
-                    message: `${criticalCount} producto(s) requieren atención urgente`,
-                    metadata: { roleTarget: 'MANAGER', locationId: selectedLocation || 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6' }
+                    type: 'PROCUREMENT',
+                    severity: 'WARNING',
+                    title: '⚠️ Stock Crítico Detectado',
+                    message: `${criticalCount} producto${criticalCount > 1 ? 's' : ''} sin stock suficiente. Revisa el módulo de pedido sugerido.`,
+                    actionUrl: '/cadena-suministro',
+                    locationId: selectedLocation || undefined,
+                    // Dedup: 1 notificación por sucursal por día
+                    dedupKey: `supply_critical:${selectedLocation || 'all'}:${today}`,
+                    dedupWindowHours: 24,
+                    metadata: { criticalCount, locationId: selectedLocation }
                 });
             }
 
@@ -254,11 +277,65 @@ const SupplyChainPage: React.FC = () => {
         }
     };
 
+    const suggestionsDraftSignature = useMemo(
+        () => suggestions.map((item) => `${item.sku}:${item.suggested_order_qty ?? 0}`).join('|'),
+        [suggestions]
+    );
+
+    useEffect(() => {
+        setSuggestedQtyDrafts((prev) => {
+            const next: Record<string, string> = {};
+            suggestions.forEach((item) => {
+                next[item.sku] = prev[item.sku] ?? String(item.suggested_order_qty ?? 0);
+            });
+            return next;
+        });
+    }, [suggestionsDraftSignature]);
+
 
     const updateSuggestion = (sku: string, field: keyof ExtendedSuggestion, value: any) => {
-        setSuggestions(items =>
-            items.map(item => item.sku === sku ? { ...item, [field]: value } : item)
-        );
+        setSuggestions(items => items.map(item => {
+            if (item.sku !== sku) return item;
+            if (field === 'suggested_order_qty') {
+                const safeQty = Math.max(0, Number(value) || 0);
+                return {
+                    ...item,
+                    suggested_order_qty: safeQty,
+                    total_estimated: safeQty * (item.unit_cost || 0)
+                };
+            }
+            return { ...item, [field]: value };
+        }));
+    };
+
+    const updateSuggestedQtyDraft = (item: ExtendedSuggestion, rawValue: string) => {
+        const sanitized = rawValue.replace(/[^\d]/g, '');
+        if (sanitized === '') {
+            setSuggestedQtyDrafts((prev) => ({
+                ...prev,
+                [item.sku]: ''
+            }));
+            return;
+        }
+
+        const parsed = Number.parseInt(sanitized, 10);
+        const normalized = Number.isNaN(parsed) ? 0 : Math.max(0, parsed);
+        setSuggestedQtyDrafts((prev) => ({
+            ...prev,
+            [item.sku]: String(normalized)
+        }));
+        updateSuggestion(item.sku, 'suggested_order_qty', normalized);
+    };
+
+    const normalizeSuggestedQtyDraftOnBlur = (item: ExtendedSuggestion) => {
+        setSuggestedQtyDrafts((prev) => {
+            const current = prev[item.sku];
+            if (current === undefined || current.trim() !== '') return prev;
+            return {
+                ...prev,
+                [item.sku]: String(item.suggested_order_qty ?? 0)
+            };
+        });
     };
 
     const changeSupplier = (sku: string, supplierId: string) => {
@@ -710,202 +787,183 @@ const SupplyChainPage: React.FC = () => {
                                 ) : (
                                     <div className="overflow-x-auto">
                                         <table className="w-full min-w-[1100px] text-left border-collapse">
-                                        <thead className="bg-white text-slate-500 font-bold text-xs uppercase sticky top-0 z-10 shadow-sm">
-                                            <tr>
-                                                <th className="p-4 w-10">
-                                                    <input
-                                                        type="checkbox"
-                                                        className="w-4 h-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
-                                                        checked={suggestions.length > 0 && selectedSkus.size === suggestions.length}
-                                                        onChange={(e) => {
-                                                            if (e.target.checked) setSelectedSkus(new Set(suggestions.map(s => s.sku)));
-                                                            else setSelectedSkus(new Set());
-                                                        }}
-                                                    />
-                                                </th>
-                                                <th className="p-4">Producto</th>
-                                                <th className="p-4">Proveedor</th>
-                                                <th className="p-4 text-center">Stock</th>
-                                                <th className="p-4 text-center">Análisis (Días)</th>
-                                                <th className="p-4 text-center">Cobertura (Días)</th>
-                                                <th className="p-4 text-center">Sugerido</th>
-                                                <th className="p-4 w-10"></th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100 text-sm bg-white">
-                                            {suggestions
-                                                .filter(item => {
-                                                    // Fix NaN by defaulting
-                                                    const stockPercent = item.stock_level_percent ?? 0;
+                                            <thead className="bg-white text-slate-500 font-bold text-xs uppercase sticky top-0 z-10 shadow-sm">
+                                                <tr>
+                                                    <th className="p-4 w-10">
+                                                        <input
+                                                            type="checkbox"
+                                                            className="w-4 h-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                                                            checked={suggestions.length > 0 && selectedSkus.size === suggestions.length}
+                                                            onChange={(e) => {
+                                                                if (e.target.checked) setSelectedSkus(new Set(suggestions.map(s => s.sku)));
+                                                                else setSelectedSkus(new Set());
+                                                            }}
+                                                        />
+                                                    </th>
+                                                    <th className="p-4">Producto</th>
+                                                    <th className="p-4">Proveedor</th>
+                                                    <th className="p-4 text-center">Stock</th>
+                                                    <th className="p-4 text-center">Análisis (Días)</th>
+                                                    <th className="p-4 text-center">Cobertura (Días)</th>
+                                                    <th className="p-4 text-center">Sugerido</th>
+                                                    <th className="p-4 w-10"></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100 text-sm bg-white">
+                                                {suggestions
+                                                    .filter(item => {
+                                                        // Fix NaN by defaulting
+                                                        const stockPercent = item.stock_level_percent ?? 0;
 
-                                                    // Stock Filter Logic (0-100%)
-                                                    if (stockFilter !== null) {
-                                                        // Item percent is 0-100 (integer)
-                                                        // Stock filter is 0-1 (float)
-                                                        // Convert filter to 0-100 for comparison
-                                                        return stockPercent <= (stockFilter * 100);
-                                                    }
-                                                    return true;
-                                                })
-                                                .map((item, idx) => (
-                                                    <tr key={`${item.sku}-${idx}`} className={`group hover:bg-purple-50/50 transition border-l-4 ${selectedSkus.has(item.sku) ? 'border-l-purple-500 bg-purple-50/20' : 'border-l-transparent'}`}>
-                                                        <td className="p-4">
-                                                            <input
-                                                                type="checkbox"
-                                                                className="w-4 h-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
-                                                                checked={selectedSkus.has(item.sku)}
-                                                                onChange={(e) => {
-                                                                    const newSet = new Set(selectedSkus);
-                                                                    if (e.target.checked) newSet.add(item.sku);
-                                                                    else newSet.delete(item.sku);
-                                                                    setSelectedSkus(newSet);
-                                                                }}
-                                                            />
-                                                        </td>
-                                                        <td className="p-4">
-                                                            <div className="font-bold text-slate-800 line-clamp-1 group-hover:text-purple-700 transition-colors">{item.product_name}</div>
-                                                            <div className="flex items-center gap-2 mt-1">
-                                                                <span className="text-[10px] font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">{item.sku}</span>
-                                                                {item.urgency === 'HIGH' && <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded flex items-center gap-1"><AlertTriangle size={10} /> CRÍTICO</span>}
-                                                            </div>
-                                                        </td>
-                                                        <td className="p-4">
-                                                            <div className="relative">
-                                                                {/* Force selection if item.supplier_id matches selectedSupplier logic handled in backend now */}
-                                                                {item.other_suppliers && item.other_suppliers.length > 1 ? (
-                                                                    <div className="flex flex-col gap-1">
-                                                                        <select
-                                                                            className="text-xs font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-1.5 pr-6 appearance-none focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer truncate max-w-[140px]"
-                                                                            value={item.supplier_id || ''}
-                                                                            onChange={(e) => changeSupplier(item.sku, e.target.value)}
-                                                                        >
-                                                                            {item.other_suppliers.map(s => (
-                                                                                <option key={s.id} value={s.id}>
-                                                                                    {s.name} (${s.cost || 0})
-                                                                                </option>
-                                                                            ))}
-                                                                        </select>
-                                                                        <ChevronDown className="absolute right-2 top-2 pointer-events-none text-slate-400" size={12} />
+                                                        // Stock Filter Logic (0-100%)
+                                                        if (stockFilter !== null) {
+                                                            // Item percent is 0-100 (integer)
+                                                            // Stock filter is 0-1 (float)
+                                                            // Convert filter to 0-100 for comparison
+                                                            return stockPercent <= (stockFilter * 100);
+                                                        }
+                                                        return true;
+                                                    })
+                                                    .map((item, idx) => (
+                                                        <tr key={`${item.sku}-${idx}`} className={`group hover:bg-purple-50/50 transition border-l-4 ${selectedSkus.has(item.sku) ? 'border-l-purple-500 bg-purple-50/20' : 'border-l-transparent'}`}>
+                                                            <td className="p-4">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    className="w-4 h-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                                                                    checked={selectedSkus.has(item.sku)}
+                                                                    onChange={(e) => {
+                                                                        const newSet = new Set(selectedSkus);
+                                                                        if (e.target.checked) newSet.add(item.sku);
+                                                                        else newSet.delete(item.sku);
+                                                                        setSelectedSkus(newSet);
+                                                                    }}
+                                                                />
+                                                            </td>
+                                                            <td className="p-4">
+                                                                <div className="font-bold text-slate-800 line-clamp-1 group-hover:text-purple-700 transition-colors">{item.product_name}</div>
+                                                                <div className="flex items-center gap-2 mt-1">
+                                                                    <span className="text-[10px] font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">{item.sku}</span>
+                                                                    {item.urgency === 'HIGH' && <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded flex items-center gap-1"><AlertTriangle size={10} /> CRÍTICO</span>}
+                                                                </div>
+                                                            </td>
+                                                            <td className="p-4">
+                                                                <div className="relative">
+                                                                    {/* Force selection if item.supplier_id matches selectedSupplier logic handled in backend now */}
+                                                                    {item.other_suppliers && item.other_suppliers.length > 1 ? (
+                                                                        <div className="flex flex-col gap-1">
+                                                                            <select
+                                                                                className="text-xs font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-1.5 pr-6 appearance-none focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer truncate max-w-[140px]"
+                                                                                value={item.supplier_id || ''}
+                                                                                onChange={(e) => changeSupplier(item.sku, e.target.value)}
+                                                                            >
+                                                                                {item.other_suppliers.map(s => (
+                                                                                    <option key={s.id} value={s.id}>
+                                                                                        {s.name} (${s.cost || 0})
+                                                                                    </option>
+                                                                                ))}
+                                                                            </select>
+                                                                            <ChevronDown className="absolute right-2 top-2 pointer-events-none text-slate-400" size={12} />
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="text-xs font-medium text-slate-600 truncate max-w-[140px]" title={item.supplier_name}>
+                                                                            {item.supplier_name || 'Sin Proveedor'}
+                                                                        </div>
+                                                                    )}
+                                                                    <div className="text-[10px] text-slate-400 mt-0.5">
+                                                                        Costo: ${(item.unit_cost || 0).toLocaleString()}
                                                                     </div>
-                                                                ) : (
-                                                                    <div className="text-xs font-medium text-slate-600 truncate max-w-[140px]" title={item.supplier_name}>
-                                                                        {item.supplier_name || 'Sin Proveedor'}
-                                                                    </div>
-                                                                )}
-                                                                <div className="text-[10px] text-slate-400 mt-0.5">
-                                                                    Costo: ${(item.unit_cost || 0).toLocaleString()}
                                                                 </div>
-                                                            </div>
-                                                        </td>
-                                                        <td className="p-4 text-center">
-                                                            <div className="font-bold text-slate-800">{item.current_stock || 0}</div>
-                                                            <div className="text-[10px] text-slate-400">Min: {item.min_stock || 0}</div>
-                                                            {(item.global_stock ?? 0) > 0 && (
-                                                                <div className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded mt-1 inline-flex items-center gap-1 cursor-help" title={`Stock disponible en otras sucursales: ${item.global_stock}u`}>
-                                                                    <ArrowLeftRight size={10} />
-                                                                    {item.global_stock}u otras
-                                                                </div>
-                                                            )}
-                                                        </td>
-                                                        {/* Analysis Window Selector */}
-                                                        <td className="p-4 text-center">
-                                                            <select
-                                                                className="text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-1.5 focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer text-center appearance-none"
-                                                                value={item.selected_analysis_window}
-                                                                onChange={(e) => {
-                                                                    const newWindow = parseInt(e.target.value);
-                                                                    const newItem = recalculateItem(item, newWindow, item.selected_coverage_days || 15);
-                                                                    const newSuggestions = [...suggestions];
-                                                                    newSuggestions[idx] = newItem; // Update specific item using index (safer than map in large lists)
-                                                                    setSuggestions(newSuggestions);
-                                                                }}
-                                                            >
-                                                                <option value={7}>7d ({item.sold_counts?.[7] || 0} u)</option>
-                                                                <option value={15}>15d ({item.sold_counts?.[15] || 0} u)</option>
-                                                                <option value={30}>30d ({item.sold_counts?.[30] || 0} u)</option>
-                                                                <option value={60}>60d ({item.sold_counts?.[60] || 0} u)</option>
-                                                                <option value={90}>90d ({item.sold_counts?.[90] || 0} u)</option>
-                                                                <option value={180}>180d ({item.sold_counts?.[180] || 0} u)</option>
-                                                                <option value={365}>365d ({item.sold_counts?.[365] || 0} u)</option>
-                                                            </select>
-                                                        </td>
-                                                        {/* Coverage Days Selector */}
-                                                        <td className="p-4 text-center">
-                                                            <select
-                                                                className="text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-1.5 focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer text-center appearance-none"
-                                                                value={item.selected_coverage_days}
-                                                                onChange={(e) => {
-                                                                    const newCoverage = parseInt(e.target.value);
-                                                                    const newItem = recalculateItem(item, item.selected_analysis_window || 30, newCoverage);
-                                                                    const newSuggestions = [...suggestions];
-                                                                    newSuggestions[idx] = newItem;
-                                                                    setSuggestions(newSuggestions);
-                                                                }}
-                                                            >
-                                                                <option value={7}>7 días</option>
-                                                                <option value={15}>15 días</option>
-                                                                <option value={30}>30 días</option>
-                                                                <option value={45}>45 días</option>
-                                                                <option value={60}>60 días</option>
-                                                                <option value={90}>90 días</option>
-                                                            </select>
-                                                        </td>
-                                                        <td className="p-4 text-center relative group/tooltip">
-                                                            <input
-                                                                type="number"
-                                                                className={`w-16 p-1.5 border rounded-lg font-bold text-center focus:outline-none text-sm shadow-sm ${item.action_type === 'TRANSFER' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' :
-                                                                    item.action_type === 'PARTIAL_TRANSFER' ? 'border-amber-300 bg-amber-50 text-amber-700' :
-                                                                        'border-purple-300 bg-white text-purple-700'
-                                                                    }`}
-                                                                value={item.suggested_order_qty ?? 0}
-                                                                placeholder="0"
-                                                                onChange={(e) => updateSuggestion(item.sku, 'suggested_order_qty', e.target.value === '' ? 0 : parseInt(e.target.value))}
-                                                            />
-                                                            {item.action_type === 'TRANSFER' && (
-                                                                <div className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full mt-1 inline-block">
-                                                                    📦 TRASPASO
-                                                                </div>
-                                                            )}
-                                                            {item.action_type === 'PARTIAL_TRANSFER' && (
-                                                                <div className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full mt-1 inline-block">
-                                                                    📦 PARCIAL
-                                                                </div>
-                                                            )}
-                                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover/tooltip:block bg-slate-800 text-white text-[10px] p-2 rounded shadow-lg z-50 whitespace-nowrap text-left border border-slate-700 min-w-[220px]">
-                                                                <div className="font-bold border-b border-slate-700 mb-1 pb-1 text-purple-300">Cálculo de Sugerencia</div>
-                                                                <div><span className="text-slate-400">Objetivo ({item.selected_coverage_days}d):</span> {item.max_stock} u</div>
-                                                                <div><span className="text-slate-400">Stock Actual (se resta):</span> {item.current_stock} u</div>
-                                                                <div><span className="text-slate-400">Entrante (+) (se resta):</span> {item.incoming_stock} u</div>
-                                                                <div className="border-t border-slate-600 mt-1 pt-1 font-bold text-yellow-500">
-                                                                    Sugerido = {item.max_stock} - {item.current_stock} - {item.incoming_stock || 0} = {item.suggested_order_qty} u
-                                                                </div>
-                                                                <div className="text-[9px] text-slate-500 mt-1 italic">
-                                                                    (Venta diaria: {(item.daily_velocity || 0).toFixed(2)} * Días)
-                                                                </div>
-                                                                {item.transfer_sources && item.transfer_sources.length > 0 && (
-                                                                    <div className="border-t border-slate-600 mt-1 pt-1">
-                                                                        <div className="font-bold text-emerald-400">📦 Stock en Otras Sucursales:</div>
-                                                                        {item.transfer_sources.map((src, i) => (
-                                                                            <div key={i} className="flex justify-between gap-4">
-                                                                                <span className="text-slate-400">{src.location_name}:</span>
-                                                                                <span className="font-bold">{src.available_qty}u</span>
-                                                                            </div>
-                                                                        ))}
+                                                            </td>
+                                                            <td className="p-4 text-center">
+                                                                <div className="font-bold text-slate-800">{item.current_stock || 0}</div>
+                                                                <div className="text-[10px] text-slate-400">Min: {item.min_stock || 0}</div>
+                                                                {(item.global_stock ?? 0) > 0 && (
+                                                                    <div className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded mt-1 inline-flex items-center gap-1 cursor-help" title={`Stock disponible en otras sucursales: ${item.global_stock}u`}>
+                                                                        <ArrowLeftRight size={10} />
+                                                                        {item.global_stock}u otras
                                                                     </div>
                                                                 )}
-                                                            </div>
-                                                        </td>
-                                                        <td className="p-4 text-center">
-                                                            <button
-                                                                onClick={() => removeSuggestion(item.sku)}
-                                                                className="text-slate-300 hover:text-red-500 transition p-1 hover:bg-red-50 rounded-md"
-                                                            >
-                                                                <Trash2 size={16} />
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                        </tbody>
+                                                            </td>
+                                                            {/* Analysis Window Selector */}
+                                                            <td className="p-4 text-center">
+                                                                <select
+                                                                    className="text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-1.5 focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer text-center appearance-none"
+                                                                    value={item.selected_analysis_window}
+                                                                    onChange={(e) => {
+                                                                        const newWindow = parseInt(e.target.value);
+                                                                        const newItem = recalculateItem(item, newWindow, item.selected_coverage_days || 15);
+                                                                        const newSuggestions = [...suggestions];
+                                                                        newSuggestions[idx] = newItem; // Update specific item using index (safer than map in large lists)
+                                                                        setSuggestions(newSuggestions);
+                                                                    }}
+                                                                >
+                                                                    <option value={7}>7d ({item.sold_counts?.[7] || 0} u)</option>
+                                                                    <option value={15}>15d ({item.sold_counts?.[15] || 0} u)</option>
+                                                                    <option value={30}>30d ({item.sold_counts?.[30] || 0} u)</option>
+                                                                    <option value={60}>60d ({item.sold_counts?.[60] || 0} u)</option>
+                                                                    <option value={90}>90d ({item.sold_counts?.[90] || 0} u)</option>
+                                                                    <option value={180}>180d ({item.sold_counts?.[180] || 0} u)</option>
+                                                                    <option value={365}>365d ({item.sold_counts?.[365] || 0} u)</option>
+                                                                </select>
+                                                            </td>
+                                                            {/* Coverage Days Selector */}
+                                                            <td className="p-4 text-center">
+                                                                <select
+                                                                    className="text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-1.5 focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer text-center appearance-none"
+                                                                    value={item.selected_coverage_days}
+                                                                    onChange={(e) => {
+                                                                        const newCoverage = parseInt(e.target.value);
+                                                                        const newItem = recalculateItem(item, item.selected_analysis_window || 30, newCoverage);
+                                                                        const newSuggestions = [...suggestions];
+                                                                        newSuggestions[idx] = newItem;
+                                                                        setSuggestions(newSuggestions);
+                                                                    }}
+                                                                >
+                                                                    <option value={7}>7 días</option>
+                                                                    <option value={15}>15 días</option>
+                                                                    <option value={30}>30 días</option>
+                                                                    <option value={45}>45 días</option>
+                                                                    <option value={60}>60 días</option>
+                                                                    <option value={90}>90 días</option>
+                                                                </select>
+                                                            </td>
+                                                            <td className="p-4 text-center relative">
+                                                                <input
+                                                                    type="text"
+                                                                    inputMode="numeric"
+                                                                    pattern="[0-9]*"
+                                                                    className={`w-16 p-1.5 border rounded-lg font-bold text-center focus:outline-none text-sm shadow-sm ${item.action_type === 'TRANSFER' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' :
+                                                                        item.action_type === 'PARTIAL_TRANSFER' ? 'border-amber-300 bg-amber-50 text-amber-700' :
+                                                                            'border-purple-300 bg-white text-purple-700'
+                                                                        }`}
+                                                                    value={suggestedQtyDrafts[item.sku] ?? String(item.suggested_order_qty ?? 0)}
+                                                                    data-testid={`suggested-qty-input-${item.sku}`}
+                                                                    placeholder="0"
+                                                                    onChange={(e) => updateSuggestedQtyDraft(item, e.target.value)}
+                                                                    onBlur={() => normalizeSuggestedQtyDraftOnBlur(item)}
+                                                                />
+                                                                {item.action_type === 'TRANSFER' && (
+                                                                    <div className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full mt-1 inline-block">
+                                                                        📦 TRASPASO
+                                                                    </div>
+                                                                )}
+                                                                {item.action_type === 'PARTIAL_TRANSFER' && (
+                                                                    <div className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full mt-1 inline-block">
+                                                                        📦 PARCIAL
+                                                                    </div>
+                                                                )}
+                                                            </td>
+                                                            <td className="p-4 text-center">
+                                                                <button
+                                                                    onClick={() => removeSuggestion(item.sku)}
+                                                                    className="text-slate-300 hover:text-red-500 transition p-1 hover:bg-red-50 rounded-md"
+                                                                >
+                                                                    <Trash2 size={16} />
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                            </tbody>
                                         </table>
                                     </div>
                                 )}
@@ -934,6 +992,16 @@ const SupplyChainPage: React.FC = () => {
                         }}
                         onReceiveOrder={(po) => {
                             setSelectedOrder(po);
+                            setReceptionModalMode('RECEIVE');
+                            setIsReceptionModalOpen(true);
+                        }}
+                        onViewOrder={(movement) => {
+                            setSelectedMovement(movement);
+                            setIsMovementDetailOpen(true);
+                        }}
+                        onFinalizeReview={(po) => {
+                            setSelectedOrder(po);
+                            setReceptionModalMode('REVIEW');
                             setIsReceptionModalOpen(true);
                         }}
                     />
@@ -944,7 +1012,12 @@ const SupplyChainPage: React.FC = () => {
                 isReceptionModalOpen && (
                     <PurchaseOrderReceivingModal
                         isOpen={isReceptionModalOpen}
-                        onClose={() => setIsReceptionModalOpen(false)}
+                        mode={receptionModalMode}
+                        onClose={() => {
+                            setIsReceptionModalOpen(false);
+                            setReceptionModalMode('RECEIVE');
+                            setSelectedOrder(null);
+                        }}
                         order={selectedOrder}
                         onReceive={(orderId, items) => {
                             return receivePurchaseOrder(
@@ -953,9 +1026,19 @@ const SupplyChainPage: React.FC = () => {
                                 selectedOrder.destination_location_id || 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6'
                             );
                         }}
+                        onFinalizeReview={(orderId, reviewNotes) => finalizePurchaseOrderReview(orderId, reviewNotes)}
                     />
                 )
             }
+
+            <MovementDetailModal
+                isOpen={isMovementDetailOpen}
+                onClose={() => {
+                    setIsMovementDetailOpen(false);
+                    setSelectedMovement(null);
+                }}
+                movement={selectedMovement}
+            />
 
             <ManualOrderModal
                 isOpen={isManualOrderModalOpen}

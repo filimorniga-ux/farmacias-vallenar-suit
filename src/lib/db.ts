@@ -44,6 +44,8 @@ const connectionConfig = {
     keepAlive: true,
 };
 
+console.log('🔌 [DB-DEBUG] Connecting to host:', dbUrl.split('@')[1]?.split('/')[0] || 'Unknown');
+
 // Singleton Pattern corrected for Next.js Fast Refresh
 export let pool: Pool;
 

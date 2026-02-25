@@ -55,14 +55,34 @@ export const WMSProductScanner: React.FC<WMSProductScannerProps> = ({
     const barcodeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
+    const isRetailVariant = useCallback((item: InventoryBatch): boolean => {
+        if (item.is_retail_lot === true) return true;
+        return /^\s*\[AL DETAL\]/i.test(item.name || '');
+    }, []);
+
     const exactCodeIndex = useMemo(() => {
         const map = new Map<string, InventoryBatch>();
         for (const item of inventory) {
-            map.set(item.sku, item);
+            const existingSku = map.get(item.sku);
+            if (!existingSku) {
+                map.set(item.sku, item);
+            } else {
+                const existingIsRetail = isRetailVariant(existingSku);
+                const currentIsRetail = isRetailVariant(item);
+
+                const shouldReplace =
+                    (existingIsRetail && !currentIsRetail) ||
+                    (existingIsRetail === currentIsRetail && item.stock_actual > existingSku.stock_actual);
+
+                if (shouldReplace) {
+                    map.set(item.sku, item);
+                }
+            }
+
             if (item.barcode) map.set(item.barcode, item);
         }
         return map;
-    }, [inventory]);
+    }, [inventory, isRetailVariant]);
 
     const indexedInventory = useMemo(() => {
         return inventory.map(item => ({
@@ -152,7 +172,7 @@ export const WMSProductScanner: React.FC<WMSProductScannerProps> = ({
         if (searchTerm.length < 2) return [];
 
         const term = searchTerm.toLowerCase();
-        const skuMap = new Map<string, InventoryBatch>();
+        const variantMap = new Map<string, InventoryBatch>();
 
         for (const candidate of indexedInventory) {
             const matches =
@@ -164,16 +184,18 @@ export const WMSProductScanner: React.FC<WMSProductScannerProps> = ({
 
             if (!matches) continue;
 
-            const existing = skuMap.get(candidate.item.sku);
+            const productKey = candidate.item.product_id || candidate.item.sku;
+            const variantKey = `${productKey}::${isRetailVariant(candidate.item) ? 'retail' : 'standard'}`;
+            const existing = variantMap.get(variantKey);
             if (!existing || candidate.item.stock_actual > existing.stock_actual) {
-                skuMap.set(candidate.item.sku, candidate.item);
+                variantMap.set(variantKey, candidate.item);
             }
 
-            if (skuMap.size >= 15) break;
+            if (variantMap.size >= 15) break;
         }
 
-        return Array.from(skuMap.values()).slice(0, 15);
-    }, [indexedInventory, searchTerm]);
+        return Array.from(variantMap.values()).slice(0, 15);
+    }, [indexedInventory, isRetailVariant, searchTerm]);
 
     const handleSelectProduct = (product: InventoryBatch) => {
         onProductSelected(product);

@@ -189,7 +189,7 @@ describe('SupplyKanban fallback de ubicación', () => {
             />
         );
 
-        fireEvent.click(await screen.findByRole('button', { name: 'MARCAR ENVIADA' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'MARCAR EN TRÁNSITO' }));
         expect(updatePurchaseOrderSecureMock).not.toHaveBeenCalled();
         fireEvent.click(await screen.findByRole('button', { name: 'Confirmar envío' }));
 
@@ -234,7 +234,7 @@ describe('SupplyKanban fallback de ubicación', () => {
             />
         );
 
-        fireEvent.click(await screen.findByRole('button', { name: 'MARCAR ENVIADA' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'MARCAR EN TRÁNSITO' }));
         fireEvent.click(await screen.findByRole('button', { name: 'Confirmar envío' }));
 
         await waitFor(() => {
@@ -244,5 +244,43 @@ describe('SupplyKanban fallback de ubicación', () => {
 
         expect(toastErrorMock).not.toHaveBeenCalledWith('La orden no tiene items para enviar');
         expect(toastSuccessMock).toHaveBeenCalledWith('Orden marcada como enviada');
+    });
+
+    it('permite aprobar una solicitud en borradores antes de enviarla a tránsito', async () => {
+        pharmaState.purchaseOrders = [
+            {
+                id: '550e8400-e29b-41d4-a716-446655440102',
+                status: 'DRAFT',
+                supplier_name: 'Proveedor Solicitud',
+                target_warehouse_id: '550e8400-e29b-41d4-a716-446655440202',
+                items_count: 1,
+                line_items: [
+                    {
+                        sku: 'SKU-002',
+                        name: 'Producto Borrador',
+                        quantity_ordered: 4,
+                        cost_price: 0,
+                        product_id: '550e8400-e29b-41d4-a716-446655440302',
+                    },
+                ],
+            },
+        ];
+
+        render(
+            <SupplyKanban
+                onEditOrder={vi.fn()}
+                onReceiveOrder={vi.fn()}
+            />
+        );
+
+        fireEvent.click(await screen.findByRole('button', { name: 'APROBAR SOLICITUD' }));
+
+        await waitFor(() => {
+            expect(updatePurchaseOrderSecureMock).toHaveBeenCalledTimes(1);
+        });
+
+        const payload = updatePurchaseOrderSecureMock.mock.calls[0]?.[1] as { status?: string };
+        expect(payload?.status).toBe('APPROVED');
+        expect(toastSuccessMock).toHaveBeenCalledWith('Solicitud aprobada');
     });
 });

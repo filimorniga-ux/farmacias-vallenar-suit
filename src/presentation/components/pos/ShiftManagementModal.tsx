@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { openTerminalAtomic, openTerminalWithPinValidation, forceCloseTerminalShift, getTerminalStatusAtomic, getTerminalsByLocationSecure } from '../../../actions/terminals-v2';
 import { useTerminalSession } from '../../../hooks/useTerminalSession';
 import { Terminal } from '@/domain/types';
+import { resolvePreferredTerminalSelection } from './shift-management-utils';
 
 interface ShiftManagementModalProps {
     isOpen: boolean;
@@ -30,7 +31,7 @@ const parseFormattedNumber = (formatted: string): number => {
 
 const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onClose }) => {
     const router = useRouter();
-    const { employees, openShift, resumeShift, fetchLocations, locations, terminals, fetchTerminals, user, syncData } = usePharmaStore();
+    const { employees, openShift, resumeShift, fetchLocations, locations, fetchTerminals, user, syncData } = usePharmaStore();
     const { saveSession } = useTerminalSession(); // Hook para persistencia local segura
 
     const [selectedLocation, setSelectedLocation] = useState('');
@@ -43,6 +44,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     const [isForceLoading, setIsForceLoading] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false); // Estado de carga para evitar doble clic
     const [loadedCashiers, setLoadedCashiers] = useState<any[]>([]); // Cajeros cargados del servidor
+    const [locationTerminals, setLocationTerminals] = useState<Terminal[]>([]);
 
     // Cargar empleados directamente del servidor cuando se abre el modal
     useEffect(() => {
@@ -120,42 +122,38 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
             // V2: getTerminalsByLocationSecure para obtener terminales disponibles
             getTerminalsByLocationSecure(selectedLocation).then((res) => {
                 if (res.success && res.data) {
+                    const scoped = res.data as Terminal[];
+                    setLocationTerminals(scoped);
                     const available = res.data.filter((t: any) => t.status !== 'OPEN');
                     setOpenableTerminals(available as Terminal[]);
-
-                    // AUTO-SELECT LOGIC: Si el usuario ya tiene un turno abierto aquí, seleccionar esa caja
-                    const myActiveTerminal = res.data.find((t: any) =>
-                        t.status === 'OPEN' && t.current_cashier_id === user?.id
-                    );
-
-                    if (myActiveTerminal) {
-                        console.log('🔄 Auto-selecting active terminal:', myActiveTerminal.name);
-                        setSelectedTerminal(myActiveTerminal.id);
-                    } else {
-                        setSelectedTerminal(''); // Reset only if no active session found
-                    }
+                    const preferredTerminal = resolvePreferredTerminalSelection({
+                        terminals: scoped,
+                        userId: user?.id,
+                        currentSelection: selectedTerminal
+                    });
+                    setSelectedTerminal(preferredTerminal);
                 } else {
+                    setLocationTerminals([]);
                     setOpenableTerminals([]);
                     setSelectedTerminal('');
                 }
             }).catch(() => {
+                setLocationTerminals([]);
                 setOpenableTerminals([]);
                 setSelectedTerminal('');
             });
 
-            // 2. Ensure Store has terminals for this location (Fallback for Dropdown) by re-fetching
-            const storeTerminalsForLoc = terminals.filter(t => t.location_id === selectedLocation);
-            if (storeTerminalsForLoc.length === 0) {
-                console.log(`⚠️ No terminals in store for ${selectedLocation}, fetching...`);
-                fetchTerminals(selectedLocation);
-            }
+            // 2. Keep store in sync, but UI renders from fresh scoped snapshot.
+            fetchTerminals(selectedLocation);
         } else {
+            setLocationTerminals([]);
             setOpenableTerminals([]);
+            setSelectedTerminal('');
         }
-    }, [selectedLocation, terminals.length, user?.id]);
+    }, [selectedLocation, selectedTerminal, user?.id, fetchTerminals]);
 
-    // Filter terminals from STORE for display (Show ALL, even occupied ones)
-    const displayTerminals = terminals.filter(t => t.location_id === selectedLocation);
+    // Render from fresh location-scoped terminals to avoid stale "ghost" sessions from store cache.
+    const displayTerminals = locationTerminals;
 
 
     // Check if selected terminal is "Zombie" (Exists but not in openable list)
@@ -167,7 +165,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     useEffect(() => {
         const healGhosts = async () => {
             if (!locations || !selectedLocation) return;
-            const currentTerminals = terminals.filter(t => t.location_id === selectedLocation);
+            const currentTerminals = locationTerminals;
 
             // Definition of "Ghost":
             // 1. Status is OPEN
@@ -181,7 +179,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                 // Ideally only Admins/Managers should trigger this to avoid chaos, 
                 // OR we do it silently if it's clearly a data corruption (missing ID).
                 // Let's do it safely: Only if user has permissions or if it's blatant corruption.
-                const canHeal = ['ADMIN', 'MANAGER'].includes(user?.role || '') || ghosts.every(g => !g.current_cashier_id);
+                const canHeal = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL'].includes(user?.role || '') || ghosts.every(g => !g.current_cashier_id);
 
                 if (canHeal) {
                     toast.warning(`🧹 Detectadas ${ghosts.length} sesiones fantasmas. Reparando...`);
@@ -209,8 +207,8 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
         };
 
         healGhosts();
-    }, [selectedLocation, terminals.length, user?.role]);
-    // Dependency on terminals.length ensures we run when list updates
+    }, [selectedLocation, locationTerminals, user?.role, locations]);
+    // Dependencias sobre snapshot remoto para re-evaluar al refrescar terminales.
     // ------------------------------------------------
 
 
@@ -226,6 +224,8 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                 // Refresh list - V2
                 const refreshed = await getTerminalsByLocationSecure(selectedLocation);
                 if (refreshed.success && refreshed.data) {
+                    const scoped = refreshed.data as Terminal[];
+                    setLocationTerminals(scoped);
                     const available = refreshed.data.filter((t: any) => t.status !== 'OPEN');
                     setOpenableTerminals(available as Terminal[]);
                 }
@@ -241,7 +241,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
         }
     };
 
-    const selectedTerminalData = terminals.find(t => t.id === selectedTerminal);
+    const selectedTerminalData = locationTerminals.find(t => t.id === selectedTerminal);
 
     // --- SHIFT CHANGE / CARRYOVER LOGIC ---
     const [suggestedInfo, setSuggestedInfo] = useState<{ amount: number; user: string } | null>(null);
@@ -421,7 +421,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
 
             // A. Guardar sesión en localStorage (vía Hook) para validación offline/recarga
             if (result.sessionId) {
-                const terminalData = terminals.find(t => t.id === selectedTerminal);
+                const terminalData = locationTerminals.find(t => t.id === selectedTerminal);
                 saveSession({
                     sessionId: result.sessionId,
                     terminalId: selectedTerminal,
@@ -659,7 +659,6 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                                                             key={t.id}
                                                             value={t.id}
                                                             className={isMine ? "text-amber-600 font-bold" : (isOccupied ? "text-red-500 font-bold" : "text-slate-700")}
-                                                            disabled={isOccupied}
                                                         >
                                                             {t.name} {statusLabel}
                                                         </option>

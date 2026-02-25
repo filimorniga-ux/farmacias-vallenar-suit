@@ -3,7 +3,6 @@ import { calculateHandoverSecure, executeHandoverSecure, type HandoverSummary } 
 import { toast } from 'sonner';
 import { Loader2, ArrowRight, CheckCircle, AlertTriangle, ShieldCheck, X } from 'lucide-react';
 import { usePharmaStore } from '@/presentation/store/useStore';
-import { useRouter } from 'next/navigation';
 import { printHandoverTicket } from '@/presentation/utils/print-utils'; // New Import
 import { HardwareConfig } from '@/domain/types'; // Import Type
 
@@ -13,8 +12,7 @@ interface ShiftHandoverModalProps {
 }
 
 export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, onClose }) => {
-    const { currentTerminalId, user, locations, currentLocationId } = usePharmaStore();
-    const router = useRouter();
+    const { currentTerminalId, user, locations, currentLocationId, logoutShift, fetchTerminals } = usePharmaStore();
 
     const [step, setStep] = useState<'COUNT' | 'SUMMARY' | 'PROCESSING'>('COUNT');
     const [declaredAmount, setDeclaredAmount] = useState<string>('');
@@ -67,11 +65,11 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
             userId: user.id,
             userPin: '', // Optional now
             supervisorPin: supervisorPin, // PASS NEW PIN
-            notes: `Cierre de turno por ${user.name}`,
+            notes: `Cambio de turno por ${user.name}`,
         });
 
         if (res.success) {
-            toast.success('Turno cerrado correctamente');
+            toast.success('Cambio de turno registrado correctamente');
 
             // Print Ticket
             // Default Config for now
@@ -95,11 +93,19 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
                 defaultConfig
             );
 
+            // Limpiar sesión local de caja para evitar "sesión fantasma"
+            logoutShift();
+            if (currentLocationId) {
+                await fetchTerminals(currentLocationId);
+            }
+
+            // Reiniciar estado interno del modal
+            setDeclaredAmount('');
+            setSummary(null);
+            setSupervisorPin('');
+            setStep('COUNT');
             onClose();
-            // Force redirect or logout?
-            // Ideally logout or refresh to show "Shift Closed" state
-            // Force logout/redirect to Landing to allow next cashier to login
-            window.location.href = '/';
+            toast.info('Turno transferido. El siguiente usuario debe iniciar sesión y retomar manualmente desde POS.');
         } else {
             setError(res.error || 'Error cerrando turno');
             setStep('SUMMARY');
@@ -201,7 +207,7 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
                                         {summary.diff > 0 ? 'Sobrante de Caja detected' : 'Faltante de Caja detected'}
                                     </div>
                                     <p className="text-sm opacity-90">
-                                        Diferencia: <span className="font-mono font-bold">{summary.diff > 0 ? '+' : ''}{summary.diff.toLocaleString('es-CL')}</span>. Esta diferencia se registrará en Tesorería.
+                                        Diferencia: <span className="font-mono font-bold">{summary.diff > 0 ? '+' : ''}{summary.diff.toLocaleString('es-CL')}</span>. Esta diferencia se registrará en auditoría de caja.
                                     </p>
                                 </div>
                             ) : (
@@ -215,16 +221,16 @@ export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, 
                                 <div className="relative z-10 space-y-4">
                                     <div className="flex justify-between items-end border-b border-slate-700 pb-4">
                                         <div>
-                                            <p className="text-slate-400 text-xs font-bold uppercase">Entregar a Tesorería</p>
-                                            <p className="text-3xl font-mono font-bold text-amber-400">${summary.amountToWithdraw.toLocaleString('es-CL')}</p>
+                                            <p className="text-slate-400 text-xs font-bold uppercase">Traspaso al Siguiente Turno</p>
+                                            <p className="text-3xl font-mono font-bold text-amber-400">${summary.amountToKeep.toLocaleString('es-CL')}</p>
                                         </div>
                                         <div className="text-right">
-                                            <p className="text-slate-400 text-xs font-bold uppercase">Dejar en Caja (Base)</p>
-                                            <p className="text-xl font-mono font-bold text-white">${summary.amountToKeep.toLocaleString('es-CL')}</p>
+                                            <p className="text-slate-400 text-xs font-bold uppercase">Remesa Automática</p>
+                                            <p className="text-xl font-mono font-bold text-white">${summary.amountToWithdraw.toLocaleString('es-CL')}</p>
                                         </div>
                                     </div>
                                     <p className="text-xs text-slate-400 italic">
-                                        * Al confirmar, se generará una remesa por el monto a entregar. La caja se cerrará automáticamente.
+                                        * Al confirmar, se cierra el turno actual y el efectivo queda disponible para continuidad del siguiente cajero.
                                     </p>
                                 </div>
                             </div>

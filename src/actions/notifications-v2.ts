@@ -4,8 +4,15 @@ import { getClient, type PoolClient } from '../lib/db';
 import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
 import * as Sentry from '@sentry/nextjs';
+import { randomUUID } from 'crypto';
+import { headers } from 'next/headers';
 
-export type NotificationType = 'HR' | 'INVENTORY' | 'CASH' | 'WMS' | 'SYSTEM' | 'CONFIG' | 'STOCK_CRITICAL' | 'GENERAL';
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+export type NotificationType =
+    | 'HR' | 'INVENTORY' | 'CASH' | 'WMS' | 'SYSTEM'
+    | 'CONFIG' | 'STOCK_CRITICAL' | 'GENERAL' | 'PROCUREMENT' | 'TRANSFER';
+
 export type NotificationSeverity = 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR' | 'CRITICAL';
 
 export interface CreateNotificationDTO {
@@ -16,61 +23,106 @@ export interface CreateNotificationDTO {
     metadata?: Record<string, unknown>;
     locationId?: string;
     userId?: string;
+    /** URL de destino al hacer click (ej: '/wms', '/logistica') */
+    actionUrl?: string;
+    /**
+     * Clave única para deduplicar. Si ya existe una notificación con esta clave
+     * en las últimas `dedupWindowHours` horas, se omite la inserción.
+     * Ejemplo: 'stock_critical:loc-123:2026-02-25'
+     */
+    dedupKey?: string;
+    dedupWindowHours?: number;
 }
 
-import { randomUUID } from 'crypto';
+// ─── Internal session helper ─────────────────────────────────────────────────
 
+async function getSession() {
+    const headersList = await headers();
+    const userId = headersList.get('x-user-id');
+    const userRole = headersList.get('x-user-role');
+    const userLocation = headersList.get('x-user-location');
+    if (!userId) return null;
+    return { userId, role: userRole || 'GUEST', locationId: userLocation };
+}
+
+// ─── Create ──────────────────────────────────────────────────────────────────
+
+/**
+ * Crea una notificación con soporte de deduplicación.
+ * Si `dedupKey` está presente, hace UPSERT: si ya existe la clave en las últimas
+ * `dedupWindowHours` horas (default 1h), NO inserta un duplicado.
+ */
 export async function createNotificationSecure(data: CreateNotificationDTO) {
     const client = await getClient();
     try {
-        // Sanitize title and message to prevent XSS
-        const sanitizedTitle = data.title.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gim, "").replace(/<img\b[^>]*>/gim, "");
-        const sanitizedMessage = data.message.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gim, "").replace(/<img\b[^>]*>/gim, "");
+        const sanitize = (s: string) =>
+            s.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gim, '')
+                .replace(/<img\b[^>]*>/gim, '');
 
-        await client.query(`
-            INSERT INTO notifications (
-                id, type, severity, title, message, metadata, location_id, user_id
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        `, [
-            randomUUID(),
-            data.type,
-            data.severity || 'INFO',
-            sanitizedTitle,
-            sanitizedMessage,
-            JSON.stringify(data.metadata || {}),
-            data.locationId || null,
-            data.userId || null
-        ]);
+        const title = sanitize(data.title);
+        const message = sanitize(data.message);
+        const metadata = { ...data.metadata, actionUrl: data.actionUrl ?? data.metadata?.actionUrl };
 
-        // No revalidatePath here to avoid excessive cache purging on every event.
-        // The UI should poll or revalidate on mount/interaction.
+        if (data.dedupKey) {
+            const windowHours = data.dedupWindowHours ?? 1;
+            // Upsert ignorando si ya existe dentro de la ventana de tiempo
+            await client.query(`
+                INSERT INTO notifications (id, type, severity, title, message, metadata, location_id, user_id, action_url, dedup_key)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                ON CONFLICT (dedup_key)
+                DO UPDATE SET
+                    updated_at = NOW()
+                WHERE notifications.created_at < NOW() - make_interval(hours => $11)
+            `, [
+                randomUUID(),
+                data.type,
+                data.severity ?? 'INFO',
+                title,
+                message,
+                JSON.stringify(metadata),
+                data.locationId ?? null,
+                data.userId ?? null,
+                data.actionUrl ?? null,
+                data.dedupKey,
+                windowHours,
+            ]);
+        } else {
+            await client.query(`
+                INSERT INTO notifications (id, type, severity, title, message, metadata, location_id, user_id, action_url)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            `, [
+                randomUUID(),
+                data.type,
+                data.severity ?? 'INFO',
+                title,
+                message,
+                JSON.stringify(metadata),
+                data.locationId ?? null,
+                data.userId ?? null,
+                data.actionUrl ?? null,
+            ]);
+        }
+
         return { success: true };
     } catch (error) {
-        console.error('Failed to create notification:', error);
-        // Fail silently to not block main transaction
+        logger.warn({ error }, '[Notifications] createNotificationSecure failed (non-blocking)');
         return { success: false, error: 'Failed to create notification' };
     } finally {
         client.release();
     }
 }
 
-export async function getNotificationsSecure(locationId?: string, limit = 50) {
+// ─── Fetch ───────────────────────────────────────────────────────────────────
+
+export async function getNotificationsSecure(locationId?: string, limit = 60) {
     const session = await getSession();
     let client: PoolClient | null = null;
     try {
         client = await getClient();
         const currentUserId = session?.userId;
 
-        // Base Query:
-        // 1. Location matches (or NULL for global)
-        // 2. Target: Either ME, or NULL (Broadcast)
-        // 3. If I am not logged in, only show Broadcasts? Or fail? 
-        //    Let's assume public/kiosk might use this? No, usually authenticated.
-        //    If no session, show only broadcasts (user_id IS NULL).
-
-        const params: unknown[] = [];
+        const params: unknown[] = [locationId ?? null];
         let whereClause = `WHERE (location_id = $1 OR location_id IS NULL)`;
-        params.push(locationId);
 
         if (currentUserId) {
             whereClause += ` AND (user_id = $2 OR user_id IS NULL)`;
@@ -80,143 +132,76 @@ export async function getNotificationsSecure(locationId?: string, limit = 50) {
         }
 
         const query = `
-            SELECT * FROM notifications 
+            SELECT id, type, severity, title, message, metadata, action_url,
+                   is_read, location_id, user_id, created_at, dedup_key
+            FROM notifications
             ${whereClause}
-            ORDER BY created_at DESC 
+            ORDER BY created_at DESC
             LIMIT $${params.length + 1}
         `;
-
         params.push(limit);
 
-        const res = await client.query(query, params);
-
-        // Count unread (using same filter)
-        const countQuery = `
-            SELECT COUNT(*) FROM notifications 
-            ${whereClause} AND is_read = FALSE
-        `;
-        // Remove limit param for count
-        const countParams = params.slice(0, params.length - 1);
-
-        const unreadCountRes = await client.query(countQuery, countParams);
+        const [res, countRes] = await Promise.all([
+            client.query(query, params),
+            client.query(
+                `SELECT COUNT(*) FROM notifications ${whereClause} AND is_read = FALSE`,
+                params.slice(0, params.length - 1)
+            ),
+        ]);
 
         return {
             success: true,
             data: res.rows,
-            unreadCount: parseInt(unreadCountRes.rows[0]?.count || '0', 10)
+            unreadCount: parseInt(countRes.rows[0]?.count ?? '0', 10),
         };
     } catch (error: unknown) {
-        logger.error({
-            error,
-            locationId,
-            limit,
-            userId: session?.userId || null,
-        }, '[Notifications] Failed to fetch notifications');
-
-        Sentry.captureException(error, {
-            tags: {
-                module: 'notifications-v2',
-                action: 'getNotificationsSecure',
-            },
-            extra: {
-                locationId: locationId || null,
-                limit,
-                hasSession: !!session,
-                userId: session?.userId || null,
-            },
-        });
-
+        logger.error({ error, locationId }, '[Notifications] getNotificationsSecure failed');
+        Sentry.captureException(error, { tags: { module: 'notifications-v2', action: 'getNotificationsSecure' } });
         return { success: false, error: 'Failed to fetch notifications' };
     } finally {
         client?.release();
     }
 }
 
-export async function deleteNotificationSecure(notificationIds: string[]) {
+/** Conteo rápido de no leídas (sin traer todo el payload) */
+export async function getUnreadCountSecure(locationId?: string): Promise<number> {
     const session = await getSession();
-    if (!session) return { success: false, error: 'Usuario no autenticado' };
-
-    const client = await getClient();
+    let client: PoolClient | null = null;
     try {
-        if (notificationIds.length === 0) return { success: true };
-
-        // Allow deleting if:
-        // 1. It belongs to me (user_id = me)
-        // 2. OR I am ADMIN/GERENTE (can delete broadcast messages? Maybe not, safety first)
-        //    Let's stick to: I can delete messages VISIBLE to me.
-        //    Actually, if it's a broadcast message, deleting it DELETEs it for everyone?
-        //    That's bad. Broadcast messages should only be "hidden" or "marked read".
-        //    But the user asked to "delete".
-        //    If it's a personal notification (user_id set), we can DELETE it.
-        //    If it's a broadcast... we should probably just mark it as read? 
-        //    Or maybe we have a "deleted_by_users" table? Overkill.
-        //    For now, assume most duplicates are personal. 
-        //    If they want to delete a broadcast, we'll let them DELETE it if they have permission, 
-        //    OR (better) only delete if user_id is matched strictly.
-
-        // Revised logic:
-        // Users can delete their OWN notifications (user_id = me).
-        // Admins can delete ANY notification?
-        // Let's safe delete: DELETE WHERE id IN (...) AND (user_id = $1 OR $2 = TRUE)
-        // where $2 is isAdmin.
-
-        const isAdmin = ['ADMIN', 'GERENTE_GENERAL'].includes(session.role);
-
-        // If it is a broadcast notification (user_id IS NULL), deleting it removes it for EVERYONE.
-        // For this fixing task ("elimino mensajes y vuelven a aparecer"), expected behavior is "it disappears for me".
-        // If it's a broadcast, real systems use a "hidden_notifications" table.
-        // BUT, given the duplicates issue was related to targeted messages (managers),
-        // let's assume filtering fixed the duplicates, and "delete" is for cleaning up my inbox.
-
-        // If I delete a broadcast message, I might be ruining it for others.
-        // But let's check if the current system uses broadcasts heavily. 
-        // Most seem to be "notifyManagersSecure" which CREATES INDIVIDUAL COPIES.
-        // So safe delete is fine for those!
-
-        let deleteQuery = `
-            DELETE FROM notifications 
-            WHERE id = ANY($1::uuid[])
-        `;
-        const deleteParams: any[] = [notificationIds];
-
-        if (!isAdmin) {
-            // Regular users can only delete their own notifications to avoid deleting global broadcasts accidentally?
-            // Or we just trust them. 
-            // Ideally: AND (user_id = $2 OR user_id IS NULL) -- wait, if user_id IS NULL anyone can delete? No.
-            // Safe approach: Only delete rows where I am the target or I am admin.
-            deleteQuery += ` AND (user_id = $2)`;
-            deleteParams.push(session.userId);
+        client = await getClient();
+        const params: unknown[] = [locationId ?? null];
+        let where = `WHERE is_read = FALSE AND (location_id = $1 OR location_id IS NULL)`;
+        if (session?.userId) {
+            where += ` AND (user_id = $2 OR user_id IS NULL)`;
+            params.push(session.userId);
+        } else {
+            where += ` AND user_id IS NULL`;
         }
-
-        const res = await client.query(deleteQuery, deleteParams);
-
-        return { success: true, deletedCount: res.rowCount };
-    } catch (error) {
-        console.error('Failed to delete notifications:', error);
-        return { success: false, error: 'Failed to delete notifications' };
+        const res = await client.query(`SELECT COUNT(*) FROM notifications ${where}`, params);
+        return parseInt(res.rows[0]?.count ?? '0', 10);
+    } catch {
+        return 0;
     } finally {
-        client.release();
+        client?.release();
     }
 }
+
+// ─── Mark as Read ─────────────────────────────────────────────────────────────
 
 export async function markAsReadSecure(notificationIds: string[]) {
     const session = await getSession();
     if (!session) return { success: false, error: 'Usuario no autenticado' };
+    if (notificationIds.length === 0) return { success: true };
 
     const client = await getClient();
     try {
-        if (notificationIds.length === 0) return { success: true };
-
         await client.query(`
-            UPDATE notifications 
-            SET is_read = TRUE 
+            UPDATE notifications SET is_read = TRUE
             WHERE id = ANY($1::uuid[])
         `, [notificationIds]);
-
-        revalidatePath('/app'); // Revalidate app layout to update badge
         return { success: true };
     } catch (error) {
-        console.error('Failed to mark notifications as read:', error);
+        logger.error({ error }, '[Notifications] markAsReadSecure failed');
         return { success: false, error: 'Failed to update notifications' };
     } finally {
         client.release();
@@ -229,196 +214,145 @@ export async function markAllAsReadSecure(locationId?: string) {
 
     const client = await getClient();
     try {
+        // FIX B5: Filtrar también por user_id para no marcar notificaciones de otros usuarios
         await client.query(`
-            UPDATE notifications 
-            SET is_read = TRUE 
-            WHERE (location_id = $1 OR location_id IS NULL) AND is_read = FALSE
-        `, [locationId]);
-
-        revalidatePath('/app');
+            UPDATE notifications SET is_read = TRUE
+            WHERE is_read = FALSE
+              AND (location_id = $1 OR location_id IS NULL)
+              AND (user_id = $2 OR user_id IS NULL)
+        `, [locationId ?? null, session.userId]);
         return { success: true };
     } catch (error) {
-        console.error('Failed to mark all as read:', error);
-        return { success: false, error: 'Failed to update notifications' };
+        logger.error({ error }, '[Notifications] markAllAsReadSecure failed');
+        return { success: false, error: 'Failed to mark notifications as read' };
     } finally {
         client.release();
     }
 }
 
-export async function notifyManagersSecure(data: { locationId?: string; title: string; message: string; metadata?: Record<string, unknown>; link?: string }) {
+// ─── Delete ───────────────────────────────────────────────────────────────────
+
+export async function deleteNotificationSecure(notificationIds: string[]) {
+    const session = await getSession();
+    if (!session) return { success: false, error: 'Usuario no autenticado' };
+    if (notificationIds.length === 0) return { success: true };
+
     const client = await getClient();
     try {
-        // Find managers to notify
-        // If locationId is provided, notify managers of that location + Global Admins
-        // If no locationId, notify all managers ?? (Usually better to be specific)
+        const isAdmin = ['ADMIN', 'GERENTE_GENERAL'].includes(session.role);
+        // Admins pueden eliminar cualquier notificación; usuarios normales solo las suyas
+        const query = isAdmin
+            ? `DELETE FROM notifications WHERE id = ANY($1::uuid[])`
+            : `DELETE FROM notifications WHERE id = ANY($1::uuid[]) AND (user_id = $2 OR user_id IS NULL)`;
+        const params = isAdmin ? [notificationIds] : [notificationIds, session.userId];
 
-        // For Vallenar: Managers are usually per branch or Global.
-        // Let's select users with role IN ('MANAGER','ADMIN','GERENTE_GENERAL') 
-        // AND (assigned_location_id = $1 OR assigned_location_id IS NULL OR role = 'ADMIN' OR role = 'GERENTE_GENERAL')
+        const res = await client.query(query, params);
+        return { success: true, deletedCount: res.rowCount };
+    } catch (error) {
+        logger.error({ error }, '[Notifications] deleteNotificationSecure failed');
+        return { success: false, error: 'Failed to delete notifications' };
+    } finally {
+        client.release();
+    }
+}
 
+// ─── Notify Managers (FIX B3: tipo dinámico) ─────────────────────────────────
+
+export async function notifyManagersSecure(data: {
+    locationId?: string;
+    title: string;
+    message: string;
+    type?: NotificationType;
+    severity?: NotificationSeverity;
+    metadata?: Record<string, unknown>;
+    actionUrl?: string;
+    dedupKey?: string;
+}) {
+    const client = await getClient();
+    try {
         let userQuery = `
-            SELECT id FROM users 
-            WHERE role IN ('MANAGER', 'ADMIN', 'GERENTE_GENERAL')
-            AND is_active = true
+            SELECT id FROM users
+            WHERE role IN ('MANAGER', 'ADMIN', 'GERENTE_GENERAL') AND is_active = true
         `;
         const params: unknown[] = [];
-
         if (data.locationId) {
             userQuery += ` AND (assigned_location_id = $1 OR assigned_location_id IS NULL OR role IN ('ADMIN', 'GERENTE_GENERAL'))`;
             params.push(data.locationId);
         }
 
         const res = await client.query(userQuery, params);
-        const managerIds = res.rows.map((r: { id: string }) => r.id);
-
+        const managerIds: string[] = res.rows.map((r: { id: string }) => r.id);
         if (managerIds.length === 0) return { success: true };
 
-        // Batch insert notifications
-        // We use a loop for simplicity or generate a large INSERT. 
-        // Given logical number of managers is low (<20), loop is fine or single INSERT with UNNEST.
+        const metadata = { ...data.metadata, actionUrl: data.actionUrl };
 
-        const metadata = { ...data.metadata, actionUrl: data.link || data.metadata?.actionUrl };
-
+        // FIX B3: Usar tipo dinámico, no hardcodear 'CASH'
         for (const userId of managerIds) {
-            await client.query(`
-                INSERT INTO notifications (
-                    id, type, severity, title, message, metadata, location_id, user_id
-                ) VALUES ($1, 'CASH', 'WARNING', $2, $3, $4, $5, $6)
-            `, [
+            const dedupKey = data.dedupKey ? `${data.dedupKey}:user:${userId}` : undefined;
+            const insertParams: unknown[] = [
                 randomUUID(),
+                data.type ?? 'SYSTEM',           // ← tipo dinámico
+                data.severity ?? 'INFO',
                 data.title,
                 data.message,
                 JSON.stringify(metadata),
-                data.locationId || null,
-                userId
-            ]);
+                data.locationId ?? null,
+                userId,
+                data.actionUrl ?? null,
+            ];
+
+            if (dedupKey) {
+                insertParams.push(dedupKey);
+                await client.query(`
+                    INSERT INTO notifications (id, type, severity, title, message, metadata, location_id, user_id, action_url, dedup_key)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    ON CONFLICT (dedup_key) DO NOTHING
+                `, insertParams);
+            } else {
+                await client.query(`
+                    INSERT INTO notifications (id, type, severity, title, message, metadata, location_id, user_id, action_url)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                `, insertParams);
+            }
         }
 
         return { success: true, notifiedCount: managerIds.length };
-
     } catch (error) {
-        console.error('Failed to notify managers:', error);
+        logger.error({ error }, '[Notifications] notifyManagersSecure failed');
         return { success: false, error: 'Failed to notify managers' };
     } finally {
         client.release();
     }
 }
-import { headers } from 'next/headers';
 
-async function getSession() {
-    const headersList = await headers();
-    const userId = headersList.get('x-user-id');
-    const userRole = headersList.get('x-user-role');
-    const userLocation = headersList.get('x-user-location');
+// ─── Push Token ───────────────────────────────────────────────────────────────
 
-    if (!userId) return null;
-
-    return {
-        userId,
-        role: userRole || 'GUEST',
-        locationId: userLocation
-    };
-}
-
-export async function getMyNotifications(limit = 20) {
+/** Guarda el FCM/APNs token del dispositivo actual del usuario */
+export async function savePushTokenSecure(token: string) {
     const session = await getSession();
     if (!session) return { success: false, error: 'Usuario no autenticado' };
 
     const client = await getClient();
     try {
-        // Fetch notifications for:
-        // 1. My specific user_id
-        // 2. My location (location_id = my_location)
-        // 3. Global notifications (location_id IS NULL AND user_id IS NULL)
-
-        const params: unknown[] = [session.userId];
-        let query = `
-            SELECT * FROM notifications 
-            WHERE user_id = $1
-        `;
-
-        // If I have a location, include location-based notifs
-        if (session.locationId) {
-            query += ` OR location_id = $2`;
-            params.push(session.locationId);
-        } else {
-            // Should I assume NULL location means global? Yes.
-            query += ` OR location_id IS NULL`;
-        }
-
-        // Also include global non-targeted notifications if strictly needed, 
-        // but typically location_id IS NULL covers system-wide.
-        // Let's refine logical OR grouping:
-        // (user_id = me) OR (location_id = my_loc AND user_id IS NULL) OR (location_id IS NULL AND user_id IS NULL)
-
-        // Simplified for Vallenar typical use:
-        // 1. Direct to me (user_id)
-        // 2. To my store (location_id) -- usually implied for all staff there? Or just managers?
-        //    Let's assume "To my store" means everyone in that store unless user_id is set.
-
-        // Correct Query Re-write:
-        // WHERE (user_id = $1)
-        //    OR (location_id = $2 AND user_id IS NULL)
-        //    OR (location_id IS NULL AND user_id IS NULL) -- Global System
-
-        query = `
-            SELECT * FROM notifications 
-            WHERE (user_id = $1)
-        `;
-
-        if (session.locationId) {
-            query += ` OR (location_id = $2 AND user_id IS NULL)`;
-        }
-
-        query += ` OR (location_id IS NULL AND user_id IS NULL)`;
-        query += ` ORDER BY created_at DESC LIMIT $${params.length + 1}`;
-        params.push(limit);
-
-        const res = await client.query(query, params);
-
-        // Count unread
-        // Similar logic for count
-        let countQuery = `
-            SELECT COUNT(*) FROM notifications
-            WHERE is_read = FALSE AND (
-                (user_id = $1)
-        `;
-        if (session.locationId) {
-            countQuery += ` OR (location_id = $2 AND user_id IS NULL)`;
-        }
-        countQuery += ` OR (location_id IS NULL AND user_id IS NULL) )`;
-
-        // const countRes = await client.query(countQuery, filterParamsForCount(params));
-        // Helper inside: params for count are just user and location. 
-        // Actually simpler to just reuse params.slice(0, used_params_idx) but let's be safe.
-        // We can just use the same params array since LIMIT is at the end and not used here.
-        // Wait, params has 'limit' at the end. Slice it off.
-
-        const countParams = params.slice(0, params.length - 1);
-        const countResExec = await client.query(countQuery, countParams);
-
-        return {
-            success: true,
-            data: res.rows,
-            unreadCount: parseInt(countResExec.rows[0].count)
-        };
-
+        await client.query(`
+            UPDATE users SET push_token = $1 WHERE id = $2::uuid
+        `, [token, session.userId]);
+        return { success: true };
     } catch (error) {
-        console.error('Failed to get my notifications:', error);
-        return { success: false, error: 'Failed to fetch personal notifications' };
+        logger.error({ error }, '[Notifications] savePushTokenSecure failed');
+        return { success: false, error: 'Failed to save push token' };
     } finally {
         client.release();
     }
 }
 
-// function filterParamsForCount removed as it was unused
+// ─── Cleanup ──────────────────────────────────────────────────────────────────
 
 export async function deleteOldNotifications(days: number) {
     const session = await getSession();
     if (!session || !['ADMIN', 'GERENTE_GENERAL'].includes(session.role)) {
-        return { success: false, error: 'Acceso denegado: Se requieren permisos de administradores' };
+        return { success: false, error: 'Acceso denegado: Se requieren permisos de administrador' };
     }
-
     if (days < 7) {
         return { success: false, error: 'El periodo mínimo de retención es de 7 días' };
     }
@@ -426,15 +360,17 @@ export async function deleteOldNotifications(days: number) {
     const client = await getClient();
     try {
         const res = await client.query(`
-            DELETE FROM notifications 
-            WHERE created_at < NOW() - make_interval(days => $1)
+            DELETE FROM notifications WHERE created_at < NOW() - make_interval(days => $1)
         `, [days]);
-
         return { success: true, deletedCount: res.rowCount };
     } catch (error) {
-        console.error('Failed to cleanup notifications:', error);
+        logger.error({ error }, '[Notifications] deleteOldNotifications failed');
         return { success: false, error: 'Failed to delete old notifications' };
     } finally {
         client.release();
     }
 }
+
+// ─── Legacy compatibility ─────────────────────────────────────────────────────
+// Mantenemos getMyNotifications exportado para no romper imports existentes
+export { getNotificationsSecure as getMyNotifications };

@@ -22,6 +22,7 @@ import { formatDateCL, formatDateTimeCL } from '@/lib/timezone';
 
 const UUIDSchema = z.string().uuid('ID inválido');
 const INTERNAL_SUPPLIER_MARKERS = new Set(['TRANSFER', 'TRASPASO_INTERNO', 'INTERNAL_TRANSFER']);
+const UUID_TEXT_REGEX = '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$';
 
 function normalizeOptionalUuid(value: unknown): string | undefined {
     if (typeof value !== 'string') return undefined;
@@ -64,7 +65,7 @@ const CreatePOSchema = z.object({
     notes: z.string().max(500).optional(),
     isAuto: z.boolean().optional(),
     reason: z.string().max(200).optional(),
-    status: z.enum(['DRAFT', 'APPROVED', 'SENT', 'ORDERED', 'RECEIVED', 'CANCELLED']).optional(),
+    status: z.enum(['DRAFT', 'APPROVED', 'SENT', 'ORDERED', 'REVIEW', 'RECEIVED', 'CANCELLED']).optional(),
 });
 
 const ReceivePOSchema = z.object({
@@ -75,6 +76,12 @@ const ReceivePOSchema = z.object({
         lotNumber: z.string().optional(),
         expiryDate: z.number().optional(),
     })).optional(),
+    managerPin: z.string().min(4).optional(),
+});
+
+const FinalizePOReviewSchema = z.object({
+    purchaseOrderId: z.string().min(1),
+    reviewNotes: z.string().max(1200).optional(),
     managerPin: z.string().min(4).optional(),
 });
 
@@ -153,6 +160,280 @@ async function runAuditInsertSafely(client: DBRow, operation: () => Promise<void
         logger.warn({ error }, '[Supply] Audit insert failed (non-critical)');
         return false;
     }
+}
+
+async function resolveCanonicalProductBySku(
+    client: DBRow,
+    sku: string
+): Promise<{ id: string; name: string; salePrice: number; costPrice: number } | null> {
+    const normalizedSku = String(sku || '').trim();
+    const productRes = await client.query(`
+        SELECT
+            p.id,
+            p.name,
+            COALESCE(NULLIF(p.sale_price, 0), NULLIF(p.price_sell_box, 0), NULLIF(p.price, 0), 0) AS sale_price,
+            COALESCE(NULLIF(p.cost_price, 0), NULLIF(p.cost_net, 0), 0) AS cost_price
+        FROM products p
+        WHERE p.id ~* $2
+          AND (
+            p.sku = $1
+            OR $1 = ANY(
+              array_remove(
+                regexp_split_to_array(
+                  regexp_replace(COALESCE(p.barcode, ''), '\\s+', '', 'g'),
+                  ','
+                ),
+                ''
+              )
+            )
+          )
+        ORDER BY
+            (p.sku = $1) DESC,
+            (COALESCE(p.sale_price, p.price_sell_box, p.price, 0) > 0) DESC,
+            (COALESCE(p.cost_price, p.cost_net, 0) > 0) DESC,
+            p.id DESC
+        LIMIT 1
+    `, [normalizedSku, UUID_TEXT_REGEX]);
+
+    const row = productRes.rows[0];
+    if (!row) return null;
+    if (!UUIDSchema.safeParse(row.id).success) return null;
+
+    return {
+        id: row.id,
+        name: row.name || sku,
+        salePrice: Number(row.sale_price || 0),
+        costPrice: Number(row.cost_price || 0),
+    };
+}
+
+function isTransferRequestOrder(notes: unknown): boolean {
+    return typeof notes === 'string' && notes.includes('[TRANSFER_REQUEST]');
+}
+
+function extractTransferOriginLocationId(notes: unknown): string | null {
+    if (typeof notes !== 'string') return null;
+    const match = notes.match(/ORIGEN:[^(]*\(([^)]+)\)/i);
+    const locationIdCandidate = match?.[1]?.trim();
+    if (!locationIdCandidate) return null;
+    return UUIDSchema.safeParse(locationIdCandidate).success ? locationIdCandidate : null;
+}
+
+async function resolveWarehouseIdByLocationId(client: DBRow, locationId: string): Promise<string | null> {
+    const warehouseRes = await client.query(`
+        SELECT id
+        FROM warehouses
+        WHERE location_id::text = $1::text
+        ORDER BY id ASC
+        LIMIT 1
+    `, [locationId]);
+
+    if (warehouseRes.rows.length === 0) return null;
+    return String(warehouseRes.rows[0].id);
+}
+
+async function hasExistingTransferOutForOrder(client: DBRow, orderId: string): Promise<boolean> {
+    const existingRes = await client.query(`
+        SELECT 1
+        FROM stock_movements
+        WHERE reference_type = 'PURCHASE_ORDER'
+          AND reference_id::text = $1::text
+          AND movement_type = 'TRANSFER_OUT'
+        LIMIT 1
+    `, [orderId]);
+
+    return existingRes.rows.length > 0;
+}
+
+async function deductTransferRequestStockAtOrigin(client: DBRow, params: {
+    orderId: string;
+    originLocationId: string;
+    items: Array<{ sku: string; name: string; quantity: number }>;
+    userId: string;
+}): Promise<{ success: boolean; error?: string }> {
+    const originWarehouseId = await resolveWarehouseIdByLocationId(client, params.originLocationId);
+    if (!originWarehouseId) {
+        return { success: false, error: 'No se encontró bodega origen para el traspaso solicitado' };
+    }
+
+    for (const item of params.items) {
+        if (item.quantity <= 0) continue;
+
+        const canonical = await resolveCanonicalProductBySku(client, item.sku);
+        if (!canonical) {
+            return { success: false, error: `SKU ${item.sku} no encontrado para descontar origen` };
+        }
+
+        const batchesRes = await client.query(`
+            SELECT
+                id,
+                location_id,
+                COALESCE(quantity_real, 0) AS quantity_real
+            FROM inventory_batches
+            WHERE warehouse_id = $1::uuid
+              AND product_id = $2::uuid
+              AND COALESCE(quantity_real, 0) > 0
+            ORDER BY expiry_date ASC NULLS LAST, id ASC
+            FOR UPDATE
+        `, [originWarehouseId, canonical.id]);
+
+        let remaining = Number(item.quantity);
+        const totalAvailable = batchesRes.rows.reduce((acc: number, row: DBRow) => acc + Number(row.quantity_real || 0), 0);
+        if (totalAvailable < remaining) {
+            return {
+                success: false,
+                error: `Stock insuficiente en origen para ${item.sku}. Disponible ${totalAvailable}, solicitado ${remaining}`
+            };
+        }
+
+        for (const batch of batchesRes.rows) {
+            if (remaining <= 0) break;
+
+            const stockBefore = Number(batch.quantity_real || 0);
+            const quantityToConsume = Math.min(remaining, stockBefore);
+            const stockAfter = stockBefore - quantityToConsume;
+            remaining -= quantityToConsume;
+
+            await client.query(`
+                UPDATE inventory_batches
+                SET quantity_real = $1,
+                    updated_at = NOW()
+                WHERE id = $2::uuid
+            `, [stockAfter, batch.id]);
+
+            await client.query(`
+                INSERT INTO stock_movements (
+                    id, sku, product_name, location_id, movement_type,
+                    quantity, stock_before, stock_after, timestamp, user_id,
+                    notes, batch_id, reference_type, reference_id
+                ) VALUES (
+                    $1::uuid, $2, $3, $4::uuid, 'TRANSFER_OUT',
+                    $5, $6, $7, NOW(), $8::uuid,
+                    $9, $10::uuid, 'PURCHASE_ORDER', $11::uuid
+                )
+            `, [
+                randomUUID(),
+                item.sku,
+                item.name || canonical.name,
+                batch.location_id || params.originLocationId,
+                -quantityToConsume,
+                stockBefore,
+                stockAfter,
+                params.userId,
+                `Salida por traspaso interno OC #${params.orderId.slice(0, 8)}`,
+                batch.id,
+                params.orderId
+            ]);
+        }
+    }
+
+    return { success: true };
+}
+
+async function applyReviewedItemsToInventory(client: DBRow, params: {
+    purchaseOrderId: string;
+    warehouseId: string;
+    locationId: string;
+    userId: string;
+    movementType: 'TRANSFER_IN' | 'PURCHASE_ENTRY';
+    items: Array<{
+        sku: string;
+        name: string;
+        quantityReceived: number;
+        lotNumber?: string | null;
+        expiryDate?: Date | string | null;
+        costPrice?: number;
+    }>;
+}): Promise<{ success: boolean; error?: string }> {
+    for (const item of params.items) {
+        if (item.quantityReceived <= 0) continue;
+
+        const canonical = await resolveCanonicalProductBySku(client, item.sku);
+        if (!canonical) {
+            return { success: false, error: `SKU ${item.sku} no encontrado` };
+        }
+
+        const lot = item.lotNumber && item.lotNumber.trim().length > 0
+            ? item.lotNumber.trim()
+            : `PO-${params.purchaseOrderId.slice(0, 8)}`;
+        const expiryDate = item.expiryDate ? new Date(item.expiryDate) : new Date(Date.now() + 31536000000);
+        const resolvedUnitCost = Number(item.costPrice || 0) > 0 ? Number(item.costPrice) : canonical.costPrice;
+        const resolvedSalePrice = canonical.salePrice > 0 ? canonical.salePrice : 0;
+
+        const batchRes = await client.query(`
+            SELECT id, quantity_real
+            FROM inventory_batches
+            WHERE warehouse_id = $1::uuid
+              AND product_id = $2::uuid
+              AND lot_number = $3
+            FOR UPDATE
+        `, [params.warehouseId, canonical.id, lot]);
+
+        let batchId: string;
+        let stockBefore = 0;
+        if (batchRes.rows.length > 0) {
+            batchId = String(batchRes.rows[0].id);
+            stockBefore = Number(batchRes.rows[0].quantity_real || 0);
+            await client.query(`
+                UPDATE inventory_batches
+                SET quantity_real = quantity_real + $1,
+                    unit_cost = CASE WHEN COALESCE(unit_cost, 0) = 0 THEN $3 ELSE unit_cost END,
+                    sale_price = CASE WHEN COALESCE(sale_price, 0) = 0 THEN $4 ELSE sale_price END,
+                    updated_at = NOW()
+                WHERE id = $2::uuid
+            `, [item.quantityReceived, batchId, resolvedUnitCost, resolvedSalePrice]);
+        } else {
+            batchId = randomUUID();
+            await client.query(`
+                INSERT INTO inventory_batches (
+                    id, product_id, warehouse_id, lot_number, expiry_date,
+                    quantity_real, sku, name, unit_cost, sale_price, location_id
+                ) VALUES (
+                    $1::uuid, $2::uuid, $3::uuid, $4, $5,
+                    $6, $7, $8, $9, $10, $11::uuid
+                )
+            `, [
+                batchId,
+                canonical.id,
+                params.warehouseId,
+                lot,
+                expiryDate,
+                item.quantityReceived,
+                item.sku,
+                item.name || canonical.name,
+                resolvedUnitCost,
+                resolvedSalePrice,
+                params.locationId
+            ]);
+        }
+
+        await client.query(`
+            INSERT INTO stock_movements (
+                id, sku, product_name, location_id, movement_type, quantity,
+                stock_before, stock_after, timestamp, user_id, notes, batch_id, reference_type, reference_id
+            ) VALUES (
+                $1::uuid, $2, $3, $4::uuid, $5, $6,
+                $7, $8, NOW(), $9::uuid, $10, $11::uuid, 'PURCHASE_ORDER', $12::uuid
+            )
+        `, [
+            randomUUID(),
+            item.sku,
+            item.name || canonical.name,
+            params.locationId,
+            params.movementType,
+            item.quantityReceived,
+            stockBefore,
+            stockBefore + item.quantityReceived,
+            params.userId,
+            params.movementType === 'TRANSFER_IN'
+                ? `Entrada por traspaso interno OC #${params.purchaseOrderId.slice(0, 8)}`
+                : `Ingreso OC #${params.purchaseOrderId.slice(0, 8)}`,
+            batchId,
+            params.purchaseOrderId
+        ]);
+    }
+
+    return { success: true };
 }
 
 async function insertSupplyAuditSafe(client: DBRow, params: {
@@ -315,6 +596,11 @@ export async function receivePurchaseOrderSecure(
             return { success: false, error: `La orden ya está ${po.status}` };
         }
 
+        if (po.status === 'REVIEW') {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'La orden ya fue recepcionada y está pendiente de revisión final' };
+        }
+
         const totalEstimated = Number(po.total_amount) || 0;
         if (totalEstimated > PIN_THRESHOLD_CLP) {
             if (!managerPin) {
@@ -329,29 +615,6 @@ export async function receivePurchaseOrderSecure(
         }
 
         const itemsRes = await client.query('SELECT * FROM purchase_order_items WHERE purchase_order_id = $1', [purchaseOrderId]);
-        const warehouseId = po.target_warehouse_id;
-        let locationId = po.location_id;
-
-        // If location_id is not in PO, resolve from warehouse schema current fields.
-        if (!locationId) {
-            const whRes = await client.query('SELECT location_id FROM warehouses WHERE id = $1', [warehouseId]);
-            if (whRes.rows.length > 0 && whRes.rows[0].location_id) {
-                locationId = whRes.rows[0].location_id;
-            }
-        }
-
-        // Final fallback for legacy/inconsistent data where PO and warehouse lack location.
-        if (!locationId) {
-            const locRes = await client.query('SELECT id FROM locations ORDER BY created_at ASC NULLS LAST, id ASC LIMIT 1');
-            if (locRes.rows.length > 0 && locRes.rows[0].id) {
-                locationId = locRes.rows[0].id;
-            }
-        }
-
-        if (!locationId) {
-            await client.query('ROLLBACK');
-            return { success: false, error: 'No se pudo resolver ubicación de destino para recepcionar la orden' };
-        }
 
         const itemsToReceive = (receivedItems && receivedItems.length > 0) ? receivedItems : itemsRes.rows.map((i: DBRow) => ({
             sku: i.sku,
@@ -360,52 +623,59 @@ export async function receivePurchaseOrderSecure(
             expiryDate: Date.now() + 31536000000
         }));
 
+        const itemsBySku = new Map<string, DBRow>(
+            itemsRes.rows.map((row: DBRow) => [String(row.sku), row])
+        );
+
+        let totalReceivedUnits = 0;
         for (const item of itemsToReceive) {
-            const prodRes = await client.query('SELECT id, name, sale_price, cost_price FROM products WHERE sku = $1', [item.sku]);
-            if (prodRes.rows.length === 0) {
+            if (Number(item.quantity || 0) <= 0) continue;
+
+            const existingRow = itemsBySku.get(String(item.sku));
+            if (!existingRow) {
                 await client.query('ROLLBACK');
-                return { success: false, error: `SKU ${item.sku} no encontrado` };
+                return { success: false, error: `SKU ${item.sku} no pertenece a la orden` };
             }
 
-            const product = prodRes.rows[0];
-            const lot = item.lotNumber || `PO-${po.id.slice(0, 8)}`;
-            const expiry = item.expiryDate || Date.now() + 31536000000;
-
-            const batchRes = await client.query(`
-                SELECT id, quantity_real FROM inventory_batches 
-                WHERE warehouse_id = $1 AND product_id = $2 AND lot_number = $3 
-                FOR UPDATE NOWAIT
-            `, [warehouseId, product.id, lot]);
-
-            let batchId;
-            let stockBefore = 0;
-            if (batchRes.rows.length > 0) {
-                batchId = batchRes.rows[0].id;
-                stockBefore = Number(batchRes.rows[0].quantity_real);
-                await client.query('UPDATE inventory_batches SET quantity_real = quantity_real + $1 WHERE id = $2', [item.quantity, batchId]);
-            } else {
-                batchId = randomUUID();
-                await client.query(`
-                    INSERT INTO inventory_batches (id, product_id, warehouse_id, lot_number, expiry_date, quantity_real, sku, name, unit_cost, sale_price, location_id)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                `, [batchId, product.id, warehouseId, lot, new Date(expiry), item.quantity, item.sku, product.name, Number(product.cost_price || 0), Number(product.sale_price || 0), locationId]);
-            }
+            const requestedQty = Number(item.quantity || 0);
+            const orderedQty = Number(existingRow.quantity_ordered || 0);
+            const boundedQty = Math.max(0, Math.min(requestedQty, orderedQty));
+            totalReceivedUnits += boundedQty;
 
             await client.query(`
-                INSERT INTO stock_movements (id, sku, product_name, location_id, movement_type, quantity, stock_before, stock_after, timestamp, user_id, notes, batch_id, reference_type, reference_id)
-                VALUES ($1, $2, $3, $4, 'PURCHASE_ENTRY', $5, $6, $7, NOW(), $8, $9, $10, 'PURCHASE_ORDER', $11)
-            `, [randomUUID(), item.sku, product.name, locationId, item.quantity, stockBefore, stockBefore + item.quantity, userId, `PO #${po.id.slice(0, 8)}`, batchId, purchaseOrderId]);
-
-            await client.query('UPDATE purchase_order_items SET quantity_received = COALESCE(quantity_received, 0) + $1 WHERE purchase_order_id = $2 AND sku = $3', [item.quantity, purchaseOrderId, item.sku]);
+                UPDATE purchase_order_items
+                SET quantity_received = $1,
+                    lot_number = COALESCE(NULLIF($2, ''), lot_number),
+                    expiry_date = COALESCE($3::timestamptz, expiry_date)
+                WHERE purchase_order_id = $4
+                  AND sku = $5
+            `, [
+                boundedQty,
+                item.lotNumber || null,
+                item.expiryDate ? new Date(item.expiryDate) : null,
+                purchaseOrderId,
+                item.sku
+            ]);
         }
 
-        await client.query('UPDATE purchase_orders SET status = \'RECEIVED\', received_by = $2 WHERE id = $1', [purchaseOrderId, userId]);
+        if (totalReceivedUnits <= 0) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'Debe recepcionar al menos una unidad para continuar a revisión' };
+        }
+
+        await client.query(`
+            UPDATE purchase_orders
+            SET status = 'REVIEW',
+                received_by = $2::uuid
+            WHERE id = $1
+        `, [purchaseOrderId, userId]);
+
         await insertSupplyAuditSafe(client, {
             userId,
-            actionCode: 'PURCHASE_ORDER_RECEIVED',
+            actionCode: 'PURCHASE_ORDER_RECEIVED_PENDING_REVIEW',
             entityType: 'PURCHASE_ORDER',
             entityId: purchaseOrderId,
-            newValues: { items_received: itemsToReceive.length },
+            newValues: { items_received: itemsToReceive.length, units_received: totalReceivedUnits, status: 'REVIEW' },
         });
 
         await client.query('COMMIT');
@@ -418,6 +688,164 @@ export async function receivePurchaseOrderSecure(
         await client.query('ROLLBACK');
         const message = error instanceof Error ? error.message : 'Error desconocido';
         return { success: false, error: `Error recibiendo orden: ${message}` };
+    } finally {
+        client.release();
+    }
+}
+
+// ============================================================================
+// FINALIZE PURCHASE ORDER REVIEW
+// ============================================================================
+
+export async function finalizePurchaseOrderReviewSecure(
+    data: z.infer<typeof FinalizePOReviewSchema>,
+    userId: string
+): Promise<{ success: boolean; error?: string }> {
+    if (!UUIDSchema.safeParse(userId).success) {
+        return { success: false, error: 'ID de usuario inválido' };
+    }
+
+    const validated = FinalizePOReviewSchema.safeParse(data);
+    if (!validated.success) {
+        return { success: false, error: validated.error.issues[0]?.message || 'Datos inválidos' };
+    }
+
+    const { purchaseOrderId, reviewNotes, managerPin } = validated.data;
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        const poRes = await client.query(`
+            SELECT *
+            FROM purchase_orders
+            WHERE id = $1
+            FOR UPDATE NOWAIT
+        `, [purchaseOrderId]);
+
+        if (poRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'Orden no encontrada' };
+        }
+
+        const po = poRes.rows[0];
+        if (po.status !== 'REVIEW') {
+            await client.query('ROLLBACK');
+            return { success: false, error: `La orden no está en revisión (status: ${po.status})` };
+        }
+
+        const totalEstimated = Number(po.total_amount) || 0;
+        if (totalEstimated > PIN_THRESHOLD_CLP) {
+            if (!managerPin) {
+                await client.query('ROLLBACK');
+                return { success: false, error: `Cierres > $${PIN_THRESHOLD_CLP.toLocaleString()} requieren PIN` };
+            }
+            const auth = await validateManagerPin(client, managerPin);
+            if (!auth.valid) {
+                await client.query('ROLLBACK');
+                return { success: false, error: 'PIN inválido' };
+            }
+        }
+
+        const warehouseId = String(po.target_warehouse_id || '');
+        let locationId = po.location_id ? String(po.location_id) : '';
+
+        if (!locationId) {
+            const whRes = await client.query('SELECT location_id FROM warehouses WHERE id = $1', [warehouseId]);
+            if (whRes.rows.length > 0 && whRes.rows[0].location_id) {
+                locationId = String(whRes.rows[0].location_id);
+            }
+        }
+
+        if (!locationId) {
+            const locRes = await client.query('SELECT id FROM locations ORDER BY id ASC LIMIT 1');
+            if (locRes.rows.length > 0 && locRes.rows[0].id) {
+                locationId = String(locRes.rows[0].id);
+            }
+        }
+
+        if (!locationId) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'No se pudo resolver ubicación de destino para finalizar revisión' };
+        }
+
+        const poItemsRes = await client.query(`
+            SELECT
+                sku,
+                name,
+                COALESCE(quantity_received, 0) AS quantity_received,
+                COALESCE(cost_price, 0) AS cost_price,
+                lot_number,
+                expiry_date
+            FROM purchase_order_items
+            WHERE purchase_order_id = $1
+        `, [purchaseOrderId]);
+
+        const receivedItems = poItemsRes.rows
+            .map((row: DBRow) => ({
+                sku: String(row.sku),
+                name: String(row.name || 'Producto'),
+                quantityReceived: Number(row.quantity_received || 0),
+                costPrice: Number(row.cost_price || 0),
+                lotNumber: row.lot_number ? String(row.lot_number) : null,
+                expiryDate: row.expiry_date ?? null,
+            }))
+            .filter((item) => item.quantityReceived > 0);
+
+        if (receivedItems.length === 0) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'No hay ítems recepcionados para verificar' };
+        }
+
+        const movementType = isTransferRequestOrder(po.notes) ? 'TRANSFER_IN' : 'PURCHASE_ENTRY';
+        const applyRes = await applyReviewedItemsToInventory(client, {
+            purchaseOrderId,
+            warehouseId,
+            locationId,
+            userId,
+            movementType,
+            items: receivedItems,
+        });
+
+        if (!applyRes.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: applyRes.error || 'No se pudo aplicar inventario' };
+        }
+
+        const trimmedReviewNotes = typeof reviewNotes === 'string' ? reviewNotes.trim() : '';
+        const reviewNoteSuffix = trimmedReviewNotes
+            ? `${po.notes ? ' | ' : ''}[REVIEW_OK][USER:${userId}] ${trimmedReviewNotes}`
+            : `${po.notes ? ' | ' : ''}[REVIEW_OK][USER:${userId}]`;
+
+        await client.query(`
+            UPDATE purchase_orders
+            SET status = 'RECEIVED',
+                notes = COALESCE(notes, '') || $2
+            WHERE id = $1
+        `, [purchaseOrderId, reviewNoteSuffix]);
+
+        await insertSupplyAuditSafe(client, {
+            userId,
+            actionCode: 'PURCHASE_ORDER_REVIEW_COMPLETED',
+            entityType: 'PURCHASE_ORDER',
+            entityId: purchaseOrderId,
+            newValues: {
+                status: 'RECEIVED',
+                reviewed_items: receivedItems.length,
+                reviewed_units: receivedItems.reduce((acc, item) => acc + item.quantityReceived, 0),
+                movement_type: movementType,
+            },
+        });
+
+        await client.query('COMMIT');
+        revalidatePath('/supply-chain');
+        revalidatePath('/warehouse');
+        revalidatePath('/logistica');
+        return { success: true };
+    } catch (error: unknown) {
+        await client.query('ROLLBACK');
+        const message = error instanceof Error ? error.message : 'Error desconocido';
+        return { success: false, error: `Error cerrando revisión: ${message}` };
     } finally {
         client.release();
     }
@@ -494,11 +922,20 @@ export async function updatePurchaseOrderSecure(
     try {
         await client.query('BEGIN');
 
-        const poRes = await client.query('SELECT status FROM purchase_orders WHERE id = $1', [orderId]);
+        const poRes = await client.query('SELECT status, notes FROM purchase_orders WHERE id = $1', [orderId]);
         if (poRes.rows.length === 0) {
             await client.query('ROLLBACK');
             return { success: false, error: 'Orden no encontrada' };
         }
+
+        const previousStatus = String(poRes.rows[0].status || 'DRAFT').toUpperCase();
+        const previousNotes = typeof poRes.rows[0].notes === 'string' ? poRes.rows[0].notes : '';
+        const effectiveNotes = typeof notes === 'string' && notes.trim().length > 0 ? notes : previousNotes;
+
+        const isTransitionToSent =
+            status === 'SENT' &&
+            !['SENT', 'REVIEW', 'RECEIVED', 'CANCELLED'].includes(previousStatus);
+        const mustDeductOriginStock = isTransitionToSent && isTransferRequestOrder(effectiveNotes);
 
         // Fallback bodega
         const whRes = await client.query('SELECT id FROM warehouses WHERE id = $1', [targetWarehouseId]);
@@ -508,14 +945,44 @@ export async function updatePurchaseOrderSecure(
             if (fallbackWh.rows.length > 0) actualWarehouseId = fallbackWh.rows[0].id;
         }
 
+        if (mustDeductOriginStock) {
+            const alreadyDeducted = await hasExistingTransferOutForOrder(client, orderId);
+            if (!alreadyDeducted) {
+                const originLocationId = extractTransferOriginLocationId(effectiveNotes);
+                if (!originLocationId) {
+                    await client.query('ROLLBACK');
+                    return { success: false, error: 'La solicitud de traspaso no tiene ubicación origen válida' };
+                }
+
+                const deduction = await deductTransferRequestStockAtOrigin(client, {
+                    orderId,
+                    originLocationId,
+                    items: items.map((item) => ({
+                        sku: item.sku,
+                        name: item.name,
+                        quantity: Number(item.quantity || 0),
+                    })),
+                    userId,
+                });
+
+                if (!deduction.success) {
+                    await client.query('ROLLBACK');
+                    return { success: false, error: deduction.error || 'No se pudo descontar stock en origen' };
+                }
+            }
+        }
+
+        const shouldSetApprovedBy = status === 'APPROVED';
+
         await client.query(`
             UPDATE purchase_orders 
             SET supplier_id = $2, 
                 target_warehouse_id = $3, 
                 notes = $4, 
-                status = $5
+                status = $5,
+                approved_by = CASE WHEN $6 THEN $7 ELSE approved_by END
             WHERE id = $1
-        `, [orderId, supplierId, actualWarehouseId, notes, status]);
+        `, [orderId, supplierId, actualWarehouseId, effectiveNotes, status, shouldSetApprovedBy, userId]);
 
         await client.query('DELETE FROM purchase_order_items WHERE purchase_order_id = $1', [orderId]);
         for (const item of items) {
@@ -675,7 +1142,13 @@ export async function getSupplyChainHistorySecure(filters?: {
         const shipWhere: string[] = [];
 
         if (locationId) {
-            poWhere.push(`w.location_id::text = $${pIdx}::text`);
+            poWhere.push(`(
+                w.location_id::text = $${pIdx}::text
+                OR (
+                    po.notes LIKE '%[TRANSFER_REQUEST]%'
+                    AND po.notes LIKE ('%(' || $${pIdx}::text || ')%')
+                )
+            )`);
             shipWhere.push(`(s.destination_location_id::text = $${pIdx}::text OR s.origin_location_id::text = $${pIdx}::text)`);
             params.push(locationId);
             pIdx++;
@@ -760,7 +1233,13 @@ export async function exportSupplyChainHistorySecure(
         const shipWhere: string[] = [];
 
         if (locationId) {
-            poWhere.push(`w.location_id::text = $${pIdx}::text`);
+            poWhere.push(`(
+                w.location_id::text = $${pIdx}::text
+                OR (
+                    po.notes LIKE '%[TRANSFER_REQUEST]%'
+                    AND po.notes LIKE ('%(' || $${pIdx}::text || ')%')
+                )
+            )`);
             shipWhere.push(`(sh.destination_location_id::text = $${pIdx}::text OR sh.origin_location_id::text = $${pIdx}::text)`);
             params.push(locationId);
             pIdx++;
@@ -936,9 +1415,12 @@ export async function getHistoryItemDetailsSecure(id: string, type: 'PO' | 'SHIP
                     id, 
                     sku, 
                     name, 
-                    quantity_ordered as quantity, 
+                    quantity_ordered as quantity,
+                    quantity_ordered,
                     quantity_received,
-                    cost_price as cost
+                    cost_price as cost,
+                    lot_number,
+                    expiry_date
                 FROM purchase_order_items 
                 WHERE purchase_order_id = $1
             `, [safeId]);

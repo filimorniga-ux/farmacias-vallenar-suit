@@ -7,11 +7,12 @@ import {
 
 describe('login-resilience', () => {
     it('aplica timeout por defecto y límites', () => {
-        expect(resolveLoginTimeoutMs(undefined)).toBe(15000);
-        expect(resolveLoginTimeoutMs('abc')).toBe(15000);
-        expect(resolveLoginTimeoutMs('1000')).toBe(5000);
+        expect(resolveLoginTimeoutMs(undefined)).toBe(30000);
+        expect(resolveLoginTimeoutMs('abc')).toBe(30000);
+        expect(resolveLoginTimeoutMs('1000')).toBe(30000);
+        expect(resolveLoginTimeoutMs('18000')).toBe(30000);
         expect(resolveLoginTimeoutMs('90000')).toBe(60000);
-        expect(resolveLoginTimeoutMs('18000')).toBe(18000);
+        expect(resolveLoginTimeoutMs('45000')).toBe(45000);
     });
 
     it('detecta fallos DB reintentables', () => {

@@ -147,6 +147,13 @@ export class IntelligentOrderingService {
 
             const supplier = suppliers.find(s => s.id === supplierId);
             const locationId = items[0].location_id; // All items from same location
+            const warehouseFromFirstSku = inventory.find(
+                b => b.location_id === locationId && b.sku === items[0]?.sku && b.warehouse_id
+            )?.warehouse_id;
+            const warehouseFromLocation = inventory.find(
+                b => b.location_id === locationId && b.warehouse_id
+            )?.warehouse_id;
+            const resolvedWarehouseId = warehouseFromFirstSku || warehouseFromLocation || locationId;
 
             const poItems = items.map(item => {
                 const batch = inventory.find(
@@ -175,7 +182,7 @@ export class IntelligentOrderingService {
                 supplier_id: supplierId,
                 supplier_name: supplier?.fantasy_name,
                 destination_location_id: locationId,
-                target_warehouse_id: locationId, // Primary FK as per new schema
+                target_warehouse_id: resolvedWarehouseId,
                 created_at: Date.now(),
                 status: 'DRAFT',
                 items: poItems,

@@ -35,6 +35,7 @@ import { getSessionSecure } from './auth-v2';
 // ============================================================================
 
 const UUIDSchema = z.string().uuid('ID inválido');
+const UUID_TEXT_REGEX = '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$';
 
 const PurchaseOrderItemSchema = z.object({
     productName: z.string().min(1),
@@ -136,6 +137,51 @@ async function validateApproverPin(client: PoolClient, pin: string, requiredRole
         console.error('[PROCUREMENT-V2] PIN validation error:', error);
         return { valid: false, error: 'Error validando PIN' };
     }
+}
+
+async function resolveCanonicalProductBySku(
+    client: PoolClient,
+    sku: string
+): Promise<{ id: string; name: string; salePrice: number; costPrice: number } | null> {
+    const normalizedSku = String(sku || '').trim();
+    const productRes = await client.query(`
+        SELECT
+            p.id,
+            p.name,
+            COALESCE(NULLIF(p.sale_price, 0), NULLIF(p.price_sell_box, 0), NULLIF(p.price, 0), 0) AS sale_price,
+            COALESCE(NULLIF(p.cost_price, 0), NULLIF(p.cost_net, 0), 0) AS cost_price
+        FROM products p
+        WHERE p.id ~* $2
+          AND (
+            p.sku = $1
+            OR $1 = ANY(
+              array_remove(
+                regexp_split_to_array(
+                  regexp_replace(COALESCE(p.barcode, ''), '\\s+', '', 'g'),
+                  ','
+                ),
+                ''
+              )
+            )
+          )
+        ORDER BY
+            (p.sku = $1) DESC,
+            (COALESCE(p.sale_price, p.price_sell_box, p.price, 0) > 0) DESC,
+            (COALESCE(p.cost_price, p.cost_net, 0) > 0) DESC,
+            p.id DESC
+        LIMIT 1
+    `, [normalizedSku, UUID_TEXT_REGEX]);
+
+    const row = productRes.rows[0];
+    if (!row) return null;
+    if (!UUIDSchema.safeParse(row.id).success) return null;
+
+    return {
+        id: row.id,
+        name: row.name || sku,
+        salePrice: Number(row.sale_price || 0),
+        costPrice: Number(row.cost_price || 0),
+    };
 }
 
 async function insertProcurementAudit(client: PoolClient, params: {
@@ -439,6 +485,16 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
             return { success: false, error: 'Orden debe estar aprobada para recibir' };
         }
 
+        const whLocationRes = await client.query(
+            'SELECT location_id FROM warehouses WHERE id = $1',
+            [order.target_warehouse_id]
+        );
+        const destinationLocationId = whLocationRes.rows[0]?.location_id;
+        if (!destinationLocationId) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'La orden no tiene ubicación de destino válida' };
+        }
+
         // 3. Process each received item
         let totalReceived = 0;
 
@@ -457,14 +513,12 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
 
             const item = itemRes.rows[0];
 
-            // Get product ID for inventory batches
-            const prodLookup = await client.query('SELECT id FROM products WHERE sku = $1', [item.sku]);
-            const productId = prodLookup.rows[0]?.id;
-
-            if (!productId) {
-                logger.error({ sku: item.sku }, 'Product ID not found for SKU in receivePurchaseOrderSecure');
-                continue;
+            const product = await resolveCanonicalProductBySku(client, item.sku);
+            if (!product) {
+                await client.query('ROLLBACK');
+                return { success: false, error: `SKU ${item.sku} no encontrado en catálogo maestro` };
             }
+            const productId = product.id;
 
             // Update item received quantity
             await client.query(`
@@ -491,16 +545,23 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
                 await client.query(`
                     UPDATE inventory_batches
                     SET quantity_real = quantity_real + $1,
+                        unit_cost = CASE WHEN COALESCE(unit_cost, 0) = 0 THEN $3 ELSE unit_cost END,
+                        sale_price = CASE WHEN COALESCE(sale_price, 0) = 0 THEN $4 ELSE sale_price END,
                         updated_at = NOW()
                     WHERE id = $2
-                `, [receivedItem.quantityReceived, batchRes.rows[0].id]);
+                `, [
+                    receivedItem.quantityReceived,
+                    batchRes.rows[0].id,
+                    Number(item.cost_price || 0) > 0 ? Number(item.cost_price) : product.costPrice,
+                    product.salePrice,
+                ]);
             } else {
                 // Create new batch
                 await client.query(`
                     INSERT INTO inventory_batches (
                         id, product_id, warehouse_id, lot_number, expiry_date,
-                        quantity_real, sku, name, unit_cost, created_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+                        quantity_real, sku, name, unit_cost, sale_price, location_id, created_at
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::uuid, NOW())
                 `, [
                     randomUUID(),
                     productId,
@@ -509,22 +570,24 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
                     expiryDate,
                     receivedItem.quantityReceived,
                     item.sku,
-                    item.name,
-                    item.cost_price
+                    product.name || item.name,
+                    Number(item.cost_price || 0) > 0 ? Number(item.cost_price) : product.costPrice,
+                    product.salePrice,
+                    destinationLocationId,
                 ]);
             }
 
             // Log stock movement
             await client.query(`
                 INSERT INTO stock_movements (
-                    id, sku, product_name, location_id, movement_type,
-                    quantity, timestamp, user_id, notes, reference_type, reference_id
-                ) VALUES ($1, $2, $3, $4, 'PURCHASE_ENTRY', $5, NOW(), $6, $7, 'PURCHASE_ORDER', $8)
+                id, sku, product_name, location_id, movement_type,
+                quantity, timestamp, user_id, notes, reference_type, reference_id
+            ) VALUES ($1, $2, $3, $4, 'PURCHASE_ENTRY', $5, NOW(), $6, $7, 'PURCHASE_ORDER', $8)
             `, [
                 randomUUID(),
                 item.sku,
-                item.name,
-                order.target_warehouse_id,
+                product.name || item.name,
+                destinationLocationId,
                 receivedItem.quantityReceived,
                 validated.data.userId,
                 `Recepción de OC ${validated.data.orderId.slice(0, 8)}`,

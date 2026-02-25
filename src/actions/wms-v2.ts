@@ -41,6 +41,7 @@ type DBRow = any;
 // ============================================================================
 
 const UUIDSchema = z.string().uuid('ID inválido');
+const UUID_TEXT_REGEX = '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$';
 
 function normalizeOptionalUuid(value: unknown): string | undefined {
     if (typeof value !== 'string') return undefined;
@@ -158,6 +159,76 @@ async function validateSupervisorPin(client: DBRow, pin: string): Promise<{
         console.error('[WMS-V2] PIN validation error:', error);
         return { valid: false, error: 'Error validando PIN' };
     }
+}
+
+async function resolveCanonicalProductForMovement(
+    client: DBRow,
+    params: { preferredProductId?: string; sku?: string }
+): Promise<{ id: string; name: string; salePrice: number; costPrice: number } | null> {
+    const preferredProductId = typeof params.preferredProductId === 'string' ? params.preferredProductId.trim() : '';
+    const sku = typeof params.sku === 'string' ? params.sku.trim() : '';
+
+    if (preferredProductId && UUIDSchema.safeParse(preferredProductId).success) {
+        const byId = await client.query(`
+            SELECT
+                p.id,
+                p.name,
+                COALESCE(NULLIF(p.sale_price, 0), NULLIF(p.price_sell_box, 0), NULLIF(p.price, 0), 0) AS sale_price,
+                COALESCE(NULLIF(p.cost_price, 0), NULLIF(p.cost_net, 0), 0) AS cost_price
+            FROM products p
+            WHERE p.id::text = $1
+              AND p.id ~* $2
+            LIMIT 1
+        `, [preferredProductId, UUID_TEXT_REGEX]);
+
+        if (byId.rows.length > 0) {
+            return {
+                id: byId.rows[0].id,
+                name: byId.rows[0].name || sku || preferredProductId,
+                salePrice: Number(byId.rows[0].sale_price || 0),
+                costPrice: Number(byId.rows[0].cost_price || 0),
+            };
+        }
+    }
+
+    if (!sku) return null;
+
+    const bySku = await client.query(`
+        SELECT
+            p.id,
+            p.name,
+            COALESCE(NULLIF(p.sale_price, 0), NULLIF(p.price_sell_box, 0), NULLIF(p.price, 0), 0) AS sale_price,
+            COALESCE(NULLIF(p.cost_price, 0), NULLIF(p.cost_net, 0), 0) AS cost_price
+        FROM products p
+        WHERE p.id ~* $2
+          AND (
+            p.sku = $1
+            OR $1 = ANY(
+              array_remove(
+                regexp_split_to_array(
+                  regexp_replace(COALESCE(p.barcode, ''), '\\s+', '', 'g'),
+                  ','
+                ),
+                ''
+              )
+            )
+          )
+        ORDER BY
+            (p.sku = $1) DESC,
+            (COALESCE(p.sale_price, p.price_sell_box, p.price, 0) > 0) DESC,
+            (COALESCE(p.cost_price, p.cost_net, 0) > 0) DESC,
+            p.id DESC
+        LIMIT 1
+    `, [sku, UUID_TEXT_REGEX]);
+
+    if (bySku.rows.length === 0) return null;
+
+    return {
+        id: bySku.rows[0].id,
+        name: bySku.rows[0].name || sku,
+        salePrice: Number(bySku.rows[0].sale_price || 0),
+        costPrice: Number(bySku.rows[0].cost_price || 0),
+    };
 }
 
 /**
@@ -425,7 +496,12 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
                         type: 'STOCK_CRITICAL',
                         severity: newQty < 0 ? 'ERROR' : 'WARNING',
                         title: 'Stock Crítico por Movimiento WMS',
-                        message: `El producto ${productName} (SKU: ${productSku}) quedó con stock ${newQty} después de ${validated.data.type}.`,
+                        message: `${productName} (SKU: ${productSku}) quedó con ${newQty} unidades tras ${validated.data.type}.`,
+                        actionUrl: '/logistica',
+                        // Deduplicar: solo 1 notificación por producto por bodega en ventana de 2h
+                        dedupKey: `wms_stock_critical:${validated.data.productId}:${validated.data.warehouseId}`,
+                        dedupWindowHours: 2,
+                        locationId: locationId ?? undefined,
                         metadata: {
                             batchId: targetBatchId,
                             warehouseId: validated.data.warehouseId,
@@ -624,6 +700,15 @@ export async function executeTransferSecure(data: z.infer<typeof TransferSchema>
                 shipmentId
             ]);
 
+            const canonicalProduct = await resolveCanonicalProductForMovement(client, {
+                preferredProductId: batch.product_id || targetProductId,
+                sku: batch.sku || (isUUID ? undefined : item.productId),
+            });
+            if (!canonicalProduct) {
+                await client.query('ROLLBACK');
+                return { success: false, error: `No se pudo resolver producto maestro para SKU ${batch.sku || item.productId}` };
+            }
+
             await client.query(`
                 INSERT INTO shipment_items (
                     id, shipment_id, product_id, sku, name, quantity, batch_id
@@ -633,9 +718,9 @@ export async function executeTransferSecure(data: z.infer<typeof TransferSchema>
             `, [
                 randomUUID(),
                 shipmentId,
-                batch.product_id || targetProductId,
+                canonicalProduct.id,
                 batch.sku,
-                batch.name,
+                batch.name || canonicalProduct.name,
                 item.quantity,
                 targetBatchId
             ]);
@@ -818,7 +903,7 @@ const GetShipmentsSchema = z.object({
 
 const GetPurchaseOrdersSchema = z.object({
     locationId: OptionalFilterUuidSchema,
-    status: z.enum(['PENDING', 'APPROVED', 'ORDERED', 'RECEIVED', 'CANCELLED']).optional(),
+    status: z.enum(['PENDING', 'DRAFT', 'APPROVED', 'SENT', 'ORDERED', 'REVIEW', 'RECEIVED', 'CANCELLED']).optional(),
     supplierId: OptionalFilterUuidSchema,
     startDate: z.date().optional(),
     endDate: z.date().optional(),
@@ -1275,8 +1360,18 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
             // If source batch missing, what do we do? We need product_id.
             // Assuming shipment_items has product_id if I added it above. I did add it in createDispatchSecure.
 
-            const productId = shipItem.product_id || sourceBatch?.product_id;
-            if (!productId) throw new Error(`Falta información de producto para ${shipItem.sku}`);
+            const canonicalProduct = await resolveCanonicalProductForMovement(client, {
+                preferredProductId: shipItem.product_id || sourceBatch?.product_id,
+                sku: shipItem.sku || sourceBatch?.sku,
+            });
+            if (!canonicalProduct) throw new Error(`Falta producto maestro válido para ${shipItem.sku}`);
+            const resolvedName = sourceBatch?.name || shipItem.name || canonicalProduct.name || shipItem.sku;
+            const resolvedUnitCost = Number(sourceBatch?.unit_cost || 0) > 0
+                ? Number(sourceBatch.unit_cost)
+                : canonicalProduct.costPrice;
+            const resolvedSalePrice = Number(sourceBatch?.sale_price || 0) > 0
+                ? Number(sourceBatch.sale_price)
+                : canonicalProduct.salePrice;
 
             // Always create a new destination lot for each received line
             // to keep transfer traceability at lot-level.
@@ -1301,9 +1396,9 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
                     $12, NOW(), NOW()
                 )
             `, [
-                finalBatchId, productId, destWarehouseId, lotNumber, expiry,
-                received.quantity, shipItem.sku, shipItem.name,
-                sourceBatch?.unit_cost || 0, sourceBatch?.sale_price || 0, shipment.destination_location_id,
+                finalBatchId, canonicalProduct.id, destWarehouseId, lotNumber, expiry,
+                received.quantity, shipItem.sku, resolvedName,
+                resolvedUnitCost, resolvedSalePrice, shipment.destination_location_id,
                 shipment.type === 'INTER_BRANCH' ? 'WMS_TRANSFER' : 'WMS_DISPATCH'
             ]);
 
@@ -1319,7 +1414,7 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
                     $9, $10::uuid, 'SHIPMENT', $11::uuid
                 )
             `, [
-                randomUUID(), shipItem.sku, shipItem.name, shipment.destination_location_id,
+                randomUUID(), shipItem.sku, resolvedName, shipment.destination_location_id,
                 received.quantity, qtyBefore, qtyAfter,
                 session.userId,
                 transferColor
@@ -1411,8 +1506,15 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
         let paramIndex = 1;
 
         if (locationId) {
-            conditions.push(`w.location_id::text = $${paramIndex++}::text`);
+            conditions.push(`(
+                w.location_id::text = $${paramIndex}::text
+                OR (
+                    po.notes LIKE '%[TRANSFER_REQUEST]%'
+                    AND po.notes LIKE ('%(' || $${paramIndex}::text || ')%')
+                )
+            )`);
             params.push(locationId);
+            paramIndex++;
         }
 
         if (status) {

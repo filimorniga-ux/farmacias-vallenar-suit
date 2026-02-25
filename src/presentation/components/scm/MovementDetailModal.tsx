@@ -21,6 +21,23 @@ const formatDateTime = (value?: string | number | Date | null) => {
     });
 };
 
+interface TransferRouteMeta {
+    originName?: string;
+    destinationName?: string;
+}
+
+const extractTransferRouteMeta = (notes: unknown): TransferRouteMeta => {
+    if (typeof notes !== 'string' || notes.length === 0) return {};
+
+    const originMatch = notes.match(/ORIGEN:\s*([^|]+?)\(([^)]+)\)/i);
+    const destinationMatch = notes.match(/DESTINO:\s*([^|]+?)\(([^)]+)\)/i);
+
+    return {
+        originName: originMatch?.[1]?.trim() || undefined,
+        destinationName: destinationMatch?.[1]?.trim() || undefined,
+    };
+};
+
 export const MovementDetailModal: React.FC<MovementDetailModalProps> = ({ isOpen, onClose, movement }) => {
     const [items, setItems] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -50,6 +67,18 @@ export const MovementDetailModal: React.FC<MovementDetailModalProps> = ({ isOpen
     if (!isOpen || !movement) return null;
 
     const isPO = movement.main_type === 'PO';
+    const routeMeta = extractTransferRouteMeta(movement.notes);
+    const routeOrigin =
+        movement.origin_location_name ||
+        routeMeta.originName ||
+        (movement.supplier_name && movement.supplier_name !== 'Proveedor Desconocido'
+            ? movement.supplier_name
+            : 'Origen no especificado');
+    const routeDestination =
+        movement.location_name ||
+        movement.destination_location_name ||
+        routeMeta.destinationName ||
+        'Destino no especificado';
 
     return (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -125,14 +154,12 @@ export const MovementDetailModal: React.FC<MovementDetailModalProps> = ({ isOpen
                             </div>
                         )}
 
-                        {(movement.origin_location_name || movement.location_name) && (
-                            <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 col-span-2">
-                                <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Ruta</span>
-                                <span className="text-sm font-bold text-slate-700">
-                                    {movement.origin_location_name || 'Origen'} → {movement.location_name || 'Destino'}
-                                </span>
-                            </div>
-                        )}
+                        <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 col-span-2">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Ruta</span>
+                            <span className="text-sm font-bold text-slate-700">
+                                {routeOrigin} → {routeDestination}
+                            </span>
+                        </div>
                     </div>
 
                     <div className="space-y-3">
@@ -212,4 +239,3 @@ export const MovementDetailModal: React.FC<MovementDetailModalProps> = ({ isOpen
         </div>
     );
 };
-

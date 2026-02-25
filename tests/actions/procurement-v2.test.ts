@@ -213,13 +213,22 @@ describe('Procurement V2 Logic', () => {
 
                 // 1. Get Order
                 if (sql.includes('FROM purchase_orders'))
-                    return { rows: [{ id: orderId, status: 'APPROVED', target_warehouse_id: 'wh-1', supplier_id: 'sup-1' }] };
+                    return {
+                        rows: [{
+                            id: orderId,
+                            status: 'APPROVED',
+                            target_warehouse_id: '550e8400-e29b-41d4-a716-446655440201',
+                            supplier_id: 'sup-1'
+                        }]
+                    };
+                if (sql.includes('SELECT location_id FROM warehouses WHERE id = $1'))
+                    return { rows: [{ location_id: '550e8400-e29b-41d4-a716-446655440202' }] };
                 // 2. Get Item
                 if (sql.includes('FROM purchase_order_items'))
                     return { rows: [{ id: itemUuid, sku: 'SKU1', name: 'Test Product', cost_price: 100 }] };
-                // 3. Get Product ID by SKU
-                if (sql.includes('FROM products'))
-                    return { rows: [{ id: 'prod-1' }] };
+                // 3. Get canonical product by SKU
+                if (sql.includes('FROM products p') && sql.includes('p.sku = $1'))
+                    return { rows: [{ id: '550e8400-e29b-41d4-a716-446655440203', name: 'Test Product', sale_price: 150, cost_price: 100 }] };
                 // 4. Check Batch (exists)
                 if (sql.includes('FROM inventory_batches')) return { rows: [{ id: 'batch-1', quantity_real: 10 }] };
 

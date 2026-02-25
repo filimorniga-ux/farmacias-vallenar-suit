@@ -4,13 +4,13 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as Sentry from '@sentry/nextjs';
-import { getShipmentsSecure } from '@/actions/wms-v2';
 import { usePharmaStore } from '@/presentation/store/useStore';
 
 type DirectionFilter = 'BOTH' | 'INCOMING' | 'OUTGOING';
 
 interface ShipmentCard {
     id: string;
+    source: 'SHIPMENT' | 'PO';
     type: string;
     status: string;
     origin_location_name?: string;
@@ -26,10 +26,12 @@ interface ShipmentCard {
         name: string;
         quantity: number;
     }>;
+    payload?: Record<string, unknown>;
 }
 
 interface WMSTransitoTabProps {
     onReceiveShipment?: (shipmentId: string) => void;
+    onReceivePurchaseOrder?: (order: Record<string, unknown>) => void;
 }
 
 const DIRECTION_META: Record<DirectionFilter, { label: string; badge: string }> = {
@@ -39,11 +41,112 @@ const DIRECTION_META: Record<DirectionFilter, { label: string; badge: string }> 
 };
 
 const getTypeLabel = (type: string) => {
+    if (type === 'PO') return 'Orden Compra';
     if (type === 'INTER_BRANCH') return 'Traspaso';
     if (type === 'OUTBOUND') return 'Despacho';
     if (type === 'INBOUND') return 'Ingreso';
     if (type === 'RETURN') return 'Devolución';
     return type;
+};
+
+const TRANSIT_PO_STATUSES = new Set([
+    'SENT',
+    'ORDERED',
+    'PARTIAL',
+    'IN_TRANSIT',
+    'PENDING_RECEIPT',
+]);
+
+const normalizeStatus = (status: unknown): string => {
+    if (typeof status !== 'string') return '';
+    return status.trim().replace(/[\s-]+/g, '_').toUpperCase();
+};
+
+interface TransferRouteMeta {
+    originName?: string;
+    originId?: string;
+    destinationName?: string;
+    destinationId?: string;
+}
+
+const extractTransferRouteMeta = (notes: unknown): TransferRouteMeta => {
+    if (typeof notes !== 'string' || notes.length === 0) return {};
+
+    const originMatch = notes.match(/ORIGEN:\s*([^|]+?)\(([^)]+)\)/i);
+    const destinationMatch = notes.match(/DESTINO:\s*([^|]+?)\(([^)]+)\)/i);
+
+    return {
+        originName: originMatch?.[1]?.trim() || undefined,
+        originId: originMatch?.[2]?.trim() || undefined,
+        destinationName: destinationMatch?.[1]?.trim() || undefined,
+        destinationId: destinationMatch?.[2]?.trim() || undefined,
+    };
+};
+
+const resolveOrderDirection = (
+    order: Record<string, unknown>,
+    locationId: string
+): DirectionFilter => {
+    const route = extractTransferRouteMeta(order.notes);
+    const rawOrderLocationId =
+        typeof order.location_id === 'string'
+            ? order.location_id
+            : typeof order.destination_location_id === 'string'
+                ? order.destination_location_id
+                : '';
+
+    if (route.originId && route.originId === locationId) return 'OUTGOING';
+    if (route.destinationId && route.destinationId === locationId) return 'INCOMING';
+    if (rawOrderLocationId && rawOrderLocationId === locationId) return 'INCOMING';
+    return 'BOTH';
+};
+
+const toShipmentCardsFromPurchaseOrders = (
+    purchaseOrders: unknown[],
+    currentLocationId: string
+): ShipmentCard[] => {
+    return purchaseOrders.flatMap((raw) => {
+        if (!raw || typeof raw !== 'object') return [];
+
+        const order = raw as Record<string, unknown>;
+        const normalizedStatus = normalizeStatus(order.status);
+        if (!TRANSIT_PO_STATUSES.has(normalizedStatus)) return [];
+        const route = extractTransferRouteMeta(order.notes);
+        const rawItems = Array.isArray(order.items) ? order.items : [];
+        const direction = resolveOrderDirection(order, currentLocationId);
+        const destinationLocationName =
+            route.destinationName ||
+            (typeof order.location_name === 'string' ? order.location_name : undefined);
+
+        const originLocationName =
+            route.originName ||
+            (typeof order.supplier_name === 'string' ? order.supplier_name : undefined) ||
+            'Proveedor';
+
+        return [{
+            id: String(order.id || ''),
+            source: 'PO' as const,
+            type: 'PO',
+            status: normalizedStatus || 'SENT',
+            origin_location_name: originLocationName,
+            destination_location_name: destinationLocationName || 'Destino',
+            created_at: typeof order.created_at === 'number' ? order.created_at : Date.now(),
+            created_by_name: typeof order.created_by_name === 'string' ? order.created_by_name : undefined,
+            authorized_by_name: typeof order.approved_by_name === 'string' ? order.approved_by_name : undefined,
+            received_by_name: typeof order.received_by_name === 'string' ? order.received_by_name : undefined,
+            direction,
+            items: rawItems.map((item, index) => {
+                const row = typeof item === 'object' && item !== null ? item as Record<string, unknown> : {};
+                return {
+                    id: `${String(order.id || 'po')}-${index}`,
+                    sku: String(row.sku || '-'),
+                    name: String(row.name || 'Producto'),
+                    quantity: Number(row.quantity_ordered ?? row.quantity ?? 0),
+                };
+            }),
+            payload: order,
+        }];
+    });
 };
 
 const formatDate = (value: number | null | undefined) => {
@@ -58,32 +161,45 @@ const formatDate = (value: number | null | undefined) => {
     });
 };
 
-export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({ onReceiveShipment }) => {
-    const { currentLocationId } = usePharmaStore();
+export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
+    onReceiveShipment,
+    onReceivePurchaseOrder,
+}) => {
+    const {
+        currentLocationId,
+        shipments: storeShipments,
+        purchaseOrders: storePurchaseOrders,
+        refreshShipments,
+        refreshPurchaseOrders,
+    } = usePharmaStore();
     const [direction, setDirection] = useState<DirectionFilter>('BOTH');
     const [loading, setLoading] = useState(false);
-    const [shipments, setShipments] = useState<ShipmentCard[]>([]);
 
     const fetchTransit = useCallback(async () => {
         if (!currentLocationId) {
-            setShipments([]);
             return;
         }
 
         setLoading(true);
         try {
-            const result = await getShipmentsSecure({
-                locationId: currentLocationId,
-                status: 'IN_TRANSIT',
-                direction,
-                page: 1,
-                pageSize: 100,
-            });
+            const [scopedShipments, scopedPurchaseOrders] = await Promise.allSettled([
+                refreshShipments(currentLocationId),
+                refreshPurchaseOrders(currentLocationId),
+            ]);
 
-            if (result.success && result.data) {
-                setShipments(result.data.shipments as ShipmentCard[]);
-            } else {
-                toast.error(result.error || 'No se pudieron cargar los envíos en tránsito');
+            const scopedState = usePharmaStore.getState();
+            const hasScopedEntries =
+                scopedState.shipments.length > 0 || scopedState.purchaseOrders.length > 0;
+
+            if (!hasScopedEntries) {
+                await Promise.allSettled([
+                    refreshShipments(undefined),
+                    refreshPurchaseOrders(undefined),
+                ]);
+            }
+
+            if (scopedShipments.status === 'rejected' && scopedPurchaseOrders.status === 'rejected') {
+                toast.error('No se pudieron cargar los movimientos en tránsito');
             }
         } catch (error) {
             Sentry.captureException(error, {
@@ -94,17 +210,69 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({ onReceiveShipmen
         } finally {
             setLoading(false);
         }
-    }, [currentLocationId, direction]);
+    }, [currentLocationId, direction, refreshPurchaseOrders, refreshShipments]);
 
     useEffect(() => {
-        fetchTransit();
+        void fetchTransit();
     }, [fetchTransit]);
 
+    const transitRows = useMemo(() => {
+        if (!currentLocationId) return [] as ShipmentCard[];
+
+        const shipmentRows = (Array.isArray(storeShipments) ? storeShipments : [])
+            .filter((raw) => !!raw && typeof raw === 'object')
+            .map((raw) => {
+                const row = raw as Record<string, unknown>;
+                const rowDirection: DirectionFilter =
+                    row.destination_location_id === currentLocationId
+                        ? 'INCOMING'
+                        : row.origin_location_id === currentLocationId
+                            ? 'OUTGOING'
+                            : 'BOTH';
+
+                return {
+                    id: String(row.id || ''),
+                    source: 'SHIPMENT' as const,
+                    type: String(row.type || 'SHIPMENT'),
+                    status: normalizeStatus(row.status),
+                    origin_location_name: typeof row.origin_location_name === 'string' ? row.origin_location_name : undefined,
+                    destination_location_name: typeof row.destination_location_name === 'string' ? row.destination_location_name : undefined,
+                    created_at: typeof row.created_at === 'number' ? row.created_at : Date.now(),
+                    created_by_name: typeof row.created_by_name === 'string' ? row.created_by_name : undefined,
+                    authorized_by_name: typeof row.authorized_by_name === 'string' ? row.authorized_by_name : undefined,
+                    received_by_name: typeof row.received_by_name === 'string' ? row.received_by_name : undefined,
+                    direction: rowDirection,
+                    items: Array.isArray(row.items)
+                        ? row.items.map((item, index) => {
+                            const itemRow = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+                            return {
+                                id: String(itemRow.id || `${String(row.id || 'shipment')}-${index}`),
+                                sku: String(itemRow.sku || '-'),
+                                name: String(itemRow.name || 'Producto'),
+                                quantity: Number(itemRow.quantity ?? 0),
+                            };
+                        })
+                        : [],
+                    payload: row,
+                } satisfies ShipmentCard;
+            })
+            .filter((row) => row.status === 'IN_TRANSIT');
+
+        const purchaseOrderRows = toShipmentCardsFromPurchaseOrders(
+            Array.isArray(storePurchaseOrders) ? storePurchaseOrders : [],
+            currentLocationId
+        );
+
+        return [...shipmentRows, ...purchaseOrderRows]
+            .filter((row) => direction === 'BOTH' || row.direction === direction)
+            .sort((a, b) => b.created_at - a.created_at);
+    }, [currentLocationId, direction, storePurchaseOrders, storeShipments]);
+
     const summary = useMemo(() => {
-        const incoming = shipments.filter(s => s.direction === 'INCOMING').length;
-        const outgoing = shipments.filter(s => s.direction === 'OUTGOING').length;
-        return { incoming, outgoing, total: shipments.length };
-    }, [shipments]);
+        const incoming = transitRows.filter(s => s.direction === 'INCOMING').length;
+        const outgoing = transitRows.filter(s => s.direction === 'OUTGOING').length;
+        return { incoming, outgoing, total: transitRows.length };
+    }, [transitRows]);
 
     if (!currentLocationId) {
         return (
@@ -159,7 +327,7 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({ onReceiveShipmen
                 <div className="flex items-center justify-center py-12">
                     <RefreshCw size={26} className="animate-spin text-indigo-400" />
                 </div>
-            ) : shipments.length === 0 ? (
+            ) : transitRows.length === 0 ? (
                 <div className="border-2 border-dashed border-slate-200 rounded-2xl p-10 text-center">
                     <Package size={40} className="mx-auto mb-3 text-slate-300" />
                     <p className="font-semibold text-slate-700">Sin movimientos en tránsito</p>
@@ -167,9 +335,9 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({ onReceiveShipmen
                 </div>
             ) : (
                 <div className="space-y-2">
-                    {shipments.map((shipment) => (
+                    {transitRows.map((shipment) => (
                         <div
-                            key={shipment.id}
+                            key={`${shipment.source}-${shipment.id}`}
                             className="bg-white border border-slate-200 rounded-2xl p-4 hover:border-indigo-200 transition-colors"
                         >
                             <div className="flex items-start justify-between gap-3">
@@ -216,10 +384,19 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({ onReceiveShipmen
                                     </div>
                                 </div>
 
-                                {shipment.direction === 'INCOMING' && onReceiveShipment && (
+                                {shipment.source === 'SHIPMENT' && shipment.direction === 'INCOMING' && onReceiveShipment && (
                                     <button
                                         onClick={() => onReceiveShipment(shipment.id)}
                                         className="shrink-0 px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold flex items-center gap-1.5"
+                                    >
+                                        Recepcionar
+                                        <ArrowRightLeft size={14} />
+                                    </button>
+                                )}
+                                {shipment.source === 'PO' && shipment.direction === 'INCOMING' && onReceivePurchaseOrder && shipment.payload && (
+                                    <button
+                                        onClick={() => onReceivePurchaseOrder(shipment.payload!)}
+                                        className="shrink-0 px-3 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold flex items-center gap-1.5"
                                     >
                                         Recepcionar
                                         <ArrowRightLeft size={14} />

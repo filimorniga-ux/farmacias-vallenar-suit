@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Calendar, MapPin, Monitor, User, Search, Filter,
@@ -14,7 +14,7 @@ export const ProductSalesReportPage: React.FC = () => {
     const navigate = useNavigate();
     // Stores
     const { employees } = usePharmaStore();
-    const { locations } = useLocationStore();
+    const { locations, fetchLocations } = useLocationStore();
 
     // Filters State
     const [period, setPeriod] = useState('TODAY');
@@ -32,11 +32,31 @@ export const ProductSalesReportPage: React.FC = () => {
     const [isExporting, setIsExporting] = useState(false);
 
     // Derived State: Available Terminals based on Location
+    const activeLocations = useMemo(() => {
+        const hasStatusFlag = locations.some((loc) => typeof loc.is_active === 'boolean');
+        if (!hasStatusFlag) return locations;
+        return locations.filter((loc) => loc.is_active === true);
+    }, [locations]);
+
     const availableTerminals = (() => {
         if (selectedLocation === 'ALL') return [];
-        const loc = locations.find(l => l.id === selectedLocation);
+        const loc = activeLocations.find(l => l.id === selectedLocation);
         return (loc as any)?.terminals || [];
     })();
+
+    // Ensure dropdown uses latest active locations and avoids stale persisted options.
+    useEffect(() => {
+        fetchLocations(true).catch(() => { });
+    }, [fetchLocations]);
+
+    useEffect(() => {
+        if (selectedLocation === 'ALL') return;
+        const stillAvailable = activeLocations.some((loc) => loc.id === selectedLocation);
+        if (!stillAvailable) {
+            setSelectedLocation('ALL');
+            setSelectedTerminal('ALL');
+        }
+    }, [activeLocations, selectedLocation]);
 
 
     // Fetch Report
@@ -197,7 +217,7 @@ export const ProductSalesReportPage: React.FC = () => {
                             className="bg-transparent font-bold text-slate-700 outline-none w-full text-sm"
                         >
                             <option value="ALL">🏢 Todas las Sucursales</option>
-                            {locations.map(loc => (
+                            {activeLocations.map(loc => (
                                 <option key={loc.id} value={loc.id}>{loc.name}</option>
                             ))}
                         </select>

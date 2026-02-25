@@ -48,7 +48,7 @@ async function getSession(): Promise<{
         let locationId = session.locationId;
 
         if (!locationId) {
-            const userRes = await query('SELECT assigned_location_id FROM users WHERE id = $1::uuid', [session.userId]);
+            const userRes = await query('SELECT assigned_location_id FROM users WHERE id::text = $1::text', [session.userId]);
             if ((userRes.rowCount ?? 0) > 0) {
                 locationId = userRes.rows[0].assigned_location_id;
             }
@@ -57,7 +57,7 @@ async function getSession(): Promise<{
         const shiftRes = await query(
             `SELECT terminal_id 
              FROM cash_register_sessions 
-             WHERE user_id = $1::uuid AND closed_at IS NULL 
+             WHERE user_id::text = $1::text AND closed_at IS NULL 
              ORDER BY opened_at DESC LIMIT 1`,
             [session.userId]
         );
@@ -118,26 +118,26 @@ export async function generateCashReportSecure(
         // 1. DATA FETCHING
         let shiftFilter = '';
         const shiftParams: (string | Date)[] = [startD, endD];
-        if (effectiveLocationId) { shiftFilter += ` AND t.location_id = $${shiftParams.length + 1}::uuid`; shiftParams.push(effectiveLocationId); }
-        if (effectiveTerminalId) { shiftFilter += ` AND s.terminal_id = $${shiftParams.length + 1}::uuid`; shiftParams.push(effectiveTerminalId); }
-        if (params.sessionId) { shiftFilter += ` AND s.id = $${shiftParams.length + 1}::uuid`; shiftParams.push(params.sessionId); }
+        if (effectiveLocationId) { shiftFilter += ` AND t.location_id::text = $${shiftParams.length + 1}::text`; shiftParams.push(effectiveLocationId); }
+        if (effectiveTerminalId) { shiftFilter += ` AND s.terminal_id::text = $${shiftParams.length + 1}::text`; shiftParams.push(effectiveTerminalId); }
+        if (params.sessionId) { shiftFilter += ` AND s.id::text = $${shiftParams.length + 1}::text`; shiftParams.push(params.sessionId); }
 
         const shiftsRes = await query(`
             SELECT s.id, s.opened_at, s.closed_at, s.opening_amount, s.closing_amount, s.cash_difference,
                    u.name as cashier_name, t.name as terminal_name, l.name as branch_name
             FROM cash_register_sessions s
-            LEFT JOIN users u ON s.user_id = u.id
-            LEFT JOIN terminals t ON s.terminal_id = t.id
-            LEFT JOIN locations l ON t.location_id = l.id
+            LEFT JOIN users u ON s.user_id::text = u.id::text
+            LEFT JOIN terminals t ON s.terminal_id::text = t.id::text
+            LEFT JOIN locations l ON t.location_id::text = l.id::text
             WHERE s.opened_at >= $1 AND s.opened_at <= $2 ${shiftFilter}
             ORDER BY s.opened_at DESC
         `, shiftParams);
 
         let salesFilter = '';
         const salesParams: (string | Date)[] = [startD, endD];
-        if (effectiveLocationId) { salesFilter += ` AND s.location_id = $${salesParams.length + 1}::uuid`; salesParams.push(effectiveLocationId); }
-        if (effectiveTerminalId) { salesFilter += ` AND s.terminal_id = $${salesParams.length + 1}::uuid`; salesParams.push(effectiveTerminalId); }
-        if (params.sessionId) { salesFilter += ` AND s.session_id = $${salesParams.length + 1}::uuid`; salesParams.push(params.sessionId); }
+        if (effectiveLocationId) { salesFilter += ` AND s.location_id::text = $${salesParams.length + 1}::text`; salesParams.push(effectiveLocationId); }
+        if (effectiveTerminalId) { salesFilter += ` AND s.terminal_id::text = $${salesParams.length + 1}::text`; salesParams.push(effectiveTerminalId); }
+        if (params.sessionId) { salesFilter += ` AND s.session_id::text = $${salesParams.length + 1}::text`; salesParams.push(params.sessionId); }
 
         const salesRes = await query(`
             SELECT 
@@ -147,26 +147,26 @@ export async function generateCashReportSecure(
                 COALESCE(s.customer_name, c.name) as client_name,
                 (SELECT STRING_AGG(si.product_name || ' (x' || si.quantity || ')', E'\n') FROM sale_items si WHERE si.sale_id = s.id) as items_summary
             FROM sales s
-            LEFT JOIN users u ON s.user_id = u.id
-            LEFT JOIN terminals t ON s.terminal_id = t.id
-            LEFT JOIN locations l ON s.location_id = l.id
-            LEFT JOIN customers c ON s.customer_rut = c.rut
+            LEFT JOIN users u ON s.user_id::text = u.id::text
+            LEFT JOIN terminals t ON s.terminal_id::text = t.id::text
+            LEFT JOIN locations l ON s.location_id::text = l.id::text
+            LEFT JOIN customers c ON s.customer_rut::text = c.rut::text
             WHERE s.timestamp >= $1 AND s.timestamp <= $2 ${salesFilter}
             ORDER BY s.timestamp DESC
         `, salesParams);
 
         let movFilter = '';
         const movParams: (string | Date)[] = [startD, endD];
-        if (effectiveLocationId) { movFilter += ` AND cm.location_id = $${movParams.length + 1}::uuid`; movParams.push(effectiveLocationId); }
-        if (effectiveTerminalId) { movFilter += ` AND cm.terminal_id = $${movParams.length + 1}::uuid`; movParams.push(effectiveTerminalId); }
-        if (params.sessionId) { movFilter += ` AND cm.session_id = $${movParams.length + 1}::uuid`; movParams.push(params.sessionId); }
+        if (effectiveLocationId) { movFilter += ` AND cm.location_id::text = $${movParams.length + 1}::text`; movParams.push(effectiveLocationId); }
+        if (effectiveTerminalId) { movFilter += ` AND cm.terminal_id::text = $${movParams.length + 1}::text`; movParams.push(effectiveTerminalId); }
+        if (params.sessionId) { movFilter += ` AND cm.session_id::text = $${movParams.length + 1}::text`; movParams.push(params.sessionId); }
 
         const movRes = await query(`
             SELECT cm.timestamp, cm.type, cm.amount, cm.reason, u.name as user_name, t.name as terminal_name, l.name as branch_name
             FROM cash_movements cm
-            LEFT JOIN users u ON cm.user_id = u.id
-            LEFT JOIN terminals t ON cm.terminal_id = t.id
-            LEFT JOIN locations l ON cm.location_id = l.id
+            LEFT JOIN users u ON cm.user_id::text = u.id::text
+            LEFT JOIN terminals t ON cm.terminal_id::text = t.id::text
+            LEFT JOIN locations l ON cm.location_id::text = l.id::text
             WHERE cm.timestamp >= $1 AND cm.timestamp <= $2 ${movFilter}
             ORDER BY cm.timestamp DESC
         `, movParams);
@@ -380,14 +380,14 @@ export async function exportSalesDetailSecure(
     try {
         const sqlParams: (string | number | Date)[] = [params.startDate, params.endDate];
         let locFilter = '';
-        if (locationId) { locFilter = 'AND s.location_id = $3::uuid'; sqlParams.push(locationId); }
+        if (locationId) { locFilter = 'AND s.location_id::text = $3::text'; sqlParams.push(locationId); }
 
         const res = await query(`
             SELECT s.id, s.timestamp, s.total_amount, s.payment_method, s.dte_folio,
                    u.name as seller_name, l.name as location_name
             FROM sales s
-            LEFT JOIN users u ON s.user_id = u.id
-            LEFT JOIN locations l ON s.location_id = l.id
+            LEFT JOIN users u ON s.user_id::text = u.id::text
+            LEFT JOIN locations l ON s.location_id::text = l.id::text
             WHERE s.timestamp >= $1::timestamp AND s.timestamp <= $2::timestamp ${locFilter}
             ORDER BY s.timestamp DESC LIMIT 10000
         `, sqlParams);
@@ -446,15 +446,15 @@ export async function exportShiftSummarySecure(
     try {
         const sqlParams: (string | number | Date)[] = [params.startDate, params.endDate];
         let locFilter = '';
-        if (locationId) { locFilter = 'AND t.location_id = $3::uuid'; sqlParams.push(locationId); }
+        if (locationId) { locFilter = 'AND t.location_id::text = $3::text'; sqlParams.push(locationId); }
 
         const res = await query(`
             SELECT s.id, s.opened_at, s.closed_at, s.opening_amount, s.closing_amount, s.cash_difference,
                    t.name as terminal_name, l.name as location_name, u.name as cashier_name
             FROM cash_register_sessions s
-            LEFT JOIN terminals t ON s.terminal_id = t.id
-            LEFT JOIN locations l ON t.location_id = l.id
-            LEFT JOIN users u ON s.user_id = u.id
+            LEFT JOIN terminals t ON s.terminal_id::text = t.id::text
+            LEFT JOIN locations l ON t.location_id::text = l.id::text
+            LEFT JOIN users u ON s.user_id::text = u.id::text
             WHERE s.opened_at >= $1::timestamp AND (s.closed_at <= $2::timestamp OR s.closed_at IS NULL)
             ${locFilter}
             ORDER BY s.opened_at DESC

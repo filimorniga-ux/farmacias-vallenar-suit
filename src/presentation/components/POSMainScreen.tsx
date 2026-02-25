@@ -52,6 +52,7 @@ import { validateSupervisorPin } from '../../actions/auth-v2';
 import { POSHeaderActions } from './pos/POSHeaderActions';
 import QuoteHistoryModal from './quotes/QuoteHistoryModal';
 import { ExpressAddProductModal } from './pos/ExpressAddProductModal';
+import { decideSessionRecovery } from './pos/session-recovery-policy';
 
 // Helper: Formatear número con separadores de miles (puntos)
 const formatWithThousands = (value: string | number): string => {
@@ -111,6 +112,7 @@ const parseFormattedNumber = (formatted: string): number => {
 
 const POSMainScreen: React.FC = () => {
     const [showQuoteHistory, setShowQuoteHistory] = useState(false);
+    const foreignSessionWarningRef = useRef<string>('');
     useKioskGuard(true); // Enable Kiosk Lock
     const {
         inventory, cart, addToCart, addManualItem, removeFromCart, clearCart,
@@ -126,6 +128,7 @@ const POSMainScreen: React.FC = () => {
         currentShift,
         currentLocationId,
         currentTerminalId,
+        terminals,
         user
     } = usePharmaStore();
 
@@ -135,6 +138,10 @@ const POSMainScreen: React.FC = () => {
     }, []);
 
     const { currentLocation } = useLocationStore();
+    const activeTerminal = useMemo(
+        () => terminals.find(t => t.id === currentTerminalId),
+        [terminals, currentTerminalId]
+    );
     console.log('🔍 [POSMainScreen] Current Location (Store):', currentLocation?.id, 'Current Location (Pharma):', currentLocationId);
 
     // 🚀 Load inventory via React Query (Prefer LocationStore ID as it's more reactive in UI)
@@ -173,7 +180,7 @@ const POSMainScreen: React.FC = () => {
         const checkActiveSession = async () => {
             try {
                 // Import actions dynamically
-                const { getCashDrawerStatus, closeCashDrawerSystem } = await import('../../actions/cash-management-v2');
+                const { getCashDrawerStatus } = await import('../../actions/cash-management-v2');
 
                 // Guard: Need a terminal to check status
                 if (!currentTerminalId) return;
@@ -193,7 +200,22 @@ const POSMainScreen: React.FC = () => {
                     const serverSessionId = status.data?.isOpen ? status.data.sessionId : null;
 
                     if (serverSessionId !== currentShift.id) {
-                        console.warn('⚠️ [POS] Local session mismatch with server. Invalidating local session.');
+                        // 🛠️ GRACE PERIOD: Si la sesión se abrió hace menos de 15 segundos localmente,
+                        // ignoramos el mismatch del servidor. Esto previene el bug de "Consistency Lag"
+                        // donde el GET inmediato a la DB no ve el COMMIT del Server Action aún.
+                        const timeSinceOpen = Date.now() - (currentShift.start_time || 0);
+                        const GRACE_PERIOD_MS = 15000; // 15 segundos
+
+                        if (timeSinceOpen < GRACE_PERIOD_MS) {
+                            console.warn(`⏳ [POS] Mismatch detected but within grace period (${Math.round(timeSinceOpen / 1000)}s). Ignoring to allow DB sync.`);
+                            return;
+                        }
+
+                        console.warn('⚠️ [POS] Local session mismatch with server. Invalidating local session.', {
+                            server: serverSessionId,
+                            local: currentShift.id,
+                            timeSinceOpen: `${Math.round(timeSinceOpen / 1000)}s`
+                        });
                         usePharmaStore.getState().logoutShift();
                         toast.error('Sesión local no válida', { description: 'Su sesión expiró o fue cerrada remotamente.' });
                     } else {
@@ -206,9 +228,15 @@ const POSMainScreen: React.FC = () => {
                 if (status.success && status.data?.isOpen && status.data.sessionId) {
                     const sessionUser = status.data.cashierId;
                     const currentUser = user?.id;
+                    const decision = decideSessionRecovery({
+                        isOpen: Boolean(status.data.isOpen),
+                        sessionId: status.data.sessionId,
+                        serverCashierId: sessionUser,
+                        currentUserId: currentUser
+                    });
 
                     // SCENARIO 1: SAME USER -> RESUME SESSION (PERSISTENCE)
-                    if (sessionUser === currentUser) {
+                    if (decision === 'RESUME_SAME_USER') {
                         console.log('🔄 [POS] Recovering active session for SAME user:', status.data.sessionId);
                         const recoveredShift: any = {
                             id: status.data.sessionId,
@@ -222,26 +250,17 @@ const POSMainScreen: React.FC = () => {
                         toast.success('Sesión recuperada', {
                             description: `Continuando turno de: ${status.data.cashierName || 'Usuario'}`
                         });
+                        foreignSessionWarningRef.current = '';
                     }
-                    // SCENARIO 2: DIFFERENT USER -> AUTO-CLOSE PREVIOUS SESSION
-                    else if (currentUser) {
-                        console.warn('⚠️ [POS] Session User Mismatch. Auto-closing previous session.');
-
-                        const closeResult = await closeCashDrawerSystem({
-                            terminalId: currentTerminalId,
-                            userId: currentUser, // action performed by current user
-                            reason: `Cierre automático por cambio de usuario. (Anterior: ${status.data.cashierName}, Nuevo: ${user?.name})`
-                        });
-
-                        if (closeResult.success) {
-                            toast.info('Turno anterior cerrado automáticamente', {
-                                description: `Se cerró la sesión de ${status.data.cashierName} para que puedas operar.`,
-                                duration: 8000,
-                                icon: <RefreshCw className="animate-spin" />
+                    // SCENARIO 2: DIFFERENT USER -> BLOCK (NO AUTO-CLOSE)
+                    else if (decision === 'BLOCK_FOREIGN_SESSION' && currentUser) {
+                        const lockKey = `${currentTerminalId}:${status.data.sessionId}:${sessionUser}:${currentUser}`;
+                        if (foreignSessionWarningRef.current !== lockKey) {
+                            foreignSessionWarningRef.current = lockKey;
+                            toast.warning('Caja ocupada por otro usuario', {
+                                description: `La sesión activa pertenece a ${status.data.cashierName || 'otro cajero'}. Debe cerrarla/reanudarla manualmente desde Apertura de Caja.`,
+                                duration: 7000
                             });
-                            // Do NOT resume. Let the UI show "Blocked" state so user can open new shift.
-                        } else {
-                            toast.error('Error cerrando turno anterior', { description: closeResult.error });
                         }
                     }
                 }
@@ -752,8 +771,7 @@ const POSMainScreen: React.FC = () => {
     }
 
     return (
-        <div className="flex h-[calc(100dvh-80px)] bg-slate-100 overflow-hidden">
-
+        <div className="flex h-[calc(100dvh-80px)] bg-slate-100 overflow-hidden relative">
             {/* COL 1: Búsqueda (Fixed 400px Desktop, 100% Mobile Catalog View) */}
             <div className={`w-full md:w-[400px] flex-col p-4 md:p-6 md:pr-3 gap-4 h-full ${mobileView === 'CART' ? 'hidden md:flex' : 'flex'}`}>
                 {/* ... (existing content logic is fine, we just want to replace the container logic if needed, but here we cover lines 82-607, so we need to be careful with the huge replacement) */}
@@ -962,7 +980,7 @@ const POSMainScreen: React.FC = () => {
                             <div className="h-10 w-px bg-slate-200 mx-2" />
                             <div className="flex flex-col">
                                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-tight">Terminal Activo</span>
-                                <span className="text-sm font-bold text-slate-600">{currentLocation?.name} - {user?.name}</span>
+                                <span className="text-sm font-bold text-slate-600">{activeTerminal?.name || 'Caja sin asignar'}</span>
                             </div>
                         </div>
 

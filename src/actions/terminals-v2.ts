@@ -346,9 +346,11 @@ export async function openTerminalWithPinValidation(
     const client = await pool.connect();
 
     try {
-        logger.info({ terminalId, userId, initialCash }, '🔐 [Atomic v2.2] Starting secure transaction: Open Terminal with PIN validation');
+        const dbHost = process.env.DATABASE_URL?.split('@')[1]?.split(':')[0] || 'unknown';
+        logger.info({ terminalId, userId, initialCash, dbHost }, '🔐 [Atomic v2.2] Starting secure transaction: Open Terminal with PIN validation');
 
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+        console.log(`[DB-TRACE] BEGIN transaction on ${dbHost} for terminal ${terminalId}`);
 
         // 2. VALIDACIÓN DE PIN EN EL SERVIDOR (bcrypt)
         // Buscar supervisores activos (MANAGER, ADMIN, GERENTE_GENERAL)
@@ -867,16 +869,28 @@ export async function getTerminalStatusAtomic(terminalId: string) {
         const result = await query(`
             SELECT 
                 t.id, t.name, t.status, t.location_id, t.module_number,
-                t.current_cashier_id,
+                CASE
+                    WHEN t.status = 'OPEN' AND s.id IS NULL THEN NULL
+                    ELSE COALESCE(s.user_id::text, t.current_cashier_id::text)
+                END as current_cashier_id,
                 u.name as cashier_name,
                 s.id as session_id,
                 s.opening_amount,
                 s.opened_at
             FROM terminals t
-            LEFT JOIN users u ON t.current_cashier_id = u.id
-            LEFT JOIN cash_register_sessions s ON (
-                s.terminal_id = t.id AND s.status = 'OPEN' AND s.closed_at IS NULL
-            )
+            LEFT JOIN LATERAL (
+                SELECT id, user_id, opening_amount, opened_at
+                FROM cash_register_sessions
+                WHERE terminal_id = t.id
+                  AND status = 'OPEN'
+                  AND closed_at IS NULL
+                ORDER BY opened_at DESC
+                LIMIT 1
+            ) s ON TRUE
+            LEFT JOIN users u ON u.id::text = CASE
+                WHEN t.status = 'OPEN' AND s.id IS NULL THEN NULL
+                ELSE COALESCE(s.user_id::text, t.current_cashier_id::text)
+            END
             WHERE t.id = $1
         `, [terminalId]);
 
@@ -910,13 +924,35 @@ export async function getTerminalsByLocationSecure(locationId?: string): Promise
     try {
         let sql = `
             SELECT 
-                t.id, t.name, t.location_id, t.status,
-                t.current_cashier_id, t.config, t.is_active, t.module_number,
+                t.id, t.name, t.location_id,
+                CASE
+                    WHEN t.status = 'OPEN' AND s.session_id IS NULL THEN 'CLOSED'
+                    ELSE t.status
+                END as status,
+                CASE
+                    WHEN t.status = 'OPEN' AND s.session_id IS NULL THEN NULL
+                    ELSE COALESCE(s.user_id::text, t.current_cashier_id::text)
+                END as current_cashier_id,
+                t.config, t.is_active, t.module_number,
+                s.session_id,
+                s.opened_at as session_opened_at,
                 l.name as location_name,
                 u.name as current_cashier_name
             FROM terminals t
             LEFT JOIN locations l ON l.id = t.location_id
-            LEFT JOIN users u ON t.current_cashier_id = u.id
+            LEFT JOIN LATERAL (
+                SELECT id as session_id, user_id, opened_at
+                FROM cash_register_sessions
+                WHERE terminal_id = t.id
+                  AND status = 'OPEN'
+                  AND closed_at IS NULL
+                ORDER BY opened_at DESC
+                LIMIT 1
+            ) s ON TRUE
+            LEFT JOIN users u ON u.id::text = CASE
+                WHEN t.status = 'OPEN' AND s.session_id IS NULL THEN NULL
+                ELSE COALESCE(s.user_id::text, t.current_cashier_id::text)
+            END
             WHERE t.is_active = true AND t.deleted_at IS NULL
         `;
         const params: (string | number | boolean | Date)[] = [];
@@ -1204,48 +1240,130 @@ export async function getSuggestedOpeningAmount(terminalId: string): Promise<{ s
     const client = await pool.connect();
 
     try {
-        // 1. Obtener última sesión cerrada
+        // Se analizan varias sesiones cerradas para evitar falsos 0 cuando
+        // la más reciente fue cerrada forzosamente sin arqueo final.
         const sessionRes = await client.query(`
-            SELECT id, closing_amount, closed_at, user_id
-            FROM cash_register_sessions
-            WHERE terminal_id = $1 AND status IN ('CLOSED', 'CLOSED_FORCE')
-            ORDER BY closed_at DESC
-            LIMIT 1
+            SELECT
+                s.id,
+                s.status,
+                s.user_id,
+                s.closed_at,
+                COALESCE(s.opening_amount, 0) AS opening_amount,
+                COALESCE(s.closing_amount, 0) AS closing_amount,
+                COALESCE((
+                    SELECT SUM(COALESCE(sa.total_amount, sa.total))
+                    FROM sales sa
+                    WHERE sa.session_id = s.id
+                      AND sa.status != 'VOIDED'
+                      AND sa.payment_method = 'CASH'
+                ), 0) AS cash_sales,
+                COALESCE((
+                    SELECT SUM(CASE WHEN cm.type IN ('IN', 'EXTRA_INCOME') THEN cm.amount ELSE 0 END)
+                    FROM cash_movements cm
+                    WHERE cm.session_id = s.id
+                      AND cm.type NOT IN ('APERTURA', 'OPENING')
+                ), 0) AS cash_in,
+                COALESCE((
+                    SELECT SUM(CASE WHEN cm.type IN ('OUT', 'WITHDRAWAL', 'EXPENSE') THEN cm.amount ELSE 0 END)
+                    FROM cash_movements cm
+                    WHERE cm.session_id = s.id
+                      AND cm.type NOT IN ('APERTURA', 'OPENING')
+                ), 0) AS cash_out,
+                COALESCE((
+                    SELECT SUM(tr.amount)
+                    FROM treasury_remittances tr
+                    WHERE tr.source_terminal_id = s.terminal_id
+                      AND tr.created_at BETWEEN (s.closed_at - interval '2 minutes')
+                                            AND (s.closed_at + interval '2 minutes')
+                ), 0) AS remittance_amount,
+                u.name AS user_name
+            FROM cash_register_sessions s
+            LEFT JOIN users u ON u.id::text = s.user_id::text
+            WHERE s.terminal_id = $1
+              AND s.status IN ('CLOSED', 'CLOSED_FORCE', 'CLOSED_AUTO')
+              AND s.closed_at IS NOT NULL
+            ORDER BY s.closed_at DESC
+            LIMIT 10
         `, [terminalId]);
 
         if (sessionRes.rows.length === 0) {
-            return { success: true, amount: 0 }; // Sin historial, sugerir 0
+            return { success: true, amount: 0 };
         }
 
-        const session = sessionRes.rows[0];
-        const closingAmount = Number(session.closing_amount || 0);
+        const latestUser = sessionRes.rows[0]?.user_name || 'Usuario desconocido';
 
-        // Obtener nombre del cajero anterior
-        const userRes = await client.query('SELECT name FROM users WHERE id = $1', [session.user_id]);
-        const lastUser = userRes.rows[0]?.name || 'Usuario desconocido';
+        let fallbackSuggestion: { amount: number; user: string } | null = null;
 
-        // 2. Buscar si hubo remesa asociada a ese cierre (mismo terminal, tiempo cercano)
-        // Buscamos remesas creadas +/- 2 segundos del cierre (son parte de la misma tx generalmente)
-        const remittanceRes = await client.query(`
-            SELECT amount
-            FROM treasury_remittances
-            WHERE source_terminal_id = $1
-            AND created_at BETWEEN ($2::timestamp - interval '30 seconds') AND ($2::timestamp + interval '30 seconds')
-        `, [terminalId, session.closed_at]);
+        for (const session of sessionRes.rows) {
+            const closingAmount = Number(session.closing_amount || 0);
+            const openingAmount = Number(session.opening_amount || 0);
+            const cashSales = Number(session.cash_sales || 0);
+            const cashIn = Number(session.cash_in || 0);
+            const cashOut = Number(session.cash_out || 0);
+            const remittanceAmount = Number(session.remittance_amount || 0);
 
-        const remittanceAmount = remittanceRes.rows.length > 0 ? Number(remittanceRes.rows[0].amount) : 0;
+            // Cierre efectivo + calidad:
+            // strong = arqueo explícito o trazas de sesión (ventas/movimientos)
+            // weak = fallback técnico (opening_amount) cuando no hay más señales.
+            const estimatedFromTrace = Math.max(0, openingAmount + cashSales + cashIn - cashOut);
+            const hasTraceSignals = cashSales > 0 || cashIn > 0 || cashOut > 0;
 
-        // 3. Calcular remanente
-        const suggestedAmount = Math.max(0, closingAmount - remittanceAmount);
+            let effectiveClosing = 0;
+            let quality: 'none' | 'strong' | 'weak' = 'none';
+            if (closingAmount > 0) {
+                effectiveClosing = closingAmount;
+                quality = 'strong';
+            } else if (estimatedFromTrace > 0 && hasTraceSignals) {
+                effectiveClosing = estimatedFromTrace;
+                quality = 'strong';
+            } else if (['CLOSED_FORCE', 'CLOSED_AUTO'].includes(session.status) && openingAmount > 0) {
+                effectiveClosing = openingAmount;
+                quality = 'weak';
+            } else if (estimatedFromTrace > 0) {
+                effectiveClosing = estimatedFromTrace;
+                quality = 'weak';
+            }
+
+            const suggestedAmount = Math.max(0, effectiveClosing - remittanceAmount);
+            if (suggestedAmount <= 0 || quality === 'none') {
+                continue;
+            }
+
+            // Priorización temporal:
+            // 1) primera sesión fuerte más reciente (inmediata continuidad real)
+            // 2) si no existe, usar primer fallback débil.
+            if (quality === 'strong') {
+                return {
+                    success: true,
+                    amount: suggestedAmount,
+                    lastUser: session.user_name || latestUser
+                };
+            }
+
+            if (!fallbackSuggestion) {
+                fallbackSuggestion = {
+                    amount: suggestedAmount,
+                    user: session.user_name || latestUser
+                };
+            }
+        }
+
+        if (fallbackSuggestion) {
+            return {
+                success: true,
+                amount: fallbackSuggestion.amount,
+                lastUser: fallbackSuggestion.user
+            };
+        }
 
         return {
             success: true,
-            amount: suggestedAmount,
-            lastUser
+            amount: 0,
+            lastUser: latestUser
         };
 
     } catch (error: unknown) {
-        console.error('Error fetching suggested amount:', error);
+        logger.error({ error, terminalId }, '[TerminalsV2] getSuggestedOpeningAmount error');
         return { success: false, error: 'Error calculando sugerencia' };
     } finally {
         client.release();

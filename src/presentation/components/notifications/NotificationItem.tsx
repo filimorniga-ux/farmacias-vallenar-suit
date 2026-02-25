@@ -3,98 +3,87 @@
 import React from 'react';
 import { useRouter } from 'next/navigation';
 import {
-    X, Package, DollarSign, Users, Warehouse, Settings,
-    AlertTriangle, ExternalLink, CheckCircle, Info, AlertCircle
+    Package, DollarSign, Users, Warehouse, Settings,
+    AlertTriangle, CheckCircle, Info, AlertCircle,
+    Trash2, TrendingUp, ArrowRight, ChevronRight
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Button } from '@/components/ui/button';
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
-import { Badge } from '@/components/ui/badge';
 import { Notification, useNotificationStore } from '../../store/useNotificationStore';
 
 interface NotificationItemProps {
     notification: Notification;
+    isSelecting: boolean;
 }
 
-const NotificationItem: React.FC<NotificationItemProps> = ({ notification }) => {
+// ─── Helper functions ─────────────────────────────────────────────────────────
+
+const getTypeConfig = (type: string) => {
+    const map: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
+        INVENTORY: { icon: <Package size={18} />, label: 'Inventario', color: 'text-cyan-600 bg-cyan-50 border-cyan-200' },
+        CASH: { icon: <DollarSign size={18} />, label: 'Caja', color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
+        HR: { icon: <Users size={18} />, label: 'RRHH', color: 'text-violet-600 bg-violet-50 border-violet-200' },
+        WMS: { icon: <Warehouse size={18} />, label: 'Logística', color: 'text-blue-600 bg-blue-50 border-blue-200' },
+        SYSTEM: { icon: <Settings size={18} />, label: 'Sistema', color: 'text-slate-600 bg-slate-50 border-slate-200' },
+        PROCUREMENT: { icon: <TrendingUp size={18} />, label: 'Pedidos', color: 'text-purple-600 bg-purple-50 border-purple-200' },
+        TRANSFER: { icon: <ArrowRight size={18} />, label: 'Traspaso', color: 'text-amber-600 bg-amber-50 border-amber-200' },
+        STOCK_CRITICAL: { icon: <AlertTriangle size={18} />, label: 'Stock', color: 'text-red-600 bg-red-50 border-red-200' },
+    };
+    return map[type] ?? { icon: <Info size={18} />, label: 'General', color: 'text-slate-500 bg-slate-50 border-slate-200' };
+};
+
+const getSeverityIndicator = (severity: string) => {
+    switch (severity) {
+        case 'CRITICAL':
+        case 'ERROR': return <AlertCircle size={13} className="text-red-500 flex-shrink-0" />;
+        case 'WARNING': return <AlertTriangle size={13} className="text-amber-500 flex-shrink-0" />;
+        case 'SUCCESS': return <CheckCircle size={13} className="text-emerald-500 flex-shrink-0" />;
+        default: return null;
+    }
+};
+
+const getActionUrl = (notification: Notification): string | null => {
+    if (notification.actionUrl) return notification.actionUrl;
+    if (notification.link) return notification.link;
+    if (notification.metadata?.actionUrl) return notification.metadata.actionUrl as string;
+    // FIX B7: Auto-generar URLs de destino precisas por tipo
+    const urlMap: Record<string, string> = {
+        INVENTORY: '/logistica',
+        CASH: '/caja',
+        HR: '/rrhh',
+        WMS: '/wms',
+        PROCUREMENT: '/cadena-suministro',
+        TRANSFER: '/wms',
+        STOCK_CRITICAL: '/logistica',
+    };
+    return urlMap[notification.type] ?? null;
+};
+
+const getTimeAgo = (dateStr: string): string => {
+    try {
+        return formatDistanceToNow(new Date(dateStr), { addSuffix: true, locale: es });
+    } catch {
+        return 'Hace un momento';
+    }
+};
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+const NotificationItem: React.FC<NotificationItemProps> = ({ notification, isSelecting }) => {
     const router = useRouter();
-    const { markAsRead, deleteNotification, setOpen } = useNotificationStore();
+    const { markAsRead, deleteNotification, setOpen, selectedIds, toggleSelect } = useNotificationStore();
 
-    // Dynamic icon based on type
-    const getTypeIcon = () => {
-        switch (notification.type) {
-            case 'INVENTORY': return <Package size={20} />;
-            case 'CASH': return <DollarSign size={20} />;
-            case 'HR': return <Users size={20} />;
-            case 'WMS': return <Warehouse size={20} />;
-            case 'SYSTEM': return <Settings size={20} />;
-            default: return <Info size={20} />;
-        }
-    };
-
-    // Severity badge color
-    const getSeverityStyles = () => {
-        switch (notification.severity) {
-            case 'ERROR': return {
-                bg: 'bg-red-100 dark:bg-red-900/30',
-                text: 'text-red-600 dark:text-red-400',
-                border: 'border-red-200 dark:border-red-800',
-                icon: <AlertCircle size={14} className="text-red-500" />
-            };
-            case 'WARNING': return {
-                bg: 'bg-amber-100 dark:bg-amber-900/30',
-                text: 'text-amber-600 dark:text-amber-400',
-                border: 'border-amber-200 dark:border-amber-800',
-                icon: <AlertTriangle size={14} className="text-amber-500" />
-            };
-            case 'SUCCESS': return {
-                bg: 'bg-green-100 dark:bg-green-900/30',
-                text: 'text-green-600 dark:text-green-400',
-                border: 'border-green-200 dark:border-green-800',
-                icon: <CheckCircle size={14} className="text-green-500" />
-            };
-            case 'INFO':
-            default: return {
-                bg: 'bg-blue-100 dark:bg-blue-900/30',
-                text: 'text-blue-600 dark:text-blue-400',
-                border: 'border-blue-200 dark:border-blue-800',
-                icon: <Info size={14} className="text-blue-500" />
-            };
-        }
-    };
-
-    // Relative time with date-fns
-    const getTimeAgo = (dateStr: string) => {
-        try {
-            const date = new Date(dateStr);
-            return formatDistanceToNow(date, { addSuffix: true, locale: es });
-        } catch {
-            return 'Hace un momento';
-        }
-    };
-
-    // Get navigation URL from link or metadata
-    const getActionUrl = (): string | null => {
-        if (notification.link) return notification.link;
-        if (notification.metadata?.actionUrl) return notification.metadata.actionUrl;
-
-        // Auto-generate URLs based on type
-        switch (notification.type) {
-            case 'INVENTORY': return '/logistica';
-            case 'CASH': return '/caja';
-            case 'HR': return '/rrhh';
-            case 'WMS': return '/wms';
-            default: return null;
-        }
-    };
+    const typeConfig = getTypeConfig(notification.type);
+    const actionUrl = getActionUrl(notification);
+    const isSelected = selectedIds.has(notification.id);
 
     const handleClick = () => {
-        if (!notification.read) {
-            markAsRead(notification.id);
+        if (isSelecting) {
+            toggleSelect(notification.id);
+            return;
         }
-
-        const actionUrl = getActionUrl();
+        if (!notification.read) markAsRead(notification.id);
         if (actionUrl) {
             setOpen(false);
             router.push(actionUrl);
@@ -106,95 +95,83 @@ const NotificationItem: React.FC<NotificationItemProps> = ({ notification }) => 
         deleteNotification(notification.id);
     };
 
-    const severityStyles = getSeverityStyles();
-    const actionUrl = getActionUrl();
-
     return (
         <div
             onClick={handleClick}
             className={`
-                p-4 hover:bg-accent/50 transition-colors cursor-pointer relative group
-                ${!notification.read ? 'bg-purple-50/50 dark:bg-purple-950/20' : ''}
+                relative flex gap-3 p-4 transition-colors cursor-pointer group
+                ${isSelected ? 'bg-purple-50 dark:bg-purple-950/30' : ''}
+                ${!isSelected && !notification.read ? 'bg-blue-50/40 dark:bg-blue-950/10' : ''}
+                hover:bg-accent/50
             `}
         >
-            {/* Unread indicator */}
-            {!notification.read && (
-                <div className="absolute left-0 top-0 bottom-0 w-1 bg-purple-600 dark:bg-purple-400" />
+            {/* Barra lateral de no leído */}
+            {!notification.read && !isSelected && (
+                <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-purple-500 rounded-r" />
             )}
 
-            <div className="flex gap-3">
-                {/* Icon */}
-                <div className={`
-                    p-2.5 rounded-lg border flex-shrink-0 
-                    ${severityStyles.bg} ${severityStyles.text} ${severityStyles.border}
-                `}>
-                    {getTypeIcon()}
-                </div>
-
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-start gap-2 mb-1">
-                        <div className="flex items-center gap-2">
-                            <h4 className={`
-                                font-semibold text-sm line-clamp-1
-                                ${!notification.read ? 'text-foreground' : 'text-muted-foreground'}
-                            `}>
-                                {notification.title}
-                            </h4>
-                            {severityStyles.icon}
-                        </div>
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                            <span className="text-xs text-muted-foreground">
-                                {getTimeAgo(notification.created_at)}
-                            </span>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={handleDelete}
-                                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                                <X size={14} />
-                            </Button>
-                        </div>
+            {/* Checkbox (en modo selección) o ícono de tipo */}
+            <div className="flex-shrink-0 mt-0.5">
+                {isSelecting ? (
+                    <div className={`
+                        w-9 h-9 rounded-lg border-2 flex items-center justify-center transition-colors
+                        ${isSelected
+                            ? 'bg-purple-600 border-purple-600 text-white'
+                            : 'border-slate-200 dark:border-slate-700 hover:border-purple-400'
+                        }
+                    `}>
+                        {isSelected && <CheckCircle size={16} />}
                     </div>
-
-                    <p className="text-sm text-muted-foreground line-clamp-2 mb-2">
-                        {notification.message}
-                    </p>
-
-                    {/* Action link */}
-                    {actionUrl && (
-                        <div className="flex items-center gap-1 text-xs text-purple-600 dark:text-purple-400 font-medium">
-                            <ExternalLink size={12} />
-                            Ver detalles
-                        </div>
-                    )}
-
-                    {/* Metadata preview */}
-                    {notification.metadata && Object.keys(notification.metadata).length > 0 && (
-                        <HoverCard>
-                            <HoverCardTrigger asChild>
-                                <Badge variant="secondary" className="mt-2 cursor-help text-xs">
-                                    +{Object.keys(notification.metadata).length} datos
-                                </Badge>
-                            </HoverCardTrigger>
-                            <HoverCardContent className="w-72">
-                                <div className="text-xs space-y-1">
-                                    <p className="font-semibold mb-2">Detalles adicionales:</p>
-                                    {Object.entries(notification.metadata).slice(0, 5).map(([key, value]) => (
-                                        <div key={key} className="flex justify-between">
-                                            <span className="text-muted-foreground">{key}:</span>
-                                            <span className="font-mono truncate max-w-[150px]">
-                                                {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                                            </span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </HoverCardContent>
-                        </HoverCard>
-                    )}
-                </div>
+                ) : (
+                    <div className={`w-9 h-9 rounded-lg border flex items-center justify-center ${typeConfig.color}`}>
+                        {typeConfig.icon}
+                    </div>
+                )}
             </div>
+
+            {/* Contenido */}
+            <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-2 mb-0.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                            {typeConfig.label}
+                        </span>
+                        {getSeverityIndicator(notification.severity)}
+                    </div>
+                    <span className="text-[10px] text-muted-foreground whitespace-nowrap flex-shrink-0">
+                        {getTimeAgo(notification.created_at)}
+                    </span>
+                </div>
+
+                <h4 className={`text-sm font-semibold leading-snug line-clamp-1 ${!notification.read ? 'text-foreground' : 'text-muted-foreground'}`}>
+                    {notification.title}
+                </h4>
+
+                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2 leading-relaxed">
+                    {notification.message}
+                </p>
+
+                {/* CTA de navegación */}
+                {actionUrl && !isSelecting && (
+                    <div className="flex items-center gap-1 mt-1.5 text-[11px] text-purple-600 dark:text-purple-400 font-medium">
+                        <span>Ir a {typeConfig.label}</span>
+                        <ChevronRight size={11} />
+                    </div>
+                )}
+            </div>
+
+            {/* Botón eliminar (hover, sin modo selección) */}
+            {!isSelecting && (
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleDelete}
+                    className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 hover:text-red-600 hover:bg-red-50"
+                    aria-label="Eliminar notificación"
+                >
+                    <Trash2 size={13} />
+                </Button>
+            )}
         </div>
     );
 };
