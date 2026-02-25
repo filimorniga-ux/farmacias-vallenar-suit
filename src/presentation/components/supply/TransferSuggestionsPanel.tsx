@@ -5,6 +5,8 @@ import { exportTransferDetailSecure } from '@/actions/transfer-export';
 import TransferExecutionModal from './TransferExecutionModal';
 import TransferDetailModal from './TransferDetailModal';
 import { toast } from 'sonner';
+import { resolveTransferQuantity } from './transfer-suggestions-utils';
+import { usePharmaStore } from '@/presentation/store/useStore';
 
 interface TransferSource {
     location_id: string;
@@ -55,8 +57,10 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
     onTransferComplete,
     onGoBack
 }) => {
+    const { user } = usePharmaStore();
     const [selectedSkus, setSelectedSkus] = useState<Set<string>>(new Set());
     const [selectedSources, setSelectedSources] = useState<Record<string, string>>({});
+    const [requestedQuantities, setRequestedQuantities] = useState<Record<string, string>>({});
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalItems, setModalItems] = useState<any[]>([]);
     const [history, setHistory] = useState<TransferHistoryItem[]>([]);
@@ -112,6 +116,21 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
         });
         return Array.from(origins.values());
     }, [suggestions]);
+
+    const suggestionsSignature = React.useMemo(
+        () => suggestions.map((s) => `${s.sku}:${s.suggested_order_qty}`).join('|'),
+        [suggestions]
+    );
+
+    useEffect(() => {
+        setRequestedQuantities((prev) => {
+            const next: Record<string, string> = {};
+            suggestions.forEach((suggestion) => {
+                next[suggestion.sku] = prev[suggestion.sku] ?? String(suggestion.suggested_order_qty);
+            });
+            return next;
+        });
+    }, [suggestionsSignature]);
 
     const setOriginForAll = (locationId: string) => {
         if (!locationId) return;
@@ -227,13 +246,49 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
         return suggestion?.transfer_sources?.find(s => s.location_id === sourceId);
     };
 
+    const getTransferQty = (suggestion: TransferSuggestion, source?: TransferSource): number => {
+        const rawValue = requestedQuantities[suggestion.sku];
+        const requestedQty = rawValue === undefined || rawValue.trim() === ''
+            ? undefined
+            : Number.parseInt(rawValue, 10);
+
+        return resolveTransferQuantity({
+            requestedQty,
+            suggestedQty: suggestion.suggested_order_qty,
+            availableQty: source?.available_qty || 0
+        });
+    };
+
+    const updateRequestedQuantity = (suggestion: TransferSuggestion, source: TransferSource | undefined, rawValue: string) => {
+        const sanitized = rawValue.replace(/[^\d]/g, '');
+        if (sanitized === '') {
+            setRequestedQuantities((prev) => ({
+                ...prev,
+                [suggestion.sku]: ''
+            }));
+            return;
+        }
+
+        const parsed = Number.parseInt(sanitized, 10);
+        const normalized = resolveTransferQuantity({
+            requestedQty: parsed,
+            suggestedQty: suggestion.suggested_order_qty,
+            availableQty: source?.available_qty || 0
+        });
+
+        setRequestedQuantities((prev) => ({
+            ...prev,
+            [suggestion.sku]: String(Number.isNaN(normalized) ? 0 : normalized)
+        }));
+    };
+
     const handleExecuteSingle = (suggestion: TransferSuggestion) => {
         const source = getSelectedSource(suggestion.sku);
         if (!source) {
             toast.error('Seleccione una sucursal de origen');
             return;
         }
-        const transferQty = Math.min(suggestion.suggested_order_qty, source.available_qty);
+        const transferQty = getTransferQty(suggestion, source);
         if (transferQty <= 0) {
             toast.error('La cantidad a traspasar debe ser mayor a 0');
             return;
@@ -253,7 +308,7 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
             .filter(s => selectedSkus.has(s.sku))
             .map(s => {
                 const source = getSelectedSource(s.sku);
-                const qty = Math.min(s.suggested_order_qty, source?.available_qty || 0);
+                const qty = getTransferQty(s, source);
                 if (!source || qty <= 0) return null;
                 return {
                     sku: s.sku,
@@ -473,9 +528,7 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
                         <tbody className="divide-y divide-slate-100 text-sm bg-white">
                             {suggestions.map((item, idx) => {
                                 const selectedSource = getSelectedSource(item.sku);
-                                const transferQty = selectedSource
-                                    ? Math.min(item.suggested_order_qty, selectedSource.available_qty)
-                                    : 0;
+                                const transferQty = getTransferQty(item, selectedSource);
 
                                 return (
                                     <tr
@@ -547,9 +600,22 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
                                             {selectedSource?.available_qty || 0}
                                         </td>
                                         <td className="p-3 text-center">
-                                            <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg">
-                                                {transferQty}u
-                                            </span>
+                                            {/*
+                                             * Allow temporary empty value so the user can delete and rewrite
+                                             * without snapping back to "1" on each keystroke.
+                                             */}
+                                            <div className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1">
+                                                <input
+                                                    type="number"
+                                                    min={selectedSource?.available_qty ? 1 : 0}
+                                                    max={selectedSource?.available_qty || 0}
+                                                    disabled={!selectedSource || selectedSource.available_qty <= 0}
+                                                    className="w-16 bg-transparent text-right font-bold text-emerald-700 outline-none disabled:opacity-50"
+                                                    value={requestedQuantities[item.sku] ?? String(transferQty)}
+                                                    onChange={(e) => updateRequestedQuantity(item, selectedSource, e.target.value)}
+                                                />
+                                                <span className="text-xs font-bold text-emerald-700">u</span>
+                                            </div>
                                         </td>
                                         <td className="p-3">
                                             <button
@@ -583,6 +649,22 @@ const TransferSuggestionsPanel: React.FC<TransferSuggestionsPanelProps> = ({
                     onExport={handleExportTransfer}
                 />
             )}
+
+            <TransferExecutionModal
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                items={modalItems}
+                targetLocationId={targetLocationId}
+                targetLocationName={targetLocationName}
+                targetWarehouseId={defaultWarehouseId}
+                userId={user?.id}
+                onSuccess={() => {
+                    setIsModalOpen(false);
+                    setSelectedSkus(new Set());
+                    onTransferComplete();
+                    loadHistory();
+                }}
+            />
         </div>
     );
 };

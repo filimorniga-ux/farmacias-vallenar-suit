@@ -28,6 +28,7 @@ import { PurchaseOrderReceivingModal } from '@/presentation/components/scm/Purch
 import ManualOrderModal from '@/presentation/components/supply/ManualOrderModal';
 import SupplyKanban from '../components/supply/SupplyKanban';
 import { SupplyChainHistoryTab } from '@/presentation/components/scm/SupplyChainHistoryTab';
+import { MovementDetailModal } from '@/presentation/components/scm/MovementDetailModal';
 
 export type WMSTab = 'despacho' | 'recepcion' | 'transferencia' | 'transito' | 'pedidos' | 'suministros' | 'historial';
 
@@ -58,8 +59,11 @@ export const WMSPage: React.FC = () => {
     const queryClient = useQueryClient();
     const [selectedOrder, setSelectedOrder] = useState<any>(null);
     const [isReceptionModalOpen, setIsReceptionModalOpen] = useState(false);
+    const [receptionModalMode, setReceptionModalMode] = useState<'RECEIVE' | 'VIEW' | 'REVIEW'>('RECEIVE');
     const [isManualOrderModalOpen, setIsManualOrderModalOpen] = useState(false);
     const [preselectedReceptionShipmentId, setPreselectedReceptionShipmentId] = useState<string | null>(null);
+    const [selectedMovement, setSelectedMovement] = useState<any | null>(null);
+    const [isMovementDetailOpen, setIsMovementDetailOpen] = useState(false);
 
     const {
         currentLocationId,
@@ -69,6 +73,7 @@ export const WMSPage: React.FC = () => {
         locations: pharmaLocations,
         user,
         receivePurchaseOrder,
+        finalizePurchaseOrderReview,
         setInventory,
         refreshShipments,
         refreshPurchaseOrders
@@ -184,6 +189,11 @@ export const WMSPage: React.FC = () => {
                             setPreselectedReceptionShipmentId(shipmentId);
                             setActiveTab('recepcion');
                         }}
+                        onReceivePurchaseOrder={(po) => {
+                            setSelectedOrder(po);
+                            setReceptionModalMode('RECEIVE');
+                            setIsReceptionModalOpen(true);
+                        }}
                     />
                 );
             case 'pedidos':
@@ -211,6 +221,16 @@ export const WMSPage: React.FC = () => {
                                 }}
                                 onReceiveOrder={(po: any) => {
                                     setSelectedOrder(po);
+                                    setReceptionModalMode('RECEIVE');
+                                    setIsReceptionModalOpen(true);
+                                }}
+                                onViewOrder={(movement: any) => {
+                                    setSelectedMovement(movement);
+                                    setIsMovementDetailOpen(true);
+                                }}
+                                onFinalizeReview={(po: any) => {
+                                    setSelectedOrder(po);
+                                    setReceptionModalMode('REVIEW');
                                     setIsReceptionModalOpen(true);
                                 }}
                             />
@@ -281,7 +301,12 @@ export const WMSPage: React.FC = () => {
                 {/* Modals for Supply Integration */}
                 <PurchaseOrderReceivingModal
                     isOpen={isReceptionModalOpen}
-                    onClose={() => setIsReceptionModalOpen(false)}
+                    mode={receptionModalMode}
+                    onClose={() => {
+                        setIsReceptionModalOpen(false);
+                        setReceptionModalMode('RECEIVE');
+                        setSelectedOrder(null);
+                    }}
                     order={selectedOrder}
                     onReceive={(orderId, items) => {
                         return receivePurchaseOrder(
@@ -290,6 +315,7 @@ export const WMSPage: React.FC = () => {
                             selectedOrder?.target_warehouse_id || currentWarehouseId || currentLocationId
                         );
                     }}
+                    onFinalizeReview={(orderId, reviewNotes) => finalizePurchaseOrderReview(orderId, reviewNotes)}
                 />
 
                 <ManualOrderModal
@@ -299,6 +325,15 @@ export const WMSPage: React.FC = () => {
                         setSelectedOrder(null);
                     }}
                     initialOrder={selectedOrder}
+                />
+
+                <MovementDetailModal
+                    isOpen={isMovementDetailOpen}
+                    onClose={() => {
+                        setIsMovementDetailOpen(false);
+                        setSelectedMovement(null);
+                    }}
+                    movement={selectedMovement}
                 />
             </div>
         );
@@ -380,7 +415,12 @@ export const WMSPage: React.FC = () => {
             {/* Modals for Supply Integration (Desktop) */}
             <PurchaseOrderReceivingModal
                 isOpen={isReceptionModalOpen}
-                onClose={() => setIsReceptionModalOpen(false)}
+                mode={receptionModalMode}
+                onClose={() => {
+                    setIsReceptionModalOpen(false);
+                    setReceptionModalMode('RECEIVE');
+                    setSelectedOrder(null);
+                }}
                 order={selectedOrder}
                 onReceive={(orderId, items) => {
                     return receivePurchaseOrder(
@@ -389,6 +429,7 @@ export const WMSPage: React.FC = () => {
                         selectedOrder?.target_warehouse_id || currentWarehouseId || currentLocationId
                     );
                 }}
+                onFinalizeReview={(orderId, reviewNotes) => finalizePurchaseOrderReview(orderId, reviewNotes)}
             />
 
             <ManualOrderModal
@@ -398,6 +439,15 @@ export const WMSPage: React.FC = () => {
                     setSelectedOrder(null);
                 }}
                 initialOrder={selectedOrder}
+            />
+
+            <MovementDetailModal
+                isOpen={isMovementDetailOpen}
+                onClose={() => {
+                    setIsMovementDetailOpen(false);
+                    setSelectedMovement(null);
+                }}
+                movement={selectedMovement}
             />
         </div>
     );

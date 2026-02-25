@@ -15,6 +15,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 // =====================================================
 
 const mockQuery = vi.fn();
+const mockDirectQuery = vi.fn();
 const mockRelease = vi.fn();
 const mockConnect = vi.fn();
 const mockBcryptCompare = vi.fn();
@@ -30,7 +31,7 @@ vi.mock('@/lib/db', () => ({
             });
         },
     },
-    query: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
+    query: (...args: unknown[]) => mockDirectQuery(...args),
 }));
 
 // Mock uuid
@@ -95,6 +96,7 @@ const VALID_PIN = '1234';
 describe('calculateHandoverSecure', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mockDirectQuery.mockReset();
     });
 
     it('should fail with invalid terminal ID', async () => {
@@ -110,6 +112,28 @@ describe('calculateHandoverSecure', () => {
         expect(result.success).toBe(false);
         expect(result.error).toContain('positivo');
     });
+
+    it('should keep full declared cash as carryover (no automatic remittance)', async () => {
+        mockDirectQuery
+            .mockResolvedValueOnce({
+                rows: [{ id: VALID_SESSION_ID, opening_amount: 100000, opened_at: new Date() }],
+                rowCount: 1,
+            }) // Active session
+            .mockResolvedValueOnce({
+                rows: [{ payment_method: 'CASH', total: 1400000 }],
+                rowCount: 1,
+            }) // Sales
+            .mockResolvedValueOnce({
+                rows: [{ total_in: 0, total_out: 0 }],
+                rowCount: 1,
+            }); // Movements
+
+        const result = await calculateHandoverSecure(VALID_TERMINAL_ID, 1500000);
+
+        expect(result.success).toBe(true);
+        expect(result.data?.amountToWithdraw).toBe(0);
+        expect(result.data?.amountToKeep).toBe(1500000);
+    });
 });
 
 // =====================================================
@@ -120,6 +144,7 @@ describe('executeHandoverSecure', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockQuery.mockResolvedValue({ rows: [] });
+        mockDirectQuery.mockReset();
         mockBcryptCompare.mockResolvedValue(true);
         vi.mocked(validateSupervisorPin).mockResolvedValue({
             success: true,
@@ -194,24 +219,31 @@ describe('executeHandoverSecure', () => {
     });
 
     it('should execute handover with valid PIN', async () => {
-        let callIndex = 0;
-        const responses = [
-            { rows: [] }, // BEGIN
-            { rows: [{ id: OUTGOING_USER_ID, name: 'Cajero Test', role: 'CASHIER', access_pin_hash: 'hashed' }] }, // PIN validation
-            { rows: [{ role: 'CASHIER' }] }, // Role check
-            { rows: [{ id: VALID_TERMINAL_ID, location_id: VALID_LOCATION_ID, current_cashier_id: OUTGOING_USER_ID, status: 'OPEN' }] }, // Terminal lock
-            { rows: [{ id: VALID_SESSION_ID, user_id: OUTGOING_USER_ID, opening_amount: 50000, opened_at: new Date() }] }, // Session lock
-            { rows: [] }, // Insert remittance
-            { rows: [], rowCount: 1 }, // Update session
-            { rows: [], rowCount: 1 }, // Update terminal
-            { rows: [] }, // Audit
-            { rows: [] }, // COMMIT
-        ];
-
-        mockQuery.mockImplementation(() => {
-            const response = responses[callIndex] || { rows: [] };
-            callIndex++;
-            return Promise.resolve(response);
+        mockQuery.mockImplementation((sql: string) => {
+            if (sql === 'BEGIN ISOLATION LEVEL SERIALIZABLE') return Promise.resolve({ rows: [] });
+            if (sql.includes('SELECT id, name, role, access_pin_hash, access_pin') && sql.includes('FROM users')) {
+                return Promise.resolve({ rows: [{ id: OUTGOING_USER_ID, name: 'Cajero Test', role: 'CASHIER', access_pin_hash: 'hashed' }] });
+            }
+            if (sql.includes('SELECT id, location_id, current_cashier_id, status') && sql.includes('FROM terminals')) {
+                return Promise.resolve({ rows: [{ id: VALID_TERMINAL_ID, location_id: VALID_LOCATION_ID, current_cashier_id: OUTGOING_USER_ID, status: 'OPEN' }] });
+            }
+            if (sql.includes('SELECT id, user_id, opening_amount, opened_at') && sql.includes('FROM cash_register_sessions')) {
+                return Promise.resolve({ rows: [{ id: VALID_SESSION_ID, user_id: OUTGOING_USER_ID, opening_amount: 50000, opened_at: new Date() }] });
+            }
+            if (sql.includes('SELECT name FROM users WHERE id = $1 LIMIT 1')) {
+                return Promise.resolve({ rows: [{ name: 'Cajero Test' }] });
+            }
+            if (sql.includes('UPDATE cash_register_sessions')) {
+                return Promise.resolve({ rows: [{ id: VALID_SESSION_ID }], rowCount: 1 });
+            }
+            if (sql.includes('UPDATE terminals')) {
+                return Promise.resolve({ rows: [], rowCount: 1 });
+            }
+            if (sql.includes('INSERT INTO audit_log')) {
+                return Promise.resolve({ rows: [] });
+            }
+            if (sql === 'COMMIT') return Promise.resolve({ rows: [] });
+            return Promise.resolve({ rows: [] });
         });
 
         mockBcryptCompare.mockResolvedValue(true);
@@ -228,7 +260,9 @@ describe('executeHandoverSecure', () => {
         });
 
         expect(result.success).toBe(true);
-        expect(result.remittanceId).toBeDefined();
+        expect(result.remittanceId).toBeUndefined();
+        const executedSql = mockQuery.mock.calls.map(([sql]) => String(sql));
+        expect(executedSql.some((sql) => sql.includes('INSERT INTO treasury_remittances'))).toBe(false);
     });
 
     it('should fail if terminal not found', async () => {

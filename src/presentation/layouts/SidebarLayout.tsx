@@ -26,7 +26,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [isLandscape, setIsLandscape] = useState(false);
     const [isCompactViewport, setIsCompactViewport] = useState(false);
-    const { isCenterOpen, setCenterOpen } = useNotificationStore();
+    const { isOpen: isNotificationOpen, setOpen: setNotificationOpen } = useNotificationStore();
     const openCalculator = useCalculatorStore((s: any) => s.open);
 
     useEffect(() => {
@@ -286,13 +286,11 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                     <MobileBottomNav onMenuClick={() => setIsMobileMenuOpen(true)} />
                 )}
 
-                {/* Notification Center Portal */}
-                {isCenterOpen && (
-                    <NotificationCenter
-                        userRole={user?.role || 'ALL'}
-                        onClose={() => setCenterOpen(false)}
-                    />
-                )}
+                {/* Notification Center — el Sheet se controla internamente via el store */}
+                <NotificationCenter
+                    userRole={user?.role || 'ALL'}
+                    onClose={() => setNotificationOpen(false)}
+                />
             </main>
 
             {/* Floating Calculator — available for all users */}

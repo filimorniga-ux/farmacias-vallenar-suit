@@ -9,12 +9,14 @@ describe('Supply Kanban Utils', () => {
     it('maps PO and shipment statuses to kanban columns', () => {
         expect(resolvePOColumn('DRAFT')).toBe('DRAFT');
         expect(resolvePOColumn('ORDERED')).toBe('SENT');
+        expect(resolvePOColumn('REVIEW')).toBe('REVIEW');
         expect(resolvePOColumn('RECEIVED')).toBe('RECEIVED');
         expect(resolvePOColumn('CANCELLED')).toBeNull();
         expect(resolvePOColumn(' pending_receipt ')).toBe('SENT');
         expect(resolvePOColumn('delivered')).toBe('RECEIVED');
 
         expect(resolveShipmentColumn('IN_TRANSIT')).toBe('SENT');
+        expect(resolveShipmentColumn('UNDER_REVIEW')).toBe('REVIEW');
         expect(resolveShipmentColumn('DELIVERED')).toBe('RECEIVED');
         expect(resolveShipmentColumn('CANCELLED')).toBeNull();
         expect(resolveShipmentColumn('pending receipt')).toBe('SENT');

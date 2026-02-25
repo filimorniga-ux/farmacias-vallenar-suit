@@ -4,7 +4,7 @@ import { useLocationStore } from '../../../presentation/store/useLocationStore';
 import { useSettingsStore } from '../../../presentation/store/useSettingsStore';
 import { X, Search, Calendar, Printer, Lock, FileText, Download, User, RotateCcw, Loader2, RefreshCw, AlertCircle, TrendingUp, TrendingDown, DollarSign } from 'lucide-react';
 import { exportSalesHistorySecure } from '../../../actions/pos-export-v2';
-import { CashMovementView, getCashMovementHistory } from '../../../actions/cash-management-v2'; // Unified Endpoint
+import { CashMovementView, getCashMovementHistory, exportCashMovementHistory } from '../../../actions/cash-management-v2'; // Unified Endpoint
 import { getSaleDetailsSecure } from '../../../actions/sales-v2'; // NEW: Details
 import { validateSupervisorPin } from '../../../actions/auth-v2';
 import { toast } from 'sonner';
@@ -12,6 +12,12 @@ import { printSaleTicket } from '../../utils/print-utils';
 import { SaleTransaction } from '../../../domain/types';
 import ReturnsModal from './ReturnsModal';
 import { getChileDate, formatChileDate, formatFriendlyId } from '@/lib/utils';
+import {
+    getSaleItemQuantity,
+    getSaleItemTotal,
+    getSaleItemUnitPrice,
+    getTransactionTitle
+} from './transaction-history-utils';
 
 interface TransactionHistoryModalProps {
     isOpen: boolean;
@@ -211,7 +217,6 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
             const [eY, eM, eD] = endDate.split('-').map(Number);
             const end = new Date(eY, eM - 1, eD, 23, 59, 59, 999);
 
-            const { exportCashMovementHistory } = await import('@/actions/cash-management-v2');
             const result = await exportCashMovementHistory({
                 terminalId: undefined,
                 sessionId: undefined,
@@ -398,6 +403,22 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
                 bg: 'bg-rose-50',
                 label: 'GASTO',
                 amountColor: 'text-rose-700'
+            };
+        } else if (['OPENING', 'APERTURA'].includes(item.type)) {
+            return {
+                icon: <TrendingUp size={16} />,
+                color: 'text-cyan-700',
+                bg: 'bg-cyan-50',
+                label: 'APERTURA',
+                amountColor: 'text-cyan-700'
+            };
+        } else if (['CLOSING', 'CIERRE'].includes(item.type)) {
+            return {
+                icon: <TrendingDown size={16} />,
+                color: 'text-amber-700',
+                bg: 'bg-amber-50',
+                label: 'CIERRE',
+                amountColor: 'text-amber-700'
             };
         } else {
             return {
@@ -588,7 +609,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
                                                         {formatChileDate(item.timestamp, { hour: '2-digit', minute: '2-digit' })}
                                                     </span>
                                                     <h3 className="font-bold text-slate-800 text-sm truncate max-w-[200px]">
-                                                        {item.type === 'SALE' ? `Venta #${item.dte_folio || formatFriendlyId(item.timestamp)}` : item.type === 'EXTRA_INCOME' ? 'Ingreso Extra' : 'Gasto / Retiro'}
+                                                        {getTransactionTitle(item, formatFriendlyId(item.timestamp))}
                                                     </h3>
                                                 </div>
                                                 <span className={`px-2 py-1 rounded text-xs font-bold ${conf.color} ${conf.bg}`}>
@@ -707,9 +728,11 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
                                                 <div key={idx} className="flex justify-between items-center p-3 bg-white rounded-lg border border-slate-100">
                                                     <div>
                                                         <p className="font-bold text-slate-800 text-sm">{item.name || 'Desconocido'}</p>
-                                                        <p className="text-xs text-slate-500">{(item.quantity || 0)} x ${(item.price || 0).toLocaleString()}</p>
+                                                        <p className="text-xs text-slate-500">
+                                                            {getSaleItemQuantity(item)} x ${getSaleItemUnitPrice(item).toLocaleString()}
+                                                        </p>
                                                     </div>
-                                                    <p className="font-bold text-slate-800">${((item.price || 0) * (item.quantity || 0)).toLocaleString()}</p>
+                                                    <p className="font-bold text-slate-800">${getSaleItemTotal(item).toLocaleString()}</p>
                                                 </div>
                                             ))}
                                         </div>
@@ -768,4 +791,3 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
 };
 
 export default TransactionHistoryModal;
-

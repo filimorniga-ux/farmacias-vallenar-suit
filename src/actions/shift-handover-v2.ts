@@ -23,6 +23,7 @@ import { query } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
+import { canAuthorizeShiftClosure } from './shift-handover-policy';
 
 // =====================================================
 // SCHEMAS DE VALIDACIÓN
@@ -61,8 +62,6 @@ const QuickHandoverSchema = z.object({
 // =====================================================
 // CONSTANTES
 // =====================================================
-
-const BASE_CASH = 50000; // Monto base a mantener en caja
 
 const ERROR_CODES = {
     LOCK_NOT_AVAILABLE: '55P03',
@@ -226,6 +225,16 @@ export interface HandoverSummary {
     openingAmount: number;
 }
 
+function resolveCarryoverPlan(declaredCash: number): { amountToWithdraw: number; amountToKeep: number } {
+    // Regla de negocio: en cambio de turno se traspasa todo el efectivo
+    // al siguiente cajero. No se genera remesa automática.
+    const safeDeclaredCash = Math.max(0, Number(declaredCash || 0));
+    return {
+        amountToWithdraw: 0,
+        amountToKeep: safeDeclaredCash
+    };
+}
+
 // =====================================================
 // OPERACIONES DE HANDOVER SEGURAS
 // =====================================================
@@ -307,17 +316,8 @@ export async function calculateHandoverSecure(
         const expectedCash = openingAmount + cashSales + cashIn - cashOut;
         const diff = declaredCash - expectedCash;
 
-        // 6. Calcular retiro inteligente
-        let amountToKeep = BASE_CASH;
-        let amountToWithdraw = 0;
-
-        if (declaredCash > BASE_CASH) {
-            amountToWithdraw = declaredCash - BASE_CASH;
-            amountToKeep = BASE_CASH;
-        } else {
-            amountToKeep = declaredCash;
-            amountToWithdraw = 0;
-        }
+        // 6. Plan de traspaso (handover): heredar todo el efectivo.
+        const { amountToWithdraw, amountToKeep } = resolveCarryoverPlan(declaredCash);
 
         return {
             success: true,
@@ -386,7 +386,7 @@ export async function executeHandoverSecure(params: {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // 2a. Validar PIN del usuario (Cajero) - Opcional
-        let cashierName = 'Unknown User';
+        let actorName = 'Unknown User';
         if (userPin) {
             if (userPin.length < 4) {
                 await client.query('ROLLBACK');
@@ -399,12 +399,12 @@ export async function executeHandoverSecure(params: {
                 logger.warn({ userId }, '🚫 Handover: Cashier PIN validation failed');
                 return { success: false, error: 'PIN de cajero incorrecto' };
             }
-            cashierName = pinResult.user?.name || cashierName;
+            actorName = pinResult.user?.name || actorName;
         } else {
             // Si no hay PIN, confiamos en el ID pero buscamos el nombre para logs
             const userCheck = await client.query('SELECT name FROM users WHERE id = $1', [userId]);
             if (userCheck.rows.length > 0) {
-                cashierName = userCheck.rows[0].name;
+                actorName = userCheck.rows[0].name;
             }
         }
 
@@ -438,15 +438,6 @@ export async function executeHandoverSecure(params: {
 
         const terminal = termRes.rows[0];
 
-        // Verificar que el usuario es el cajero actual
-        // Since Supervisor Authorized, do we strictly require userId match?
-        // Yes, the session belongs to userId.
-        if (terminal.current_cashier_id && terminal.current_cashier_id !== userId) {
-            // Exception: If FORCE override is needed? 
-            // For now, strict check + Supervisor Auth.
-            throw new Error(ERROR_MESSAGES.USER_MISMATCH);
-        }
-
         // 4. Bloquear sesión activa
         const shiftRes = await client.query(`
             SELECT id, user_id, opening_amount, opened_at
@@ -461,10 +452,52 @@ export async function executeHandoverSecure(params: {
         }
 
         const currentShift = shiftRes.rows[0];
+        const shiftOwnerId = String(currentShift.user_id || '');
 
-        // 5. Crear remesa (si hay monto a retirar)
+        // Resolver nombre del dueño real del turno para auditoría y trazabilidad
+        let shiftOwnerName = actorName;
+        if (shiftOwnerId) {
+            const ownerRes = await client.query('SELECT name FROM users WHERE id = $1 LIMIT 1', [shiftOwnerId]);
+            if (ownerRes.rows.length > 0) {
+                shiftOwnerName = ownerRes.rows[0].name;
+            }
+        }
+
+        // Permitir override de supervisor cuando el actor no es el dueño del turno.
+        const isAuthorizedForClosure = canAuthorizeShiftClosure({
+            shiftOwnerUserId: shiftOwnerId,
+            actorUserId: userId,
+            supervisorRole: supervisorAuth.authorizedBy.role
+        });
+
+        if (!isAuthorizedForClosure) {
+            throw new Error(ERROR_MESSAGES.USER_MISMATCH);
+        }
+
+        if (shiftOwnerId && shiftOwnerId !== userId) {
+            logger.info({
+                terminalId,
+                shiftOwnerId,
+                actorUserId: userId,
+                supervisorId: supervisorAuth.authorizedBy.id
+            }, '🔐 [Handover v2] Supervisor override accepted for cross-user shift closure');
+        }
+
+        // Cambio de turno: no retirar a tesorería automáticamente.
+        const carryoverPlan = resolveCarryoverPlan(declaredCash);
+        if (amountToWithdraw > 0 || amountToKeep !== carryoverPlan.amountToKeep) {
+            logger.warn({
+                terminalId,
+                requestedWithdraw: amountToWithdraw,
+                requestedKeep: amountToKeep,
+                enforcedWithdraw: carryoverPlan.amountToWithdraw,
+                enforcedKeep: carryoverPlan.amountToKeep
+            }, '⚠️ [Handover v2] Handover payload adjusted to full-cash carryover policy');
+        }
+
+        // 5. Crear remesa (deshabilitada por política de handover)
         let remittanceId: string | undefined;
-        if (amountToWithdraw > 0) {
+        if (carryoverPlan.amountToWithdraw > 0) {
             remittanceId = uuidv4();
             await client.query(`
                 INSERT INTO treasury_remittances (
@@ -480,22 +513,42 @@ export async function executeHandoverSecure(params: {
                 remittanceId,
                 terminal.location_id,
                 terminalId,
-                amountToWithdraw,
+                carryoverPlan.amountToWithdraw,
                 userId,
                 currentShift.opened_at,
                 declaredCash - expectedCash,
-                notes || `Arqueo: Declarado $${declaredCash} vs Sistema $${expectedCash}. Base mantenida: $${amountToKeep}`
+                notes || `Arqueo: Declarado $${declaredCash} vs Sistema $${expectedCash}. Traspaso íntegro al siguiente turno`
             ]);
         }
 
-        // 6. Cerrar sesión actual
-        await client.query(`
-            UPDATE cash_register_sessions 
-            SET closed_at = NOW(), 
-                status = 'CLOSED',
-                closing_amount = $2
-            WHERE id = $1::uuid
-        `, [currentShift.id, declaredCash]);
+        // 6. Cerrar TODAS las sesiones abiertas de la terminal (anti-ghost)
+        // Esto evita que quede una sesión residual y la caja siga apareciendo "ocupada".
+        const closeSessionsRes = await client.query(`
+            UPDATE cash_register_sessions
+            SET closed_at = NOW(),
+                status = CASE
+                    WHEN id = $2::uuid THEN 'CLOSED'
+                    ELSE 'CLOSED_AUTO'
+                END,
+                closing_amount = CASE
+                    WHEN id = $2::uuid THEN $3
+                    ELSE COALESCE(closing_amount, $3)
+                END,
+                notes = CASE
+                    WHEN id = $2::uuid THEN notes
+                    ELSE COALESCE(notes, 'Auto-cerrada durante handover')
+                END
+            WHERE terminal_id = $1::uuid
+              AND closed_at IS NULL
+            RETURNING id
+        `, [terminalId, currentShift.id, declaredCash]);
+
+        if ((closeSessionsRes.rowCount || 0) > 1) {
+            logger.warn({
+                terminalId,
+                closedSessions: closeSessionsRes.rowCount
+            }, '🧹 [Handover v2] Se cerraron sesiones residuales durante el handover');
+        }
 
         // 7. Actualizar terminal
         await client.query(`
@@ -524,12 +577,14 @@ export async function executeHandoverSecure(params: {
                 closing_amount: declaredCash,
                 expected_cash: expectedCash,
                 diff: declaredCash - expectedCash,
-                remittance_amount: amountToWithdraw,
+                remittance_amount: carryoverPlan.amountToWithdraw,
                 remittance_id: remittanceId,
-                closed_by: cashierName,
+                carryover_amount: carryoverPlan.amountToKeep,
+                shift_owner_name: shiftOwnerName,
+                closed_by_actor: actorName,
                 authorized_by_supervisor: supervisorAuth.authorizedBy.name // LOG SUPERVISOR
             },
-            description: notes || `Cierre autorizado por ${supervisorAuth.authorizedBy.name} (Cajero: ${cashierName})`
+            description: notes || `Cambio de turno de ${shiftOwnerName} ejecutado por ${actorName} autorizado por ${supervisorAuth.authorizedBy.name}`
         });
 
         // --- COMMIT ---
@@ -538,16 +593,19 @@ export async function executeHandoverSecure(params: {
         logger.info({ terminalId, remittanceId }, '✅ [Handover v2] Handover completed');
 
         // 9. Notificar a gerentes (fuera de transacción)
-        try {
-            const { notifyManagersSecure } = await import('./notifications-v2');
-            await notifyManagersSecure({
-                locationId: terminal.location_id,
-                title: "💰 Nueva Remesa Pendiente",
-                message: `El cajero ${cashierName} ha cerrado turno. Monto: $${amountToWithdraw.toLocaleString('es-CL')}`,
-                link: "/finance/treasury"
-            });
-        } catch (notifyError) {
-            logger.warn({ err: notifyError }, 'Failed to notify managers (non-critical)');
+        if (remittanceId && carryoverPlan.amountToWithdraw > 0) {
+            try {
+                const { notifyManagersSecure } = await import('./notifications-v2');
+                await notifyManagersSecure({
+                    locationId: terminal.location_id,
+                    title: "💰 Nueva Remesa Pendiente",
+                    message: `Turno de ${shiftOwnerName} cerrado por ${actorName}. Monto: $${carryoverPlan.amountToWithdraw.toLocaleString('es-CL')}`,
+                    type: 'CASH',
+                    actionUrl: "/caja"
+                });
+            } catch (notifyError) {
+                logger.warn({ err: notifyError }, 'Failed to notify managers (non-critical)');
+            }
         }
 
         revalidatePath('/pos');
@@ -749,4 +807,4 @@ export async function quickHandoverSecure(params: {
 }
 
 // =====================================================
-// NOTE: BASE_CASH es constante interna - Next.js 16 use server solo permite async functions
+// NOTE: Next.js 16 use server solo permite exportar async functions

@@ -1450,7 +1450,7 @@ export async function getInventorySecure(
             ),
             grouped_inventory AS (
                 SELECT
-                    COALESCE(product_id, sku, name) ||
+                    COALESCE(NULLIF(TRIM(sku), ''), product_id, name) ||
                         CASE WHEN COALESCE(is_retail_lot, false) THEN '::DETAIL' ELSE '::BOX' END as group_key,
                     MAX(product_id) as product_id,
                     MAX(sku) as sku,
@@ -1500,7 +1500,7 @@ export async function getInventorySecure(
                 FROM combined_inventory ib
                 WHERE 1=1 ${whereClause}
                 GROUP BY
-                    COALESCE(product_id, sku, name),
+                    COALESCE(NULLIF(TRIM(sku), ''), product_id, name),
                     COALESCE(is_retail_lot, false)
                 
                 -- Having clause for Stock Status Filter if needed

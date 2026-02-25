@@ -3,8 +3,11 @@ export interface LoginFailureLike {
     retryable?: boolean;
 }
 
-const LOGIN_TIMEOUT_DEFAULT_MS = 15000;
-const LOGIN_TIMEOUT_MIN_MS = 5000;
+// Debe cubrir el peor caso de conexión/reintentos en lib/db.ts
+// (3 intentos con connectionTimeoutMillis=8000 + backoff incremental),
+// para evitar falsos DB_TIMEOUT en el cliente.
+const LOGIN_TIMEOUT_DEFAULT_MS = 30000;
+const LOGIN_TIMEOUT_MIN_MS = 30000;
 const LOGIN_TIMEOUT_MAX_MS = 60000;
 
 export function resolveLoginTimeoutMs(rawValue?: string): number {

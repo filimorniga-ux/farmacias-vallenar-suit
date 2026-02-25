@@ -1,4 +1,4 @@
-export type SupplyKanbanColumnKey = 'DRAFT' | 'APPROVED' | 'SENT' | 'RECEIVED';
+export type SupplyKanbanColumnKey = 'DRAFT' | 'APPROVED' | 'SENT' | 'REVIEW' | 'RECEIVED';
 export type SupplyKanbanEntrySource = 'PO' | 'SHIPMENT';
 
 export interface SupplyKanbanEntry {
@@ -31,6 +31,9 @@ const PO_STATUS_COLUMN_MAP: Record<string, SupplyKanbanColumnKey | undefined> = 
     PARTIAL: 'SENT',
     IN_TRANSIT: 'SENT',
     PENDING_RECEIPT: 'SENT',
+    REVIEW: 'REVIEW',
+    PENDING_REVIEW: 'REVIEW',
+    UNDER_REVIEW: 'REVIEW',
     RECEIVED: 'RECEIVED',
     DELIVERED: 'RECEIVED',
     COMPLETED: 'RECEIVED',
@@ -44,6 +47,9 @@ const SHIPMENT_STATUS_COLUMN_MAP: Record<string, SupplyKanbanColumnKey | undefin
     IN_TRANSIT: 'SENT',
     SENT: 'SENT',
     PENDING_RECEIPT: 'SENT',
+    REVIEW: 'REVIEW',
+    PENDING_REVIEW: 'REVIEW',
+    UNDER_REVIEW: 'REVIEW',
     DELIVERED: 'RECEIVED',
     RECEIVED: 'RECEIVED',
     COMPLETED: 'RECEIVED',

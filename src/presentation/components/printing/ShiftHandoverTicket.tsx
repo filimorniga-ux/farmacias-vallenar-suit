@@ -28,7 +28,7 @@ const ShiftHandoverTicket: React.FC<ShiftHandoverTicketProps> = ({ summary, user
                             <div className="w-12 h-12 bg-slate-900 rounded-full flex items-center justify-center text-white font-bold text-xs print:text-black print:border-2 print:border-black print:bg-white">FV</div>
                         </div>
                         <h2 className="font-bold text-lg">FARMACIAS VALLENAR</h2>
-                        <p>COMPROBANTE DE CIERRE</p>
+                        <p>COMPROBANTE DE CAMBIO DE TURNO</p>
                     </>
                 )}
             </div>
@@ -76,12 +76,12 @@ const ShiftHandoverTicket: React.FC<ShiftHandoverTicketProps> = ({ summary, user
             {/* Actions */}
             <div className="border-t border-dashed border-slate-300 py-2 mb-4 bg-slate-50 print:bg-white">
                 <div className="flex justify-between mb-1 font-bold text-sm">
-                    <span>RETIRO TESORERÍA:</span>
-                    <span>${(summary?.amountToWithdraw ?? 0).toLocaleString('es-CL')}</span>
+                    <span>TRASPASO SIG. TURNO:</span>
+                    <span>${(summary?.amountToKeep ?? 0).toLocaleString('es-CL')}</span>
                 </div>
                 <div className="flex justify-between text-xs">
-                    <span>Base Próx. Turno:</span>
-                    <span>${(summary?.amountToKeep ?? 0).toLocaleString('es-CL')}</span>
+                    <span>Remesa Automática:</span>
+                    <span>${(summary?.amountToWithdraw ?? 0).toLocaleString('es-CL')}</span>
                 </div>
             </div>
 
@@ -100,7 +100,7 @@ const ShiftHandoverTicket: React.FC<ShiftHandoverTicketProps> = ({ summary, user
                 {effectiveFooter ? (
                     <div dangerouslySetInnerHTML={{ __html: effectiveFooter }} />
                 ) : (
-                    <p>Este comprobante certifica la entrega de valores.</p>
+                    <p>Este comprobante certifica el traspaso de caja entre turnos.</p>
                 )}
                 <p>Sistema POS v2.1 - {new Date().toLocaleTimeString()}</p>
             </div>

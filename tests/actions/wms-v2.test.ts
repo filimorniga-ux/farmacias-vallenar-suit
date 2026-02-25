@@ -286,6 +286,16 @@ describe('WMS V2 - Database Scenarios', () => {
             if (sql.includes('SELECT * FROM inventory_batches') && sql.includes('warehouse_id = $1')) {
                 return Promise.resolve({ rows: [] });
             }
+            if (sql.includes('FROM products p') && sql.includes('WHERE p.id::text = $1')) {
+                return Promise.resolve({
+                    rows: [{
+                        id: TEST_PRODUCT_ID,
+                        name: 'Producto Test',
+                        sale_price: 1400,
+                        cost_price: 1000
+                    }]
+                });
+            }
             if (sql.includes('INSERT INTO inventory_batches') && sql.includes('RETURNING id')) {
                 return Promise.resolve({ rows: [{ id: '550e8400-e29b-41d4-a716-446655440097' }] });
             }
@@ -606,6 +616,16 @@ describe('WMS V2 - processReceptionSecure', () => {
                         unit_cost: 1000,
                         sale_price: 1200,
                         expiry_date: null,
+                    }]
+                });
+            }
+            if (sql.includes('FROM products p') && sql.includes('WHERE p.id::text = $1')) {
+                return Promise.resolve({
+                    rows: [{
+                        id: TEST_PRODUCT_ID,
+                        name: 'Producto Test',
+                        sale_price: 1200,
+                        cost_price: 1000
                     }]
                 });
             }

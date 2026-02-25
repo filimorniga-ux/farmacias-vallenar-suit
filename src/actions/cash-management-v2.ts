@@ -999,6 +999,7 @@ export async function getCashDrawerStatus(
         const { query } = await import('@/lib/db');
 
         // Get terminal and session
+        const dbHost = process.env.DATABASE_URL?.split('@')[1]?.split(':')[0] || 'unknown';
         const terminalRes = await query(`
             SELECT t.id, t.status, t.current_cashier_id,
                    crs.id as session_id, crs.opening_amount, crs.opened_at,
@@ -1014,12 +1015,7 @@ export async function getCashDrawerStatus(
         }
 
         const terminal = terminalRes.rows[0];
-        const isOpen = terminal.status === 'OPEN' && terminal.session_id;
-
-        if (!isOpen) {
-            console.warn(`🚨 [DEBUG_CASH] Terminal ${terminalId} dice isOpen=false -> DB Status: ${terminal.status}, DB SessionId: ${terminal.session_id}`);
-            return { success: true, data: { isOpen: false } };
-        }
+        const isOpen = terminal.status === 'OPEN' && !!terminal.session_id;
 
         // Calculate expected cash
         const salesRes = await query(`
@@ -1570,10 +1566,10 @@ export async function exportCashMovementHistory(
                     s.id,
                     'SALE' as type,
                     COALESCE(s.total_amount, s.total) as amount,
-                    -- Combine Venta # with item list
+                    -- Combine Venta # with item list including unit price
                     CONCAT(
                         'Venta #', COALESCE(s.dte_folio::text, 'S/N'), ': ',
-                        COALESCE(STRING_AGG(CONCAT(si.quantity, 'x ', si.product_name), '\n'), 'Sin items')
+                        COALESCE(STRING_AGG(CONCAT(si.quantity, 'x ', si.product_name, ' ($', ROUND(si.unit_price)::text, ')'), '\n'), 'Sin items')
                     ) as reason,
                     s.timestamp,
                     u.name as user_name,

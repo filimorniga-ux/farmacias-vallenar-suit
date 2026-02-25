@@ -3,9 +3,12 @@
     "gradle.autoDetect": "off",
     "java.gradle.buildServer.enabled": "off",
     "java.errors.incompleteClasspath.severity": "ignore",
+    "java.configuration.checkProjectSettings": false,
     "java.project.resourceFilters": [
         "node_modules",
-        ".git"
+        ".git",
+        "android",
+        "ios"
     ],
     "files.exclude": {
         "**/.DS_Store": true,
@@ -22,7 +25,8 @@
     },
     "java.import.exclusions": [
         "**/node_modules/**",
-        "**/android/**"
+        "**/android/**",
+        "**/ios/**"
     ],
     "css.lint.unknownAtRules": "ignore"
 }

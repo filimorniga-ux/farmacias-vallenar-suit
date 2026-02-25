@@ -18,6 +18,8 @@ function isUuid(value: string | undefined): boolean {
 interface SupplyKanbanProps {
     onEditOrder: (order: any) => void;
     onReceiveOrder: (order: any) => void;
+    onViewOrder?: (order: any) => void;
+    onFinalizeReview?: (order: any) => void;
     direction?: 'row' | 'col';
 }
 
@@ -31,6 +33,8 @@ interface KanbanColumnProps {
     user: any;
     onEditOrder: (order: any) => void;
     onReceiveOrder: (order: any) => void;
+    onViewOrder?: (order: any) => void;
+    onFinalizeReview?: (order: any) => void;
     removePurchaseOrder: (id: string) => void;
     updatePurchaseOrder: (id: string, data: any) => void;
 }
@@ -72,6 +76,17 @@ function resolveOrderItems(payload: Record<string, unknown>): Record<string, unk
     return [];
 }
 
+function buildViewPayload(entry: SupplyKanbanEntry): Record<string, unknown> {
+    return {
+        ...entry.payload,
+        id: entry.id,
+        status: entry.status,
+        items_count: entry.itemCount,
+        main_type: entry.source === 'PO' ? 'PO' : 'SHIPMENT',
+        source_type: entry.source,
+    };
+}
+
 const KanbanColumn: React.FC<KanbanColumnProps> = ({
     title,
     columnKey,
@@ -82,12 +97,74 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
     user,
     onEditOrder,
     onReceiveOrder,
+    onViewOrder,
+    onFinalizeReview,
     removePurchaseOrder,
     updatePurchaseOrder,
 }) => {
     const columnEntries = entries.filter((entry) => entry.column === columnKey);
+    const [submittingApproveId, setSubmittingApproveId] = useState<string | null>(null);
     const [pendingMarkAsSentId, setPendingMarkAsSentId] = useState<string | null>(null);
     const [submittingMarkAsSentId, setSubmittingMarkAsSentId] = useState<string | null>(null);
+
+    const handleApproveDraft = async (entry: SupplyKanbanEntry) => {
+        const po = entry.payload;
+        if (submittingApproveId === entry.id) return;
+
+        const targetWarehouseId = resolveTargetWarehouseId(po);
+        if (!targetWarehouseId) {
+            toast.error('La orden no tiene bodega de destino');
+            return;
+        }
+
+        if (!isUuid(user?.id)) {
+            toast.error('Sesión inválida para aprobar la orden');
+            return;
+        }
+
+        try {
+            setSubmittingApproveId(entry.id);
+            let rawItems = resolveOrderItems(po);
+            if (rawItems.length === 0) {
+                const details = await getHistoryItemDetailsSecure(String(po.id), 'PO');
+                if (details.success && Array.isArray(details.data)) {
+                    rawItems = details.data.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object');
+                }
+            }
+
+            if (rawItems.length === 0) {
+                toast.error('La orden no tiene items para aprobar');
+                return;
+            }
+
+            const mappedData = {
+                id: String(po.id),
+                supplierId: po.supplier_id ? String(po.supplier_id) : null,
+                targetWarehouseId,
+                notes: String(po.notes || ''),
+                status: 'APPROVED' as const,
+                items: rawItems.map((item: any) => ({
+                    sku: String(item.sku),
+                    name: String(item.name || 'Producto'),
+                    quantity: Number(item.quantity_ordered || item.quantity || 1),
+                    cost: Number(item.cost_price || item.cost || 0),
+                    productId: item.product_id ? String(item.product_id) : null,
+                })),
+            };
+
+            const res = await updatePurchaseOrderSecure(mappedData.id, mappedData as any, String(user.id));
+            if (res.success) {
+                updatePurchaseOrder(entry.id, { ...po, status: 'APPROVED' });
+                toast.success('Solicitud aprobada');
+            } else {
+                toast.error(res.error || 'Error al aprobar solicitud');
+            }
+        } catch (err: any) {
+            toast.error(err?.message || 'Error de red al conectar con el servidor');
+        } finally {
+            setSubmittingApproveId((current) => (current === entry.id ? null : current));
+        }
+    };
 
     const handleMarkAsSent = async (entry: SupplyKanbanEntry) => {
         const po = entry.payload;
@@ -168,9 +245,12 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
                 ) : (
                     columnEntries.map((entry) => {
                         const canEditDraft = isPurchaseOrderEntry(entry) && columnKey === 'DRAFT';
+                        const canApproveDraft = isPurchaseOrderEntry(entry) && columnKey === 'DRAFT';
                         const canDelete = isPurchaseOrderEntry(entry) && (columnKey === 'DRAFT' || columnKey === 'APPROVED' || columnKey === 'SENT');
                         const canMarkSent = isPurchaseOrderEntry(entry) && columnKey === 'APPROVED';
-                        const canReceive = isPurchaseOrderEntry(entry) && (columnKey === 'SENT' || columnKey === 'APPROVED');
+                        const canReceive = isPurchaseOrderEntry(entry) && columnKey === 'SENT';
+                        const canFinalizeReview = isPurchaseOrderEntry(entry) && columnKey === 'REVIEW';
+                        const canViewDetails = typeof onViewOrder === 'function';
                         const isPendingMarkAsSent = pendingMarkAsSentId === entry.id;
                         const isSubmittingMarkAsSent = submittingMarkAsSentId === entry.id;
 
@@ -181,11 +261,11 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
                             >
                                 <div
                                     onClick={() => {
-                                        if (canEditDraft) {
-                                            onEditOrder(entry.payload);
+                                        if (canViewDetails) {
+                                            onViewOrder?.(buildViewPayload(entry));
                                         }
                                     }}
-                                    className={canEditDraft ? 'cursor-pointer' : 'cursor-default'}
+                                    className={canViewDetails ? 'cursor-pointer' : 'cursor-default'}
                                 >
                                     <div className="flex justify-between items-start mb-1.5 gap-2">
                                         <span className="text-[9px] font-mono font-bold text-slate-300 truncate max-w-[140px]">{entry.id}</span>
@@ -242,7 +322,7 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
                                     isPendingMarkAsSent ? (
                                         <div className="mb-2 p-2 rounded-xl border border-amber-200 bg-amber-50">
                                             <p className="text-[10px] font-semibold text-amber-800 mb-2">
-                                                Confirmar envío al proveedor
+                                                Confirmar envío a tránsito
                                             </p>
                                             <div className="grid grid-cols-2 gap-2">
                                                 <button
@@ -275,9 +355,46 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
                                             }}
                                             className="w-full py-2 mb-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-[10px] font-bold shadow-sm shadow-amber-200 transition-all active:scale-95"
                                         >
-                                            MARCAR ENVIADA
+                                            MARCAR EN TRÁNSITO
                                         </button>
                                     )
+                                )}
+
+                                {canApproveDraft && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            void handleApproveDraft(entry);
+                                        }}
+                                        disabled={submittingApproveId === entry.id}
+                                        className="w-full py-2 mb-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-bold shadow-sm shadow-emerald-200 transition-all active:scale-95 disabled:opacity-50"
+                                    >
+                                        {submittingApproveId === entry.id ? 'APROBANDO...' : 'APROBAR SOLICITUD'}
+                                    </button>
+                                )}
+
+                                {canViewDetails && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onViewOrder?.(buildViewPayload(entry));
+                                        }}
+                                        className="w-full py-2 mb-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-bold transition-all active:scale-95"
+                                    >
+                                        VER DETALLE
+                                    </button>
+                                )}
+
+                                {canEditDraft && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onEditOrder(entry.payload);
+                                        }}
+                                        className="w-full py-2 mb-2 bg-cyan-100 hover:bg-cyan-200 text-cyan-800 rounded-xl text-[10px] font-bold transition-all active:scale-95"
+                                    >
+                                        EDITAR
+                                    </button>
                                 )}
 
                                 {canReceive && (
@@ -286,6 +403,15 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
                                         className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[10px] font-bold shadow-sm shadow-blue-200 transition-all active:scale-95"
                                     >
                                         RECEPCIONAR
+                                    </button>
+                                )}
+
+                                {canFinalizeReview && (
+                                    <button
+                                        onClick={() => onFinalizeReview?.(entry.payload)}
+                                        className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-bold shadow-sm shadow-emerald-200 transition-all active:scale-95"
+                                    >
+                                        VERIFICAR RECEPCIÓN
                                     </button>
                                 )}
                             </div>
@@ -297,7 +423,13 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
     );
 };
 
-const SupplyKanban: React.FC<SupplyKanbanProps> = ({ onEditOrder, onReceiveOrder, direction = 'col' }) => {
+const SupplyKanban: React.FC<SupplyKanbanProps> = ({
+    onEditOrder,
+    onReceiveOrder,
+    onViewOrder,
+    onFinalizeReview,
+    direction = 'col'
+}) => {
     const {
         currentLocationId,
         purchaseOrders,
@@ -402,6 +534,8 @@ const SupplyKanban: React.FC<SupplyKanbanProps> = ({ onEditOrder, onReceiveOrder
         user,
         onEditOrder,
         onReceiveOrder,
+        onViewOrder,
+        onFinalizeReview,
         removePurchaseOrder,
         updatePurchaseOrder,
     };
@@ -435,6 +569,7 @@ const SupplyKanban: React.FC<SupplyKanbanProps> = ({ onEditOrder, onReceiveOrder
                 <KanbanColumn title="Borradores" columnKey="DRAFT" color="text-slate-600" icon={Package} {...sharedProps} />
                 <KanbanColumn title="Aprobadas" columnKey="APPROVED" color="text-amber-600" icon={CheckCircle} {...sharedProps} />
                 <KanbanColumn title="En Camino" columnKey="SENT" color="text-blue-600" icon={Truck} {...sharedProps} />
+                <KanbanColumn title="Revisión" columnKey="REVIEW" color="text-violet-600" icon={Package} {...sharedProps} />
                 <KanbanColumn title="Recibidas" columnKey="RECEIVED" color="text-green-600" icon={CheckCircle} {...sharedProps} />
             </div>
         </div>

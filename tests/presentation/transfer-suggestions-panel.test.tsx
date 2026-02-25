@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import TransferSuggestionsPanel from '@/presentation/components/supply/TransferSuggestionsPanel';
 import { getTransferHistorySecure } from '@/actions/procurement-v2';
 import { toast } from 'sonner';
@@ -23,7 +23,15 @@ vi.mock('sonner', () => ({
 
 vi.mock('@/presentation/components/supply/TransferExecutionModal', () => ({
     __esModule: true,
-    default: () => null,
+    default: ({ isOpen, items }: { isOpen: boolean; items: Array<{ sku: string; quantity: number }> }) => (
+        isOpen ? (
+            <div data-testid="transfer-execution-modal">
+                {items.map((item) => (
+                    <span key={item.sku}>{`${item.sku}:${item.quantity}`}</span>
+                ))}
+            </div>
+        ) : null
+    ),
 }));
 
 const mockGetTransferHistorySecure = vi.mocked(getTransferHistorySecure);
@@ -120,5 +128,46 @@ describe('TransferSuggestionsPanel', () => {
             historyTitle.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING
         ).toBeTruthy();
         expect(screen.queryByRole('button', { name: /Historial Reciente/i })).toBeNull();
+    });
+
+    it('permite editar cantidad en A Traspasar respetando el disponible', async () => {
+        mockGetTransferHistorySecure.mockResolvedValue({
+            success: true,
+            data: [],
+        });
+
+        renderPanel();
+
+        const qtyInput = await screen.findByRole('spinbutton');
+        expect((qtyInput as HTMLInputElement).value).toBe('10');
+
+        fireEvent.change(qtyInput, { target: { value: '7' } });
+        expect((qtyInput as HTMLInputElement).value).toBe('7');
+
+        fireEvent.change(qtyInput, { target: { value: '' } });
+        expect((qtyInput as HTMLInputElement).value).toBe('');
+
+        fireEvent.change(qtyInput, { target: { value: '8' } });
+        expect((qtyInput as HTMLInputElement).value).toBe('8');
+
+        fireEvent.change(qtyInput, { target: { value: '25' } });
+        expect((qtyInput as HTMLInputElement).value).toBe('20');
+    });
+
+    it('usa la cantidad editada al ejecutar un traspaso individual', async () => {
+        mockGetTransferHistorySecure.mockResolvedValue({
+            success: true,
+            data: [],
+        });
+
+        renderPanel();
+
+        const qtyInput = await screen.findByRole('spinbutton');
+        fireEvent.change(qtyInput, { target: { value: '9' } });
+
+        fireEvent.click(screen.getByRole('button', { name: /^Ejecutar$/i }));
+
+        const modal = await screen.findByTestId('transfer-execution-modal');
+        expect(modal.textContent).toContain('SKU-001:9');
     });
 });

@@ -258,7 +258,7 @@ export async function createSaleSecure(params: {
     const client = await pool.connect();
 
     try {
-        logger.info({ terminalId, itemCount: items.length }, '🛒 [Sales v2] Starting secure sale');
+        logger.info({ terminalId, sessionId, userId, itemCount: items.length }, '🛒 [Sales v2] Starting secure sale');
 
         // --- INICIO DE TRANSACCIÓN SERIALIZABLE ---
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
