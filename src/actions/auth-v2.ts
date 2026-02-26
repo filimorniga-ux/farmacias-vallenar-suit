@@ -87,21 +87,45 @@ export async function verifyUserPin(userId: string, pin: string) {
  */
 export async function validateSupervisorPin(pin: string, requiredRoles: string[] = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL']) {
     try {
+        interface SupervisorPinRow {
+            id: string;
+            name: string;
+            role: string;
+            access_pin_hash?: string | null;
+            access_pin?: string | null;
+        }
+
         const res = await query(`
-            SELECT id, name, role, access_pin
+            SELECT id, name, role, access_pin_hash, access_pin
             FROM users
             WHERE role = ANY($1::text[])
-            AND access_pin = $2
             AND is_active = true
-            LIMIT 1
-        `, [requiredRoles, pin]);
+        `, [requiredRoles]);
 
-        if ((res.rowCount ?? 0) > 0) {
-            const user = res.rows[0];
-            return {
-                success: true,
-                authorizedBy: { id: user.id, name: user.name, role: user.role }
-            };
+        if ((res.rowCount ?? 0) === 0) {
+            return { success: false, error: 'PIN inválido o sin permisos' };
+        }
+
+        const bcrypt = await import('bcryptjs');
+        const users = res.rows as SupervisorPinRow[];
+
+        for (const user of users) {
+            if (user.access_pin_hash) {
+                const validHash = await bcrypt.compare(pin, user.access_pin_hash);
+                if (validHash) {
+                    return {
+                        success: true,
+                        authorizedBy: { id: user.id, name: user.name, role: user.role }
+                    };
+                }
+            }
+
+            if (user.access_pin && user.access_pin === pin) {
+                return {
+                    success: true,
+                    authorizedBy: { id: user.id, name: user.name, role: user.role }
+                };
+            }
         }
 
         return { success: false, error: 'PIN inválido o sin permisos' };

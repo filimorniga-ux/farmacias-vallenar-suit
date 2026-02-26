@@ -1,7 +1,6 @@
 'use server';
 
 import { getClient, type PoolClient } from '../lib/db';
-import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
 import * as Sentry from '@sentry/nextjs';
 import { randomUUID } from 'crypto';
@@ -116,20 +115,20 @@ export async function createNotificationSecure(data: CreateNotificationDTO) {
 
 export async function getNotificationsSecure(locationId?: string, limit = 60) {
     const session = await getSession();
+    if (!session) {
+        return { success: false, error: 'Usuario no autenticado' };
+    }
+
     let client: PoolClient | null = null;
     try {
         client = await getClient();
-        const currentUserId = session?.userId;
+        const currentUserId = session.userId;
 
         const params: unknown[] = [locationId ?? null];
         let whereClause = `WHERE (location_id = $1 OR location_id IS NULL)`;
 
-        if (currentUserId) {
-            whereClause += ` AND (user_id = $2 OR user_id IS NULL)`;
-            params.push(currentUserId);
-        } else {
-            whereClause += ` AND user_id IS NULL`;
-        }
+        whereClause += ` AND (user_id = $2 OR user_id IS NULL)`;
+        params.push(currentUserId);
 
         const query = `
             SELECT id, type, severity, title, message, metadata, action_url,
@@ -351,7 +350,7 @@ export async function savePushTokenSecure(token: string) {
 export async function deleteOldNotifications(days: number) {
     const session = await getSession();
     if (!session || !['ADMIN', 'GERENTE_GENERAL'].includes(session.role)) {
-        return { success: false, error: 'Acceso denegado: Se requieren permisos de administrador' };
+        return { success: false, error: 'Acceso denegado: solo administradores pueden ejecutar esta acción' };
     }
     if (days < 7) {
         return { success: false, error: 'El periodo mínimo de retención es de 7 días' };

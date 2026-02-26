@@ -101,6 +101,17 @@ interface AuditLogEntry {
     ipAddress: string | null;
 }
 
+interface AuditExportRow {
+    timestamp: string | number | Date;
+    user_name: string;
+    user_role: string;
+    location_name: string;
+    action_code: string;
+    entity_type: string;
+    justification: string;
+    ip_address: string | null;
+}
+
 // ============================================================================
 // GET AUDIT LOGS
 // ============================================================================
@@ -352,7 +363,8 @@ export async function exportAuditLogsSecure(
             LIMIT 5000
         `, queryParams);
 
-        const data = res.rows.map((row: any) => ({
+        const rows = res.rows as AuditExportRow[];
+        const data = rows.map((row) => ({
             date: formatDateTimeCL(row.timestamp),
             user: `${row.user_name} [${row.user_role}]`,
             location: row.location_name,
@@ -383,7 +395,7 @@ export async function exportAuditLogsSecure(
         await metaAudit(session.userId, 'AUDIT_LOG_EXPORT_V2', { rows: data.length, filters: params });
         return { success: true, data: buffer.toString('base64'), filename: `Auditoria_${new Date().toISOString().split('T')[0]}.xlsx` };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Audit] Export error');
         return { success: false, error: 'Error exportando logs de auditoría' };
     }

@@ -409,6 +409,7 @@ describe('Sales V2 - refundSaleSecure', () => {
     it('should require supervisor authorization', async () => {
         mockQuery
             .mockResolvedValueOnce({}) // BEGIN
+            .mockResolvedValueOnce({ rows: [{ has_refunds: false, has_refund_items: false }] }) // Table check
             .mockResolvedValueOnce({ rows: [] }); // No supervisors
 
         const result = await refundSaleSecure(validRefundParams);
@@ -422,6 +423,7 @@ describe('Sales V2 - refundSaleSecure', () => {
 
         mockQuery
             .mockResolvedValueOnce({}) // BEGIN
+            .mockResolvedValueOnce({ rows: [{ has_refunds: false, has_refund_items: false }] }) // Table check
             .mockResolvedValueOnce({
                 rows: [{
                     id: 'supervisor-1',
@@ -441,6 +443,68 @@ describe('Sales V2 - refundSaleSecure', () => {
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('anulada');
+    });
+
+    it('should create refund ledger with selected refund method and ticket number', async () => {
+        mockBcryptCompare.mockResolvedValue(true);
+
+        mockQuery
+            .mockResolvedValueOnce({}) // BEGIN
+            .mockResolvedValueOnce({ rows: [{ has_refunds: true, has_refund_items: true }] }) // Table check
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'supervisor-1',
+                    name: 'Admin',
+                    role: 'ADMIN',
+                    access_pin_hash: 'hashed'
+                }]
+            }) // Supervisor found
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: validRefundParams.saleId,
+                    status: 'COMPLETED',
+                    location_id: VALID_LOCATION_ID,
+                    terminal_id: VALID_TERMINAL_ID,
+                    session_id: VALID_SESSION_ID,
+                    payment_method: 'CASH',
+                    total_amount: 3000
+                }]
+            }) // Sale
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: VALID_SALE_ITEM_ID,
+                    sale_id: VALID_SALE_ID,
+                    batch_id: VALID_BATCH_ID,
+                    quantity: 2,
+                    refunded_quantity: 0,
+                    unit_price: 1500,
+                    product_name: 'Paracetamol'
+                }]
+            }) // Sale item FOR UPDATE
+            .mockResolvedValueOnce({ rows: [] }) // Update sale_items refunded_quantity
+            .mockResolvedValueOnce({ rows: [] }) // Update inventory_batches
+            .mockResolvedValueOnce({ rows: [] }) // Insert refunds
+            .mockResolvedValueOnce({ rows: [] }) // Insert refund_items
+            .mockResolvedValueOnce({ rows: [{ remaining: '1' }] }) // Remaining qty
+            .mockResolvedValueOnce({ rows: [] }) // Update sale status partial
+            .mockResolvedValueOnce({ rows: [] }) // Audit
+            .mockResolvedValueOnce({}); // COMMIT
+
+        const result = await refundSaleSecure({
+            ...validRefundParams,
+            refundMethod: 'TRANSFER',
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.refundAmount).toBe(1500);
+        expect(result.ticketNumber).toMatch(/^REF-\d{8}-/);
+
+        const insertRefundCall = mockQuery.mock.calls.find(
+            (call) => typeof call[0] === 'string' && call[0].includes('INSERT INTO refunds')
+        );
+        expect(insertRefundCall).toBeDefined();
+        if (!insertRefundCall) return;
+        expect(insertRefundCall[1]).toEqual(expect.arrayContaining(['TRANSFER']));
     });
 });
 

@@ -71,6 +71,30 @@ const RefundSaleSchema = z.object({
     })).min(1),
     reason: z.string().min(10),
     supervisorPin: z.string().min(4),
+    refundMethod: z.enum(['CASH', 'DEBIT', 'CREDIT', 'TRANSFER']).default('CASH'),
+});
+
+const EditSaleItemSchema = z.object({
+    batch_id: z.preprocess(
+        (value) => {
+            if (typeof value === 'string' && value.trim() === '') return null;
+            return value;
+        },
+        z.string().nullable().optional()
+    ),
+    sku: z.string().optional(),
+    name: z.string().optional(),
+    quantity: z.number().int().min(1, { message: "Cantidad debe ser al menos 1" }),
+    price: z.number().positive({ message: "Precio debe ser positivo" }),
+    is_fractional: z.boolean().optional().default(false),
+});
+
+const EditSaleSchema = z.object({
+    saleId: UUIDSchema,
+    userId: z.string().min(1, { message: "ID de usuario requerido" }),
+    supervisorPin: z.string().min(4, { message: "PIN de supervisor requerido" }),
+    reason: z.string().min(10, { message: "Motivo debe tener al menos 10 caracteres" }),
+    items: z.array(EditSaleItemSchema).min(1, { message: "La venta debe tener al menos un ítem" }),
 });
 
 // =====================================================
@@ -92,6 +116,7 @@ const ERROR_MESSAGES = {
     UNAUTHORIZED: 'No tiene permisos para esta operación',
     SERIALIZATION_ERROR: 'Conflicto de concurrencia. Por favor reintente.',
     BATCH_LOCKED: 'Producto bloqueado por otro proceso. Intente nuevamente.',
+    CANNOT_EDIT_VOIDED: 'No se puede editar una venta anulada o devuelta',
 } as const;
 
 // Roles autorizados para anulaciones y devoluciones
@@ -100,6 +125,12 @@ const VOID_AUTHORIZED_ROLES = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL'] as const;
 // =====================================================
 // HELPERS
 // =====================================================
+
+function toMoneyInt(value: unknown): number {
+    const parsed = typeof value === 'number' ? value : Number(value || 0);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.round(parsed);
+}
 
 /**
  * Valida PIN de supervisor usando bcrypt
@@ -803,7 +834,14 @@ export async function refundSaleSecure(params: {
     items: Array<{ saleItemId: string; quantity: number }>;
     reason: string;
     supervisorPin: string;
-}): Promise<{ success: boolean; refundId?: string; refundAmount?: number; error?: string }> {
+    refundMethod?: 'CASH' | 'DEBIT' | 'CREDIT' | 'TRANSFER';
+}): Promise<{
+    success: boolean;
+    refundId?: string;
+    refundAmount?: number;
+    ticketNumber?: string;
+    error?: string;
+}> {
 
     // 1. Validación
     const validation = RefundSaleSchema.safeParse(params);
@@ -811,7 +849,7 @@ export async function refundSaleSecure(params: {
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    const { saleId, userId, items, reason, supervisorPin } = params;
+    const { saleId, userId, items, reason, supervisorPin, refundMethod } = validation.data;
 
     const { pool } = await import('@/lib/db');
     const { v4: uuidv4 } = await import('uuid');
@@ -822,6 +860,17 @@ export async function refundSaleSecure(params: {
 
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
+        // Detectar si las tablas opcionales de trazabilidad de devolución existen en este entorno.
+        // Algunos ambientes legacy no tienen `refunds`/`refund_items` y no deben romper el flujo.
+        const refundTablesRes = await client.query(`
+            SELECT
+                to_regclass('public.refunds') IS NOT NULL AS has_refunds,
+                to_regclass('public.refund_items') IS NOT NULL AS has_refund_items
+        `);
+        const canPersistRefundTables = Boolean(
+            refundTablesRes.rows[0]?.has_refunds && refundTablesRes.rows[0]?.has_refund_items
+        );
+
         // 2. Validar PIN
         const authResult = await validateSupervisorPin(client, supervisorPin);
         if (!authResult.valid) {
@@ -831,7 +880,7 @@ export async function refundSaleSecure(params: {
 
         // 3. Obtener venta original
         const saleRes = await client.query(`
-            SELECT id, status, location_id, terminal_id, session_id
+            SELECT id, status, location_id, terminal_id, session_id, payment_method, total_amount
             FROM sales WHERE id = $1 FOR UPDATE NOWAIT
         `, [saleId]);
 
@@ -847,13 +896,20 @@ export async function refundSaleSecure(params: {
         // 4. Procesar cada ítem de devolución
         const refundId = uuidv4();
         let totalRefund = 0;
+        const refundItemsToInsert: Array<{
+            id: string;
+            saleItemId: string;
+            batchId?: string;
+            productName?: string;
+            quantity: number;
+            amount: number;
+        }> = [];
 
         for (const refundItem of items) {
             // Obtener ítem original
             const itemRes = await client.query(`
-                SELECT si.*, ib.id as batch_id
+                SELECT si.*
                 FROM sale_items si
-                LEFT JOIN inventory_batches ib ON si.batch_id = ib.id
                 WHERE si.id = $1 AND si.sale_id = $2
                 FOR UPDATE NOWAIT
             `, [refundItem.saleItemId, saleId]);
@@ -863,14 +919,14 @@ export async function refundSaleSecure(params: {
             }
 
             const originalItem = itemRes.rows[0];
-            const alreadyRefunded = Number(originalItem.refunded_quantity || 0);
-            const maxRefundable = Number(originalItem.quantity) - alreadyRefunded;
+            const alreadyRefunded = toMoneyInt(originalItem.refunded_quantity || 0);
+            const maxRefundable = toMoneyInt(originalItem.quantity) - alreadyRefunded;
 
             if (refundItem.quantity > maxRefundable) {
                 throw new Error(`Cantidad de devolución excede lo disponible para ítem ${refundItem.saleItemId}`);
             }
 
-            const refundAmount = (Number(originalItem.unit_price) * refundItem.quantity);
+            const refundAmount = toMoneyInt(originalItem.unit_price) * refundItem.quantity;
             totalRefund += refundAmount;
 
             // Actualizar ítem con cantidad devuelta
@@ -890,21 +946,80 @@ export async function refundSaleSecure(params: {
                 `, [refundItem.quantity, originalItem.batch_id]);
             }
 
-            // Registrar ítem de devolución
-            await client.query(`
-                INSERT INTO refund_items (
-                    id, refund_id, sale_item_id, quantity, amount
-                ) VALUES ($1, $2, $3, $4, $5)
-            `, [uuidv4(), refundId, refundItem.saleItemId, refundItem.quantity, refundAmount]);
+            if (canPersistRefundTables) {
+                refundItemsToInsert.push({
+                    id: uuidv4(),
+                    saleItemId: refundItem.saleItemId,
+                    batchId: originalItem.batch_id || undefined,
+                    productName: originalItem.product_name || undefined,
+                    quantity: refundItem.quantity,
+                    amount: refundAmount,
+                });
+            }
         }
 
-        // 5. Crear registro de devolución
-        await client.query(`
-            INSERT INTO refunds (
-                id, sale_id, user_id, authorized_by, 
-                total_amount, reason, status, created_at
-            ) VALUES ($1, $2, $3::uuid, $4::uuid, $5, $6, 'COMPLETED', NOW())
-        `, [refundId, saleId, userId, authResult.authorizedBy?.id, totalRefund, reason]);
+        if (totalRefund <= 0) {
+            throw new Error('La devolución no tiene monto válido');
+        }
+
+        const now = new Date();
+        const ticketNumber = `REF-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${refundId.slice(0, 6).toUpperCase()}`;
+
+        // 5. Crear registro de devolución (opcional por compatibilidad entre entornos)
+        if (canPersistRefundTables) {
+            await client.query(`
+                INSERT INTO refunds (
+                    id, sale_id, user_id, authorized_by,
+                    session_id, terminal_id, location_id,
+                    total_amount, refund_method, reason,
+                    status, ticket_number, metadata, created_at
+                ) VALUES (
+                    $1::uuid, $2::uuid, $3, $4,
+                    $5::uuid, $6::uuid, $7::uuid,
+                    $8, $9, $10,
+                    'COMPLETED', $11, $12::jsonb, NOW()
+                )
+            `, [
+                refundId,
+                saleId,
+                userId,
+                authResult.authorizedBy?.id || null,
+                sale.session_id,
+                sale.terminal_id,
+                sale.location_id,
+                totalRefund,
+                refundMethod,
+                reason,
+                ticketNumber,
+                JSON.stringify({
+                    original_payment_method: sale.payment_method,
+                    original_total_amount: toMoneyInt(sale.total_amount || 0),
+                }),
+            ]);
+
+            for (const row of refundItemsToInsert) {
+                await client.query(`
+                    INSERT INTO refund_items (
+                        id, refund_id, sale_item_id, batch_id, product_name, quantity, amount, created_at
+                    ) VALUES (
+                        $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, NOW()
+                    )
+                `, [
+                    row.id,
+                    refundId,
+                    row.saleItemId,
+                    row.batchId || null,
+                    row.productName || null,
+                    row.quantity,
+                    row.amount,
+                ]);
+            }
+        } else {
+            logger.warn(
+                { saleId, refundId },
+                '[Sales v2] refunds/refund_items tables not found. Persisting refund via sales + sale_items only.'
+            );
+        }
 
         // 6. Actualizar estado de venta si es devolución total
         const remainingRes = await client.query(`
@@ -912,7 +1027,7 @@ export async function refundSaleSecure(params: {
             FROM sale_items WHERE sale_id = $1
         `, [saleId]);
 
-        const remaining = Number(remainingRes.rows[0]?.remaining || 0);
+        const remaining = toMoneyInt(remainingRes.rows[0]?.remaining || 0);
         if (remaining === 0) {
             await client.query(`
                 UPDATE sales SET status = 'FULLY_REFUNDED' WHERE id = $1
@@ -936,7 +1051,9 @@ export async function refundSaleSecure(params: {
             newValues: {
                 original_sale_id: saleId,
                 items_count: items.length,
-                refund_reason: reason
+                refund_reason: reason,
+                refund_method: refundMethod,
+                ticket_number: ticketNumber,
             },
             justification: reason
         });
@@ -946,7 +1063,7 @@ export async function refundSaleSecure(params: {
         logger.info({ refundId, totalRefund }, '✅ [Sales v2] Refund completed');
         revalidatePath('/caja');
 
-        return { success: true, refundId, refundAmount: totalRefund };
+        return { success: true, refundId, refundAmount: totalRefund, ticketNumber };
 
     } catch (error: any) {
         await client.query('ROLLBACK');
@@ -1331,7 +1448,12 @@ export async function getSaleDetailsSecure(saleId: string) {
         // 2. Obtener ítems con nombres
         const itemsRes = await client.query(`
             SELECT 
-                si.quantity, si.unit_price, si.total_price,
+                si.id as sale_item_id,
+                si.batch_id,
+                si.quantity,
+                COALESCE(si.refunded_quantity, 0) as refunded_quantity,
+                si.unit_price,
+                si.total_price,
                 COALESCE(si.product_name, b.name, 'Ítem Desconocido') as name,
                 b.sku
             FROM sale_items si
@@ -1357,6 +1479,239 @@ export async function getSaleDetailsSecure(saleId: string) {
     } catch (err) {
         console.error('Error fetching sale details:', err);
         return null;
+    } finally {
+        client.release();
+    }
+}
+
+// =====================================================
+// EDICIÓN DE VENTA SUPERVISADA
+// =====================================================
+
+/**
+ * Edita los ítems de una venta existente bajo autorización de supervisor.
+ *
+ * @description
+ * - Requiere PIN de supervisor (ADMIN, MANAGER, GERENTE_GENERAL)
+ * - Transacción SERIALIZABLE con bloqueo pesimista
+ * - Revierte stock original y aplica nuevo stock atómicamente
+ * - Registra auditoría inmutable con old/new values
+ * - Permite editar ventas con DTE (con advertencia en UI)
+ * - No permite editar ventas VOIDED o FULLY_REFUNDED
+ */
+export async function editSaleSecure(params: {
+    saleId: string;
+    userId: string;
+    supervisorPin: string;
+    reason: string;
+    items: Array<{
+        batch_id?: string | null;
+        sku?: string;
+        name?: string;
+        quantity: number;
+        price: number;
+        is_fractional?: boolean;
+    }>;
+}): Promise<{ success: boolean; newTotal?: number; error?: string }> {
+
+    // 1. Validar inputs con Zod
+    const validation = EditSaleSchema.safeParse(params);
+    if (!validation.success) {
+        return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
+    }
+
+    const { saleId, userId, supervisorPin, reason, items } = validation.data;
+
+    const { pool } = await import('@/lib/db');
+    const client = await pool.connect();
+
+    try {
+        logger.info({ saleId }, '✏️ [Sales v2] Starting sale edit');
+
+        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        // 2. Validar PIN de supervisor
+        const authResult = await validateSupervisorPin(client, supervisorPin);
+        if (!authResult.valid) {
+            await client.query('ROLLBACK');
+            return { success: false, error: ERROR_MESSAGES.INVALID_PIN };
+        }
+
+        logger.info({ authorizedBy: authResult.authorizedBy?.name }, '✅ Edit authorized by supervisor');
+
+        // 3. Obtener y bloquear venta
+        const saleRes = await client.query(`
+            SELECT id, status, total_amount, location_id, terminal_id, session_id, dte_folio
+            FROM sales
+            WHERE id = $1
+            FOR UPDATE NOWAIT
+        `, [saleId]);
+
+        if (saleRes.rows.length === 0) {
+            throw new Error(ERROR_MESSAGES.SALE_NOT_FOUND);
+        }
+
+        const sale = saleRes.rows[0];
+
+        if (sale.status === 'VOIDED' || sale.status === 'FULLY_REFUNDED') {
+            throw new Error(ERROR_MESSAGES.CANNOT_EDIT_VOIDED);
+        }
+
+        // 4. Obtener ítems originales (para auditoría y reversión de stock)
+        const originalItemsRes = await client.query(`
+            SELECT id, batch_id, quantity, unit_price, product_name
+            FROM sale_items
+            WHERE sale_id = $1
+        `, [saleId]);
+
+        const originalItems = originalItemsRes.rows;
+        const originalTotal = toMoneyInt(sale.total_amount);
+
+        // 5. Revertir stock de ítems originales (FOR UPDATE NOWAIT por seguridad)
+        const originalBatchIds = [...new Set(
+            originalItems.map((i: any) => i.batch_id).filter(Boolean)
+        )];
+
+        if (originalBatchIds.length > 0) {
+            await client.query(`
+                SELECT id FROM inventory_batches
+                WHERE id = ANY($1::uuid[])
+                FOR UPDATE NOWAIT
+            `, [originalBatchIds]);
+
+            for (const item of originalItems) {
+                if (item.batch_id) {
+                    await client.query(`
+                        UPDATE inventory_batches
+                        SET quantity_real = quantity_real + $1,
+                            updated_at = NOW()
+                        WHERE id = $2
+                    `, [item.quantity, item.batch_id]);
+                }
+            }
+        }
+
+        // 6. Descontar stock de nuevos ítems (con bloqueo en batch_ids únicos)
+        const newBatchIds = [...new Set(items.map(i => i.batch_id).filter(Boolean))];
+
+        if (newBatchIds.length > 0) {
+            await client.query(`
+                SELECT id FROM inventory_batches
+                WHERE id = ANY($1::uuid[])
+                FOR UPDATE NOWAIT
+            `, [newBatchIds]);
+
+            for (const item of items) {
+                if (item.batch_id) {
+                    await client.query(`
+                        UPDATE inventory_batches
+                        SET quantity_real = quantity_real - $1,
+                            updated_at = NOW()
+                        WHERE id = $2
+                    `, [item.quantity, item.batch_id]);
+                }
+            }
+        }
+
+        // 7. Eliminar sale_items existentes e insertar los nuevos
+        await client.query(`DELETE FROM sale_items WHERE sale_id = $1`, [saleId]);
+
+        const { v4: uuidv4 } = await import('uuid');
+        for (const item of items) {
+            const lineTotal = toMoneyInt(item.quantity * item.price);
+            await client.query(`
+                INSERT INTO sale_items (
+                    id, sale_id, batch_id, quantity,
+                    unit_price, total_price, product_name, timestamp
+                ) VALUES (
+                    $1::uuid, $2::uuid, $3, $4,
+                    $5, $6, $7, NOW()
+                )
+            `, [
+                uuidv4(),
+                saleId,
+                item.batch_id || null,
+                item.quantity,
+                item.price,
+                lineTotal,
+                item.name || null,
+            ]);
+        }
+
+        // 8. Recalcular y actualizar total de la venta
+        const newTotal = items.reduce((acc, item) => acc + toMoneyInt(item.quantity * item.price), 0);
+
+        await client.query(`
+            UPDATE sales
+            SET total_amount        = $1,
+                total               = $2,
+                edited_at           = NOW(),
+                edited_by           = $3,
+                edit_authorized_by  = $4,
+                edit_reason         = $5
+            WHERE id = $6
+        `, [
+            newTotal,
+            newTotal,
+            userId,
+            authResult.authorizedBy?.id || null,
+            reason,
+            saleId,
+        ]);
+
+        // 9. Auditoría inmutable
+        await insertSaleAudit(client, {
+            userId,
+            authorizedById: authResult.authorizedBy?.id,
+            sessionId: sale.session_id,
+            terminalId: sale.terminal_id,
+            locationId: sale.location_id,
+            actionCode: 'SALE_EDIT',
+            entityId: saleId,
+            amount: newTotal,
+            oldValues: {
+                total: originalTotal,
+                items: originalItems.map((i: any) => ({
+                    batch_id: i.batch_id,
+                    name: i.product_name,
+                    quantity: i.quantity,
+                    unit_price: i.unit_price,
+                })),
+            },
+            newValues: {
+                total: newTotal,
+                items: items.map(i => ({
+                    batch_id: i.batch_id,
+                    name: i.name,
+                    quantity: i.quantity,
+                    unit_price: i.price,
+                })),
+                authorized_by_name: authResult.authorizedBy?.name,
+            },
+            justification: reason,
+        });
+
+        await client.query('COMMIT');
+
+        logger.info({ saleId, newTotal }, '✅ [Sales v2] Sale edited successfully');
+        revalidatePath('/caja');
+        revalidatePath('/pos');
+
+        return { success: true, newTotal };
+
+    } catch (error: any) {
+        await client.query('ROLLBACK');
+
+        if (error.code === ERROR_CODES.LOCK_NOT_AVAILABLE) {
+            return { success: false, error: ERROR_MESSAGES.BATCH_LOCKED };
+        }
+        if (error.code === ERROR_CODES.SERIALIZATION_FAILURE || error.code === ERROR_CODES.DEADLOCK_DETECTED) {
+            return { success: false, error: ERROR_MESSAGES.SERIALIZATION_ERROR };
+        }
+
+        logger.error({ err: error }, '❌ [Sales v2] Sale edit failed');
+        return { success: false, error: error.message || 'Error editando venta' };
+
     } finally {
         client.release();
     }

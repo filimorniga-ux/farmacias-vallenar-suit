@@ -42,3 +42,4 @@ release/
 # Archivos de importación de datos
 data_imports/
 coverage/
+.agent/tmp/

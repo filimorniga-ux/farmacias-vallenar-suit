@@ -13,22 +13,72 @@
  */
 
 import { query } from '@/lib/db';
-import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { ExcelService } from '@/lib/excel-generator';
 import { formatDateTimeCL, formatDateCL, formatTimeCL } from '@/lib/timezone';
 import { getSessionSecure } from './auth-v2';
 
-// ============================================================================
-// SCHEMAS
-// ============================================================================
+type TimestampLike = string | number | Date;
 
-const UUIDSchema = z.string().uuid('ID inválido');
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const _dummy = UUIDSchema;
+interface ShiftExportRow {
+    id: string;
+    opened_at: TimestampLike;
+    closed_at: TimestampLike | null;
+    opening_amount: number | string | null;
+    closing_amount: number | string | null;
+    cash_difference: number | string | null;
+    cashier_name: string | null;
+    terminal_name: string | null;
+    branch_name: string | null;
+}
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type DBRow = any;
+interface SalesExportRow {
+    id: string;
+    timestamp: TimestampLike;
+    total_amount: number | string | null;
+    payment_method: string | null;
+    dte_folio: string | null;
+    seller_name: string | null;
+    terminal_name: string | null;
+    branch_name: string | null;
+    client_rut: string | null;
+    client_name: string | null;
+    items_summary: string | null;
+}
+
+interface CashMovementExportRow {
+    timestamp: TimestampLike;
+    type: string | null;
+    amount: number | string | null;
+    reason: string | null;
+    user_name: string | null;
+    terminal_name: string | null;
+    branch_name: string | null;
+}
+
+interface SalesDetailRow {
+    id: string;
+    timestamp: TimestampLike;
+    total_amount: number | string | null;
+    payment_method: string | null;
+    dte_folio: string | null;
+    seller_name: string | null;
+    location_name: string | null;
+}
+
+interface ShiftSummaryRow {
+    opened_at: TimestampLike;
+    closed_at: TimestampLike | null;
+    opening_amount: number | string | null;
+    closing_amount: number | string | null;
+    cash_difference: number | string | null;
+    terminal_name: string | null;
+    location_name: string | null;
+    cashier_name: string | null;
+}
+
+const getErrorMessage = (error: unknown): string =>
+    error instanceof Error ? error.message : 'Error desconocido';
 
 const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
 const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'];
@@ -189,22 +239,25 @@ export async function generateCashReportSecure(
         }
 
         const flow: FlowItem[] = [];
+        const shiftRows = shiftsRes.rows as ShiftExportRow[];
+        const salesRows = salesRes.rows as SalesExportRow[];
+        const movementRows = movRes.rows as CashMovementExportRow[];
         let totalSales = 0;
         let totalOpening = 0;
         let totalExpenses = 0;
         let totalIncome = 0;
         const salesByMethod: Record<string, number> = {};
 
-        shiftsRes.rows.forEach((s: any) => {
+        shiftRows.forEach((s) => {
             if (Number(s.opening_amount) > 0) {
                 flow.push({
                     timestamp: new Date(s.opened_at),
                     type: 'FONDO INICIAL',
                     description: 'Apertura de Caja',
                     category: 'APERTURA',
-                    responsible: s.cashier_name,
-                    branch: s.branch_name,
-                    terminal: s.terminal_name,
+                    responsible: s.cashier_name || 'Sistema',
+                    branch: s.branch_name || '-',
+                    terminal: s.terminal_name || '-',
                     in: Number(s.opening_amount),
                     out: 0,
                     folio: '-', method: 'EFECTIVO', client: '-', rut: '-'
@@ -218,9 +271,9 @@ export async function generateCashReportSecure(
                     type: 'CIERRE DE CAJA',
                     description: `Cierre de Turno (Desajuste: $${diff.toLocaleString('es-CL')})`,
                     category: 'CIERRE',
-                    responsible: s.cashier_name,
-                    branch: s.branch_name,
-                    terminal: s.terminal_name,
+                    responsible: s.cashier_name || 'Sistema',
+                    branch: s.branch_name || '-',
+                    terminal: s.terminal_name || '-',
                     in: 0, out: 0,
                     folio: '-', method: '-', client: '-', rut: '-'
                 });
@@ -230,9 +283,9 @@ export async function generateCashReportSecure(
                         type: diff > 0 ? 'SOBRANTE' : 'FALTANTE',
                         description: 'Desajuste detectado al cierre',
                         category: 'DESAJUSTE',
-                        responsible: s.cashier_name,
-                        branch: s.branch_name,
-                        terminal: s.terminal_name,
+                        responsible: s.cashier_name || 'Sistema',
+                        branch: s.branch_name || '-',
+                        terminal: s.terminal_name || '-',
                         in: diff > 0 ? diff : 0,
                         out: diff < 0 ? Math.abs(diff) : 0,
                         folio: '-', method: 'EFECTIVO', client: '-', rut: '-'
@@ -241,15 +294,15 @@ export async function generateCashReportSecure(
             }
         });
 
-        salesRes.rows.forEach((s: any) => {
+        salesRows.forEach((s) => {
             flow.push({
                 timestamp: new Date(s.timestamp),
                 type: 'VENTA',
                 description: s.items_summary || 'Venta de productos',
                 category: 'VENTA',
-                responsible: s.seller_name,
-                branch: s.branch_name,
-                terminal: s.terminal_name,
+                responsible: s.seller_name || 'Sistema',
+                branch: s.branch_name || '-',
+                terminal: s.terminal_name || '-',
                 in: Number(s.total_amount),
                 out: 0,
                 client: s.client_name || 'Particular',
@@ -258,19 +311,20 @@ export async function generateCashReportSecure(
                 method: s.payment_method || 'EFECTIVO'
             });
             totalSales += Number(s.total_amount);
-            salesByMethod[s.payment_method] = (salesByMethod[s.payment_method] || 0) + Number(s.total_amount);
+            const method = s.payment_method || 'EFECTIVO';
+            salesByMethod[method] = (salesByMethod[method] || 0) + Number(s.total_amount);
         });
 
-        movRes.rows.forEach((m: any) => {
+        movementRows.forEach((m) => {
             const isInc = m.type === 'INGRESO' || m.type === 'EXTRA_INCOME';
             flow.push({
                 timestamp: new Date(m.timestamp),
                 type: isInc ? 'INGRESO EXTRA' : 'EGRESO/RETIRO',
-                description: m.reason,
-                category: m.type,
-                responsible: m.user_name,
-                branch: m.branch_name,
-                terminal: m.terminal_name,
+                description: m.reason || 'Sin motivo',
+                category: m.type || 'OTHER',
+                responsible: m.user_name || 'Sistema',
+                branch: m.branch_name || '-',
+                terminal: m.terminal_name || '-',
                 in: isInc ? Number(m.amount) : 0,
                 out: !isInc ? Number(m.amount) : 0,
                 folio: '-', method: 'EFECTIVO', client: '-', rut: '-'
@@ -338,10 +392,10 @@ export async function generateCashReportSecure(
                         { header: 'Monto Cierre', key: 'close_amt', width: 15 },
                         { header: 'Diferencia', key: 'diff', width: 15 }
                     ],
-                    data: shiftsRes.rows.map((s: any) => ({
+                    data: shiftRows.map((s) => ({
                         open_at: formatDateTimeCL(s.opened_at),
                         close_at: s.closed_at ? formatDateTimeCL(s.closed_at) : 'ABIERTO',
-                        user: s.cashier_name,
+                        user: s.cashier_name || '-',
                         open_amt: Number(s.opening_amount),
                         close_amt: Number(s.closing_amount),
                         diff: Number(s.cash_difference)
@@ -356,9 +410,9 @@ export async function generateCashReportSecure(
             data: buffer.toString('base64'),
             filename: `Caja_${params.startDate.split('T')[0]}.xlsx`,
         };
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Export] Cash error');
-        return { success: false, error: 'Error exportando caja: ' + error.message };
+        return { success: false, error: `Error exportando caja: ${getErrorMessage(error)}` };
     }
 }
 
@@ -392,7 +446,8 @@ export async function exportSalesDetailSecure(
             ORDER BY s.timestamp DESC LIMIT 10000
         `, sqlParams);
 
-        const data = res.rows.map((row: any) => ({
+        const rows = res.rows as SalesDetailRow[];
+        const data = rows.map((row) => ({
             id: row.id,
             date: formatDateTimeCL(row.timestamp),
             location: row.location_name || '-',
@@ -460,7 +515,8 @@ export async function exportShiftSummarySecure(
             ORDER BY s.opened_at DESC
         `, sqlParams);
 
-        const data = res.rows.map((row: any) => ({
+        const rows = res.rows as ShiftSummaryRow[];
+        const data = rows.map((row) => ({
             location: row.location_name || '-',
             terminal: row.terminal_name || '-',
             cashier: row.cashier_name || '-',

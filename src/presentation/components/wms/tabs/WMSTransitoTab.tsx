@@ -222,7 +222,7 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
         const shipmentRows = (Array.isArray(storeShipments) ? storeShipments : [])
             .filter((raw) => !!raw && typeof raw === 'object')
             .map((raw) => {
-                const row = raw as Record<string, unknown>;
+                const row = raw as unknown as Record<string, unknown>;
                 const rowDirection: DirectionFilter =
                     row.destination_location_id === currentLocationId
                         ? 'INCOMING'

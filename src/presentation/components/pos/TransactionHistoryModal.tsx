@@ -2,15 +2,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { usePharmaStore } from '../../../presentation/store/useStore';
 import { useLocationStore } from '../../../presentation/store/useLocationStore';
 import { useSettingsStore } from '../../../presentation/store/useSettingsStore';
-import { X, Search, Calendar, Printer, Lock, FileText, Download, User, RotateCcw, Loader2, RefreshCw, AlertCircle, TrendingUp, TrendingDown, DollarSign } from 'lucide-react';
+import { X, Search, Calendar, Printer, Lock, FileText, Download, User, RotateCcw, Loader2, RefreshCw, AlertCircle, TrendingUp, TrendingDown, DollarSign, Pencil } from 'lucide-react';
 import { exportSalesHistorySecure } from '../../../actions/pos-export-v2';
 import { CashMovementView, getCashMovementHistory, exportCashMovementHistory } from '../../../actions/cash-management-v2'; // Unified Endpoint
 import { getSaleDetailsSecure } from '../../../actions/sales-v2'; // NEW: Details
 import { validateSupervisorPin } from '../../../actions/auth-v2';
 import { toast } from 'sonner';
 import { printSaleTicket } from '../../utils/print-utils';
-import { SaleTransaction } from '../../../domain/types';
 import ReturnsModal from './ReturnsModal';
+import EditSaleModal from './EditSaleModal';
 import { getChileDate, formatChileDate, formatFriendlyId } from '@/lib/utils';
 import {
     getSaleItemQuantity,
@@ -62,6 +62,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
     const [selectedItem, setSelectedItem] = useState<CashMovementView | null>(null);
     const [isLoadingDetails, setIsLoadingDetails] = useState(false); // NEW
     const [isReturnsModalOpen, setIsReturnsModalOpen] = useState(false);
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
     // 1. Authenticate with PIN
     const handleLogin = async () => {
@@ -195,7 +196,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
                 timestamp: new Date(item.timestamp).getTime(),
                 dte_folio: item.dte_folio || (item.id ? `INT-${item.id.slice(0, 6).toUpperCase()}` : undefined)
             };
-            printSaleTicket(saleToPrint as SaleTransaction, storeLocation?.config, hardware, {
+            printSaleTicket(saleToPrint as any, storeLocation?.config, hardware, {
                 cashierName: item.seller_name || item.user_name || 'Vendedor',
                 branchName: storeLocation?.name || 'Sucursal'
             });
@@ -247,6 +248,9 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
             data.forEach(item => {
                 const amount = Number(item.amount) || 0;
                 if (item.type === 'SALE') {
+                    const method = item.payment_method || 'OTHER';
+                    totals[method] = (totals[method] || 0) + amount;
+                } else if (item.type === 'REFUND') {
                     const method = item.payment_method || 'OTHER';
                     totals[method] = (totals[method] || 0) + amount;
                 } else if (item.type === 'EXTRA_INCOME') {
@@ -335,22 +339,23 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
             // Map Data
             data.forEach(item => {
                 const isSale = item.type === 'SALE';
+                const isRefund = item.type === 'REFUND';
                 const method = item.payment_method || 'OTHER';
                 const amount = Number(item.amount) || 0;
 
                 wsDetail.addRow({
                     date: formatChileDate(item.timestamp, { hour: undefined, minute: undefined }),
                     time: formatChileDate(item.timestamp, { day: undefined, month: undefined, year: undefined }),
-                    type: isSale ? 'VENTA' : (item.type === 'EXTRA_INCOME' ? 'INGRESO' : 'GASTO/RETIRO'),
+                    type: isSale ? 'VENTA' : (isRefund ? 'DEVOLUCIÓN' : (item.type === 'EXTRA_INCOME' ? 'INGRESO' : 'GASTO/RETIRO')),
                     desc: item.reason, // Contains \n from backend
                     user: item.user_name || 'Sistema',
-                    client: item.customer_name || (isSale ? 'Anónimo' : '-'),
+                    client: item.customer_name || (isSale || isRefund ? 'Anónimo' : '-'),
                     doc: item.dte_folio || '-',
                     total: amount,
-                    cash: (isSale && method === 'CASH') ? amount : 0,
-                    debit: (isSale && method === 'DEBIT') ? amount : 0,
-                    credit: (isSale && method === 'CREDIT') ? amount : 0,
-                    transfer: (isSale && method === 'TRANSFER') ? amount : 0,
+                    cash: ((isSale || isRefund) && method === 'CASH') ? amount : 0,
+                    debit: ((isSale || isRefund) && method === 'DEBIT') ? amount : 0,
+                    credit: ((isSale || isRefund) && method === 'CREDIT') ? amount : 0,
+                    transfer: ((isSale || isRefund) && method === 'TRANSFER') ? amount : 0,
                     income: item.type === 'EXTRA_INCOME' ? amount : 0,
                     expense: ['EXPENSE', 'WITHDRAWAL'].includes(item.type) ? amount : 0
                 });
@@ -380,13 +385,43 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
 
     // Helper to get Icon and Color based on type
     const getTypeConfig = (item: any) => {
+        const status = String(item.status || '').toUpperCase();
+
         if (item.type === 'SALE') {
+            if (status === 'FULLY_REFUNDED') {
+                return {
+                    icon: <RotateCcw size={16} />,
+                    color: 'text-rose-600',
+                    bg: 'bg-rose-50',
+                    label: 'DEVOLUCIÓN',
+                    amountColor: 'text-rose-700'
+                };
+            }
+
+            if (status === 'PARTIALLY_REFUNDED') {
+                return {
+                    icon: <RotateCcw size={16} />,
+                    color: 'text-amber-700',
+                    bg: 'bg-amber-50',
+                    label: 'DEV. PARCIAL',
+                    amountColor: 'text-amber-700'
+                };
+            }
+
             return {
                 icon: <FileText size={16} />,
                 color: 'text-blue-600',
                 bg: 'bg-blue-50',
                 label: 'VENTA',
                 amountColor: 'text-blue-700'
+            };
+        } else if (item.type === 'REFUND') {
+            return {
+                icon: <RotateCcw size={16} />,
+                color: 'text-rose-600',
+                bg: 'bg-rose-50',
+                label: 'DEVOLUCIÓN',
+                amountColor: 'text-rose-700'
             };
         } else if (item.type === 'EXTRA_INCOME') {
             return {
@@ -653,7 +688,9 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
                             <div className="p-6 overflow-y-auto flex-1">
                                 <div className="flex justify-between items-start mb-6">
                                     <div>
-                                        <h2 className="text-xl font-bold text-slate-800">Detalle de {selectedItem.type === 'SALE' ? 'Venta' : 'Caja'}</h2>
+                                        <h2 className="text-xl font-bold text-slate-800">
+                                            Detalle de {selectedItem.type === 'SALE' ? 'Venta' : selectedItem.type === 'REFUND' ? 'Devolución' : 'Caja'}
+                                        </h2>
                                         <p className="text-sm text-slate-500 break-all">{formatFriendlyId(selectedItem.timestamp)}</p>
                                     </div>
                                     <button onClick={() => setSelectedItem(null)} className="md:hidden text-slate-400"><X /></button>
@@ -694,14 +731,14 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
                                             </div>
                                         </div>
 
-                                        {selectedItem.type === 'SALE' ? (
+                                        {selectedItem.type === 'SALE' || selectedItem.type === 'REFUND' ? (
                                             <>
                                                 <div>
                                                     <p className="text-slate-400 mb-1">Método Pago</p>
                                                     <p className="font-bold text-slate-800">{selectedItem.payment_method}</p>
                                                 </div>
                                                 <div>
-                                                    <p className="text-slate-400 mb-1">Documento</p>
+                                                    <p className="text-slate-400 mb-1">{selectedItem.type === 'REFUND' ? 'Ticket Devolución' : 'Documento'}</p>
                                                     <p className="font-bold text-slate-800">{selectedItem.dte_folio || 'Voucher'}</p>
                                                 </div>
                                             </>
@@ -748,14 +785,18 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
 
                                 <div className="flex justify-between items-center p-4 bg-slate-900 text-white rounded-xl mb-6">
                                     <span className="font-medium">Total</span>
-                                    <span className={`text-2xl font-bold ${selectedItem.type === 'EXPENSE' || selectedItem.type === 'WITHDRAWAL' ? 'text-rose-400' : 'text-emerald-400'}`}>
+                                    <span className={`text-2xl font-bold ${
+                                        selectedItem.type === 'EXPENSE' || selectedItem.type === 'WITHDRAWAL' || selectedItem.type === 'REFUND'
+                                            ? 'text-rose-400'
+                                            : 'text-emerald-400'
+                                    }`}>
                                         ${Number(selectedItem.amount).toLocaleString()}
                                     </span>
                                 </div>
                             </div>
 
                             {selectedItem.type === 'SALE' && (
-                                <div className="p-4 bg-white border-t border-slate-200 flex gap-3 shrink-0">
+                                <div className="p-4 bg-white border-t border-slate-200 flex gap-3 shrink-0 flex-wrap">
                                     <button
                                         onClick={() => handleReprint(selectedItem)}
                                         disabled={selectedItem.status === 'VOIDED'}
@@ -764,8 +805,24 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
                                         <Printer size={20} /> Reimprimir
                                     </button>
                                     <button
+                                        onClick={() => setIsEditModalOpen(true)}
+                                        disabled={
+                                            selectedItem.status === 'VOIDED' ||
+                                            selectedItem.status === 'FULLY_REFUNDED' ||
+                                            selectedItem.status === 'PARTIALLY_REFUNDED'
+                                        }
+                                        className="flex-1 py-3 bg-amber-100 hover:bg-amber-200 disabled:opacity-50 text-amber-800 font-bold rounded-xl flex items-center justify-center gap-2 transition-colors"
+                                    >
+                                        <Pencil size={20} /> Editar
+                                    </button>
+                                    <button
                                         onClick={() => setIsReturnsModalOpen(true)}
-                                        disabled={selectedItem.status === 'VOIDED'}
+                                        disabled={
+                                            selectedItem.status === 'VOIDED' ||
+                                            selectedItem.status === 'FULLY_REFUNDED' ||
+                                            !Array.isArray(selectedItem.items) ||
+                                            selectedItem.items.length === 0
+                                        }
                                         className="flex-1 py-3 bg-red-100 hover:bg-red-200 disabled:opacity-50 text-red-700 font-bold rounded-xl flex items-center justify-center gap-2 transition-colors"
                                     >
                                         <RotateCcw size={20} /> Devolución
@@ -782,10 +839,31 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
                     <ReturnsModal
                         isOpen={isReturnsModalOpen}
                         onClose={() => setIsReturnsModalOpen(false)}
-                        sale={selectedItem as unknown as SaleTransaction}
+                        sale={selectedItem}
+                        userId={user?.id || ''}
+                        onRefundComplete={() => {
+                            setIsReturnsModalOpen(false);
+                            setSelectedItem(null);
+                            fetchHistory();
+                        }}
                     />
                 )
             }
+
+            {selectedItem && selectedItem.type === 'SALE' && (
+                <EditSaleModal
+                    isOpen={isEditModalOpen}
+                    onClose={() => setIsEditModalOpen(false)}
+                    sale={selectedItem}
+                    locationId={activeLocationId || ''}
+                    userId={user?.id || ''}
+                    onEditComplete={() => {
+                        setIsEditModalOpen(false);
+                        setSelectedItem(null);
+                        fetchHistory();
+                    }}
+                />
+            )}
         </div>
     );
 };

@@ -1,43 +1,101 @@
 import React, { useState } from 'react';
-import { usePharmaStore } from '../../store/useStore';
-import { X, RotateCcw, AlertTriangle, CheckCircle, Lock } from 'lucide-react';
+import { X, RotateCcw, AlertTriangle, Lock } from 'lucide-react';
 import { toast } from 'sonner';
-import { SaleTransaction } from '../../../domain/types';
+import type { CashMovementView } from '@/actions/cash-management-v2';
+import { refundSaleSecure } from '@/actions/sales-v2';
+import { Loader2 } from 'lucide-react';
+
+type RefundMethod = 'CASH' | 'DEBIT' | 'CREDIT' | 'TRANSFER';
 
 interface ReturnsModalProps {
     isOpen: boolean;
     onClose: () => void;
-    sale: SaleTransaction;
+    sale: CashMovementView;
+    userId: string;
+    onRefundComplete?: () => void;
 }
 
-const ReturnsModal: React.FC<ReturnsModalProps> = ({ isOpen, onClose, sale }) => {
-    const { processReturn, employees } = usePharmaStore();
-
+const ReturnsModal: React.FC<ReturnsModalProps> = ({ isOpen, onClose, sale, userId, onRefundComplete }) => {
     const [reason, setReason] = useState('');
     const [managerPin, setManagerPin] = useState('');
+    const [refundMethod, setRefundMethod] = useState<RefundMethod>('CASH');
     const [step, setStep] = useState<'REASON' | 'AUTH'>('REASON');
+    const [isVerifying, setIsVerifying] = useState(false);
+
+    React.useEffect(() => {
+        if (!isOpen) return;
+        const saleMethod = String(sale.payment_method || '').toUpperCase();
+        const defaultMethod: RefundMethod =
+            saleMethod === 'DEBIT' || saleMethod === 'CREDIT' || saleMethod === 'TRANSFER'
+                ? saleMethod
+                : 'CASH';
+        setRefundMethod(defaultMethod);
+    }, [isOpen, sale.payment_method]);
 
     if (!isOpen) return null;
 
     const handleNext = () => {
-        if (reason.length < 5) {
-            toast.error('Ingrese un motivo válido (mín. 5 caracteres)');
+        if (reason.trim().length < 10) {
+            toast.error('Ingrese un motivo válido (mín. 10 caracteres)');
             return;
         }
         setStep('AUTH');
     };
 
-    const handleProcessReturn = () => {
-        const manager = employees.find(e => (e.role === 'MANAGER' || e.role === 'ADMIN') && e.access_pin === managerPin);
-
-        if (!manager) {
-            toast.error('PIN de Autorización inválido');
+    const handleProcessReturn = async () => {
+        if (!managerPin || managerPin.length < 4) {
+            toast.error('Ingrese un PIN de 4 dígitos');
             return;
         }
 
-        processReturn(sale.id, reason, manager.id);
-        toast.success(`Devolución procesada correctamente (Autorizado por: ${manager.name})`);
-        onClose();
+        if (!userId) {
+            toast.error('Usuario de sesión no disponible');
+            return;
+        }
+
+        const rawItems = Array.isArray(sale.items) ? sale.items : [];
+        const refundItems = rawItems
+            .map((item: Record<string, unknown>) => {
+                const saleItemId = String(
+                    item.sale_item_id ?? item.saleItemId ?? item.id ?? ''
+                ).trim();
+                const quantity = Number(item.quantity ?? 0);
+                const refundedQuantity = Number(item.refunded_quantity ?? 0);
+                const availableToRefund = Math.max(0, quantity - refundedQuantity);
+                return { saleItemId, quantity: availableToRefund };
+            })
+            .filter((item) => item.saleItemId && item.quantity > 0);
+
+        if (refundItems.length === 0) {
+            toast.error('No hay ítems disponibles para devolución en esta venta');
+            return;
+        }
+
+        setIsVerifying(true);
+        try {
+            const result = await refundSaleSecure({
+                saleId: String(sale.id),
+                userId,
+                supervisorPin: managerPin,
+                reason: reason.trim(),
+                items: refundItems,
+                refundMethod,
+            });
+
+            if (!result.success) {
+                toast.error(result.error || 'No se pudo procesar la devolución');
+                return;
+            }
+
+            toast.success('Devolución procesada correctamente');
+            onRefundComplete?.();
+            onClose();
+        } catch (error) {
+            toast.error('Error al procesar devolución');
+            console.error(error);
+        } finally {
+            setIsVerifying(false);
+        }
     };
 
     return (
@@ -61,8 +119,8 @@ const ReturnsModal: React.FC<ReturnsModalProps> = ({ isOpen, onClose, sale }) =>
                             <span className="text-xs font-mono text-slate-400">{sale.id}</span>
                         </div>
                         <div className="flex justify-between items-center">
-                            <span className="font-bold text-slate-800">{sale.items.length} Productos</span>
-                            <span className="font-bold text-red-600 text-lg">-${sale.total.toLocaleString()}</span>
+                            <span className="font-bold text-slate-800">{Array.isArray(sale.items) ? sale.items.length : 0} Productos</span>
+                            <span className="font-bold text-red-600 text-lg">-${Number(sale.total_amount ?? sale.total ?? sale.amount ?? 0).toLocaleString('es-CL')}</span>
                         </div>
                     </div>
 
@@ -79,9 +137,34 @@ const ReturnsModal: React.FC<ReturnsModalProps> = ({ isOpen, onClose, sale }) =>
                                 />
                             </div>
 
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-2">Medio de devolución</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {([
+                                        { value: 'CASH', label: 'Efectivo' },
+                                        { value: 'DEBIT', label: 'Débito' },
+                                        { value: 'CREDIT', label: 'Crédito' },
+                                        { value: 'TRANSFER', label: 'Transferencia' },
+                                    ] as Array<{ value: RefundMethod; label: string }>).map((option) => (
+                                        <button
+                                            key={option.value}
+                                            type="button"
+                                            onClick={() => setRefundMethod(option.value)}
+                                            className={`py-2 px-3 rounded-lg border text-sm font-bold transition-colors ${
+                                                refundMethod === option.value
+                                                    ? 'bg-red-50 border-red-300 text-red-700'
+                                                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                                            }`}
+                                        >
+                                            {option.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
                             <div className="flex items-start gap-3 p-3 bg-amber-50 text-amber-800 rounded-lg text-sm">
                                 <AlertTriangle className="shrink-0 mt-0.5" size={16} />
-                                <p>Esta acción generará una Nota de Crédito interna, descontará el dinero de la caja y restaurará el stock al inventario.</p>
+                                <p>Esta acción registrará ticket de devolución, restaurará stock y descontará el monto del medio seleccionado.</p>
                             </div>
 
                             <button
@@ -120,9 +203,17 @@ const ReturnsModal: React.FC<ReturnsModalProps> = ({ isOpen, onClose, sale }) =>
                                 </button>
                                 <button
                                     onClick={handleProcessReturn}
-                                    className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl transition-colors shadow-lg shadow-red-200"
+                                    disabled={isVerifying}
+                                    className="flex-1 py-3 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-bold rounded-xl transition-colors shadow-lg shadow-red-200 flex items-center justify-center gap-2"
                                 >
-                                    Confirmar Devolución
+                                    {isVerifying ? (
+                                        <>
+                                            <Loader2 className="animate-spin" size={20} />
+                                            Verificando...
+                                        </>
+                                    ) : (
+                                        'Confirmar Devolución'
+                                    )}
                                 </button>
                             </div>
                         </div>

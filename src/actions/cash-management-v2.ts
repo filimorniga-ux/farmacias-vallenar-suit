@@ -115,7 +115,7 @@ const ADJUSTMENT_THRESHOLDS = {
  */
 export interface CashMovementView {
     id: string;
-    type: string;
+    type: 'SALE' | 'REFUND' | 'EXTRA_INCOME' | 'EXPENSE' | 'WITHDRAWAL' | 'OPENING' | 'CLOSING' | 'APERTURA' | string;
     amount: number;
     payment_method?: string;
     timestamp: Date | string; // PG returns Date, but JSON serialization makes it string
@@ -147,6 +147,47 @@ function asDatabaseError(error: unknown): DatabaseError {
         return error as DatabaseError;
     }
     return { message: String(error) };
+}
+
+function toMoneyInt(value: unknown): number {
+    const parsed = typeof value === 'number' ? value : Number(value || 0);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.round(parsed);
+}
+
+type Queryable = {
+    query: (text: string, params?: Array<string | number | boolean | string[] | Date | null | undefined>) => Promise<{ rows: Array<Record<string, unknown>> }>;
+};
+
+async function hasRefundLedger(client: Queryable): Promise<boolean> {
+    try {
+        const res = await client.query(`
+            SELECT to_regclass('public.refunds') IS NOT NULL AS has_refunds
+        `);
+        return Boolean(res.rows[0]?.has_refunds);
+    } catch {
+        return false;
+    }
+}
+
+async function getCashRefundsForSession(
+    client: Queryable,
+    terminalId: string,
+    sessionId: string
+): Promise<number> {
+    const hasRefunds = await hasRefundLedger(client);
+    if (!hasRefunds) return 0;
+
+    const res = await client.query(`
+        SELECT COALESCE(SUM(total_amount), 0) AS total
+        FROM refunds
+        WHERE terminal_id = $1::uuid
+          AND session_id = $2::uuid
+          AND status = 'COMPLETED'
+          AND refund_method = 'CASH'
+    `, [terminalId, sessionId]);
+
+    return Number(res.rows[0]?.total || 0);
 }
 
 /**
@@ -501,7 +542,7 @@ export async function closeCashDrawerSecure(
         }
 
         const session = sessionRes.rows[0];
-        const openingAmount = Number(session.opening_amount);
+        const openingAmount = toMoneyInt(session.opening_amount);
 
         // Calculate expected cash
         const salesRes = await client.query(`
@@ -513,7 +554,9 @@ export async function closeCashDrawerSecure(
             AND status != 'VOIDED'
         `, [terminalId, session.id]);
 
-        const cashSales = Number(salesRes.rows[0].cash_sales);
+        const cashSalesGross = toMoneyInt(salesRes.rows[0].cash_sales);
+        const cashRefunds = await getCashRefundsForSession(client, terminalId, session.id);
+        const cashSales = cashSalesGross - cashRefunds;
 
         const movementsRes = await client.query(`
             SELECT 
@@ -523,8 +566,8 @@ export async function closeCashDrawerSecure(
             WHERE session_id = $1::uuid AND type NOT IN ('OPENING')
         `, [session.id]);
 
-        const cashIn = Number(movementsRes.rows[0].total_in);
-        const cashOut = Number(movementsRes.rows[0].total_out);
+        const cashIn = toMoneyInt(movementsRes.rows[0].total_in);
+        const cashOut = toMoneyInt(movementsRes.rows[0].total_out);
         const expectedCash = openingAmount + cashSales + cashIn - cashOut;
         const difference = declaredCash - expectedCash;
 
@@ -572,6 +615,7 @@ export async function closeCashDrawerSecure(
                 difference,
                 status,
                 cash_sales: cashSales,
+                cash_refunds: cashRefunds,
             },
             notes
         });
@@ -656,7 +700,7 @@ export async function closeCashDrawerSystem(
         }
 
         const session = sessionRes.rows[0];
-        const openingAmount = Number(session.opening_amount);
+        const openingAmount = toMoneyInt(session.opening_amount);
 
         // Calculate expected cash (to assume perfect close)
         const salesRes = await client.query(`
@@ -676,9 +720,11 @@ export async function closeCashDrawerSystem(
             WHERE session_id = $1::uuid AND type NOT IN ('OPENING')
         `, [session.id]);
 
-        const cashSales = Number(salesRes.rows[0].cash_sales);
-        const cashIn = Number(movementsRes.rows[0].total_in);
-        const cashOut = Number(movementsRes.rows[0].total_out);
+        const cashSalesGross = toMoneyInt(salesRes.rows[0].cash_sales);
+        const cashRefunds = await getCashRefundsForSession(client, terminalId, session.id);
+        const cashSales = cashSalesGross - cashRefunds;
+        const cashIn = toMoneyInt(movementsRes.rows[0].total_in);
+        const cashOut = toMoneyInt(movementsRes.rows[0].total_out);
         const expectedCash = openingAmount + cashSales + cashIn - cashOut;
 
         // Auto-close with 0 difference
@@ -788,10 +834,12 @@ export async function registerCashCountSecure(
             WHERE session_id = $1::uuid
         `, [sessionId]);
 
-        const openingAmount = Number(session.opening_amount);
-        const cashSales = Number(salesRes.rows[0].cash_sales);
-        const cashIn = Number(movementsRes.rows[0].total_in) - openingAmount; // Subtract opening
-        const cashOut = Number(movementsRes.rows[0].total_out);
+        const openingAmount = toMoneyInt(session.opening_amount);
+        const cashSalesGross = toMoneyInt(salesRes.rows[0].cash_sales);
+        const cashRefunds = await getCashRefundsForSession(client, session.terminal_id, sessionId);
+        const cashSales = cashSalesGross - cashRefunds;
+        const cashIn = toMoneyInt(movementsRes.rows[0].total_in) - openingAmount; // Subtract opening
+        const cashOut = toMoneyInt(movementsRes.rows[0].total_out);
         const expectedCash = openingAmount + cashSales + cashIn - cashOut;
         const difference = countedAmount - expectedCash;
 
@@ -1035,10 +1083,14 @@ export async function getCashDrawerStatus(
             WHERE session_id = $1::uuid
         `, [terminal.session_id]);
 
-        const openingAmount = Number(terminal.opening_amount);
-        const cashSales = Number(salesRes.rows[0].cash_sales);
-        const cashIn = Number(movementsRes.rows[0].total_in) - openingAmount;
-        const cashOut = Number(movementsRes.rows[0].total_out);
+        const openingAmount = toMoneyInt(terminal.opening_amount);
+        const cashSalesGross = toMoneyInt(salesRes.rows[0].cash_sales);
+        const cashRefunds = terminal.session_id
+            ? await getCashRefundsForSession({ query }, terminalId, terminal.session_id)
+            : 0;
+        const cashSales = cashSalesGross - cashRefunds;
+        const cashIn = toMoneyInt(movementsRes.rows[0].total_in) - openingAmount;
+        const cashOut = toMoneyInt(movementsRes.rows[0].total_out);
         const expectedCash = openingAmount + cashSales + cashIn - cashOut;
 
         // Get last count
@@ -1051,8 +1103,8 @@ export async function getCashDrawerStatus(
         `, [terminal.session_id]);
 
         const lastCount = countRes.rows.length > 0 ? {
-            amount: Number(countRes.rows[0].counted_amount),
-            difference: Number(countRes.rows[0].difference),
+            amount: toMoneyInt(countRes.rows[0].counted_amount),
+            difference: toMoneyInt(countRes.rows[0].difference),
             timestamp: countRes.rows[0].created_at,
         } : undefined;
 
@@ -1109,13 +1161,15 @@ export async function getCashMovementHistory(
         const params: (string | number | Date)[] = [];
         let paramIndex = 1;
 
-        // Base filters for both queries
+        // Base filters for unified queries
         let moveFilters = '1=1';
         let saleFilters = "s.status != 'VOIDED'"; // Base sales filter
+        let refundFilters = "r.status = 'COMPLETED'";
 
         if (locationId) {
             moveFilters += ` AND cm.location_id = $${paramIndex}::uuid`;
             saleFilters += ` AND s.location_id = $${paramIndex}::uuid`;
+            refundFilters += ` AND r.location_id = $${paramIndex}::uuid`;
             params.push(locationId);
             paramIndex++;
         }
@@ -1123,6 +1177,7 @@ export async function getCashMovementHistory(
         if (terminalId) {
             moveFilters += ` AND cm.terminal_id = $${paramIndex}::uuid`;
             saleFilters += ` AND s.terminal_id = $${paramIndex}::uuid`;
+            refundFilters += ` AND r.terminal_id = $${paramIndex}::uuid`;
             params.push(terminalId);
             paramIndex++;
         }
@@ -1130,6 +1185,7 @@ export async function getCashMovementHistory(
         if (sessionId) {
             moveFilters += ` AND cm.session_id = $${paramIndex}::uuid`;
             saleFilters += ` AND s.session_id = $${paramIndex}::uuid`;
+            refundFilters += ` AND r.session_id = $${paramIndex}::uuid`;
             params.push(sessionId);
             paramIndex++;
         }
@@ -1153,6 +1209,7 @@ export async function getCashMovementHistory(
 
             moveFilters += ` AND (cm.timestamp AT TIME ZONE 'America/Santiago')::date >= $${paramIndex}::date`;
             saleFilters += ` AND (s.timestamp AT TIME ZONE 'America/Santiago')::date >= $${paramIndex}::date`;
+            refundFilters += ` AND (r.created_at AT TIME ZONE 'America/Santiago')::date >= $${paramIndex}::date`;
             params.push(startDate);
             paramIndex++;
         }
@@ -1160,12 +1217,13 @@ export async function getCashMovementHistory(
         if (endDate) {
             moveFilters += ` AND (cm.timestamp AT TIME ZONE 'America/Santiago')::date <= $${paramIndex}::date`;
             saleFilters += ` AND (s.timestamp AT TIME ZONE 'America/Santiago')::date <= $${paramIndex}::date`;
+            refundFilters += ` AND (r.created_at AT TIME ZONE 'America/Santiago')::date <= $${paramIndex}::date`;
             params.push(endDate);
             paramIndex++;
         }
 
-        // Payment Method Filter
-        // Payment Method Filter or Movement Type Filter
+        // Payment Method Filter or Movement Type Filter.
+        // Nota: paymentMethod también aplica al ledger de refunds mediante refund_method.
         if (paymentMethod && paymentMethod !== 'ALL') {
             const MOVEMENT_TYPES = ['EXTRA_INCOME', 'EXPENSE', 'WITHDRAWAL', 'OPENING', 'CLOSING', 'APERTURA'];
 
@@ -1173,9 +1231,11 @@ export async function getCashMovementHistory(
                 // It's a movement type filter (e.g. EXTRA_INCOME)
                 moveFilters += ` AND cm.type = $${paramIndex}`;
                 saleFilters += ` AND 1=0`; // Hide sales entirely when looking for specific movement types
+                refundFilters += ` AND 1=0`; // Refunds are not cash movement types
             } else {
                 // It's a payment method filter (CASH, DEBIT, etc.)
                 saleFilters += ` AND s.payment_method = $${paramIndex}`;
+                refundFilters += ` AND r.refund_method = $${paramIndex}`;
 
                 // If filtering by specific payment method other than CASH, hide physical cash movements
                 if (paymentMethod !== 'CASH') {
@@ -1204,29 +1264,50 @@ export async function getCashMovementHistory(
                 s.customer_name ILIKE $${paramIndex}
             )`;
 
+            refundFilters += ` AND (
+                r.sale_id::text ILIKE $${paramIndex} OR
+                r.ticket_number ILIKE $${paramIndex} OR
+                r.reason ILIKE $${paramIndex} OR
+                ru.name ILIKE $${paramIndex}
+            )`;
+
             params.push(searchPattern);
             paramIndex++;
         }
 
-        logger.info({ params, moveFilters, saleFilters }, '🔍 [Cash] Executing History Query');
+        logger.info({ params, moveFilters, saleFilters, refundFilters }, '🔍 [Cash] Executing History Query');
+
+        const refundsAvailable = await hasRefundLedger({ query });
 
         // 1. Get Total Count
-        const countRes = await query(`
+        const countSql = refundsAvailable ? `
             SELECT 
                 (SELECT COUNT(*) FROM cash_movements cm 
                  LEFT JOIN users u ON cm.user_id::text = u.id::text 
                  WHERE ${moveFilters}) +
                 (SELECT COUNT(*) FROM sales s 
-                 LEFT JOIN users u ON s.user_id = u.id
+                 LEFT JOIN users u ON s.user_id::text = u.id::text
+                 WHERE ${saleFilters}) +
+                (SELECT COUNT(*) FROM refunds r
+                 LEFT JOIN users ru ON r.user_id::text = ru.id::text
+                 WHERE ${refundFilters}) as total
+        ` : `
+            SELECT 
+                (SELECT COUNT(*) FROM cash_movements cm 
+                 LEFT JOIN users u ON cm.user_id::text = u.id::text 
+                 WHERE ${moveFilters}) +
+                (SELECT COUNT(*) FROM sales s 
+                 LEFT JOIN users u ON s.user_id::text = u.id::text
                  WHERE ${saleFilters}) as total
-        `, params);
+        `;
+        const countRes = await query(countSql, params);
 
         const total = parseInt(countRes.rows[0]?.total || '0');
 
         // 2. Get Combined History
         params.push(pageSize, offset); // Add limit/offset params
 
-        const historyRes = await query(`
+        const historySql = refundsAvailable ? `
             (
                 SELECT 
                     cm.id, 
@@ -1260,7 +1341,110 @@ export async function getCashMovementHistory(
                     u.name as user_name,
                     NULL as authorized_by_name,
                     s.payment_method,
-                    s.status,
+                    CASE
+                        WHEN s.status IN ('FULLY_REFUNDED', 'PARTIALLY_REFUNDED') THEN s.status
+                        WHEN EXISTS (
+                            SELECT 1
+                            FROM sale_items si_ref
+                            WHERE si_ref.sale_id::text = s.id::text
+                              AND COALESCE(si_ref.refunded_quantity, 0) > 0
+                        ) THEN
+                            CASE
+                                WHEN EXISTS (
+                                    SELECT 1
+                                    FROM sale_items si_pending
+                                    WHERE si_pending.sale_id::text = s.id::text
+                                      AND (si_pending.quantity - COALESCE(si_pending.refunded_quantity, 0)) > 0
+                                ) THEN 'PARTIALLY_REFUNDED'
+                                ELSE 'FULLY_REFUNDED'
+                            END
+                        ELSE s.status
+                    END as status,
+                    s.dte_status,
+                    s.dte_folio::text,
+                    s.customer_name
+                FROM sales s
+                LEFT JOIN users u ON s.user_id::text = u.id::text
+                WHERE ${saleFilters}
+            )
+            UNION ALL
+            (
+                SELECT
+                    r.id,
+                    'REFUND' as type,
+                    (COALESCE(r.total_amount, 0) * -1) as amount,
+                    CONCAT('Devolución #', COALESCE(r.ticket_number, r.id::text)) as reason,
+                    r.created_at as timestamp,
+                    r.terminal_id,
+                    r.session_id,
+                    ru.name as user_name,
+                    au.name as authorized_by_name,
+                    r.refund_method as payment_method,
+                    r.status,
+                    NULL::text as dte_status,
+                    r.ticket_number::text as dte_folio,
+                    s.customer_name
+                FROM refunds r
+                JOIN sales s ON s.id = r.sale_id
+                LEFT JOIN users ru ON r.user_id::text = ru.id::text
+                LEFT JOIN users au ON r.authorized_by::text = au.id::text
+                WHERE ${refundFilters}
+            )
+            ORDER BY timestamp DESC
+            LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+        ` : `
+            (
+                SELECT 
+                    cm.id, 
+                    cm.type, 
+                    cm.amount, 
+                    cm.reason, 
+                    cm.timestamp,
+                    cm.terminal_id, 
+                    cm.session_id,
+                    u.name as user_name,
+                    NULL as authorized_by_name,
+                    'CASH' as payment_method,
+                    NULL::text as status,
+                    NULL::text as dte_status,
+                    NULL::text as dte_folio,
+                    NULL::text as customer_name
+                FROM cash_movements cm
+                LEFT JOIN users u ON cm.user_id::text = u.id::text
+                WHERE ${moveFilters}
+            )
+            UNION ALL
+            (
+                SELECT 
+                    s.id,
+                    'SALE' as type,
+                    COALESCE(s.total_amount, s.total) as amount,
+                    CONCAT('Venta #', COALESCE(s.dte_folio::text, 'S/N')) as reason,
+                    s.timestamp,
+                    s.terminal_id,
+                    s.session_id,
+                    u.name as user_name,
+                    NULL as authorized_by_name,
+                    s.payment_method,
+                    CASE
+                        WHEN s.status IN ('FULLY_REFUNDED', 'PARTIALLY_REFUNDED') THEN s.status
+                        WHEN EXISTS (
+                            SELECT 1
+                            FROM sale_items si_ref
+                            WHERE si_ref.sale_id::text = s.id::text
+                              AND COALESCE(si_ref.refunded_quantity, 0) > 0
+                        ) THEN
+                            CASE
+                                WHEN EXISTS (
+                                    SELECT 1
+                                    FROM sale_items si_pending
+                                    WHERE si_pending.sale_id::text = s.id::text
+                                      AND (si_pending.quantity - COALESCE(si_pending.refunded_quantity, 0)) > 0
+                                ) THEN 'PARTIALLY_REFUNDED'
+                                ELSE 'FULLY_REFUNDED'
+                            END
+                        ELSE s.status
+                    END as status,
                     s.dte_status,
                     s.dte_folio::text,
                     s.customer_name
@@ -1270,7 +1454,9 @@ export async function getCashMovementHistory(
             )
             ORDER BY timestamp DESC
             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-        `, params);
+        `;
+
+        const historyRes = await query(historySql, params);
 
         return {
             success: true,
@@ -1350,7 +1536,7 @@ export async function getShiftMetricsSecure(
         }
 
         const session = sessionRes.rows[0];
-        const openingAmount = Number(session.opening_amount);
+        const openingAmount = toMoneyInt(session.opening_amount);
 
         // Get sales by payment method
         logger.info({ terminalId, sessionId: session.id }, '🔍 [Cash] Fetching metrics for session');
@@ -1369,19 +1555,58 @@ export async function getShiftMetricsSecure(
 
         logger.info({ salesCount: salesRes.rows.length, salesRows: salesRes.rows }, '🔍 [Cash] Metrics Sales Result');
 
+        const refundsAvailable = await hasRefundLedger({ query });
+        const refundsRes = refundsAvailable
+            ? await query(`
+                SELECT
+                    refund_method as payment_method,
+                    COUNT(*) as count,
+                    COALESCE(SUM(total_amount), 0) as total
+                FROM refunds
+                WHERE terminal_id = $1::uuid
+                  AND session_id = $2::uuid
+                  AND status = 'COMPLETED'
+                GROUP BY refund_method
+            `, [terminalId, session.id])
+            : { rows: [] as Array<Record<string, unknown>> };
+
         let cashSales = 0, cardSales = 0, transferSales = 0, otherSales = 0;
         let transactionCount = 0;
+        const netByMethod = new Map<string, { total: number; count: number }>();
 
         for (const row of salesRes.rows) {
-            const total = Number(row.total);
-            const count = parseInt(row.count);
+            const total = toMoneyInt(row.total);
+            const count = parseInt(String(row.count || 0), 10);
+            const method = String(row.payment_method || 'OTHER');
             transactionCount += count;
+            netByMethod.set(method, {
+                total: (netByMethod.get(method)?.total || 0) + total,
+                count: (netByMethod.get(method)?.count || 0) + count,
+            });
 
-            switch (row.payment_method) {
+            switch (method) {
                 case 'CASH': cashSales = total; break;
                 case 'CARD': case 'CREDIT': case 'DEBIT': cardSales += total; break;
                 case 'TRANSFER': transferSales = total; break;
                 default: otherSales += total;
+            }
+        }
+
+        for (const row of refundsRes.rows) {
+            const total = toMoneyInt(row.total || 0);
+            const count = parseInt(String(row.count || 0), 10);
+            const method = String(row.payment_method || 'OTHER');
+            transactionCount += count;
+            netByMethod.set(method, {
+                total: (netByMethod.get(method)?.total || 0) - total,
+                count: Math.max(0, (netByMethod.get(method)?.count || 0) - count),
+            });
+
+            switch (method) {
+                case 'CASH': cashSales -= total; break;
+                case 'CARD': case 'CREDIT': case 'DEBIT': cardSales -= total; break;
+                case 'TRANSFER': transferSales -= total; break;
+                default: otherSales -= total;
             }
         }
 
@@ -1396,7 +1621,7 @@ export async function getShiftMetricsSecure(
         const adjustments = movementsRes.rows.map(r => ({
             id: r.id,
             type: r.type,
-            amount: Number(r.amount), // Note: amount, not total
+            amount: toMoneyInt(r.amount), // Note: amount, not total
             reason: r.reason,
             timestamp: r.timestamp
         }));
@@ -1420,8 +1645,8 @@ export async function getShiftMetricsSecure(
         `, [session.id]);
 
         const lastCount = countRes.rows.length > 0 ? {
-            amount: Number(countRes.rows[0].counted_amount),
-            difference: Number(countRes.rows[0].difference),
+            amount: toMoneyInt(countRes.rows[0].counted_amount),
+            difference: toMoneyInt(countRes.rows[0].difference),
             timestamp: countRes.rows[0].created_at,
         } : undefined;
 
@@ -1440,10 +1665,10 @@ export async function getShiftMetricsSecure(
                 otherSales,
                 totalSales: cashSales + cardSales + transferSales + otherSales,
                 transactionCount,
-                sales_breakdown: salesRes.rows.map(row => ({
-                    method: row.payment_method,
-                    count: parseInt(row.count),
-                    total: Number(row.total)
+                sales_breakdown: Array.from(netByMethod.entries()).map(([method, data]) => ({
+                    method,
+                    count: data.count,
+                    total: data.total
                 })),
                 adjustments,
                 lastCount,

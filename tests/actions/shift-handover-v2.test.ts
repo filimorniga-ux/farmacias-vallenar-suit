@@ -124,6 +124,14 @@ describe('calculateHandoverSecure', () => {
                 rowCount: 1,
             }) // Sales
             .mockResolvedValueOnce({
+                rows: [{ has_refunds: true }],
+                rowCount: 1,
+            }) // refunds table exists
+            .mockResolvedValueOnce({
+                rows: [{ total: 0 }],
+                rowCount: 1,
+            }) // cash refunds for session
+            .mockResolvedValueOnce({
                 rows: [{ total_in: 0, total_out: 0 }],
                 rowCount: 1,
             }); // Movements
@@ -133,6 +141,36 @@ describe('calculateHandoverSecure', () => {
         expect(result.success).toBe(true);
         expect(result.data?.amountToWithdraw).toBe(0);
         expect(result.data?.amountToKeep).toBe(1500000);
+    });
+
+    it('should descontar devoluciones cash del expectedCash', async () => {
+        mockDirectQuery
+            .mockResolvedValueOnce({
+                rows: [{ id: VALID_SESSION_ID, opening_amount: 100000, opened_at: new Date() }],
+                rowCount: 1,
+            }) // Active session
+            .mockResolvedValueOnce({
+                rows: [{ payment_method: 'CASH', total: 200000 }],
+                rowCount: 1,
+            }) // Sales
+            .mockResolvedValueOnce({
+                rows: [{ has_refunds: true }],
+                rowCount: 1,
+            }) // refunds table exists
+            .mockResolvedValueOnce({
+                rows: [{ total: 50000 }],
+                rowCount: 1,
+            }) // cash refunds
+            .mockResolvedValueOnce({
+                rows: [{ total_in: 0, total_out: 0 }],
+                rowCount: 1,
+            }); // Movements
+
+        const result = await calculateHandoverSecure(VALID_TERMINAL_ID, 250000);
+
+        expect(result.success).toBe(true);
+        expect(result.data?.cashSales).toBe(150000);
+        expect(result.data?.expectedCash).toBe(250000);
     });
 });
 

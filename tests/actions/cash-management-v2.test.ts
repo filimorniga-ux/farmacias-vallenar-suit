@@ -248,6 +248,7 @@ describe('Cash Management V2 - Drawer Operations', () => {
             { rows: [{ id: VALID_UUID_TERMINAL, location_id: 'loc-1', current_cashier_id: VALID_UUID_CASHIER }] }, // Terminal
             { rows: [{ id: VALID_UUID_SESSION, opening_amount: 10000, opened_at: new Date(), user_id: VALID_UUID_CASHIER }] }, // Session
             { rows: [{ cash_sales: 5000 }] }, // Sales
+            { rows: [{ has_refunds: false }] }, // refund ledger check
             { rows: [{ total_in: 0, total_out: 0 }] }, // Movements
             { rows: [] }, // Update session
             { rows: [] }, // Update terminal
@@ -272,6 +273,7 @@ describe('Cash Management V2 - Drawer Operations', () => {
             { rows: [{ id: VALID_UUID_TERMINAL, location_id: 'loc-1', current_cashier_id: VALID_UUID_CASHIER }] }, // Terminal
             { rows: [{ id: VALID_UUID_SESSION, opening_amount: 10000, opened_at: new Date(), user_id: VALID_UUID_CASHIER }] }, // Session
             { rows: [{ cash_sales: 5000 }] }, // Sales
+            { rows: [{ has_refunds: false }] }, // refund ledger check
             { rows: [{ total_in: 0, total_out: 0 }] }, // Movements
             { rows: [] }, // Update session
             { rows: [] }, // Update terminal
@@ -345,5 +347,104 @@ describe('Cash Management V2 - System Operations', () => {
 
         expect(res.success).toBe(false);
         expect(res.error).toContain('No hay sesión activa');
+    });
+});
+
+describe('Cash Management V2 - Refund Integration', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it('getShiftMetricsSecure debe restar devoluciones por método en breakdown y cash actual', async () => {
+        const { query } = await import('@/lib/db');
+        const mockDbQuery = vi.mocked(query) as unknown as {
+            mockResolvedValueOnce: (value: unknown) => any;
+        };
+
+        mockDbQuery
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: VALID_UUID_SESSION,
+                    terminal_id: VALID_UUID_TERMINAL,
+                    opening_amount: 10000,
+                    opened_at: new Date(),
+                    cashier_name: 'Cajero Test'
+                }]
+            }) // session
+            .mockResolvedValueOnce({
+                rows: [
+                    { payment_method: 'CASH', count: '1', total: '20000' },
+                    { payment_method: 'DEBIT', count: '1', total: '10000' }
+                ]
+            }) // sales
+            .mockResolvedValueOnce({
+                rows: [{ has_refunds: true }]
+            }) // hasRefundLedger
+            .mockResolvedValueOnce({
+                rows: [
+                    { payment_method: 'CASH', count: '1', total: '5000' },
+                    { payment_method: 'DEBIT', count: '1', total: '2000' }
+                ]
+            }) // refunds
+            .mockResolvedValueOnce({
+                rows: [{ id: 'm1', type: 'EXTRA_INCOME', amount: 0, reason: null, timestamp: new Date() }]
+            }) // movements
+            .mockResolvedValueOnce({
+                rows: []
+            }); // last count
+
+        const res = await cashV2.getShiftMetricsSecure(VALID_UUID_TERMINAL);
+
+        expect(res.success).toBe(true);
+        expect(res.data?.cashSales).toBe(15000);
+        expect(res.data?.cardSales).toBe(8000);
+        const cashRow = res.data?.sales_breakdown.find((r) => r.method === 'CASH');
+        const debitRow = res.data?.sales_breakdown.find((r) => r.method === 'DEBIT');
+        expect(cashRow?.total).toBe(15000);
+        expect(debitRow?.total).toBe(8000);
+    });
+
+    it('getCashMovementHistory debe incluir filtro refund_method cuando paymentMethod es tarjeta', async () => {
+        const { query } = await import('@/lib/db');
+        const mockDbQuery = vi.mocked(query) as unknown as {
+            mockResolvedValueOnce: (value: unknown) => any;
+            mock: { calls: Array<[unknown, ...unknown[]]> };
+        };
+
+        mockDbQuery
+            .mockResolvedValueOnce({ rows: [{ has_refunds: true }] }) // hasRefundLedger
+            .mockResolvedValueOnce({ rows: [{ total: '1' }] }) // count query
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'ref-1',
+                    type: 'REFUND',
+                    amount: -1000,
+                    reason: 'Devolución #REF-1',
+                    timestamp: new Date(),
+                    terminal_id: VALID_UUID_TERMINAL,
+                    session_id: VALID_UUID_SESSION,
+                    user_name: 'Cajero',
+                    authorized_by_name: 'Supervisor',
+                    payment_method: 'DEBIT',
+                    status: 'COMPLETED',
+                    dte_status: null,
+                    dte_folio: 'REF-1',
+                    customer_name: 'Cliente'
+                }]
+            }); // history query
+
+        const res = await cashV2.getCashMovementHistory({
+            terminalId: VALID_UUID_TERMINAL,
+            sessionId: VALID_UUID_SESSION,
+            paymentMethod: 'DEBIT',
+            page: 1,
+            pageSize: 10,
+        });
+
+        expect(res.success).toBe(true);
+        expect(res.data?.movements[0]?.type).toBe('REFUND');
+
+        const historySql = mockDbQuery.mock.calls[2]?.[0];
+        expect(String(historySql)).toContain('r.refund_method =');
     });
 });
