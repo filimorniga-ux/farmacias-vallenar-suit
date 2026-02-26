@@ -281,6 +281,7 @@ export interface SaleTransaction {
     status: 'COMPLETED' | 'VOIDED' | 'PARTIALLY_REFUNDED' | 'FULLY_REFUNDED';
     items: SaleItem[];
     total: number;
+    total_amount?: number; // BD alias (matches sales.total_amount column)
     payment_method: 'CASH' | 'DEBIT' | 'CREDIT' | 'TRANSFER';
     transfer_id?: string; // Obligatorio si es TRANSFER
     prescription_type?: 'SIMPLE' | 'RETENIDA'; // Obligatorio si hay medicamentos R/RR

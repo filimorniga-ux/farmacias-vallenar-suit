@@ -1,5 +1,6 @@
 export interface TransactionLike {
     type?: string;
+    status?: string | null;
     dte_folio?: string | number | null;
     timestamp?: number | string | Date;
 }
@@ -25,11 +26,19 @@ function toNumber(value: unknown): number | null {
 
 export function getTransactionTitle(item: TransactionLike, fallbackId: string): string {
     const type = String(item.type || '').toUpperCase();
+    const status = String(item.status || '').toUpperCase();
+    const folio = item.dte_folio ? String(item.dte_folio) : fallbackId;
 
     if (type === 'SALE') {
-        const folio = item.dte_folio ? String(item.dte_folio) : fallbackId;
+        if (status === 'FULLY_REFUNDED') {
+            return `Devolución #${folio}`;
+        }
+        if (status === 'PARTIALLY_REFUNDED') {
+            return `Venta (Dev. Parcial) #${folio}`;
+        }
         return `Venta #${folio}`;
     }
+    if (type === 'REFUND') return `Devolución #${folio}`;
 
     if (type === 'EXTRA_INCOME') return 'Ingreso Extra';
     if (type === 'OPENING' || type === 'APERTURA') return 'Apertura de Caja';

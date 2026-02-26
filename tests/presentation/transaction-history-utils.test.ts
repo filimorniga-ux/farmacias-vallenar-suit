@@ -45,6 +45,15 @@ describe('transaction-history-utils', () => {
         expect(getTransactionTitle({ type: 'SALE' }, 'id-2')).toBe('Venta #id-2');
     });
 
+    it('muestra títulos de devolución según estado de la venta', () => {
+        expect(getTransactionTitle({ type: 'SALE', status: 'FULLY_REFUNDED', dte_folio: '888' }, 'id-3')).toBe('Devolución #888');
+        expect(getTransactionTitle({ type: 'SALE', status: 'PARTIALLY_REFUNDED', dte_folio: '889' }, 'id-4')).toBe('Venta (Dev. Parcial) #889');
+    });
+
+    it('usa título de devolución para transacciones REFUND', () => {
+        expect(getTransactionTitle({ type: 'REFUND', dte_folio: 'REF-001' }, 'id-5')).toBe('Devolución #REF-001');
+    });
+
     it('parsea cantidad de forma segura', () => {
         expect(getSaleItemQuantity({ quantity: '4' })).toBe(4);
         expect(getSaleItemQuantity({ quantity: 0 })).toBe(0);

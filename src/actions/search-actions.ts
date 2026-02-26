@@ -68,3 +68,68 @@ export async function searchProductsSecure(term: string): Promise<{
         return { success: false, error: 'Error en búsqueda' };
     }
 }
+
+export interface ProductForEditResult {
+    batch_id: string;
+    sku: string;
+    name: string;
+    price: number;
+    stock: number;
+}
+
+/**
+ * 🔍 Busca productos por ubicación para usar en la edición de ventas.
+ * Retorna el batch_id específico de la sucursal para que el ajuste
+ * de inventario se aplique al lote correcto.
+ */
+export async function searchProductsForEditSecure(
+    term: string,
+    locationId: string,
+): Promise<{ success: boolean; data?: ProductForEditResult[]; error?: string }> {
+    const termValidation = SearchSchema.safeParse(term);
+    if (!termValidation.success) {
+        return { success: true, data: [] };
+    }
+
+    if (!locationId) {
+        return { success: false, error: 'Se requiere locationId' };
+    }
+
+    const searchTerm = termValidation.data.trim();
+    const searchPattern = `%${searchTerm}%`;
+
+    try {
+        const res = await pool.query(`
+            SELECT
+                ib.id          AS batch_id,
+                p.sku,
+                p.name,
+                COALESCE(ib.unit_price, p.price, 0) AS price,
+                ib.quantity_real                     AS stock
+            FROM inventory_batches ib
+            JOIN products p ON p.id = ib.product_id
+            WHERE ib.location_id = $1::uuid
+              AND (
+                  p.name ILIKE $2
+                  OR p.sku  ILIKE $2
+                  OR ib.barcode = $3
+              )
+            ORDER BY ib.quantity_real DESC, p.name ASC
+            LIMIT 15
+        `, [locationId, searchPattern, searchTerm]);
+
+        const data: ProductForEditResult[] = res.rows.map((row: any) => ({
+            batch_id: row.batch_id,
+            sku: row.sku,
+            name: row.name,
+            price: Number(row.price),
+            stock: Number(row.stock),
+        }));
+
+        return { success: true, data };
+
+    } catch (error: any) {
+        console.error('[SEARCH] Error searching products for edit:', error);
+        return { success: false, error: 'Error en búsqueda de productos' };
+    }
+}

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as authV2 from '@/actions/auth-v2';
 import * as dbModule from '@/lib/db';
+import * as bcrypt from 'bcryptjs';
 
 const { mockCookieStore } = vi.hoisted(() => ({
     mockCookieStore: {
@@ -18,6 +19,9 @@ vi.mock('@/lib/logger', () => ({
 }));
 vi.mock('@sentry/nextjs', () => ({
     captureException: vi.fn(),
+}));
+vi.mock('bcryptjs', () => ({
+    compare: vi.fn(async (plainText: string, hash: string) => hash === `hashed_${plainText}`),
 }));
 
 describe('Auth V2 - Typed error mapping', () => {
@@ -84,5 +88,72 @@ describe('Auth V2 - Typed error mapping', () => {
         if (!result.success) return;
         expect(result.user.id).toBe('user-1');
         expect(mockCookieStore.set).toHaveBeenCalled();
+    });
+
+    it('validateSupervisorPin acepta PIN hash', async () => {
+        vi.mocked(dbModule.query).mockResolvedValueOnce({
+            rows: [{
+                id: 'sup-1',
+                name: 'Supervisor',
+                role: 'MANAGER',
+                access_pin_hash: 'hashed_1234',
+                access_pin: null,
+            }],
+            rowCount: 1,
+            command: '',
+            oid: 0,
+            fields: []
+        });
+
+        const result = await authV2.validateSupervisorPin('1234');
+
+        expect(result.success).toBe(true);
+        if (!result.success) return;
+        expect(result.authorizedBy?.id).toBe('sup-1');
+        expect(vi.mocked(bcrypt.compare)).toHaveBeenCalledWith('1234', 'hashed_1234');
+    });
+
+    it('validateSupervisorPin acepta fallback legacy plaintext', async () => {
+        vi.mocked(dbModule.query).mockResolvedValueOnce({
+            rows: [{
+                id: 'sup-legacy',
+                name: 'Supervisor Legacy',
+                role: 'ADMIN',
+                access_pin_hash: null,
+                access_pin: '1213',
+            }],
+            rowCount: 1,
+            command: '',
+            oid: 0,
+            fields: []
+        });
+
+        const result = await authV2.validateSupervisorPin('1213');
+
+        expect(result.success).toBe(true);
+        if (!result.success) return;
+        expect(result.authorizedBy?.id).toBe('sup-legacy');
+    });
+
+    it('validateSupervisorPin rechaza PIN inválido', async () => {
+        vi.mocked(dbModule.query).mockResolvedValueOnce({
+            rows: [{
+                id: 'sup-1',
+                name: 'Supervisor',
+                role: 'MANAGER',
+                access_pin_hash: 'hashed_9999',
+                access_pin: null,
+            }],
+            rowCount: 1,
+            command: '',
+            oid: 0,
+            fields: []
+        });
+
+        const result = await authV2.validateSupervisorPin('1234');
+
+        expect(result.success).toBe(false);
+        if (result.success) return;
+        expect(result.error).toContain('PIN inválido');
     });
 });

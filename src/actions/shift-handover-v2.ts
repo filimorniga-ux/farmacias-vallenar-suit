@@ -85,6 +85,30 @@ const HANDOVER_ROLES = ['CASHIER', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL'] as con
 // HELPERS
 // =====================================================
 
+function toMoneyInt(value: unknown): number {
+    const parsed = typeof value === 'number' ? value : Number(value || 0);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.round(parsed);
+}
+
+async function getCashRefundsForSession(terminalId: string, sessionId: string): Promise<number> {
+    const refundsTableRes = await query(`
+        SELECT to_regclass('public.refunds') IS NOT NULL AS has_refunds
+    `);
+    if (!refundsTableRes.rows[0]?.has_refunds) return 0;
+
+    const refundsRes = await query(`
+        SELECT COALESCE(SUM(total_amount), 0) AS total
+        FROM refunds
+        WHERE terminal_id = $1::uuid
+          AND session_id = $2::uuid
+          AND status = 'COMPLETED'
+          AND refund_method = 'CASH'
+    `, [terminalId, sessionId]);
+
+    return toMoneyInt(refundsRes.rows[0]?.total || 0);
+}
+
 /**
  * Valida PIN de un usuario específico usando bcrypt
  */
@@ -269,7 +293,7 @@ export async function calculateHandoverSecure(
         }
 
         const session = sessionRes.rows[0];
-        const openingAmount = Number(session.opening_amount || 0);
+        const openingAmount = toMoneyInt(session.opening_amount || 0);
 
         // 3. Calcular ventas por método de pago
         const salesRes = await query(`
@@ -287,7 +311,7 @@ export async function calculateHandoverSecure(
         let cashSales = 0, cardSales = 0, transferSales = 0, otherSales = 0;
 
         for (const row of salesRes.rows) {
-            const amount = Number(row.total);
+            const amount = toMoneyInt(row.total);
             const pm = row.payment_method;
 
             if (pm === 'CASH') cashSales = amount;
@@ -296,6 +320,8 @@ export async function calculateHandoverSecure(
             else otherSales += amount;
         }
 
+        const cashRefunds = await getCashRefundsForSession(terminalId, session.id);
+        cashSales -= cashRefunds;
         const totalSales = cashSales + cardSales + transferSales + otherSales;
 
         // 4. Calcular movimientos de caja
@@ -309,8 +335,8 @@ export async function calculateHandoverSecure(
                 AND type NOT IN ('APERTURA', 'OPENING')
         `, [session.id]);
 
-        const cashIn = Number(movementsRes.rows[0]?.total_in || 0);
-        const cashOut = Number(movementsRes.rows[0]?.total_out || 0);
+        const cashIn = toMoneyInt(movementsRes.rows[0]?.total_in || 0);
+        const cashOut = toMoneyInt(movementsRes.rows[0]?.total_out || 0);
 
         // 5. Calcular esperado
         const expectedCash = openingAmount + cashSales + cashIn - cashOut;
