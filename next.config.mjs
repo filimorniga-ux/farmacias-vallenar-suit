@@ -2,6 +2,7 @@
 const nextConfig = {
     // Optimización para producción
     reactStrictMode: true,
+    output: 'standalone',
 
     // Variables de entorno expuestas al cliente
     env: {
@@ -20,10 +21,17 @@ const nextConfig = {
         serverActions: {
             bodySizeLimit: '5mb', // Increase limit for WYSIWYG content (Base64 images)
         },
+        instrumentationHook: true,
     },
 
     // Fix for Pino/ThreadStream bundling issues in Turbopack
     serverExternalPackages: ['pino', 'thread-stream', 'pino-pretty'],
+
+    // Fuera de Vercel conviene poder desactivar optimización de imágenes
+    // para bajar consumo de CPU/RAM en contenedor.
+    images: {
+        unoptimized: process.env.NEXT_IMAGE_UNOPTIMIZED === 'true',
+    },
 
     // Headers de seguridad
     async headers() {
