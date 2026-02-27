@@ -1,23 +1,18 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createRequire } from 'module';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const require = createRequire(import.meta.url);
 
-// Iniciamos el servidor standalone de Next.js
-// Esta es la ruta donde Next.js genera el servidor cuando output: 'standalone' está activo
-const standaloneServer = path.join(__dirname, '.next', 'standalone', 'server.js');
+// Establecemos la ruta al servidor standalone generado por Next.js
+const standaloneDir = path.join(__dirname, '.next', 'standalone');
+const serverPath = path.join(standaloneDir, 'server.js');
 
-console.log('--- Iniciando Servidor Standalone de Next.js ---');
-console.log('Ruta del servidor:', standaloneServer);
+console.log('--- Farmacias Vallenar Suit: Iniciando Servidor ---');
+console.log('Modo: Standalone (Optimizado)');
+console.log('Directorio:', standaloneDir);
 
-try {
-    // Importamos el servidor generado por Next.js
-    await import('./.next/standalone/server.js');
-} catch (error) {
-    console.error('ERROR: No se pudo encontrar el servidor standalone en .next/standalone/server.js');
-    console.error('Asegúrate de que "output: standalone" esté en next.config.mjs');
-    process.exit(1);
-}
+// Importamos y ejecutamos el servidor de Next.js
+// Cambiamos el directorio de trabajo para que Next.js encuentre .next/static y public
+process.chdir(standaloneDir);
+await import(serverPath);

@@ -11,9 +11,9 @@
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
-    "dev": "next dev --webpack",
-    "build": "next build --webpack",
-    "start": "next start",
+    "dev": "next dev",
+    "build": "next build && cp -r public .next/standalone/public && cp -r .next/static .next/standalone/.next/static",
+    "start": "node server.js",
     "lint": "eslint .",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
