@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
     // Permitir acceso en Staging (Preview) independiente de la variable de entorno
     const isPreview = process.env.VERCEL_ENV === 'preview';
     const isMaintenanceMode = process.env.MAINTENANCE_MODE === 'true' && !isPreview;

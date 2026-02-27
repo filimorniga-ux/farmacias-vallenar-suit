@@ -11,6 +11,7 @@
 Se ha inicializado exitosamente el repositorio `farmacias-vallenar-suit` con:
 
 ### ✅ **Stack Tecnológico Instalado**
+
 - ✅ Vite 7.2.4 con template React + TypeScript
 - ✅ Tailwind CSS v4 (configurado con @tailwindcss/postcss)
 - ✅ React Router v7.9.6
@@ -23,7 +24,7 @@ Se ha inicializado exitosamente el repositorio `farmacias-vallenar-suit` con:
 
 ### ✅ **Arquitectura Clean Architecture**
 
-```
+```text
 src/
 ├── domain/
 │   ├── models/
@@ -47,6 +48,7 @@ src/
 ```
 
 ### ✅ **Configuración**
+
 - ✅ `package.json` - name: "farmacias-vallenar-suit"
 - ✅ `tailwind.config.js` - content paths configurados
 - ✅ `postcss.config.js` - @tailwindcss/postcss
@@ -58,6 +60,7 @@ src/
 ## 🎯 FUNCIONALIDADES OPERATIVAS
 
 ### **1. Landing Page (Selector de Roles)**
+
 - Diseño premium con gradientes y glassmorphism
 - 4 tarjetas de acceso por rol:
   - 👨‍💼 Administración (MANAGER)
@@ -67,6 +70,7 @@ src/
 - Auto-login en modo demo
 
 ### **2. POS (Punto de Venta)**
+
 - Grid de productos con búsqueda en tiempo real
 - Carrito de compras con ajuste de cantidades
 - Control de stock en tiempo real
@@ -76,6 +80,7 @@ src/
 - Persistencia en Zustand
 
 ### **3. Inventario**
+
 - Tabla de lotes con trazabilidad
 - Búsqueda por nombre, SKU o lote
 - Visualización de vencimientos con alertas
@@ -84,6 +89,7 @@ src/
 - Formato de fecha localizado (date-fns)
 
 ### **4. Navegación (SidebarLayout)**
+
 - Menú lateral con íconos Lucide
 - RBAC (Role-Based Access Control)
 - Indicador de usuario actual
@@ -95,16 +101,19 @@ src/
 ## 💾 DATOS DE DEMOSTRACIÓN (SEED DATA)
 
 ### **Ubicación**
+
 - Farmacia Central Vallenar (RUT: 76.123.456-7)
 
 ### **Usuarios (3)**
-| Nombre | RUT | Usuario | PIN | Rol | Sueldo Base |
-|--------|-----|---------|-----|-----|-------------|
-| María González | 11.111.111-1 | admin | 1234 | MANAGER | $1.500.000 |
-| Pedro Rojas | 22.222.222-2 | cajero1 | 5678 | CASHIER | $800.000 |
-| Ana Martínez | 33.333.333-3 | bodega1 | 9012 | WAREHOUSE | $750.000 |
+
+| Nombre         | RUT          | Usuario  | PIN  | Rol       | Sueldo Base  |
+| :------------- | :----------- | :------- | :--- | :-------- | :----------- |
+| María González | 11.111.111-1 | admin    | 1234 | MANAGER   | $1.500.000   |
+| Pedro Rojas    | 22.222.222-2 | cajero1  | 5678 | CASHIER   | $800.000     |
+| Ana Martínez   | 33.333.333-3 | bodega1  | 9012 | WAREHOUSE | $750.000     |
 
 ### **Productos (7)**
+
 1. **Paracetamol 500mg** (MED-001) - Medicamento, Sin comisión
 2. **Ibuprofeno 400mg** (MED-002) - Medicamento, Sin comisión
 3. **Amoxicilina 500mg** (MED-003) - Medicamento, Receta simple
@@ -114,6 +123,7 @@ src/
 7. **Pañales Talla M** (MAT-001) - Maternidad, **CON comisión**
 
 ### **Inventario**
+
 - 7 lotes (uno por producto)
 - Stock aleatorio entre 20-120 unidades
 - Vencimientos a 1 año desde hoy
@@ -124,18 +134,21 @@ src/
 ## 🧪 LÓGICA DE NEGOCIO IMPLEMENTADA
 
 ### **1. Anti-Canela (compliance.ts)**
+
 ```typescript
 // Solo productos con allows_commission: true generan comisión
 // Excluye automáticamente medicamentos e insumos médicos
 ```
 
 ### **2. Clinical Agent (clinical.ts)**
+
 ```typescript
 // checkDrugInteractions: Valida interacciones farmacológicas
 // checkGeriatricRisk: Alertas para pacientes +65 años
 ```
 
 ### **3. FEFO (First Expired, First Out)**
+
 ```typescript
 // El POS descuenta del lote con vencimiento más próximo
 ```
@@ -145,6 +158,7 @@ src/
 ## 🚀 CÓMO CONTINUAR
 
 ### **Servidor de Desarrollo ACTIVO**
+
 ```bash
 # Ya está corriendo en http://localhost:5173
 npm run dev
@@ -153,23 +167,27 @@ npm run dev
 ### **Siguientes Módulos a Implementar**
 
 #### **Prioridad 1: Dashboard Gerencial**
+
 - KPIs de ventas del día
 - Gráficos de tendencias (recharts)
 - Alertas de stocks críticos
 - Próximos vencimientos
 
 #### **Prioridad 2: RR.HH.**
+
 - Reloj Control (Kiosco)
 - Ficha Digital de empleados
 - Cálculo de nómina chilena (Líquido)
 - Gestión de turnos
 
 #### **Prioridad 3: Analytics**
+
 - Reportes exportables (Excel/PDF)
 - Rentabilidad por categoría
 - ABC de productos
 
 #### **Prioridad 4: Seguridad**
+
 - Gestión de usuarios (CRUD)
 - Reset de PIN
 - Auditoría de accesos
@@ -197,7 +215,8 @@ npm run lint         # ESLint
 ## 🔍 VALIDACIONES REALIZADAS
 
 ### ✅ **Build Exitoso**
-```
+
+```text
 ✓ 2032 modules transformed
 dist/index.html                   0.47 kB │ gzip:  0.30 kB
 dist/assets/index-D98YYkj0.css   24.29 kB │ gzip:  5.19 kB
@@ -206,12 +225,14 @@ dist/assets/index-CMZ4a0oD.js   289.79 kB │ gzip: 90.59 kB
 ```
 
 ### ✅ **TypeScript Sin Errores**
+
 - Todos los imports tipo `import type` correctos
 - Interfaces estrictas
 - No hay errores de compilación
 
 ### ✅ **Servidor Dev Corriendo**
-```
+
+```text
 VITE v7.2.4  ready in 173 ms
 ➜  Local:   http://localhost:5173/
 ```
@@ -221,12 +242,14 @@ VITE v7.2.4  ready in 173 ms
 ## 🎨 DISEÑO UX/UI
 
 ### **Paleta de Colores**
+
 - **Primary:** Blue 600 → Teal 600 (gradientes)
 - **Background:** Slate 50 (light), Slate 900 (dark)
 - **Accent:** Teal 500, Orange 500 (alertas)
 - **Text:** Slate 800 (primary), Slate 400 (secondary)
 
 ### **Componentes Premium**
+
 - Glassmorphism en landing
 - Shadows con blur
 - Transiciones suaves (hover)
