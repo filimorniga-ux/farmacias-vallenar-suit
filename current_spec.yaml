@@ -1,0 +1,81 @@
+alerts:
+- rule: DEPLOYMENT_FAILED
+- rule: DOMAIN_FAILED
+domains:
+- domain: www.farmaciasvallenarsuit.cl
+  type: PRIMARY
+  zone: farmaciasvallenarsuit.cl
+- domain: staging.farmaciasvallenarsuit.cl
+  type: ALIAS
+  zone: farmaciasvallenarsuit.cl
+- domain: farmaciasvallenarsuit.cl
+  type: ALIAS
+  zone: farmaciasvallenarsuit.cl
+features:
+- buildpack-stack=ubuntu-22
+ingress:
+  rules:
+  - component:
+      name: farmacias-vallenar-suit
+    match:
+      authority: {}
+      path:
+        prefix: /
+name: farmacias-vallenar
+region: atl
+services:
+- environment_slug: node-js
+  envs:
+  - key: DATABASE_URL
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: EV[1:Oop1dBtzBo3dLAvdUYgg1Obr5Jj79rIZ:Z6U+/4Qu8PJfCzvgjPY7wCjsxlUfpnTWa721OZUcUEQaK+cvFcIGgA+jQgYE2QoAl82LFLdvr6mR2K1+ml5Z9sGRVLIKiU2qVaHLzP0eWcKqUI8wzmHFPrdWGyhyOzyqmezPM8pnQQ==]
+  - key: NODE_ENV
+    scope: RUN_AND_BUILD_TIME
+    value: production
+  - key: NEXT_PUBLIC_APP_URL
+    scope: RUN_AND_BUILD_TIME
+    value: https://www.farmaciasvallenarsuit.cl
+  - key: NEXT_PUBLIC_ENABLE_PWA
+    scope: RUN_AND_BUILD_TIME
+    value: "true"
+  - key: CONFIG_ENCRYPTION_KEY
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: EV[1:R19avP7gqLCjDixtNk59kBnynryAoVdM:Zh/6KSrCVdxs/Xli9xfZ2sBzvpTWdnXOQW9CJ0HSkum1/l2ZajdVtB1qsC0y+bm0aIqByoCfAGl49ZBe/BZXC27RMTqQbTzqACwHgWBRZws=]
+  - key: OPENAI_API_KEY
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: EV[1:tJH8aBgmjVe6rPA/sCWCHAh95CF0fFEx:XtzTis22hAaCZK9fmHOFqzBVgeZDF8t4MZ0O3McsmH39PqXzb9dKKk9v/H75+TnPIIAjDBaUcVX7437kFyncClqzbCRJl5iGPI+t6InUIotj8DeOv6x9g7abWxhrHPzrGEX+R89FdcTAePIP0R+ikzypS86JoNSwmYs+++D7TJyVqvGx19nJ6DxFXVnovxJoMQNbJdkA/nt2ZZ+T/dfzYtFkja2+MOump2vVtpNyeP3Vtr4=]
+  - key: SENTRY_DSN
+    scope: RUN_AND_BUILD_TIME
+    value: https://2fa7f3bacbbd3a389b2212a730debb9f@o4510737423269888.ingest.us.sentry.io/4510737442471936
+  - key: GH_TOKEN
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: EV[1:UCw0zyyAD5j8Ss3pYTfdfds7PZmY1F47:gFp3YFdgn7vv4dMs1GXCxdMjlF4mhPFZkvTwISEhBFO/ZJQI/q2dJTedkUvys5xumIu9ykELye0=]
+  - key: HOSTNAME
+    scope: RUN_AND_BUILD_TIME
+    value: 0.0.0.0
+  - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+    scope: RUN_AND_BUILD_TIME
+    value: sb_publishable_HyMs1WS-YJsR9JzfGr6VpQ_m2gGE7bT
+  - key: NEXT_PUBLIC_SUPABASE_URL
+    scope: RUN_AND_BUILD_TIME
+    value: https://pabkzseajdmotiuhfkhp.supabase.co
+  - key: NEXT_IMAGE_UNOPTIMIZED
+    scope: RUN_AND_BUILD_TIME
+    value: "true"
+  - key: ADMIN_ACTION_PIN
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: EV[1:nzTlXGKStOVPyQfwsXBpfWaHA3nfH3jN:JRsmyxVsJVGVnZxx9idKDCS32BM=]
+  github:
+    branch: main
+    repo: filimorniga-ux/farmacias-vallenar-suit
+  http_port: 3000
+  instance_count: 1
+  instance_size_slug: apps-s-1vcpu-1gb
+  name: farmacias-vallenar-suit
+  run_command: node server.js
+  source_dir: /

@@ -81,8 +81,10 @@ El sistema ha logrado una estabilidad crítica en el **Consultor Público**, res
 - **Total estimado:** 60 horas restantes
 - **Foco:** Módulo Financiero y DTE
 
-### Infraestructura
-- Sin cambios significativos.
+### Infraestructura y Despliegue
+- ✅ **Agnóstico de Plataforma**: Preparado para Vercel y DigitalOcean (Docker).
+- ✅ **Optimización de Costos**: Capacidad de mover cargas de alto volumen (sucursales físicas) a DigitalOcean App Platform para evitar costos por "asiento" de Vercel.
+- ✅ **Containerización**: Dockerfile multi-stage optimizado para Next.js 15.
 
 ---
 

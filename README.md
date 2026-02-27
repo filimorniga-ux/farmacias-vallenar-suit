@@ -58,11 +58,23 @@ npm install
 # Modo desarrollo
 npm run dev
 
-# Build producción
-npm run build
-
 # Preview producción
 npm run start
+```
+
+### **Despliegue Híbrido (Vercel & DigitalOcean)**
+
+El proyecto está diseñado para ser **Agnóstico de Plataforma**:
+
+- **Vercel**: Ideal para desarrollo, CI/CD de ramas y despliegues rápidos.
+- **DigitalOcean App Platform (Docker)**: Recomendado para producción de alto volumen (sucursales físicas) para optimizar costos de ancho de banda y usuarios.
+
+```bash
+# Construir imagen Docker localmente (Simulación DO)
+docker build -t farmacia-vallenar-suit .
+
+# Ejecutar contenedor
+docker run -p 3000:3000 farmacia-vallenar-suit
 ```
 
 ### **Ejecutar Tests**
@@ -244,6 +256,7 @@ npm run dev
 | `INFORME_EJECUTIVO_ARQUITECTURA.md` | Arquitectura de datos y pipelines |
 | `MANUAL_DE_USUARIO.md` | Guía paso a paso para operadores |
 | `PROJECT_BIBLE.md` | Decisiones de arquitectura y convenciones |
+| `digitalocean-staging.md` | Guía de despliegue containerizado en DigitalOcean ([docs/deploy/digitalocean-staging.md](docs/deploy/digitalocean-staging.md)) |
 
 ---
 

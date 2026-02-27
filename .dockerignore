@@ -1,0 +1,36 @@
+# VCS
+.git
+.gitignore
+.github
+
+# Build artifacts
+.next
+out
+dist
+coverage
+playwright-report
+test-results
+
+# Dependencies
+node_modules
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Environment and local-only files
+.env
+.env.local
+.env.*.local
+.vercel
+
+# Editor / OS
+.vscode
+.idea
+.DS_Store
+
+# Misc project-local temp
+.agent/tmp
