@@ -330,10 +330,10 @@ autoUpdater.on('update-downloaded', () => {
     });
 });
 
-app.whenReady().then(() => {
-    // Initialize offline database
-    offlineDB.getDB();
-    log.info('[Main] Offline database initialized');
+app.whenReady().then(async () => {
+    // Initialize offline database (sql.js is async)
+    await offlineDB.initDB();
+    log.info('[Main] Offline database initialized (sql.js)');
 
     const win = createWindow();
 

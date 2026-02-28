@@ -66,17 +66,18 @@ async function createBackup() {
         const backupDir = getBackupDir();
         const backupPath = path.join(backupDir, filename);
 
-        // VACUUM INTO creates an atomic, consistent copy
-        db.exec(`VACUUM INTO '${backupPath.replace(/'/g, "''")}'`);
+        // sql.js: export DB as Uint8Array and write to disk
+        const data = db.export();
+        const buffer = Buffer.from(data);
+        fs.writeFileSync(backupPath, buffer);
 
-        const stats = fs.statSync(backupPath);
-        const sizeMB = (stats.size / (1024 * 1024)).toFixed(2);
+        const sizeMB = (buffer.length / (1024 * 1024)).toFixed(2);
 
         // Log the backup in the database
         offlineDB.rawExec(
             `INSERT INTO backup_log (filename, size_bytes, tables_included, created_at)
              VALUES (?, ?, ?, datetime('now', 'localtime'))`,
-            [filename, stats.size, JSON.stringify(['sales', 'inventory_batches', 'cash_sessions', 'wms_movements', 'products'])]
+            [filename, buffer.length, JSON.stringify(['sales', 'inventory_batches', 'cash_sessions', 'wms_movements', 'products'])]
         );
 
         log.info(`[Backup] ✅ Created: ${filename} (${sizeMB} MB)`);
@@ -85,7 +86,7 @@ async function createBackup() {
         await rotateBackups();
         await compressOldBackups();
 
-        return { filename, size: stats.size, path: backupPath };
+        return { filename, size: buffer.length, path: backupPath };
     } catch (err) {
         log.error('[Backup] ❌ Failed to create backup:', err);
         return null;
@@ -176,12 +177,12 @@ async function restoreFromBackup(filename) {
     // Close current DB
     offlineDB.closeDB();
 
-    // Replace current DB with backup
+    // Replace current DB file with backup
     const currentDBPath = offlineDB.getDBPath();
     fs.copyFileSync(backupPath, currentDBPath);
 
-    // Reopen DB
-    offlineDB.getDB();
+    // Reopen DB (sql.js async init)
+    await offlineDB.initDB();
 
     log.info(`[Backup] ♻️ Restored from: ${filename}`);
 
