@@ -652,6 +652,15 @@ export const usePharmaStore = create<PharmaState>()(
                                 }).catch(e => console.warn('[Offline Mirror] Non-critical error:', e));
                             }).catch(() => { /* Not in Electron */ });
 
+                            // Mirror secondary data (attendance, configs) to SQLite
+                            import('../../lib/offline/OfflineInterceptorSecondary').then(({ mirrorSecondaryToSQLite }) => {
+                                mirrorSecondaryToSQLite({
+                                    attendanceLogs: get().attendanceLogs,
+                                    printerConfig: get().printerConfig as unknown as Record<string, unknown>,
+                                    loyaltyConfig: get().loyaltyConfig as unknown as Record<string, unknown>,
+                                }).catch(e => console.warn('[Offline Mirror Secondary] Non-critical error:', e));
+                            }).catch(() => { /* Not in Electron */ });
+
                         } catch (bgError) {
                             console.error('❌ Background Sync Failed:', bgError);
                         }
