@@ -21,6 +21,15 @@ function formatTimeSantiago(isoString: string): string {
     }).format(new Date(isoString));
 }
 
+function toChileDateKey(value: Date | string): string {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: TIMEZONE,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(new Date(value));
+}
+
 interface MonthlyGridProps {
     currentDate: Date;
     shifts: any[];
@@ -45,16 +54,15 @@ export function MonthlyGrid({ currentDate, shifts, timeOffs }: MonthlyGridProps)
     }
 
     const getDayContent = (day: Date) => {
-        const dateStr = format(day, 'yyyy-MM-dd');
+        const dateStr = toChileDateKey(day);
 
-        // Filter shifts safely (handle both Date objects and ISO strings)
+        // Filter shifts in Chile timezone key to avoid UTC day drift
         const dayShifts = shifts.filter(s => {
-            const startAt = typeof s.start_at === 'string' ? s.start_at : new Date(s.start_at).toISOString();
-            return startAt.startsWith(dateStr);
+            return toChileDateKey(s.start_at) === dateStr;
         });
 
         const dayTimeOffs = timeOffs.filter(t =>
-            new Date(t.start_date) <= day && new Date(t.end_date) >= day
+            String(t.start_date) <= dateStr && String(t.end_date) >= dateStr
         );
 
         return { dayShifts, dayTimeOffs };

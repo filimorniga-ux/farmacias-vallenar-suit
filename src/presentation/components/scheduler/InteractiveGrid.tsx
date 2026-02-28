@@ -8,6 +8,15 @@ import { es } from 'date-fns/locale';
 
 const TIMEZONE = 'America/Santiago';
 
+function toChileDateKey(value: Date | string): string {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: TIMEZONE,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(new Date(value));
+}
+
 interface GridCellProps {
     day: string;
     userId: string;
@@ -77,20 +86,19 @@ export function InteractiveGrid({ weekStart, staff, shifts, timeOffs, hoursSumma
     });
 
     const getShiftsForCell = (userId: string, date: Date) => {
-        const dateStr = format(date, 'yyyy-MM-dd');
+        const dateStr = toChileDateKey(date);
         return shifts.filter(s => {
-            const shiftDate = new Date(s.start_at);
-            const shiftDateStr = format(shiftDate, 'yyyy-MM-dd');
+            const shiftDateStr = toChileDateKey(s.start_at);
             return s.user_id === userId && shiftDateStr === dateStr;
         });
     };
 
     const getTimeOff = (userId: string, date: Date) => {
-        const dateTime = date.getTime();
+        const dateStr = toChileDateKey(date);
         return timeOffs.find(t =>
             t.user_id === userId &&
-            new Date(t.start_date).getTime() <= dateTime &&
-            new Date(t.end_date).getTime() >= dateTime
+            String(t.start_date) <= dateStr &&
+            String(t.end_date) >= dateStr
         );
     };
 

@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { createShiftTemplate, deleteShiftTemplate } from '@/actions/scheduler-v2';
 import { toast } from 'sonner';
 import { Loader2, Trash2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 interface TemplateManagerModalProps {
     isOpen: boolean;
@@ -17,6 +18,7 @@ interface TemplateManagerModalProps {
 
 export function TemplateManagerModal({ isOpen, onClose, templates }: TemplateManagerModalProps) {
     const [isPending, startTransition] = useTransition();
+    const router = useRouter();
 
     // Form State
     const [name, setName] = useState('');
@@ -46,6 +48,7 @@ export function TemplateManagerModal({ isOpen, onClose, templates }: TemplateMan
 
             if (res.success) {
                 toast.success('Plantilla creada');
+                router.refresh();
                 // Reset form
                 setName('');
                 setBreakMinutes(0);
@@ -65,6 +68,7 @@ export function TemplateManagerModal({ isOpen, onClose, templates }: TemplateMan
             const res = await deleteShiftTemplate(id);
             if (res.success) {
                 toast.success('Plantilla eliminada');
+                router.refresh();
             } else {
                 toast.error('Error al eliminar');
             }
