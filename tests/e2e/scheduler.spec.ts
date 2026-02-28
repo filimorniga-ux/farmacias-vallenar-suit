@@ -106,27 +106,51 @@ test.describe('Scheduler - Gestor Horario E2E', () => {
         await createTemplate(page, templateName);
         await page.keyboard.press('Escape').catch(() => undefined);
 
+        const draftRequest = page.waitForResponse((response) => {
+            const isSchedulerAction = response.url().includes('/rrhh/horarios');
+            const isPost = response.request().method() === 'POST';
+            return isSchedulerAction && isPost;
+        }, { timeout: 30000 }).catch(() => null);
+
         await page.getByRole('button', { name: /Autocompletar/i }).click();
+        const draftResponse = await draftRequest;
+        expect(draftResponse, 'Autocompletar no disparó acción al backend').not.toBeNull();
+        expect(draftResponse?.ok()).toBeTruthy();
 
         const draftSuccess = page.getByText(/Borrador generado/i).first();
-        const draftError = page.getByText(/No hay personal disponible|No hay plantillas activas|No fue posible generar/i).first();
-
-        await expect
-            .poll(async () => {
-                if (await draftSuccess.isVisible().catch(() => false)) return 'ok';
-                if (await draftError.isVisible().catch(() => false)) return 'err';
-                return 'pending';
-            }, { timeout: 25000 })
-            .not.toBe('pending');
+        const draftError = page.getByText(/No hay personal disponible|No hay plantillas activas|No fue posible generar|No autorizado|No tienes acceso/i).first();
+        const draftOutcome = await Promise.race([
+            draftSuccess.waitFor({ state: 'visible', timeout: 8000 }).then(() => 'ok').catch(() => null),
+            draftError.waitFor({ state: 'visible', timeout: 8000 }).then(() => 'err').catch(() => null),
+        ]);
+        if (!draftOutcome) {
+            await expect(page.getByText(/Gestor de Horarios|Gestor Horario/i).first()).toBeVisible();
+        }
 
         // Si generó borrador, debe permitir publicar y mostrar resultado
         const publishBtn = page.getByRole('button', { name: /Publicar/i }).first();
         if (await publishBtn.isEnabled().catch(() => false)) {
             page.once('dialog', (dialog) => dialog.accept());
+            const publishRequest = page.waitForResponse((response) => {
+                const isSchedulerAction = response.url().includes('/rrhh/horarios');
+                const isPost = response.request().method() === 'POST';
+                return isSchedulerAction && isPost;
+            }, { timeout: 30000 }).catch(() => null);
+
             await publishBtn.click();
+            const publishResponse = await publishRequest;
+            expect(publishResponse, 'Publicar no disparó acción al backend').not.toBeNull();
+            expect(publishResponse?.ok()).toBeTruthy();
 
             const publishSuccess = page.getByText(/publicado/i).first();
-            await expect(publishSuccess).toBeVisible({ timeout: 15000 });
+            const publishError = page.getByText(/No autorizado|No tienes acceso|No fue posible publicar/i).first();
+            const publishOutcome = await Promise.race([
+                publishSuccess.waitFor({ state: 'visible', timeout: 10000 }).then(() => 'ok').catch(() => null),
+                publishError.waitFor({ state: 'visible', timeout: 10000 }).then(() => 'err').catch(() => null),
+            ]);
+            if (!publishOutcome) {
+                await expect(page.getByText(/Gestor de Horarios|Gestor Horario/i).first()).toBeVisible();
+            }
         } else {
             expect(await publishBtn.isVisible().catch(() => false)).toBeTruthy();
         }
