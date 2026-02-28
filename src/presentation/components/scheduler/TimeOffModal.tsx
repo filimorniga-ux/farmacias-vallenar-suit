@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { upsertTimeOffRequest } from '@/actions/scheduler-v2';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 interface TimeOffModalProps {
     isOpen: boolean;
@@ -18,6 +19,7 @@ interface TimeOffModalProps {
 
 export function TimeOffModal({ isOpen, onClose, users }: TimeOffModalProps) {
     const [isPending, startTransition] = useTransition();
+    const router = useRouter();
 
     const [userId, setUserId] = useState('');
     const [type, setType] = useState('VACATION');
@@ -42,8 +44,12 @@ export function TimeOffModal({ isOpen, onClose, users }: TimeOffModalProps) {
 
             if (res.success) {
                 toast.success('Ausencia registrada');
+                router.refresh();
                 onClose();
-                // Reset form slightly
+                setUserId('');
+                setType('VACATION');
+                setStartDate('');
+                setEndDate('');
                 setNotes('');
             } else {
                 toast.error(res.error || 'Error al registrar ausencia');

@@ -121,18 +121,26 @@ export function SchedulerContainer({
                     endISO = toSantiagoISO(format(nextDay, 'yyyy-MM-dd'), template.end_time.slice(0, 5));
                 }
 
-                toast.promise(upsertShiftV2({
-                    userId,
-                    locationId,
-                    startAt: startISO,
-                    endAt: endISO,
-                    assignedBy: undefined,
-                    notes: `Asignado desde ${template.name}`
-                }), {
+                toast.promise(
+                    upsertShiftV2({
+                        userId,
+                        locationId,
+                        startAt: startISO,
+                        endAt: endISO,
+                        assignedBy: undefined,
+                        notes: `Asignado desde ${template.name}`,
+                        status: 'draft',
+                    }).then((res) => {
+                        if (!res.success) throw new Error(res.error || 'No fue posible crear el turno');
+                        router.refresh();
+                        return res;
+                    }),
+                    {
                     loading: 'Creando turno...',
                     success: 'Turno creado',
                     error: 'Error al crear turno'
-                });
+                    }
+                );
 
             } else if (draggedData.type === 'SHIFT') {
                 const shift = draggedData.shift;
@@ -155,17 +163,24 @@ export function SchedulerContainer({
                     return;
                 }
 
-                toast.promise(upsertShiftV2({
-                    id: shift.id,
-                    userId,
-                    locationId,
-                    startAt: newStartISO,
-                    endAt: newEnd.toISOString()
-                }), {
+                toast.promise(
+                    upsertShiftV2({
+                        id: shift.id,
+                        userId,
+                        locationId,
+                        startAt: newStartISO,
+                        endAt: newEnd.toISOString()
+                    }).then((res) => {
+                        if (!res.success) throw new Error(res.error || 'No fue posible mover el turno');
+                        router.refresh();
+                        return res;
+                    }),
+                    {
                     loading: 'Moviendo turno...',
                     success: 'Turno actualizado',
                     error: 'Error al mover turno'
-                });
+                    }
+                );
             }
         }
     };
@@ -174,9 +189,13 @@ export function SchedulerContainer({
         toast.promise(generateDraftScheduleV2({
             locationId,
             weekStart: format(weekStart, 'yyyy-MM-dd')
+        }).then((res) => {
+            if (!res.success) throw new Error(res.error || 'No fue posible generar el borrador');
+            router.refresh();
+            return res;
         }), {
             loading: 'Generando borrador...',
-            success: (data) => `Borrador generado: ${data.count} turnos`,
+            success: (data) => `Borrador generado: ${data.count ?? 0} turnos`,
             error: 'Error al generar borrador'
         });
     };
@@ -188,17 +207,25 @@ export function SchedulerContainer({
         }
         if (!confirm(`¿Publicar ${draftCount} turno(s) en borrador?`)) return;
 
-        toast.promise(publishScheduleV2(locationId, format(weekStart, 'yyyy-MM-dd')), {
+        toast.promise(publishScheduleV2(locationId, format(weekStart, 'yyyy-MM-dd')).then((res) => {
+            if (!res.success) throw new Error(res.error || 'No fue posible publicar');
+            router.refresh();
+            return res;
+        }), {
             loading: 'Publicando horario...',
-            success: (data) => `${data.count} turno(s) publicado(s)`,
+            success: (data) => `${data.count ?? 0} turno(s) publicado(s)`,
             error: 'Error al publicar'
         });
     };
 
     const handleCopyPrevWeek = async () => {
-        toast.promise(copyPreviousWeek(locationId, format(weekStart, 'yyyy-MM-dd')), {
+        toast.promise(copyPreviousWeek(locationId, format(weekStart, 'yyyy-MM-dd')).then((res) => {
+            if (!res.success) throw new Error(res.error || 'No fue posible copiar la semana');
+            router.refresh();
+            return res;
+        }), {
             loading: 'Copiando semana anterior...',
-            success: (data) => `${data.count} turnos copiados como borrador`,
+            success: (data) => `${data.count ?? 0} turnos copiados como borrador`,
             error: (err) => err?.message || 'Error al copiar'
         });
     };

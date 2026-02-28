@@ -3,6 +3,11 @@ const path = require('path');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
 
+// Offline-First Services
+const offlineDB = require('./offlineDB.cjs');
+const syncService = require('./syncService.cjs');
+const backupService = require('./backupService.cjs');
+
 // ---------------------------------------------------------
 // LOGGING CONFIGURATION
 // ---------------------------------------------------------
@@ -77,7 +82,7 @@ function createWindow() {
     });
 
     // URL CONFIGURATION
-    const startUrl = isDev ? 'http://localhost:3000' : 'https://farmaciasvallenar.vercel.app';
+    const startUrl = isDev ? 'http://localhost:3000' : 'https://www.farmaciasvallenarsuit.cl';
     log.info('Loading URL:', startUrl);
 
     // Handle loading errors with retry logic
@@ -145,6 +150,8 @@ function createWindow() {
     globalShortcut.register('CommandOrControl+Shift+I', () => {
         win.webContents.toggleDevTools();
     });
+
+    return win;
 }
 
 // ---------------------------------------------------------
@@ -235,6 +242,78 @@ ipcMain.handle('get-price-audit-status', () => {
 });
 
 // ---------------------------------------------------------
+// OFFLINE DATABASE IPC HANDLERS
+// ---------------------------------------------------------
+
+// Generic DB operations
+ipcMain.handle('offline-db-get-all', (event, { table, where, orderBy }) => {
+    return offlineDB.getAll(table, where || {}, orderBy);
+});
+
+ipcMain.handle('offline-db-get-by-id', (event, { table, id }) => {
+    return offlineDB.getById(table, id);
+});
+
+ipcMain.handle('offline-db-upsert', (event, { table, data }) => {
+    return offlineDB.upsert(table, data);
+});
+
+ipcMain.handle('offline-db-upsert-many', (event, { table, rows }) => {
+    offlineDB.upsertMany(table, rows);
+    return { success: true, count: rows.length };
+});
+
+ipcMain.handle('offline-db-delete', (event, { table, id }) => {
+    return offlineDB.deleteById(table, id);
+});
+
+ipcMain.handle('offline-db-count', (event, { table, where }) => {
+    return offlineDB.count(table, where || {});
+});
+
+ipcMain.handle('offline-db-query', (event, { sql, params }) => {
+    return offlineDB.rawQuery(sql, params || []);
+});
+
+// Sync queue operations
+ipcMain.handle('offline-db-enqueue-sync', (event, { table, operation, recordId, payload }) => {
+    offlineDB.enqueueSync(table, operation, recordId, payload);
+    return { success: true };
+});
+
+ipcMain.handle('offline-db-get-sync-status', () => {
+    return syncService.getStatus();
+});
+
+ipcMain.handle('offline-db-force-sync', async () => {
+    await syncService.processQueue();
+    return syncService.getStatus();
+});
+
+// Backup operations
+ipcMain.handle('backup-create', async () => {
+    return await backupService.createBackup();
+});
+
+ipcMain.handle('backup-list', () => {
+    return backupService.listBackups();
+});
+
+ipcMain.handle('backup-restore', async (event, { filename }) => {
+    await backupService.restoreFromBackup(filename);
+    return { success: true };
+});
+
+ipcMain.handle('backup-get-dir', () => {
+    return backupService.getBackupDir();
+});
+
+// Handle pulled data from renderer (sync pull response)
+ipcMain.on('sync-pull-response', (event, { table, rows }) => {
+    syncService.handlePulledData(table, rows);
+});
+
+// ---------------------------------------------------------
 // AUTO-UPDATER EVENTS
 // ---------------------------------------------------------
 autoUpdater.on('update-available', () => {
@@ -252,7 +331,20 @@ autoUpdater.on('update-downloaded', () => {
 });
 
 app.whenReady().then(() => {
-    createWindow();
+    // Initialize offline database
+    offlineDB.getDB();
+    log.info('[Main] Offline database initialized');
+
+    const win = createWindow();
+
+    // Start offline services after window is ready
+    if (win) {
+        win.webContents.on('did-finish-load', () => {
+            syncService.start(win);
+            backupService.start();
+            log.info('[Main] Offline services started (sync + backup)');
+        });
+    }
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
@@ -268,6 +360,11 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+    // Stop offline services
+    syncService.stop();
+    backupService.stop();
+    offlineDB.closeDB();
+    log.info('[Main] Offline services stopped');
     // Unregister shortcuts
     globalShortcut.unregisterAll();
 });
