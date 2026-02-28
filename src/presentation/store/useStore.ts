@@ -640,6 +640,18 @@ export const usePharmaStore = create<PharmaState>()(
                             set({ isInitialized: true, isLoadingLocations: false });
                             console.log('✅ Background Sync Complete (Serialized)');
 
+                            // Mirror data to SQLite for offline usage (Electron only)
+                            import('../../lib/offline/OfflineInterceptor').then(({ mirrorStoreToSQLite }) => {
+                                mirrorStoreToSQLite({
+                                    employees,
+                                    locations: get().locations,
+                                    inventory,
+                                    customers: get().customers,
+                                    suppliers: get().suppliers,
+                                    salesHistory: get().salesHistory,
+                                }).catch(e => console.warn('[Offline Mirror] Non-critical error:', e));
+                            }).catch(() => { /* Not in Electron */ });
+
                         } catch (bgError) {
                             console.error('❌ Background Sync Failed:', bgError);
                         }
@@ -647,6 +659,26 @@ export const usePharmaStore = create<PharmaState>()(
 
                 } catch (error) {
                     console.error('❌ Sync failed:', error);
+
+                    // Electron: Try to load from local SQLite as fallback
+                    try {
+                        const { loadFromSQLite } = await import('../../lib/offline/OfflineInterceptor');
+                        const localData = await loadFromSQLite();
+                        if (localData && (localData.users.length > 0 || localData.products.length > 0)) {
+                            console.log('📦 Loading from SQLite offline cache...');
+                            set({
+                                employees: localData.users as any,
+                                locations: localData.locations as any,
+                                inventory: localData.inventory as any,
+                                customers: localData.clients as any,
+                                isLoading: false,
+                                isInitialized: true,
+                            });
+                            import('sonner').then(({ toast }) => toast.warning('Modo Offline', { description: 'Usando datos locales. Se sincronizará al conectar.' }));
+                            return;
+                        }
+                    } catch (_) { /* Not in Electron or SQLite empty */ }
+
                     import('sonner').then(({ toast }) => toast.error('Error de Sincronización', { description: 'Usando datos locales.' }));
                     set({ isLoading: false }); // Ensure unblock on error
                 }
