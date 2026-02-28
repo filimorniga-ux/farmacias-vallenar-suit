@@ -337,8 +337,12 @@ export const usePharmaStore = create<PharmaState>()(
                     });
                 }
 
-                // Producción: bloquear fallback offline cuando hay error de datos/infra
-                if (!allowOfflineFallback && !authenticatedUser && serverFailure?.code?.startsWith('DB_')) {
+                // Producción: bloquear fallback offline SOLO si NO estamos en Electron
+                // En Electron, siempre permitir offline porque el usuario puede estar sin internet
+                const isElectron = typeof window !== 'undefined' && 'electronAPI' in window && (window as any).electronAPI?.isElectron;
+                const allowOfflineLogin = allowOfflineFallback || isElectron;
+
+                if (!allowOfflineLogin && !authenticatedUser && serverFailure?.code?.startsWith('DB_')) {
                     return {
                         success: false,
                         error: serverFailure.userMessage,
@@ -348,21 +352,53 @@ export const usePharmaStore = create<PharmaState>()(
                     };
                 }
 
-                // 2. Offline Fallback
-                if (!authenticatedUser && allowOfflineFallback) {
+                // 2. Offline Fallback (Store in-memory + SQLite)
+                if (!authenticatedUser && allowOfflineLogin) {
+                    // 2a. Try in-memory store first (fastest)
                     const { employees } = get();
-                    // Hash del PIN input para comparar con lo almacenado (si fue persistido hash)
                     const hashedPin = typeof window !== 'undefined' ? window.btoa(pin).split('').reverse().join('') : pin;
-
-                    const offlineUser = employees.find(e =>
+                    let offlineUser = employees.find(e =>
                         e.id === userId && (e.access_pin === pin || e.access_pin === hashedPin)
                     );
+
+                    // 2b. If not in memory, try SQLite (Electron only)
+                    if (!offlineUser && isElectron) {
+                        try {
+                            const api = (window as any).electronAPI;
+                            const sqliteUser = await api.offlineDB.getById('users', userId);
+                            if (sqliteUser) {
+                                // Verify PIN: check plain, hashed, or bcrypt
+                                const pinMatch =
+                                    sqliteUser.pin_hash === pin ||
+                                    sqliteUser.pin_hash === hashedPin;
+
+                                if (pinMatch && sqliteUser.is_active) {
+                                    // Map SQLite user to EmployeeProfile shape
+                                    offlineUser = {
+                                        id: sqliteUser.id,
+                                        name: sqliteUser.name,
+                                        rut: sqliteUser.rut || '',
+                                        email: sqliteUser.email || '',
+                                        role: sqliteUser.role || 'vendedor',
+                                        access_pin: sqliteUser.pin_hash,
+                                        assigned_location_id: sqliteUser.location_id || '',
+                                        is_active: true,
+                                        permissions: sqliteUser.permissions ? JSON.parse(sqliteUser.permissions) : {},
+                                    } as unknown as EmployeeProfile;
+                                }
+                            }
+                        } catch (sqlErr) {
+                            console.warn('[Login] SQLite lookup failed:', sqlErr);
+                        }
+                    }
 
                     if (offlineUser) {
                         authenticatedUser = offlineUser;
                         import('sonner').then(({ toast }) => {
                             toast.warning('⚠️ Modo Offline Activado', {
-                                description: 'Iniciando sesión con credenciales locales.',
+                                description: isElectron
+                                    ? 'Sesión local. Los datos se sincronizarán al conectar.'
+                                    : 'Iniciando sesión con credenciales locales.',
                                 duration: 4000,
                             });
                         });
@@ -414,7 +450,28 @@ export const usePharmaStore = create<PharmaState>()(
                                     }
                                 }
                             } catch (e) {
-                                console.error('Failed to auto-set location context:', e);
+                                console.warn('Failed to auto-set location context online:', e);
+                                // Electron offline fallback: try SQLite or localStorage
+                                if (isElectron) {
+                                    try {
+                                        const api = (window as any).electronAPI;
+                                        const sqliteLoc = await api.offlineDB.getById('locations', authenticatedUser!.assigned_location_id);
+                                        if (sqliteLoc) {
+                                            console.log(`📍 [Offline] Setting location from SQLite: ${sqliteLoc.name}`);
+                                            set({
+                                                currentLocationId: sqliteLoc.id,
+                                                currentWarehouseId: '',
+                                                currentTerminalId: ''
+                                            });
+                                        }
+                                    } catch (_) {
+                                        // Last resort: use assigned_location_id directly
+                                        const savedLocId = authenticatedUser!.assigned_location_id;
+                                        if (savedLocId) {
+                                            set({ currentLocationId: savedLocId, currentWarehouseId: '', currentTerminalId: '' });
+                                        }
+                                    }
+                                }
                             }
                         })();
                     }
