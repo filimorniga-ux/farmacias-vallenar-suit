@@ -166,8 +166,12 @@ export class PrinterService {
         // Trigger print
         window.print();
 
-        // Cleanup (Optional, maybe keep it for debugging or rapid re-print)
-        // printArea.remove(); 
+        // Cleanup: remove the print area immediately so it doesn't linger or block the UI
+        setTimeout(() => {
+            if (printArea) {
+                printArea.remove();
+            }
+        }, 100);
     }
 
     static printTestTicket(config: HardwareConfig) {
@@ -253,7 +257,11 @@ export class PrinterService {
 
         window.print();
 
-        // Cleanup styles after print to not mess up normal printing?
+        setTimeout(() => {
+            if (printArea) {
+                printArea.remove();
+            }
+        }, 100);
         // Ideally we should manage style injection better.
         // For now, reload or re-inject standard styles might be needed if user switches between ticket and label.
         // But usually they are distinct actions.
@@ -359,5 +367,11 @@ export class PrinterService {
         `;
 
         window.print();
+
+        setTimeout(() => {
+            if (printArea) {
+                printArea.remove();
+            }
+        }, 100);
     }
 }
