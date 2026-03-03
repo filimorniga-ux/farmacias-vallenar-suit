@@ -41,17 +41,17 @@ const simulateNetworkCall = async <T>(
         setTimeout(() => {
             // Simulate random network failures
             if (Math.random() < SIMULATE_FAILURE_RATE) {
-                console.error(`❌ [Tiger Data] ${operationName} failed (simulated network error)`);
+                // console.error(`❌ [Tiger Data] ${operationName} failed (simulated network error)`);
                 reject(new Error(`Network error: ${operationName} failed`));
                 return;
             }
 
             try {
                 const result = operation();
-                console.log(`✅ [Tiger Data] ${operationName} successful`);
+                // console.log(`✅ [Tiger Data] ${operationName} successful`);
                 resolve(result);
             } catch (error) {
-                console.error(`❌ [Tiger Data] ${operationName} error:`, error);
+                // console.error(`❌ [Tiger Data] ${operationName} error:`, error);
                 reject(error);
             }
         }, SIMULATE_NETWORK_DELAY);
@@ -124,7 +124,7 @@ export const TigerDataService = {
      */
     fetchInventory: async (locationId?: string): Promise<InventoryBatch[]> => {
         const normalizedLocationId = normalizeLocationId(locationId);
-        console.log('🐯 [Tiger Data] Fetching FULL inventory for location:', normalizedLocationId || 'ALL');
+        // console.log('🐯 [Tiger Data] Fetching FULL inventory for location:', normalizedLocationId || 'ALL');
 
         if (!normalizedLocationId) return [];
 
@@ -134,12 +134,12 @@ export const TigerDataService = {
             const result = await getInventorySecure(normalizedLocationId, { pagination: false });
 
             if (result.success && result.data) {
-                console.log(`✅ [Tiger Data] Loaded ${result.data.length} items (FULL) from DB`);
+                // console.log(`✅ [Tiger Data] Loaded ${result.data.length} items (FULL) from DB`);
                 return result.data as InventoryBatch[];
             }
             return [];
         } catch (error) {
-            console.error('❌ [Tiger Data] Full Inventory Fetch failed:', error);
+            // console.error('❌ [Tiger Data] Full Inventory Fetch failed:', error);
             return [];
         }
     },
@@ -149,7 +149,7 @@ export const TigerDataService = {
      * Solo lotes con stock disponible para acelerar Transferencia/Despacho
      */
     fetchInventoryWMS: async (locationId?: string): Promise<InventoryBatch[]> => {
-        console.log('🐯 [Tiger Data] Fetching WMS inventory (lite) for location:', locationId);
+        // console.log('🐯 [Tiger Data] Fetching WMS inventory (lite) for location:', locationId);
 
         if (!locationId) return [];
 
@@ -158,12 +158,12 @@ export const TigerDataService = {
             const result = await getWMSInventorySecure(locationId);
 
             if (result.success && result.data) {
-                console.log(`✅ [Tiger Data] Loaded ${result.data.length} items (WMS lite) from DB`);
+                // console.log(`✅ [Tiger Data] Loaded ${result.data.length} items (WMS lite) from DB`);
                 return result.data as InventoryBatch[];
             }
             return [];
         } catch (error) {
-            console.error('❌ [Tiger Data] WMS Inventory Fetch failed:', error);
+            // console.error('❌ [Tiger Data] WMS Inventory Fetch failed:', error);
             return [];
         }
     },
@@ -182,7 +182,7 @@ export const TigerDataService = {
             incomplete?: boolean;
         }
     ): Promise<{ data: InventoryBatch[]; meta: { total: number; page: number; totalPages: number } }> => {
-        console.log('🐯 [Tiger Data] Fetching PAGED inventory:', params);
+        // console.log('🐯 [Tiger Data] Fetching PAGED inventory:', params);
 
         try {
             const { getInventorySecure } = await import('../../actions/inventory-v2');
@@ -196,7 +196,7 @@ export const TigerDataService = {
             }
             throw new Error(result.error || 'Failed to fetch paged inventory');
         } catch (error) {
-            console.error('❌ [Tiger Data] Paged Fetch failed:', error);
+            // console.error('❌ [Tiger Data] Paged Fetch failed:', error);
             // Don't swallow error, let React Query handle it (it will show error state in UI)
             throw new Error(error instanceof Error ? error.message : 'Failed to fetch inventory');
         }
@@ -206,17 +206,17 @@ export const TigerDataService = {
      * 1b. Fetch Customers
      */
     fetchCustomers: async (): Promise<any[]> => {
-        console.log('🐯 [Tiger Data] Fetching customers...');
+        // console.log('🐯 [Tiger Data] Fetching customers...');
         try {
             const { getCustomersSecure } = await import('../../actions/customers-v2');
             const result = await getCustomersSecure();
             if (result.success && result.data) {
-                console.log(`✅ [Tiger Data] Loaded ${result.data.customers.length} customers`);
+                // console.log(`✅ [Tiger Data] Loaded ${result.data.customers.length} customers`);
                 return result.data.customers;
             }
             return [];
         } catch (error) {
-            console.error('❌ [Tiger Data] Fetch Customers failed:', error);
+            // console.error('❌ [Tiger Data] Fetch Customers failed:', error);
             return [];
         }
     },
@@ -256,27 +256,27 @@ export const TigerDataService = {
             };
 
             // 🔍 DEBUG: Log all IDs for diagnosis
-            console.log('🔍 [Tiger Data] Sale params:', {
-                locationId: mappedParams.locationId,
-                terminalId: mappedParams.terminalId,
-                sessionId: mappedParams.sessionId,
-                userId: mappedParams.userId,
-                itemCount: mappedParams.items.length,
-                firstItemBatchId: mappedParams.items[0]?.batch_id,
-                paymentMethod: mappedParams.paymentMethod
-            });
+            // console.log('🔍 [Tiger Data] Sale params:', {
+            //     locationId: mappedParams.locationId,
+            //     terminalId: mappedParams.terminalId,
+            //     sessionId: mappedParams.sessionId,
+            //     userId: mappedParams.userId,
+            //     itemCount: mappedParams.items.length,
+            //     firstItemBatchId: mappedParams.items[0]?.batch_id,
+            //     paymentMethod: mappedParams.paymentMethod
+            // });
 
             const result = await createSaleSecure(mappedParams);
 
             if (result.success && result.saleId) {
-                console.log(`✅ [Tiger Data] Sale saved to DB: ${result.saleId}`);
+                // console.log(`✅ [Tiger Data] Sale saved to DB: ${result.saleId}`);
                 inMemoryStorage.sales.push(saleData);
                 return { success: true, transactionId: result.saleId as string };
             } else {
                 return { success: false, transactionId: '', error: result.error || 'Server action failed' };
             }
         } catch (error) {
-            console.error('❌ [Tiger Data] DB Save failed:', error);
+            // console.error('❌ [Tiger Data] DB Save failed:', error);
             return {
                 success: false,
                 transactionId: '',
@@ -295,13 +295,13 @@ export const TigerDataService = {
             const { createCashMovementSecure } = await import('../../actions/cash-v2');
             const result = await createCashMovementSecure(movement as any);
             if (result.success && result.movementId) {
-                console.log(`💵 [Tiger Data] Cash movement saved to DB: ${result.movementId}`);
+                // console.log(`💵 [Tiger Data] Cash movement saved to DB: ${result.movementId}`);
                 inMemoryStorage.cashMovements.push({ ...movement, id: result.movementId });
                 return { success: true, movementId: result.movementId };
             }
             throw new Error(result.error);
         } catch (error) {
-            console.error('❌ [Tiger Data] Cash Save failed:', error);
+            // console.error('❌ [Tiger Data] Cash Save failed:', error);
             return { success: false, movementId: '' };
         }
     },
@@ -317,13 +317,13 @@ export const TigerDataService = {
             // Note: createExpenseSecure requires PIN, use empty string for system operations
             const result = await createExpenseSecure(expense as any, '');
             if (result.success && result.expenseId) {
-                console.log(`📝 [Tiger Data] Expense saved to DB: ${result.expenseId}`);
+                // console.log(`📝 [Tiger Data] Expense saved to DB: ${result.expenseId}`);
                 inMemoryStorage.expenses.push({ ...expense, id: result.expenseId });
                 return { success: true, expenseId: result.expenseId };
             }
             throw new Error(result.error || 'Error guardando gasto');
         } catch (error) {
-            console.error('❌ [Tiger Data] Expense Save failed:', error);
+            // console.error('❌ [Tiger Data] Expense Save failed:', error);
             return { success: false, expenseId: '' };
         }
     },
@@ -336,13 +336,13 @@ export const TigerDataService = {
             const { getCashMovementsSecure } = await import('../../actions/cash-v2');
             const result = await getCashMovementsSecure(undefined, limit);
             if (result.success && result.data) {
-                console.log(`✅ [Tiger Data] Loaded ${result.data.length} cash movements`);
+                // console.log(`✅ [Tiger Data] Loaded ${result.data.length} cash movements`);
                 inMemoryStorage.cashMovements = result.data as any;
                 return result.data;
             }
             return [];
         } catch (error) {
-            console.error('❌ [Tiger Data] Fetch Cash failed:', error);
+            // console.error('❌ [Tiger Data] Fetch Cash failed:', error);
             return [];
         }
     },
@@ -357,7 +357,7 @@ export const TigerDataService = {
         sessionId?: string
     ): Promise<SaleTransaction[]> {
         const normalizedLocationId = normalizeLocationId(locationId);
-        console.log(`🐯 [Tiger Data] Fetching sales history... Loc:${normalizedLocationId || 'ALL'} Session:${sessionId}`);
+        // console.log(`🐯 [Tiger Data] Fetching sales history... Loc:${normalizedLocationId || 'ALL'} Session:${sessionId}`);
         try {
             const { getSalesHistory } = await import('../../actions/sales-v2');
 
@@ -374,13 +374,13 @@ export const TigerDataService = {
             });
 
             if (result.success && result.data) {
-                console.log(`✅ [Tiger Data] Loaded ${result.data.length} sales from DB`);
+                // console.log(`✅ [Tiger Data] Loaded ${result.data.length} sales from DB`);
                 inMemoryStorage.sales = result.data as any;
                 return result.data as any;
             }
             return [];
         } catch (error) {
-            console.error('❌ [Tiger Data] Fetch Sales failed:', error);
+            // console.error('❌ [Tiger Data] Fetch Sales failed:', error);
             return [];
         }
     },
@@ -391,7 +391,7 @@ export const TigerDataService = {
     fetchShipments: async (locationId?: string): Promise<any[]> => {
         const normalizedLocationId = normalizeLocationId(locationId);
 
-        console.log('🐯 [Tiger Data] Fetching shipments for location:', normalizedLocationId || 'ALL');
+        // console.log('🐯 [Tiger Data] Fetching shipments for location:', normalizedLocationId || 'ALL');
         try {
             const { getShipmentsSecure } = await import('../../actions/wms-v2');
             const result = await getShipmentsSecure({
@@ -401,26 +401,26 @@ export const TigerDataService = {
             });
 
             if (result.success && result.data && result.data.shipments.length > 0) {
-                console.log(`✅ [Tiger Data] Loaded ${result.data.shipments.length} shipments from DB`);
+                // console.log(`✅ [Tiger Data] Loaded ${result.data.shipments.length} shipments from DB`);
                 return result.data.shipments;
             }
 
             if (normalizedLocationId && result.success && result.data && result.data.shipments.length === 0) {
-                console.warn('⚠️ [Tiger Data] Sin resultados por ubicación, intentando vista corporativa de envíos...');
+                // console.warn('⚠️ [Tiger Data] Sin resultados por ubicación, intentando vista corporativa de envíos...');
                 const globalResult = await getShipmentsSecure({
                     page: 1,
                     pageSize: 100
                 });
 
                 if (globalResult.success && globalResult.data && globalResult.data.shipments.length > 0) {
-                    console.log(`⚠️ [Tiger Data] Loaded ${globalResult.data.shipments.length} shipments (global fallback)`);
+                    // console.log(`⚠️ [Tiger Data] Loaded ${globalResult.data.shipments.length} shipments (global fallback)`);
                     return globalResult.data.shipments;
                 }
             }
 
-            console.warn(`⚠️ [Tiger Data] Primary shipment fetch without resultados, activando fallback histórico: ${result.error || 'empty result'}`);
+            // console.warn(`⚠️ [Tiger Data] Primary shipment fetch without resultados, activando fallback histórico: ${result.error || 'empty result'}`);
         } catch (error) {
-            console.error('❌ [Tiger Data] Fetch Shipments failed:', error);
+            // console.error('❌ [Tiger Data] Fetch Shipments failed:', error);
         }
 
         try {
@@ -448,7 +448,7 @@ export const TigerDataService = {
 
             if (fallback.success && fallback.data && fallback.data.length > 0) {
                 const shipments = mapRows(fallback.data as Record<string, unknown>[]);
-                console.log(`⚠️ [Tiger Data] Loaded ${shipments.length} shipments (fallback source)`);
+                // console.log(`⚠️ [Tiger Data] Loaded ${shipments.length} shipments (fallback source)`);
                 return shipments;
             }
 
@@ -461,14 +461,14 @@ export const TigerDataService = {
 
                 if (fallbackGlobal.success && fallbackGlobal.data && fallbackGlobal.data.length > 0) {
                     const shipments = mapRows(fallbackGlobal.data as Record<string, unknown>[]);
-                    console.log(`⚠️ [Tiger Data] Loaded ${shipments.length} shipments (fallback source global)`);
+                    // console.log(`⚠️ [Tiger Data] Loaded ${shipments.length} shipments (fallback source global)`);
                     return shipments;
                 }
             }
 
             return [];
         } catch (error) {
-            console.error('❌ [Tiger Data] Fallback shipment fetch failed:', error);
+            // console.error('❌ [Tiger Data] Fallback shipment fetch failed:', error);
             return [];
         }
     },
@@ -479,7 +479,7 @@ export const TigerDataService = {
     fetchPurchaseOrders: async (locationId?: string): Promise<any[]> => {
         const normalizedLocationId = normalizeLocationId(locationId);
 
-        console.log('🐯 [Tiger Data] Fetching purchase orders for location:', normalizedLocationId || 'ALL');
+        // console.log('🐯 [Tiger Data] Fetching purchase orders for location:', normalizedLocationId || 'ALL');
 
         try {
             const { getPurchaseOrdersSecure } = await import('../../actions/wms-v2');
@@ -490,26 +490,26 @@ export const TigerDataService = {
             });
 
             if (result.success && result.data?.purchaseOrders && result.data.purchaseOrders.length > 0) {
-                console.log(`✅ [Tiger Data] Loaded ${result.data.purchaseOrders.length} purchase orders (WMS source)`);
+                // console.log(`✅ [Tiger Data] Loaded ${result.data.purchaseOrders.length} purchase orders (WMS source)`);
                 return result.data.purchaseOrders;
             }
 
             if (normalizedLocationId && result.success && result.data?.purchaseOrders?.length === 0) {
-                console.warn('⚠️ [Tiger Data] Sin OC por ubicación, intentando vista corporativa...');
+                // console.warn('⚠️ [Tiger Data] Sin OC por ubicación, intentando vista corporativa...');
                 const globalResult = await getPurchaseOrdersSecure({
                     page: 1,
                     pageSize: 200
                 });
 
                 if (globalResult.success && globalResult.data?.purchaseOrders && globalResult.data.purchaseOrders.length > 0) {
-                    console.log(`⚠️ [Tiger Data] Loaded ${globalResult.data.purchaseOrders.length} purchase orders (global fallback)`);
+                    // console.log(`⚠️ [Tiger Data] Loaded ${globalResult.data.purchaseOrders.length} purchase orders (global fallback)`);
                     return globalResult.data.purchaseOrders;
                 }
             }
 
-            console.warn(`⚠️ [Tiger Data] Primary purchase order fetch sin resultados, activando fallback: ${result.error || 'empty result'}`);
+            // console.warn(`⚠️ [Tiger Data] Primary purchase order fetch sin resultados, activando fallback: ${result.error || 'empty result'}`);
         } catch (error) {
-            console.error('❌ [Tiger Data] Primary purchase order fetch failed:', error);
+            // console.error('❌ [Tiger Data] Primary purchase order fetch failed:', error);
         }
 
         try {
@@ -532,7 +532,7 @@ export const TigerDataService = {
 
             if (fallback.success && fallback.data && fallback.data.length > 0) {
                 const filtered = mapRows(fallback.data as Record<string, unknown>[]);
-                console.log(`⚠️ [Tiger Data] Loaded ${filtered.length} purchase orders (fallback source)`);
+                // console.log(`⚠️ [Tiger Data] Loaded ${filtered.length} purchase orders (fallback source)`);
                 return filtered;
             }
 
@@ -545,14 +545,14 @@ export const TigerDataService = {
 
                 if (fallbackGlobal.success && fallbackGlobal.data && fallbackGlobal.data.length > 0) {
                     const filtered = mapRows(fallbackGlobal.data as Record<string, unknown>[]);
-                    console.log(`⚠️ [Tiger Data] Loaded ${filtered.length} purchase orders (fallback source global)`);
+                    // console.log(`⚠️ [Tiger Data] Loaded ${filtered.length} purchase orders (fallback source global)`);
                     return filtered;
                 }
             }
 
             return [];
         } catch (error) {
-            console.error('❌ [Tiger Data] Fallback purchase order fetch failed:', error);
+            // console.error('❌ [Tiger Data] Fallback purchase order fetch failed:', error);
             return [];
         }
     },
@@ -581,7 +581,7 @@ export const TigerDataService = {
                 product.stock_actual += quantity;
             }
 
-            console.log(`📦 [Tiger Data] Stock updated: ${product.name} | ${operation} ${quantity} | New stock: ${product.stock_actual}`);
+            // console.log(`📦 [Tiger Data] Stock updated: ${product.name} | ${operation} ${quantity} | New stock: ${product.stock_actual}`);
 
             return { success: true };
         }, 'updateInventoryStock');
@@ -595,13 +595,13 @@ export const TigerDataService = {
         userId: string;
         unitsInBox: number;
     }): Promise<{ success: boolean; error?: string; newBatchId?: string }> => {
-        console.log('🐯 [Tiger Data] Fractionating batch:', params.batchId);
+        // console.log('🐯 [Tiger Data] Fractionating batch:', params.batchId);
         try {
             const { fractionateBatchSecureDetailed } = await import('../../actions/inventory-v2');
             const result = await fractionateBatchSecureDetailed(params);
             return result;
         } catch (error) {
-            console.error('❌ [Tiger Data] Fractionation failed:', error);
+            // console.error('❌ [Tiger Data] Fractionation failed:', error);
             return {
                 success: false,
                 error: error instanceof Error ? error.message : 'Error al fraccionar lote'
@@ -625,7 +625,7 @@ export const TigerDataService = {
         if (data.cashMovements) inMemoryStorage.cashMovements = data.cashMovements;
         if (data.expenses) inMemoryStorage.expenses = data.expenses;
 
-        console.log('🔄 [Tiger Data] Storage initialized with local data');
+        // console.log('🔄 [Tiger Data] Storage initialized with local data');
     },
 
     /**
@@ -639,11 +639,11 @@ export const TigerDataService = {
             const employee = inMemoryStorage.employees.find(e => e.id === userId && e.access_pin === pin);
 
             if (!employee) {
-                console.warn(`⚠️ [Tiger Data] Auth failed for user ${userId}. Invalid credentials.`);
+                // console.warn(`⚠️ [Tiger Data] Auth failed for user ${userId}. Invalid credentials.`);
                 return { success: false, error: 'Invalid credentials' };
             }
 
-            console.log(`🔐 [Tiger Data] User authenticated: ${employee.name}`);
+            // console.log(`🔐 [Tiger Data] User authenticated: ${employee.name}`);
             return { success: true, user: employee };
         }, 'authenticate');
     },

@@ -12,6 +12,7 @@
 ### ✅ **Componentes Implementados**
 
 #### **Arquitectura Base**
+
 - ✅ Estructura Clean Architecture (Domain, Infrastructure, Presentation)
 - ✅ Next.js 15 con App Router
 - ✅ TypeScript con tipos estrictos
@@ -20,6 +21,7 @@
 - ✅ PostgreSQL (TimescaleDB) para datos transaccionales
 
 #### **Módulos Operativos**
+
 - ✅ **Landing Page** - Selector de sucursal con diseño premium
 - ✅ **POS (Punto de Venta)** - Sistema completo de ventas con carrito
 - ✅ **Inventario** - Visualización de lotes con trazabilidad FEFO
@@ -29,12 +31,14 @@
 - ✅ **Analytics/BI** - Dashboard gerencial con KPIs
 
 #### **Lógica de Negocio**
+
 - ✅ **Anti-Canela** - Compliance legal para comisiones
 - ✅ **Clinical Logic** - Motor de interacciones farmacológicas (DDI)
 - ✅ **FEFO** - First Expired, First Out (vencimientos)
 - ✅ **RBAC** - Control de acceso basado en roles
 
 #### **Testing**
+
 - ✅ **339+ tests unitarios** pasando (Vitest)
 - ✅ **65 tests de hooks** pasando
 - ✅ **Tests E2E** con Playwright
@@ -45,6 +49,7 @@
 ## 📦 Instalación y Ejecución
 
 ### **Requisitos Previos**
+
 - Node.js 18+ (recomendado: 20+)
 - npm o pnpm
 - PostgreSQL (opcional para desarrollo local con mocks)
@@ -115,7 +120,7 @@ El sistema utiliza un flujo de autenticación por **sucursal y PIN**, no un form
 ### **Usuarios de Demostración**
 
 | Rol | Usuario | PIN | Acceso |
-|-----|---------|-----|--------|
+| ----- | --------- | ----- | -------- |
 | **Gerente General** | Gerente General 1 | 1213 | Acceso total (Dashboard, Analytics, Seguridad) |
 | **Cajero** | Cajero 1 | 1234 | Punto de Venta, Ventas |
 | **Bodeguero** | Bodeguero 1 | (ver config) | Inventario, Logística |
@@ -124,7 +129,7 @@ El sistema utiliza un flujo de autenticación por **sucursal y PIN**, no un form
 
 ## 🏗️ Arquitectura del Proyecto
 
-```
+```text
 src/
 ├── actions/                     # Server Actions (Next.js)
 │   ├── inventory-v2.ts          # Operaciones de inventario
@@ -174,7 +179,7 @@ tests/
 ### **Estructura de Tests**
 
 | Tipo | Ubicación | Framework | Estado |
-|------|-----------|-----------|--------|
+| ------ | ----------- | ----------- | -------- |
 | Unitarios | `tests/actions/` | Vitest | ✅ 339+ pasando |
 | Hooks | `tests/hooks/` | Vitest | ✅ 65 pasando |
 | Integración | `tests/integration/` | Vitest | ⏭️ Requieren DB |
@@ -197,24 +202,28 @@ test.beforeEach(async ({ page }) => {
 ## 📋 Reglas de Negocio Implementadas
 
 ### **1. Anti-Canela (Compliance Legal)**
+
 ```typescript
 // Solo productos marcados como allows_commission: true generan comisiones
 // Medicamentos y dispositivos médicos NO comisionan por ley
 ```
 
 ### **2. Trazabilidad FEFO**
+
 ```typescript
 // El sistema ordena lotes por fecha de vencimiento ascendente
 // Descuenta stock del lote más próximo a vencer
 ```
 
 ### **3. RBAC (Control de Acceso)**
+
 ```typescript
 // Jerarquía: GERENTE > MANAGER > ADMIN > CASHIER > WAREHOUSE
 // Validación de rutas y operaciones por rol
 ```
 
 ### **4. Umbrales de PIN para Operaciones Sensibles**
+
 ```typescript
 // Ajuste de stock < 100 unidades: Sin PIN
 // Ajuste de stock > 100 unidades: Requiere PIN de supervisor
@@ -226,6 +235,7 @@ test.beforeEach(async ({ page }) => {
 ## 🐛 Debugging
 
 ### **Limpiar almacenamiento local**
+
 ```javascript
 // Consola del navegador
 localStorage.clear()
@@ -233,12 +243,14 @@ location.reload()
 ```
 
 ### **Ver estado de Zustand**
+
 ```javascript
 // La persistencia guarda en localStorage con clave:
 localStorage.getItem('farmacias-vallenar-storage')
 ```
 
 ### **Logs del servidor**
+
 ```bash
 # Ver logs de desarrollo
 npm run dev
@@ -251,7 +263,7 @@ npm run dev
 ## 📄 Documentación Adicional
 
 | Documento | Descripción |
-|-----------|-------------|
+| ----------- | ------------- |
 | `FINAL_DOCUMENTATION.md` | Documentación técnica completa de todos los módulos |
 | `INFORME_EJECUTIVO_ARQUITECTURA.md` | Arquitectura de datos y pipelines |
 | `MANUAL_DE_USUARIO.md` | Guía paso a paso para operadores |

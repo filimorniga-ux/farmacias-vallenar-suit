@@ -16,7 +16,7 @@ El sistema ha logrado una estabilidad crítica en el **Consultor Público**, res
 ### Riesgos Críticos Identificados
 
 | # | Riesgo | Impacto | Urgencia |
-|---|--------|---------|----------|
+| --- | -------- | --------- | ---------- |
 | 1 | **Conciliaciones sin justificación** | Descuadres sin resolver | � MEDIA |
 | 2 | **Auditoría incompleta** | Gaps en trazabilidad fiscal | � MEDIA |
 | 3 | **Race condition en apertura terminal** | Mitigado por V2 Locks | � BAJA |
@@ -33,17 +33,19 @@ El sistema ha logrado una estabilidad crítica en el **Consultor Público**, res
 ## 2. Entregables Generados
 
 ### Documento Principal
+
 📄 **`docs/ARQUITECTURA_AUDIT_FINANCIERO_v3.1.md`** (~70KB)
 
 ### Migraciones SQL Listas para Producción
 
 | Archivo | Propósito | Downtime |
-|---------|-----------|----------|
+| --------- | ----------- | ---------- |
 | `004_uuid_standardization.sql` | Estandarización TEXT→UUID | ⚠️ 5-15 min |
 | `005_audit_system.sql` | Sistema auditoría inmutable | ✅ No |
 | `006_reconciliation_module.sql` | Conciliación + justificaciones | ✅ No |
 
 ### Módulos TypeScript
+
 📄 **`src/lib/audit-v2.ts`** - Funciones `auditLog()`, `withAudit()`.
 📄 **`src/presentation/components/public/PriceCheckerModal.tsx`** - Core UI estable.
 
@@ -52,11 +54,13 @@ El sistema ha logrado una estabilidad crítica en el **Consultor Público**, res
 ## 3. Plan de Implementación (Fase Final)
 
 ### Sprint Actual (Estabilización Pública - Completado)
+
 - [x] Fix: Layout 3 columnas y Sidebar
 - [x] Fix: Lógica de Bioequivalencia
 - [x] Cross-platform Mobile/Desktop
 
 ### Próximo Sprint (Auditoría Financiera)
+
 - [ ] Migración 006 Conciliación
 - [ ] UI de arqueo con conteo físico
 - [ ] Sistema de justificaciones y alertas
@@ -68,7 +72,7 @@ El sistema ha logrado una estabilidad crítica en el **Consultor Público**, res
 ## 4. Métricas de Éxito
 
 | Métrica | Actual | Meta 30 días | Meta 90 días |
-|---------|--------|--------------|--------------|
+| --------- | -------- | -------------- | -------------- |
 | Errores UI Público | 0 | 0 | 0 |
 | Sesiones zombie abiertas | < 2/sem | 0 | 0 |
 | Cobertura de auditoría | ~50% | 80% | 100% |
@@ -78,10 +82,12 @@ El sistema ha logrado una estabilidad crítica en el **Consultor Público**, res
 ## 5. Inversión Requerida
 
 ### Desarrollo
+
 - **Total estimado:** 60 horas restantes
 - **Foco:** Módulo Financiero y DTE
 
 ### Infraestructura y Despliegue
+
 - ✅ **Agnóstico de Plataforma**: Preparado para Vercel y DigitalOcean (Docker).
 - ✅ **Optimización de Costos**: Capacidad de mover cargas de alto volumen (sucursales físicas) a DigitalOcean App Platform para evitar costos por "asiento" de Vercel.
 - ✅ **Containerización**: Dockerfile multi-stage optimizado para Next.js 15.
@@ -110,7 +116,7 @@ pm2 restart ecosystem.config.js
 ## 8. Documentación Técnica Completa
 
 | Documento | Contenido |
-|-----------|-----------|
+| ----------- | ----------- |
 | `PROJECT_BIBLE.md` | Visión general y roadmap actualizado |
 | `docs/ARQUITECTURA_AUDIT_FINANCIERO_v3.1.md` | Análisis financiero profundo |
 | `src/db/migrations/004-006*.sql` | Scripts SQL |

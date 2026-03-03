@@ -30,7 +30,11 @@ const getLocationColor = (type: string) => {
 
 
 
-const LocationSwitcher: React.FC = () => {
+interface LocationSwitcherProps {
+    variant?: 'default' | 'compact';
+}
+
+const LocationSwitcher: React.FC<LocationSwitcherProps> = ({ variant = 'default' }) => {
     const { currentLocation, locations, switchLocation, canSwitchLocation } = useLocationStore();
     const { user, setCurrentLocation } = usePharmaStore();
     const [isOpen, setIsOpen] = useState(false);
@@ -195,7 +199,7 @@ const LocationSwitcher: React.FC = () => {
                     {React.createElement(getLocationIcon(currentLocation.type), { className: 'w-5 h-5' })}
                 </div>
 
-                <div className="text-left min-w-0">
+                <div className={`text-left min-w-0 ${variant === 'compact' ? 'hidden md:block' : ''}`}>
                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                         {currentLocation.type === 'WAREHOUSE' ? 'Estás en Bodega' : 'Estás en Sucursal'}
                     </div>

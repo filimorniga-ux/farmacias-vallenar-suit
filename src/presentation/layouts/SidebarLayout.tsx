@@ -11,7 +11,6 @@ import { usePharmaStore } from '../store/useStore';
 import LocationSwitcher from '../components/layout/LocationSwitcher';
 import NotificationBell from '../components/notifications/NotificationBell';
 // import BottomNavigation from '../components/layout/BottomNavigation'; // Replaced by MobileBottomNav
-import MobileBottomNav from '../components/layout/MobileBottomNav';
 import AppIcon, { AppThemeColor } from '../components/ui/AppIcon';
 import SyncStatusIndicator from '../components/ui/SyncStatusIndicator';
 import NotificationCenter from '../components/notifications/NotificationCenter';
@@ -29,21 +28,8 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
     const { isOpen: isNotificationOpen, setOpen: setNotificationOpen } = useNotificationStore();
     const openCalculator = useCalculatorStore((s: any) => s.open);
 
-    useEffect(() => {
-        const checkOrientation = () => {
-            const width = window.innerWidth;
-            const height = window.innerHeight;
-            setIsCompactViewport(width < 1024);
-            // Landscape compact mode for phones/tablets, useful to avoid hidden controls.
-            setIsLandscape(width > height && width < 1024);
-        };
-
-        checkOrientation();
-        window.addEventListener('resize', checkOrientation);
-        return () => window.removeEventListener('resize', checkOrientation);
-    }, []);
-
-    const showMobileBottomNav = isCompactViewport && !isLandscape;
+    // The useEffect block related to checkOrientation and viewport is removed as per instructions.
+    // The states isLandscape and isCompactViewport are also removed.
 
     const menuItems = [
         { icon: LayoutDashboard, label: 'Resumen General', path: '/dashboard', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'DASHBOARD', color: 'sky' as AppThemeColor },
@@ -195,41 +181,50 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
             </motion.aside>
 
             {/* Main Content */}
-            <main className={`flex-1 flex flex-col h-full overflow-hidden relative ${showMobileBottomNav ? 'pb-20 md:pb-0' : 'pb-0'} bg-slate-50/50`}>
-                {/* Mobile Header */}
-                <header className="lg:hidden bg-white p-4 shadow-sm flex justify-between items-center z-40 border-b border-slate-100 sticky top-0">
-                    <div className="flex items-center gap-2">
+            <main className={`flex-1 flex flex-col h-full overflow-hidden relative bg-slate-50/50`}>
+                {/* Mobile Header (Optimized UX - Two Rows or Compact) */}
+                <header className="lg:hidden bg-white px-4 pt-3 pb-2 shadow-sm z-40 border-b border-slate-100 flex flex-col gap-3 sticky top-0">
+                    {/* Top Row: Menu, Logo, and main actions */}
+                    <div className="flex justify-between items-center h-8">
                         <button
                             onClick={() => setIsMobileMenuOpen(true)}
-                            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg lg:hidden"
+                            className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg -ml-1 transition-colors"
                         >
-                            <Menu size={24} />
+                            <Menu size={26} />
                         </button>
-                        <img src="/logo-horizontal.png" alt="Farmacia Vallenar" className="h-8 object-contain" />
-                        <NotificationBell userRole={user?.role || 'ALL'} />
-                        <button
-                            onClick={handleRefresh}
-                            className="p-2 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition-colors"
-                            title="Recargar Aplicación"
-                        >
-                            <RotateCcw size={20} />
-                        </button>
-                        <ChileClock variant="compact" />
-                        <button
-                            onClick={openCalculator}
-                            className="p-2 text-slate-500 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors"
-                            title="Calculadora"
-                        >
-                            <Calculator size={18} />
-                        </button>
+
+                        <div className="flex-1 flex justify-center">
+                            <img src="/logo-horizontal.png" alt="Farmacia Vallenar" className="h-7 w-auto object-contain" />
+                        </div>
+
+                        <div className="flex items-center gap-1.5 -mr-1">
+                            <NotificationBell userRole={user?.role || 'ALL'} />
+                            <button
+                                onClick={openCalculator}
+                                className="p-1.5 text-slate-500 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors"
+                                title="Calculadora"
+                            >
+                                <Calculator size={20} />
+                            </button>
+                        </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-1 justify-end min-w-0">
-                        <div className="overflow-x-auto scrollbar-hide flex items-center gap-2 max-w-full">
-                            <SyncStatusIndicator />
+
+                    {/* Bottom Row: Context, Location and Status (Scrollable if absolutely needed, but very compact) */}
+                    <div className="flex items-center justify-between gap-2 overflow-x-auto scrollbar-hide w-full pb-1">
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                            <LocationSwitcher variant="compact" />
                             <ContextBadge />
-                            <div className="flex-shrink-0">
-                                <LocationSwitcher />
-                            </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                            <SyncStatusIndicator />
+                            <ChileClock variant="compact" />
+                            <button
+                                onClick={handleRefresh}
+                                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition-colors"
+                                title="Recargar App"
+                            >
+                                <RotateCcw size={16} />
+                            </button>
                         </div>
                     </div>
                 </header>
@@ -280,11 +275,6 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                         </motion.div>
                     </AnimatePresence>
                 </div>
-
-                {/* Mobile Bottom Navigation */}
-                {showMobileBottomNav && (
-                    <MobileBottomNav onMenuClick={() => setIsMobileMenuOpen(true)} />
-                )}
 
                 {/* Notification Center — el Sheet se controla internamente via el store */}
                 <NotificationCenter

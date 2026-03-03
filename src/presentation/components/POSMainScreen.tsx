@@ -1055,7 +1055,7 @@ const POSMainScreen: React.FC = () => {
                             )}
 
                             {/* Fallback for Mobile (Render inline if no portal target or is mobile) */}
-                            <div className="lg:hidden text-slate-400">
+                            <div className="lg:hidden text-slate-400 relative z-[100]">
                                 <POSHeaderActions
                                     shiftStatus={currentShift?.status}
                                     shiftId={currentShift?.id}
@@ -1079,7 +1079,7 @@ const POSMainScreen: React.FC = () => {
                     </div>
 
                     {/* Cart Items */}
-                    <div className="flex-1 overflow-y-auto p-4 md:p-6 touch-pan-y overscroll-contain">
+                    <div className="flex-1 p-4 md:p-6 overflow-y-auto WebkitOverflowScrolling-touch" style={{ WebkitOverflowScrolling: 'touch' }}>
                         {cart.length === 0 ? (
                             <div className="h-full flex flex-col items-center justify-center text-slate-300">
                                 <ShoppingCart size={80} className="mb-6 opacity-20" />
