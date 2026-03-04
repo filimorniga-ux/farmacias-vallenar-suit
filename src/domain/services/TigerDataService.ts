@@ -486,7 +486,7 @@ export const TigerDataService = {
             const result = await getPurchaseOrdersSecure({
                 locationId: normalizedLocationId,
                 page: 1,
-                pageSize: 200
+                pageSize: 100
             });
 
             if (result.success && result.data?.purchaseOrders && result.data.purchaseOrders.length > 0) {
@@ -498,7 +498,7 @@ export const TigerDataService = {
                 // console.warn('⚠️ [Tiger Data] Sin OC por ubicación, intentando vista corporativa...');
                 const globalResult = await getPurchaseOrdersSecure({
                     page: 1,
-                    pageSize: 200
+                    pageSize: 100
                 });
 
                 if (globalResult.success && globalResult.data?.purchaseOrders && globalResult.data.purchaseOrders.length > 0) {
@@ -516,7 +516,7 @@ export const TigerDataService = {
             const { getSupplyChainHistorySecure } = await import('../../actions/supply-v2');
             const fallback = await getSupplyChainHistorySecure({
                 page: 1,
-                pageSize: 200,
+                pageSize: 100,
                 type: 'PO',
                 locationId: normalizedLocationId
             });
@@ -539,7 +539,7 @@ export const TigerDataService = {
             if (normalizedLocationId) {
                 const fallbackGlobal = await getSupplyChainHistorySecure({
                     page: 1,
-                    pageSize: 200,
+                    pageSize: 100,
                     type: 'PO',
                 });
 
