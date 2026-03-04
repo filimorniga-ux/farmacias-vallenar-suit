@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { randomBytes } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { logger } from '@/lib/logger';
+import { sendPasswordResetEmail, sendSecurityAlertEmail } from '@/lib/mailer';
 
 // ============================================================================
 // SCHEMAS
@@ -152,13 +153,14 @@ export async function forgotPasswordSecure(
         // Generar link
         const resetLink = `${BASE_URL}/reset-password/${token}`;
 
-        // TODO: Enviar email real con nodemailer
-        logger.info({
-            email: cleanEmail,
-            userId: user.id,
-            resetLink,
-            expiresAt,
-        }, '📧 [AuthRecovery] Token generated');
+        // Enviar email real via Resend
+        const emailResult = await sendPasswordResetEmail(cleanEmail, resetLink, user.name);
+        if (!emailResult.success) {
+            logger.error({ email: cleanEmail, error: emailResult.error }, '[AuthRecovery] Email send failed');
+            // No retornar error al usuario (anti-enumeration, y el token ya fue generado)
+        } else {
+            logger.info({ email: cleanEmail, userId: user.id }, '📧 [AuthRecovery] Reset email sent successfully');
+        }
 
         await auditRecoveryAction(user.id, 'RECOVERY_TOKEN_GENERATED', {
             email: cleanEmail,
