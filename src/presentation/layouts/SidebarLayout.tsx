@@ -79,7 +79,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         onClick={() => setIsMobileMenuOpen(false)}
-                        className="fixed inset-0 bg-slate-900/60 z-[90] md:hidden backdrop-blur-sm"
+                        className="fixed inset-0 bg-slate-900/60 z-[90] md:hidden"
                     />
                 )}
             </AnimatePresence>
