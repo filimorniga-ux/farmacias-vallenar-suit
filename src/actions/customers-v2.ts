@@ -142,8 +142,12 @@ async function insertCustomerAudit(client: PoolClient, params: {
         // Remove sensitive PII from audit
         const sanitize = (values?: Record<string, unknown>) => {
             if (!values) return null;
-            // Destructure unused fields to OMIT them from the audit log
-            const { rut: _r, email: _e, phone: _p, address: _a, ...safe } = values;
+            // Omit sensitive keys before storing audit payload
+            const safe = { ...values };
+            delete safe.rut;
+            delete safe.email;
+            delete safe.phone;
+            delete safe.address;
             return safe;
         };
 
