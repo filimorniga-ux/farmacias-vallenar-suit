@@ -46,7 +46,7 @@ describe('TigerDataService fallbacks', () => {
         expect(mockGetPurchaseOrdersSecure).toHaveBeenCalledTimes(1);
         expect(mockGetSupplyChainHistorySecure).toHaveBeenCalledWith({
             page: 1,
-            pageSize: 200,
+            pageSize: 100,
             type: 'PO',
             locationId: '550e8400-e29b-41d4-a716-446655440000'
         });
@@ -209,7 +209,7 @@ describe('TigerDataService fallbacks', () => {
                     purchaseOrders: [],
                     total: 0,
                     page: 1,
-                    pageSize: 200,
+                    pageSize: 100,
                     totalPages: 0,
                 }
             } as any)
@@ -227,7 +227,7 @@ describe('TigerDataService fallbacks', () => {
                     ],
                     total: 1,
                     page: 1,
-                    pageSize: 200,
+                    pageSize: 100,
                     totalPages: 1,
                 }
             } as any);

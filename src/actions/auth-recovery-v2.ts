@@ -19,7 +19,7 @@ import { z } from 'zod';
 import { randomBytes } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { logger } from '@/lib/logger';
-import { sendPasswordResetEmail, sendSecurityAlertEmail } from '@/lib/mailer';
+import { sendPasswordResetEmail } from '@/lib/mailer';
 
 // ============================================================================
 // SCHEMAS

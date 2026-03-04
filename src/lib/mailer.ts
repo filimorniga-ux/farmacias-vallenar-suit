@@ -7,10 +7,15 @@
 
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+function getResendClient(): Resend {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+        throw new Error('Missing RESEND_API_KEY');
+    }
+    return new Resend(apiKey);
+}
 
 const FROM = process.env.EMAIL_FROM || 'Farmacias Vallenar <noreply@farmaciasvallenarsuit.cl>';
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.farmaciasvallenarsuit.cl';
 
 // ─── Colores de marca ────────────────────────────────────────────────────────
 const BRAND_TEAL = '#0e7490';
@@ -85,6 +90,7 @@ export async function sendPasswordResetEmail(
     </p>`;
 
     try {
+        const resend = getResendClient();
         await resend.emails.send({
             from: FROM,
             to,
@@ -148,6 +154,7 @@ export async function sendPinResetEmail(options: {
     </p>`;
 
     try {
+        const resend = getResendClient();
         await resend.emails.send({
             from: FROM,
             to: masterEmail,
@@ -199,6 +206,7 @@ export async function sendSecurityAlertEmail(options: {
     <p style="margin:0;color:#94a3b8;font-size:12px;">Fecha: ${new Date().toLocaleString('es-CL', { timeZone: 'America/Santiago' })}</p>`;
 
     try {
+        const resend = getResendClient();
         await resend.emails.send({
             from: FROM,
             to,
