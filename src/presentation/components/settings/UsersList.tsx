@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Edit2, UserPlus, Loader2, Shield, User, Trash2, Power, AlertTriangle } from 'lucide-react';
+import { Edit2, UserPlus, Loader2, Shield, User, Trash2, Power, KeyRound } from 'lucide-react';
 import { getUsersSecure, deactivateUserSecure } from '../../../actions/users-v2';
+import { requestPinReset } from '../../../actions/pin-recovery-v2';
 import { EmployeeProfile } from '../../../domain/types';
 import { usePharmaStore } from '../../store/useStore';
 import { toast } from 'sonner';
@@ -14,6 +15,9 @@ export const UsersList: React.FC<UsersListProps> = ({ onEdit, onCreate }) => {
     const { user: currentUser } = usePharmaStore();
     const [users, setUsers] = useState<EmployeeProfile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [pinResetTarget, setPinResetTarget] = useState<EmployeeProfile | null>(null);
+    const [adminPin, setAdminPin] = useState('');
+    const [isSendingPinReset, setIsSendingPinReset] = useState(false);
 
     const handleToggleStatus = async (user: EmployeeProfile) => {
         const reason = prompt('Ingrese razón del cambio de estado:');
@@ -56,6 +60,23 @@ export const UsersList: React.FC<UsersListProps> = ({ onEdit, onCreate }) => {
             toast.success('Usuario desactivado');
         } else {
             toast.error(res.error || 'Error al desactivar');
+        }
+    };
+
+    const handlePinReset = async () => {
+        if (!pinResetTarget || !adminPin) return;
+        setIsSendingPinReset(true);
+        try {
+            const result = await requestPinReset(pinResetTarget.id, adminPin);
+            if (result.success) {
+                toast.success(`✅ PIN temporal enviado al Correo Maestro para ${pinResetTarget.name}`);
+                setPinResetTarget(null);
+                setAdminPin('');
+            } else {
+                toast.error(result.error || 'Error al resetear PIN');
+            }
+        } finally {
+            setIsSendingPinReset(false);
         }
     };
 
@@ -159,6 +180,14 @@ export const UsersList: React.FC<UsersListProps> = ({ onEdit, onCreate }) => {
                                         <Edit2 size={18} />
                                     </button>
                                     <button
+                                        onClick={() => { setPinResetTarget(user); setAdminPin(''); }}
+                                        className="p-2 text-amber-500 hover:bg-amber-50 rounded-lg transition"
+                                        title="Enviar PIN Temporal al Correo Maestro"
+                                        disabled={currentUser?.id === user.id}
+                                    >
+                                        <KeyRound size={18} />
+                                    </button>
+                                    <button
                                         onClick={() => handleDelete(user)}
                                         className={`p-2 rounded-lg transition ${currentUser?.id === user.id ? 'text-slate-300 cursor-not-allowed' : 'text-red-500 hover:bg-red-50'}`}
                                         title="Eliminar Usuario"
@@ -172,6 +201,60 @@ export const UsersList: React.FC<UsersListProps> = ({ onEdit, onCreate }) => {
                     </tbody>
                 </table>
             </div>
+
+            {/* Modal: Confirmar Reset de PIN */}
+            {pinResetTarget && (
+                <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center">
+                                <KeyRound size={20} className="text-amber-600" />
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-slate-800 text-base">Resetear PIN de Acceso</h3>
+                                <p className="text-slate-500 text-xs">{pinResetTarget?.name}</p>
+                            </div>
+                        </div>
+
+                        <p className="text-slate-600 text-sm mb-4">
+                            Se enviará un PIN temporal de 6 dígitos al <strong>Correo Maestro de Recuperación</strong>.
+                            El usuario deberá crear un nuevo PIN al primer inicio de sesión.
+                        </p>
+
+                        <div className="mb-4">
+                            <label className="block text-xs font-bold text-slate-600 mb-1 uppercase tracking-wider">Tu PIN de Admin</label>
+                            <input
+                                type="password"
+                                value={adminPin}
+                                onChange={e => setAdminPin(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && handlePinReset()}
+                                placeholder="Ingresa tu PIN"
+                                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-center text-2xl font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                maxLength={6}
+                                autoFocus
+                            />
+                        </div>
+
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => { setPinResetTarget(null); setAdminPin(''); }}
+                                className="flex-1 py-2 rounded-lg border border-slate-200 text-slate-600 font-semibold text-sm"
+                                disabled={isSendingPinReset}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={handlePinReset}
+                                disabled={!adminPin || isSendingPinReset}
+                                className="flex-1 py-2 rounded-lg bg-amber-500 text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+                            >
+                                {isSendingPinReset ? <Loader2 size={16} className="animate-spin" /> : <KeyRound size={16} />}
+                                Enviar PIN
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
