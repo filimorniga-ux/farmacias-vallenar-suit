@@ -4,6 +4,10 @@ const config: CapacitorConfig = {
   appId: 'com.farmaciasvallenar.erp',
   appName: 'Farmacias Vallenar Suit',
   webDir: 'out',
+  ios: {
+    // Fuerza safe-area insets en WebView para evitar solape con Dynamic Island / status bar
+    contentInset: 'always',
+  },
   server: {
     url: 'https://www.farmaciasvallenarsuit.cl',
     cleartext: true,
@@ -25,7 +29,8 @@ const config: CapacitorConfig = {
     },
     StatusBar: {
       style: "DARK",
-      overlapsWebView: true,
+      // En iOS evita que el contenido quede debajo de la Dynamic Island
+      overlapsWebView: false,
       backgroundColor: "#00000000",
     },
   },
