@@ -79,19 +79,22 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         onClick={() => setIsMobileMenuOpen(false)}
-                        className="fixed inset-0 bg-slate-900/60 z-40 md:hidden backdrop-blur-sm"
+                        className="fixed inset-0 bg-slate-900/60 z-[90] md:hidden backdrop-blur-sm"
                     />
                 )}
             </AnimatePresence>
 
             {/* Sidebar - Mobile & Desktop */}
             <motion.aside
-                className={`fixed inset-y-0 left-0 z-[60] bg-white border-r border-slate-100 flex flex-col transition-all duration-300 ease-in-out
+                className={`fixed inset-y-0 left-0 z-[100] bg-white border-r border-slate-100 flex flex-col transition-all duration-300 ease-in-out
                 lg:relative lg:translate-x-0 shadow-xl lg:shadow-none h-full
-                ${isCollapsed ? 'w-20' : 'w-60'}
+                ${isCollapsed ? 'w-20' : 'w-72'}
                 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
             `}>
-                <div className={`p-4 flex items-center mb-1 ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
+                <div
+                    className={`p-4 flex items-center mb-1 ${isCollapsed ? 'justify-center' : 'justify-between'}`}
+                    style={{ paddingTop: 'max(env(safe-area-inset-top), 1rem)' }}
+                >
                     {!isCollapsed && (
                         <div>
                             {/* <h1 className="text-xl font-extrabold tracking-tight text-slate-900">
@@ -107,7 +110,10 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                         </div>
                     )}
 
-                    <button onClick={() => setIsMobileMenuOpen(false)} className="lg:hidden text-slate-400 hover:text-slate-600">
+                    <button
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className="lg:hidden text-slate-600 hover:text-slate-800 p-2 bg-slate-100 rounded-full"
+                    >
                         <X size={24} />
                     </button>
                 </div>
@@ -183,7 +189,10 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
             {/* Main Content */}
             <main className={`flex-1 flex flex-col h-full overflow-hidden relative bg-slate-50/50`}>
                 {/* Mobile Header (Optimized UX - Two Rows or Compact) */}
-                <header className="lg:hidden bg-white px-4 pt-3 pb-2 shadow-sm z-40 border-b border-slate-100 flex flex-col gap-3 sticky top-0">
+                <header
+                    className="lg:hidden bg-white px-4 pb-2 shadow-sm z-40 border-b border-slate-100 flex flex-col gap-3 sticky top-0"
+                    style={{ paddingTop: 'max(env(safe-area-inset-top), 0.75rem)' }}
+                >
                     {/* Top Row: Menu, Logo, and main actions */}
                     <div className="flex justify-between items-center h-8">
                         <button
