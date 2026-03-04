@@ -18,6 +18,7 @@ export const viewport: Viewport = {
     maximumScale: 1,
     userScalable: false,
     interactiveWidget: 'resizes-content',
+    viewportFit: 'cover',
 };
 
 import Providers from './providers';
