@@ -13,18 +13,54 @@
  */
 
 import { query } from '@/lib/db';
-import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { ExcelService } from '@/lib/excel-generator';
-import { formatDateTimeCL, formatDateCL, formatTimeCL } from '@/lib/timezone';
+import { formatDateTimeCL, formatDateCL } from '@/lib/timezone';
 import { getSessionSecure } from './auth-v2';
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
 const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
+
+type CustomerRow = {
+    id?: string;
+    rut: string;
+    name: string | null;
+    phone?: string | null;
+    email?: string | null;
+    loyalty_points?: number | string | null;
+};
+
+type SalesAggregateRow = {
+    customer_rut: string;
+    total: number | string | null;
+    count: number | string | null;
+    last_purchase: string | Date | null;
+};
+
+type LoyaltyRow = {
+    rut: string;
+    name: string | null;
+    email: string | null;
+    loyalty_points: number | string | null;
+    redeemed: number | string | null;
+};
+
+type CustomerHistoryRow = {
+    timestamp: string | Date;
+    customer_rut: string;
+    dte_folio: string | null;
+    status: string | null;
+    product_name: string | null;
+    quantity: number | string | null;
+    unit_price: number | string | null;
+    total_price: number | string | null;
+    payment_method: string | null;
+};
+
+type QueryParam = string | number | boolean | Date | string[] | null | undefined;
 
 // ============================================================================
 // HELPERS
@@ -42,7 +78,9 @@ async function auditExport(userId: string, exportType: string, params: Record<st
             INSERT INTO audit_log (user_id, action_code, entity_type, new_values, created_at)
             VALUES ($1, 'EXPORT', 'CUSTOMER', $2::jsonb, NOW())
         `, [userId, JSON.stringify({ export_type: exportType, ...params })]);
-    } catch { }
+    } catch (error: unknown) {
+        logger.warn({ error }, '[Export] Audit log insert failed');
+    }
 }
 
 // ============================================================================
@@ -77,9 +115,10 @@ export async function generateCustomerReportSecure(
             GROUP BY customer_rut
         `, [startDate, endDate]);
 
-        const salesMap = new Map((salesRes.rows).map((r: any) => [r.customer_rut, r]));
+        const salesRows = salesRes.rows as SalesAggregateRow[];
+        const salesMap = new Map(salesRows.map((r) => [r.customer_rut, r]));
 
-        const data = (customersRes.rows).map((cust: any) => {
+        const data = (customersRes.rows as CustomerRow[]).map((cust) => {
             const stats = salesMap.get(cust.rut) || { total: 0, count: 0, last_purchase: null };
             return {
                 rut: maskRut(cust.rut),
@@ -115,7 +154,7 @@ export async function generateCustomerReportSecure(
         await auditExport(session.userId, 'CUSTOMER_REPORT', { ...params, rows: data.length });
         return { success: true, data: buffer.toString('base64'), filename: `MaestroClientes_${startDate.split('T')[0]}.xlsx` };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Export] Customer report error');
         return { success: false, error: 'Error exportando clientes' };
     }
@@ -148,7 +187,7 @@ export async function exportLoyaltyReportSecure(): Promise<{
             LIMIT 2000
         `);
 
-        const data = res.rows.map((row: any) => ({
+        const data = (res.rows as LoyaltyRow[]).map((row) => ({
             rut: maskRut(row.rut),
             name: row.name,
             email: row.email || '-',
@@ -177,7 +216,7 @@ export async function exportLoyaltyReportSecure(): Promise<{
         await auditExport(session.userId, 'LOYALTY_REPORT', { count: data.length });
         return { success: true, data: buffer.toString('base64'), filename: `ProgramaPuntos_${new Date().toISOString().split('T')[0]}.xlsx` };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Export] Loyalty report error');
         return { success: false, error: 'Error exportando fidelización' };
     }
@@ -206,10 +245,10 @@ export async function generateCustomerHistoryReportSecure(
 
         if (customersRes.rowCount === 0) return { success: false, error: 'Clientes no encontrados' };
 
-        const customerRuts = customersRes.rows.map((c: any) => c.rut);
+        const customerRuts = (customersRes.rows as CustomerRow[]).map((c) => c.rut);
 
         let dateFilter = '';
-        const queryParams: any[] = [customerRuts];
+        const queryParams: QueryParam[] = [customerRuts];
         if (startDate) { dateFilter += ` AND s.timestamp >= $2::timestamp`; queryParams.push(startDate); }
         if (endDate) { dateFilter += ` AND s.timestamp <= $${queryParams.length + 1}::timestamp`; queryParams.push(endDate); }
 
@@ -223,8 +262,8 @@ export async function generateCustomerHistoryReportSecure(
             ORDER BY s.timestamp DESC
         `, queryParams);
 
-        const flattenedData = salesRes.rows.map((row: any) => {
-            const customer = customersRes.rows.find((c: any) => c.rut === row.customer_rut);
+        const flattenedData = (salesRes.rows as CustomerHistoryRow[]).map((row) => {
+            const customer = (customersRes.rows as CustomerRow[]).find((c) => c.rut === row.customer_rut);
             return {
                 date: formatDateTimeCL(row.timestamp),
                 customer: customer ? customer.name : row.customer_rut,
@@ -263,9 +302,8 @@ export async function generateCustomerHistoryReportSecure(
         await auditExport(session.userId, 'CUSTOMER_HISTORY', { ...params, rows: flattenedData.length });
         return { success: true, data: buffer.toString('base64'), filename: `HistorialClientes_${formatDateCL(new Date()).replace(/\//g, '-')}.xlsx` };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Export] History report error');
         return { success: false, error: 'Error generando historial' };
     }
 }
-

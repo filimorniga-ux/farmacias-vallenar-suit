@@ -619,7 +619,7 @@ export async function checkAIConfiguredSecure(): Promise<{
             model: config.model || undefined,
         };
 
-    } catch (error) {
+    } catch {
         return {
             configured: false,
             error: 'Error verificando configuración de IA'
