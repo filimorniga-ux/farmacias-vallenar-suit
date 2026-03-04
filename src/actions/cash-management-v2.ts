@@ -1047,7 +1047,6 @@ export async function getCashDrawerStatus(
         const { query } = await import('@/lib/db');
 
         // Get terminal and session
-        const dbHost = process.env.DATABASE_URL?.split('@')[1]?.split(':')[0] || 'unknown';
         const terminalRes = await query(`
             SELECT t.id, t.status, t.current_cashier_id,
                    crs.id as session_id, crs.opening_amount, crs.opened_at,
@@ -1063,8 +1062,6 @@ export async function getCashDrawerStatus(
         }
 
         const terminal = terminalRes.rows[0];
-        const isOpen = terminal.status === 'OPEN' && !!terminal.session_id;
-
         // Calculate expected cash
         const salesRes = await query(`
             SELECT COALESCE(SUM(total), 0) as cash_sales
