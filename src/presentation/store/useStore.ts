@@ -272,6 +272,7 @@ export const usePharmaStore = create<PharmaState>()(
             login: async (userId, pin, locationId) => {
                 let authenticatedUser: EmployeeProfile | null = null;
                 let serverFailure: ActionFailure | null = null;
+                let isTemporaryPinLogin = false;
                 const allowOfflineFallback = process.env.NODE_ENV !== 'production';
 
                 type LoginServerResponse =
@@ -295,12 +296,13 @@ export const usePharmaStore = create<PharmaState>()(
                     ]);
 
                     if (result.success) {
-                        // Cast to EmployeeProfile - auth-v2 returns compatible user data
-                        authenticatedUser = result.user as EmployeeProfile;
-                        return {
-                            success: true,
-                            isTemporaryPin: result.isTemporaryPin
-                        };
+                        // Preserve temporary PIN flow: do not create session in store yet
+                        if (result.isTemporaryPin) {
+                            isTemporaryPinLogin = true;
+                        } else {
+                            // Cast to EmployeeProfile - auth-v2 returns compatible user data
+                            authenticatedUser = result.user as EmployeeProfile;
+                        }
                     } else {
                         // Capture server error for potential feedback
                         console.warn('⚠️ Server Login Error:', result.error);
@@ -513,6 +515,10 @@ export const usePharmaStore = create<PharmaState>()(
                     }
 
                     return { success: true };
+                }
+
+                if (isTemporaryPinLogin) {
+                    return { success: true, isTemporaryPin: true };
                 }
 
                 return {
