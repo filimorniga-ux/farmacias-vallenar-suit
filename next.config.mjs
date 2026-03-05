@@ -65,6 +65,15 @@ const withPWA = withPWAInit({
     skipWaiting: true,
     buildExcludes: [/middleware-manifest\.json$/], // Avoids common App Router/PWA issues
     runtimeCaching: [
+        // APK downloads: always bypass cache/service worker fallbacks
+        {
+            urlPattern: /^\/api\/downloads\/.*/i,
+            handler: 'NetworkOnly',
+        },
+        {
+            urlPattern: /^\/downloads\/.*\.apk$/i,
+            handler: 'NetworkOnly',
+        },
         // 1. Auth & Critical: NetworkOnly (Security & Logic)
         {
             urlPattern: /^\/(login|auth|api\/auth).*/i,

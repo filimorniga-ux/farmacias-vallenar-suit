@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
     LayoutDashboard, ShoppingCart, Users, Settings, LogOut, X, Menu,
-    Package, BarChart3, Truck, UserCircle, Clock, Building2, MapPin, Wrench, RotateCcw, Landmark, FileSpreadsheet, Sparkles
+    Package, BarChart3, Truck, UserCircle, Clock, Building2, MapPin, RotateCcw, Landmark, FileSpreadsheet, Sparkles
 } from 'lucide-react';
 import ContextBadge from '@/presentation/components/layout/ContextBadge';
 import { usePharmaStore } from '@/presentation/store/useStore';
@@ -181,7 +181,7 @@ const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
             </motion.aside>
 
             {/* Main Content */}
-            <main className="flex-1 flex flex-col h-full overflow-hidden relative pb-20 md:pb-0 bg-slate-50/50">
+            <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-slate-50/50">
                 {/* Mobile Header */}
                 <header className="lg:hidden bg-white p-4 shadow-sm flex justify-between items-center z-40 border-b border-slate-100 sticky top-0">
                     <div className="flex items-center gap-3">

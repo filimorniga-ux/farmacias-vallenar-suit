@@ -56,7 +56,7 @@ interface PharmaState {
         userId: string,
         pin: string,
         locationId?: string
-    ) => Promise<{ success: boolean; error?: string; code?: string; correlationId?: string; retryable?: boolean }>;
+    ) => Promise<{ success: boolean; error?: string; code?: string; correlationId?: string; retryable?: boolean; isTemporaryPin?: boolean }>;
     logout: () => void;
 
     // Data Sync
@@ -275,7 +275,7 @@ export const usePharmaStore = create<PharmaState>()(
                 const allowOfflineFallback = process.env.NODE_ENV !== 'production';
 
                 type LoginServerResponse =
-                    | { success: true; user: EmployeeProfile }
+                    | { success: true; user: any; isTemporaryPin?: boolean }
                     | ActionFailure;
 
                 // 1. Online Attempt (Secure Server Action with bcrypt)
@@ -297,6 +297,10 @@ export const usePharmaStore = create<PharmaState>()(
                     if (result.success) {
                         // Cast to EmployeeProfile - auth-v2 returns compatible user data
                         authenticatedUser = result.user as EmployeeProfile;
+                        return {
+                            success: true,
+                            isTemporaryPin: result.isTemporaryPin
+                        };
                     } else {
                         // Capture server error for potential feedback
                         console.warn('⚠️ Server Login Error:', result.error);
