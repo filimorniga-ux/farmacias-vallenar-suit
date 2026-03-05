@@ -9,6 +9,8 @@ import PriceCheckerModal from '../components/public/PriceCheckerModal';
 import { resolveLoginRetryCooldownMs } from '@/lib/login-resilience';
 
 import { getUsersForLogin } from '../actions/login';
+import { requestPinReset, applyPinReset } from '@/actions/pin-recovery-v2';
+import { toast } from 'sonner';
 
 const LandingPage: React.FC = () => {
     const navigate = useNavigate();
@@ -49,6 +51,14 @@ const LandingPage: React.FC = () => {
 
     // Queue Modal State
     const [isQueueOptionsOpen, setIsQueueOptionsOpen] = useState(false);
+
+    // Recovery / Force Reset State
+    const [recoveryMode, setRecoveryMode] = useState(false);
+    const [forcePinReset, setForcePinReset] = useState(false);
+    const [supervisorPin, setSupervisorPin] = useState('');
+    const [newPermanentPin, setNewPermanentPin] = useState('');
+    const [confirmPermanentPin, setConfirmPermanentPin] = useState('');
+    const [temporaryPinUsed, setTemporaryPinUsed] = useState('');
 
     // Dynamic Role Filtering State
     const [requiredRoles, setRequiredRoles] = useState<Role[] | null>(null);
@@ -151,6 +161,49 @@ const LandingPage: React.FC = () => {
         return () => window.clearTimeout(loadTimer);
     }, [employees.length, loadLoginUsers]);
 
+    const handleRequestPinReset = async () => {
+        if (!selectedEmployee || !supervisorPin) return;
+        setIsLoading(true);
+        const res = await requestPinReset(selectedEmployee.id, supervisorPin);
+        setIsLoading(false);
+        if (res.success) {
+            toast.success('¡Solicitud enviada! Se ha enviado un PIN temporal al Correo Maestro del Administrador.');
+            setRecoveryMode(false);
+            setSupervisorPin('');
+            setPin('');
+        } else {
+            toast.error(res.error || 'Error autorizando el reseteo');
+            setSupervisorPin('');
+        }
+    };
+
+    const handleApplyPinReset = async () => {
+        if (!selectedEmployee || !temporaryPinUsed) return;
+        if (newPermanentPin.length < 4) {
+            toast.error('El PIN debe ser de al menos 4 dígitos');
+            return;
+        }
+        if (newPermanentPin !== confirmPermanentPin) {
+            toast.error('Los PINes no coinciden');
+            return;
+        }
+
+        setIsLoading(true);
+        const res = await applyPinReset(selectedEmployee.id, temporaryPinUsed, newPermanentPin);
+        setIsLoading(false);
+
+        if (res.success) {
+            toast.success('¡PIN actualizado! Ahora puedes entrar con tu nuevo PIN.');
+            setForcePinReset(false);
+            setNewPermanentPin('');
+            setConfirmPermanentPin('');
+            setPin('');
+            // Optional: Auto login after reset or keep them at login screen
+        } else {
+            toast.error(res.error || 'Error actualizando el PIN');
+        }
+    };
+
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedEmployee || !context) return;
@@ -168,6 +221,13 @@ const LandingPage: React.FC = () => {
             if (result.success) {
                 // Determine redirect path
                 const finalPath = targetUrl || '/dashboard';
+
+                if (result.isTemporaryPin) {
+                    setForcePinReset(true);
+                    setTemporaryPinUsed(pin);
+                    setIsLoading(false);
+                    return;
+                }
                 // Sync data in background
                 syncData().catch(console.error);
                 // Redirect
@@ -486,8 +546,7 @@ const LandingPage: React.FC = () => {
                                 Gestiona tu sucursal y audita precios desde tu celular.
                             </p>
                             <a
-                                href="/downloads/farmacias-vallenar.apk"
-                                download
+                                href="/api/downloads/android-apk"
                                 className="flex items-center gap-2 justify-center px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-all text-sm font-bold shadow-lg shadow-emerald-600/20 w-full md:w-auto"
                             >
                                 <Download size={18} />
@@ -516,9 +575,107 @@ const LandingPage: React.FC = () => {
                                     <p className="text-slate-500 text-sm">Validando para: <span className="font-bold text-sky-600">{context.name}</span></p>
                                 </div>
 
-                                {!selectedEmployee ? (
+                                {recoveryMode ? (
+                                    /* 🛠️ RECOVERY MODE: Supervisor authorizes PIN reset */
+                                    <div className="space-y-6">
+                                        <div className="text-center">
+                                            <div className="w-16 h-16 bg-amber-50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-amber-500 border border-amber-100">
+                                                <Clock size={32} />
+                                            </div>
+                                            <h3 className="text-xl font-bold text-slate-800">Solicitar Reseteo</h3>
+                                            <p className="text-slate-500 text-sm">Un supervisor debe autorizar esta solicitud con su PIN.</p>
+                                        </div>
+
+                                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 mb-4">
+                                            <p className="text-xs text-slate-400 uppercase font-bold mb-1">Usuario a resetear</p>
+                                            <p className="text-slate-700 font-bold">{selectedEmployee?.name}</p>
+                                        </div>
+
+                                        <input
+                                            type="password"
+                                            maxLength={8}
+                                            autoFocus
+                                            value={supervisorPin}
+                                            onChange={(e) => setSupervisorPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                                            placeholder="PIN Supervisor"
+                                            className="w-full text-center text-3xl font-bold py-3 border-b-4 border-slate-200 focus:border-amber-500 text-slate-800 outline-none bg-transparent tracking-[0.5em]"
+                                        />
+
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <button
+                                                type="button"
+                                                onClick={() => { setRecoveryMode(false); setSupervisorPin(''); }}
+                                                className="py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100"
+                                            >
+                                                Cancelar
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={handleRequestPinReset}
+                                                disabled={isLoading || supervisorPin.length < 4}
+                                                className="py-3 rounded-xl font-bold bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                                            >
+                                                {isLoading ? '...' : 'Autorizar'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : forcePinReset ? (
+                                    /* 🔐 FORCE RESET: User enters with temporary PIN and must set a permanent one */
+                                    <div className="space-y-6">
+                                        <div className="text-center">
+                                            <div className="w-16 h-16 bg-emerald-50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-emerald-500 border border-emerald-100">
+                                                <RefreshCw size={32} />
+                                            </div>
+                                            <h3 className="text-xl font-bold text-slate-800">Nuevo PIN requerido</h3>
+                                            <p className="text-slate-500 text-sm">Ingresa tu nuevo PIN permanente para esta sucursal.</p>
+                                        </div>
+
+                                        <div className="space-y-4">
+                                            <div>
+                                                <p className="text-xs text-slate-400 font-bold mb-1 ml-1 uppercase">Nuevo PIN (4-8 dígitos)</p>
+                                                <input
+                                                    type="password"
+                                                    maxLength={8}
+                                                    autoFocus
+                                                    value={newPermanentPin}
+                                                    onChange={(e) => setNewPermanentPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                                                    placeholder="••••"
+                                                    className="w-full text-center text-3xl font-bold py-3 border-b-4 border-slate-200 focus:border-emerald-500 text-slate-800 outline-none bg-transparent tracking-[0.5em]"
+                                                />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs text-slate-400 font-bold mb-1 ml-1 uppercase">Confirmar PIN</p>
+                                                <input
+                                                    type="password"
+                                                    maxLength={8}
+                                                    value={confirmPermanentPin}
+                                                    onChange={(e) => setConfirmPermanentPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                                                    placeholder="••••"
+                                                    className="w-full text-center text-3xl font-bold py-3 border-b-4 border-slate-200 focus:border-emerald-500 text-slate-800 outline-none bg-transparent tracking-[0.5em]"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <button
+                                                type="button"
+                                                onClick={() => { setForcePinReset(false); setSelectedEmployee(null); }}
+                                                className="py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100"
+                                            >
+                                                Cancelar
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={handleApplyPinReset}
+                                                disabled={isLoading || newPermanentPin.length < 4 || newPermanentPin !== confirmPermanentPin}
+                                                className="py-3 rounded-xl font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                                            >
+                                                {isLoading ? '...' : 'Guardar y Entrar'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : !selectedEmployee ? (
                                     <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                                        {/* Search Bar */}
                                         <div className="relative mb-4 sticky top-0 z-10 bg-white pb-2">
                                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                                             <input
@@ -559,7 +716,8 @@ const LandingPage: React.FC = () => {
                                                         <p className="text-slate-400 text-xs">{emp.role === 'ADMIN' ? 'ADMINISTRADOR' : emp.role === 'MANAGER' ? 'GERENTE' : emp.job_title}</p>
                                                     </div>
                                                 </button>
-                                            )))}
+                                            ))
+                                        )}
                                     </div>
                                 ) : (
                                     <form onSubmit={handleLogin} className="space-y-6">
@@ -588,6 +746,19 @@ const LandingPage: React.FC = () => {
                                         />
 
                                         {error && <p className="text-red-500 text-sm text-center font-bold">{error}</p>}
+
+                                        {!error.includes('bloqueado') && (
+                                            <div className="text-center mt-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setRecoveryMode(true)}
+                                                    className="text-sky-600 hover:text-sky-700 text-xs font-semibold hover:underline"
+                                                >
+                                                    ¿Olvidaste tu PIN? Solicitar ayuda al Administrador
+                                                </button>
+                                            </div>
+                                        )}
+
                                         {retryCooldownMs > 0 && (
                                             <p className="text-amber-600 text-xs text-center font-semibold">
                                                 Servicio de datos inestable. Reintento disponible en {Math.ceil(retryCooldownMs / 1000)}s.

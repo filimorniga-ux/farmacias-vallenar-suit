@@ -15,7 +15,7 @@ export interface AuthenticatedUser {
 }
 
 export type AuthActionResult =
-    | { success: true; user: AuthenticatedUser }
+    | { success: true; user: AuthenticatedUser; isTemporaryPin?: boolean }
     | ActionFailure;
 
 function authFailure(input: {
@@ -178,11 +178,39 @@ export async function authenticateUserSecure(userId: string, pin: string, locati
         }
 
         if (user.access_pin !== pin) {
-            return authFailure({
-                code: 'AUTH_INVALID_PIN',
-                userMessage: 'PIN incorrecto',
-                retryable: false,
-            });
+            // V2: Soporte para PIN Temporal (Recuperación por Email)
+            const { checkIfIsPinTemporary } = await import('./pin-recovery-v2');
+            const { isTemporary } = await checkIfIsPinTemporary(user.id, pin);
+
+            if (!isTemporary) {
+                return authFailure({
+                    code: 'AUTH_INVALID_PIN',
+                    userMessage: 'PIN incorrecto',
+                    retryable: false,
+                });
+            }
+
+            // Es un PIN temporal válido!
+            const cookieStore = await cookies();
+            cookieStore.set('user_id', user.id, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
+            cookieStore.set('user_role', user.role, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
+            cookieStore.set('user_name', user.name, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
+
+            const targetLocationId = locationId || user.assigned_location_id;
+            if (targetLocationId) {
+                cookieStore.set('user_location', targetLocationId, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
+            }
+
+            return {
+                success: true,
+                isTemporaryPin: true, // Flag crucial para la UI
+                user: {
+                    id: user.id,
+                    name: user.name,
+                    role: user.role,
+                    assigned_location_id: user.assigned_location_id
+                }
+            };
         }
 
         const cookieStore = await cookies();
