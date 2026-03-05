@@ -513,7 +513,7 @@ const LandingPage: React.FC = () => {
                             </p>
                             <div className="flex flex-wrap gap-3">
                                 <a
-                                    href="https://github.com/filimorniga-ux/farmacias-vallenar-suit/releases/latest/download/FarmaciasVallenar-Setup.exe"
+                                    href="https://github.com/filimorniga-ux/farmacias-vallenar-suit/releases/download/v1.0.6/FarmaciasVallenar-Setup.exe"
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="flex items-center gap-2 px-4 py-2 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-lg transition-all text-xs font-bold border border-sky-100 shadow-sm"
@@ -523,7 +523,7 @@ const LandingPage: React.FC = () => {
                                 </a>
                                 <div className="h-8 w-px bg-slate-200 hidden md:block"></div>
                                 <a
-                                    href="https://github.com/filimorniga-ux/farmacias-vallenar-suit/releases/latest/download/FarmaciasVallenar-Mac-Universal.dmg"
+                                    href="https://github.com/filimorniga-ux/farmacias-vallenar-suit/releases/latest/download/FarmaciasVallenar-Mac-Arm64.dmg"
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-all text-xs font-bold border border-slate-200 shadow-sm"
