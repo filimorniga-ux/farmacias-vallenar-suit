@@ -140,6 +140,22 @@ function createWindow() {
         // Retry logic is handled by loadURL catch, but this logs specific network errors
     });
 
+    // Guardrail: prevent legacy/deprecated Vercel host from being loaded inside desktop app.
+    win.webContents.on('will-navigate', (event, url) => {
+        try {
+            const host = new URL(url).hostname;
+            if (host.includes('vercel.app')) {
+                event.preventDefault();
+                log.warn(`Blocked deprecated host navigation: ${url}`);
+                win.loadURL('https://www.farmaciasvallenarsuit.cl').catch((err) => {
+                    log.error('Failed to recover from deprecated host navigation:', err);
+                });
+            }
+        } catch (err) {
+            log.warn('Invalid URL on will-navigate:', url, err);
+        }
+    });
+
     // Open external links in default browser
     win.webContents.setWindowOpenHandler(({ url }) => {
         if (url.startsWith('https:')) {
