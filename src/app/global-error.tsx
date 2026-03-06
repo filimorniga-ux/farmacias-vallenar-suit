@@ -12,6 +12,22 @@ export default function GlobalError({
     useEffect(() => {
         // Log error to console (or audit service)
         console.error('Global Error:', error);
+
+        const message = String(error?.message || '');
+        const digest = String(error?.digest || '');
+        const isChunkMismatch =
+            /ChunkLoadError|Loading chunk|Failed to fetch dynamically imported module|Importing a module script failed/i.test(message) ||
+            /ChunkLoadError|Loading chunk/i.test(digest);
+
+        // One-shot auto recovery for stale cache/chunk mismatch after deploy.
+        if (isChunkMismatch && typeof window !== 'undefined') {
+            const key = 'fv_chunk_recovery_done';
+            const alreadyRetried = sessionStorage.getItem(key) === '1';
+            if (!alreadyRetried) {
+                sessionStorage.setItem(key, '1');
+                window.location.reload();
+            }
+        }
     }, [error]);
 
     return (

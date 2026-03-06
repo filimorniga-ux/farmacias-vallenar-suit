@@ -81,6 +81,17 @@ function createWindow() {
         });
     });
 
+    // In packaged desktop builds we don't need PWA service workers.
+    // Clearing cache + SW avoids stale chunk/app-shell mismatches after web deployments.
+    if (app.isPackaged) {
+        win.webContents.session.clearCache().catch((err) => {
+            log.warn('Failed to clear HTTP cache:', err);
+        });
+        win.webContents.session.clearStorageData({ storages: ['serviceworkers'] }).catch((err) => {
+            log.warn('Failed to clear service worker storage:', err);
+        });
+    }
+
     // URL CONFIGURATION
     const startUrl = isDev ? 'http://localhost:3000' : 'https://www.farmaciasvallenarsuit.cl';
     log.info('Loading URL:', startUrl);
