@@ -629,10 +629,10 @@ export const usePharmaStore = create<PharmaState>()(
                             const res = await m.fetchEmployeesSecure();
                             if (!res.success && res.error === 'No autenticado') return m.getUsersForLoginSecure();
                             return res;
-                        }),
-                        import('../../actions/sync-v2').then(m => m.fetchSuppliersSecure()),
-                        import('../../actions/sync-v2').then(m => m.fetchLocationsSecure()),
-                        TigerDataService.fetchCustomers()
+                        }).catch(() => ({ success: false, data: [] })),
+                        import('../../actions/sync-v2').then(m => m.fetchSuppliersSecure()).catch(() => ({ success: false, data: [] })),
+                        import('../../actions/sync-v2').then(m => m.fetchLocationsSecure()).catch(() => ({ success: false, data: [] })),
+                        TigerDataService.fetchCustomers().catch(() => [])
                     ]);
 
                     const employees = employeesRes.success ? (employeesRes.data || []) as unknown as EmployeeProfile[] : [];
@@ -736,24 +736,27 @@ export const usePharmaStore = create<PharmaState>()(
                 } catch (error) {
                     console.error('❌ Sync failed:', error);
 
-                    // Electron: Try to load from local SQLite as fallback
-                    try {
-                        const { loadFromSQLite } = await import('../../lib/offline/OfflineInterceptor');
-                        const localData = await loadFromSQLite();
-                        if (localData && (localData.users.length > 0 || localData.products.length > 0)) {
-                            console.log('📦 Loading from SQLite offline cache...');
-                            set({
-                                employees: localData.users as any,
-                                locations: localData.locations as any,
-                                inventory: localData.inventory as any,
-                                customers: localData.clients as any,
-                                isLoading: false,
-                                isInitialized: true,
-                            });
-                            import('sonner').then(({ toast }) => toast.warning('Modo Offline', { description: 'Usando datos locales. Se sincronizará al conectar.' }));
-                            return;
-                        }
-                    } catch (_) { /* Not in Electron or SQLite empty */ }
+                    // Only attempt SQLite fallback in Electron context (not Android/Capacitor)
+                    const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI;
+                    if (isElectron) {
+                        try {
+                            const { loadFromSQLite } = await import('../../lib/offline/OfflineInterceptor');
+                            const localData = await loadFromSQLite();
+                            if (localData && (localData.users.length > 0 || localData.products.length > 0)) {
+                                console.log('📦 Loading from SQLite offline cache...');
+                                set({
+                                    employees: localData.users as any,
+                                    locations: localData.locations as any,
+                                    inventory: localData.inventory as any,
+                                    customers: localData.clients as any,
+                                    isLoading: false,
+                                    isInitialized: true,
+                                });
+                                import('sonner').then(({ toast }) => toast.warning('Modo Offline', { description: 'Usando datos locales. Se sincronizará al conectar.' }));
+                                return;
+                            }
+                        } catch (_) { /* SQLite not available */ }
+                    }
 
                     import('sonner').then(({ toast }) => toast.error('Error de Sincronización', { description: 'Usando datos locales.' }));
                     set({ isLoading: false }); // Ensure unblock on error
