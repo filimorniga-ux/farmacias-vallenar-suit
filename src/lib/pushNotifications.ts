@@ -22,6 +22,14 @@ export async function initPushNotifications(
     if (!Capacitor.isNativePlatform()) return;
     if (_initialized) return;
 
+    // ⚠️ TEMPORALMENTE DESACTIVADO: FCM (Firebase Cloud Messaging) no está configurado.
+    // El plugin @capacitor/push-notifications requiere google-services.json con proyecto Firebase.
+    // Activar cuando se configure Firebase: https://console.firebase.google.com
+    // Sin esto, la app crashea en Android al aceptar el permiso de notificaciones.
+    console.info('[Push] Notificaciones push desactivadas temporalmente (Firebase pendiente)');
+    return;
+
+
     let PushNotifications: any;
     try {
         // Importación dinámica: si el paquete no está instalado, falla silenciosamente
