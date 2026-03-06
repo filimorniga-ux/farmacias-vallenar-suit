@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "636289185734",
+    "project_id": "farmacias-vallenar",
+    "storage_bucket": "farmacias-vallenar.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:636289185734:android:02ab6aa1a05ffe2fc824c7",
+        "android_client_info": {
+          "package_name": "com.farmaciasvallenar.erp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD9D30AiWxz1aRcb_TIq4FB1qerqBiMtSE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
