@@ -14,7 +14,6 @@ import {
     getAIUsageSecure,
     checkAIConfiguredSecure,
     getSystemConfigSecure,
-    type AIConfig
 } from '@/actions/config-v2';
 
 // ============================================================================
@@ -69,6 +68,8 @@ export default function AISettingsPage() {
     const [provider, setProvider] = useState<'OPENAI' | 'GEMINI' | 'DEEPSEEK_OCR'>('OPENAI');
     const [apiKey, setApiKey] = useState('');
     const [fallbackApiKey, setFallbackApiKey] = useState('');
+    const [hasPrimaryApiKeyConfigured, setHasPrimaryApiKeyConfigured] = useState(false);
+    const [hasFallbackApiKeyConfigured, setHasFallbackApiKeyConfigured] = useState(false);
     const [model, setModel] = useState('gpt-4o-mini');
     const [monthlyLimit, setMonthlyLimit] = useState(1000);
     const [fallbackProvider, setFallbackProvider] = useState<'OPENAI' | 'GEMINI' | 'DEEPSEEK_OCR' | 'NONE'>('NONE');
@@ -101,10 +102,16 @@ export default function AISettingsPage() {
 
             // No mostrar la API key real por seguridad
             if (configResult.apiKey) {
-                setApiKey(''); // Campo vacío, pero indicamos que está configurada
+                setApiKey('');
+                setHasPrimaryApiKeyConfigured(true);
+            } else {
+                setHasPrimaryApiKeyConfigured(false);
             }
             if (configResult.fallbackApiKey) {
                 setFallbackApiKey('');
+                setHasFallbackApiKeyConfigured(true);
+            } else {
+                setHasFallbackApiKeyConfigured(false);
             }
             if (deepseekEndpointValue) {
                 setDeepseekEndpoint(deepseekEndpointValue);
@@ -153,6 +160,7 @@ export default function AISettingsPage() {
     // Manejar cambio de API Key
     const handleApiKeyChange = (value: string) => {
         setApiKey(value);
+        setHasPrimaryApiKeyConfigured(false);
         setApiKeyError(validateApiKey(value));
     };
 
@@ -181,9 +189,10 @@ export default function AISettingsPage() {
             return;
         }
 
-        if (provider === 'DEEPSEEK_OCR') {
+        const endpointRequired = provider === 'DEEPSEEK_OCR' || fallbackProvider === 'DEEPSEEK_OCR';
+        if (endpointRequired) {
             if (!deepseekEndpoint.trim()) {
-                toast.error('Para DeepSeek OCR debe configurar AI_DEEPSEEK_OCR_ENDPOINT');
+                toast.error('Debe configurar AI_DEEPSEEK_OCR_ENDPOINT para usar DeepSeek OCR (principal o respaldo)');
                 return;
             }
             try {
@@ -197,6 +206,19 @@ export default function AISettingsPage() {
                 toast.error('AI_DEEPSEEK_OCR_ENDPOINT no es una URL válida');
                 return;
             }
+        }
+
+        const providerNeedsKey = provider !== 'DEEPSEEK_OCR';
+        if (providerNeedsKey && !apiKey && !hasPrimaryApiKeyConfigured) {
+            toast.error(`Debe ingresar API Key para ${provider}`);
+            return;
+        }
+
+        const fallbackNeedsKey = fallbackProvider === 'OPENAI' || fallbackProvider === 'GEMINI';
+        const canReusePrimaryKey = (provider === fallbackProvider) && (!!apiKey || hasPrimaryApiKeyConfigured);
+        if (fallbackNeedsKey && !fallbackApiKey && !hasFallbackApiKeyConfigured && !canReusePrimaryKey) {
+            toast.error(`Debe configurar API Key de respaldo para ${fallbackProvider}`);
+            return;
         }
 
         setIsSaving(true);
@@ -233,6 +255,8 @@ export default function AISettingsPage() {
             toast.success('Configuración guardada correctamente', { id: loadingId });
             // setApiKey(''); // NO Limpiar campo para que el usuario vea lo que guardó
             setIsConfigured(true);
+            if (apiKey) setHasPrimaryApiKeyConfigured(true);
+            if (fallbackApiKey) setHasFallbackApiKeyConfigured(true);
 
             // Recargar uso
             const usageResult = await getAIUsageSecure();
