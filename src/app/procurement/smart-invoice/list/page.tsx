@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import Link from 'next/link';
-import RouteGuard from '@/components/auth/RouteGuard';
+import { Link } from 'react-router-dom';
 import {
     ArrowLeft, Plus, RefreshCw, Search, Filter,
     Calendar, Eye, CheckCircle, XCircle, RotateCw,
@@ -24,6 +23,7 @@ import {
     type InvoiceParsing
 } from '@/actions/invoice-parser-v2';
 import { useLocationStore } from '@/presentation/store/useLocationStore';
+import { usePharmaStore } from '@/presentation/store/useStore';
 import { Store } from 'lucide-react';
 import ProductFormModal from '@/presentation/components/inventory/ProductFormModal';
 import { getProductByIdSecure } from '@/actions/products-v2';
@@ -77,6 +77,7 @@ const formatRelativeTime = (dateStr: string) => {
 // ============================================================================
 
 export default function InvoiceListPage() {
+    const user = usePharmaStore((state) => state.user);
     // Estados
     const [parsings, setParsings] = useState<InvoiceParsing[]>([]);
     const [totalCount, setTotalCount] = useState(0);
@@ -318,8 +319,20 @@ export default function InvoiceListPage() {
     // RENDER
     // ========================================================================
 
+    const allowedRoles = new Set(['ADMIN', 'QF', 'MANAGER', 'GERENTE_GENERAL', 'WAREHOUSE']);
+    if (!user || !allowedRoles.has(user.role)) {
+        return (
+            <div className="min-h-screen bg-gray-50 p-4 md:p-8">
+                <div className="max-w-2xl mx-auto bg-white border border-red-200 rounded-xl p-8 text-center">
+                    <h2 className="text-2xl font-bold text-red-600 mb-2">Acceso denegado</h2>
+                    <p className="text-gray-600">No tienes permisos para ver el historial de facturas IA.</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <RouteGuard allowedRoles={['ADMIN', 'QF', 'MANAGER', 'GERENTE_GENERAL', 'WAREHOUSE']}>
+        <>
             <div className="min-h-screen bg-gray-50">
                 {/* Header */}
                 <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
@@ -327,7 +340,7 @@ export default function InvoiceListPage() {
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
                                 <Link
-                                    href="/procurement/smart-invoice"
+                                    to="/procurement/smart-invoice"
                                     className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                                 >
                                     <ArrowLeft size={20} />
@@ -353,7 +366,7 @@ export default function InvoiceListPage() {
                                     <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
                                 </button>
                                 <Link
-                                    href="/procurement/smart-invoice"
+                                    to="/procurement/smart-invoice"
                                     className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium"
                                 >
                                     <Plus size={18} />
@@ -446,7 +459,7 @@ export default function InvoiceListPage() {
                                 <FileText size={48} className="mx-auto text-gray-300 mb-4" />
                                 <p className="text-gray-500">No hay facturas que mostrar</p>
                                 <Link
-                                    href="/procurement/smart-invoice"
+                                    to="/procurement/smart-invoice"
                                     className="mt-4 inline-flex items-center gap-2 text-purple-600 hover:text-purple-700"
                                 >
                                     <Plus size={18} />
@@ -547,7 +560,7 @@ export default function InvoiceListPage() {
 
                                                         {['PENDING', 'VALIDATED', 'MAPPING', 'REJECTED', 'PARTIAL'].includes(parsing.status) && (
                                                             <Link
-                                                                href={`/procurement/smart-invoice?edit=${parsing.id}`}
+                                                                to={`/procurement/smart-invoice?edit=${parsing.id}`}
                                                                 className="p-1.5 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
                                                                 title="Editar / Completar"
                                                             >
@@ -584,7 +597,7 @@ export default function InvoiceListPage() {
 
                                                         {parsing.status === 'ERROR' && (
                                                             <Link
-                                                                href={`/procurement/smart-invoice?retry=${parsing.id}`}
+                                                                to={`/procurement/smart-invoice?retry=${parsing.id}`}
                                                                 className="p-1.5 text-purple-500 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
                                                                 title="Reprocesar"
                                                             >
@@ -903,7 +916,7 @@ export default function InvoiceListPage() {
                                     <div className="pt-6 flex gap-2">
                                         {['PENDING', 'VALIDATED', 'MAPPING', 'REJECTED', 'PARTIAL'].includes(selectedParsing.status) && (
                                             <Link
-                                                href={`/procurement/smart-invoice?edit=${selectedParsing.id}`}
+                                                to={`/procurement/smart-invoice?edit=${selectedParsing.id}`}
                                                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-center font-medium transition-colors flex items-center justify-center gap-2"
                                             >
                                                 <Edit size={18} />
@@ -1027,6 +1040,6 @@ export default function InvoiceListPage() {
                 )}
 
             </div>
-        </RouteGuard>
+        </>
     );
 }
