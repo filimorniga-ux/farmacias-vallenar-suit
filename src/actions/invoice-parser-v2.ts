@@ -530,6 +530,63 @@ async function callGemini(
 }
 
 /**
+ * Llama a un endpoint OCR compatible con DeepSeek/self-host.
+ * Espera una respuesta JSON estructurada o un campo de texto JSON parseable.
+ */
+async function callDeepSeekOCR(
+    apiKey: string,
+    model: string,
+    imageBase64: string,
+    fileType: string
+): Promise<{ data: any; inputTokens: number; outputTokens: number }> {
+    const endpoint = await getSystemConfigSecure('AI_DEEPSEEK_OCR_ENDPOINT');
+    if (!endpoint) {
+        throw new Error('DeepSeek OCR endpoint no configurado (AI_DEEPSEEK_OCR_ENDPOINT)');
+    }
+
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+            model: model || 'deepseek-ocr',
+            fileType,
+            imageBase64,
+            prompt: SYSTEM_PROMPT_INVOICE,
+        }),
+    });
+
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(`DeepSeek OCR API error: ${error.error?.message || response.statusText}`);
+    }
+
+    const result = await response.json().catch(() => ({}));
+    const payload = result?.data ?? result?.result ?? result;
+
+    if (payload && typeof payload === 'object') {
+        return {
+            data: payload,
+            inputTokens: Number(result?.usage?.prompt_tokens || result?.usageMetadata?.promptTokenCount || 0),
+            outputTokens: Number(result?.usage?.completion_tokens || result?.usageMetadata?.candidatesTokenCount || 0),
+        };
+    }
+
+    const content = result?.choices?.[0]?.message?.content || result?.text || result?.output;
+    if (!content || typeof content !== 'string') {
+        throw new Error('DeepSeek OCR returned empty response');
+    }
+
+    return {
+        data: JSON.parse(content),
+        inputTokens: Number(result?.usage?.prompt_tokens || 0),
+        outputTokens: Number(result?.usage?.completion_tokens || 0),
+    };
+}
+
+/**
  * Llama a la IA con retry y fallback
  */
 async function callAIWithRetry(
@@ -537,6 +594,7 @@ async function callAIWithRetry(
         provider: string;
         apiKey: string;
         model: string;
+        fallbackApiKey?: string | null;
         fallbackProvider?: string;
     },
     imageBase64: string,
@@ -561,6 +619,8 @@ async function callAIWithRetry(
                 result = await callOpenAI(currentApiKey, currentModel, imageBase64, fileType);
             } else if (currentProvider === 'GEMINI') {
                 result = await callGemini(currentApiKey, currentModel, imageBase64, fileType);
+            } else if (currentProvider === 'DEEPSEEK_OCR') {
+                result = await callDeepSeekOCR(currentApiKey, currentModel, imageBase64, fileType);
             } else {
                 throw new Error(`Proveedor de IA no soportado: ${currentProvider}`);
             }
@@ -612,14 +672,19 @@ async function callAIWithRetry(
                 logger.info({ fallback: config.fallbackProvider }, '[Invoice Parser] Trying fallback provider');
 
                 // Obtener API key del fallback
-                const fallbackKey = await getSystemConfigSecure(
-                    config.fallbackProvider === 'OPENAI' ? 'AI_API_KEY' : 'AI_FALLBACK_API_KEY'
-                );
+                const fallbackKey =
+                    config.fallbackApiKey ||
+                    await getSystemConfigSecure('AI_FALLBACK_API_KEY') ||
+                    config.apiKey;
 
                 if (fallbackKey) {
                     currentProvider = config.fallbackProvider;
                     currentApiKey = fallbackKey;
-                    currentModel = config.fallbackProvider === 'OPENAI' ? 'gpt-4o-mini' : 'gemini-1.5-flash';
+                    currentModel = config.fallbackProvider === 'OPENAI'
+                        ? 'gpt-4o-mini'
+                        : config.fallbackProvider === 'GEMINI'
+                            ? 'gemini-1.5-flash'
+                            : 'deepseek-ocr';
                     attempt = -1; // Reset attempts for fallback
                     continue;
                 }
@@ -641,14 +706,49 @@ async function matchInvoiceItems(items: ParsedInvoiceItem[], supplierId?: string
     const results: ParsedInvoiceItem[] = [];
 
     for (const item of items) {
-        const match: any = null;
+        let match: { id: string; name: string } | null = null;
         let suggestions: ProductMatch[] = [];
 
-        // 1. Exact Match by Supplier SKU (Re-enabled via query if table exists, skipping for now as per comment)
-        /* ... skipped ... */
+        if (supplierId && item.supplier_sku) {
+            const supplierSkuRes = await query(`
+                SELECT p.id, p.name
+                FROM product_suppliers ps
+                JOIN products p ON ps.product_id::text = p.id::text
+                WHERE ps.supplier_id::text = $1::text
+                  AND ps.supplier_sku = $2
+                LIMIT 1
+            `, [supplierId, item.supplier_sku]).catch(() => ({ rows: [] }));
 
-        // 2. Exact Match by Name (Simple case insensitive)
-        /* ... existing logic ... */
+            if (supplierSkuRes.rows.length > 0) {
+                match = supplierSkuRes.rows[0];
+            }
+        }
+
+        if (!match && item.supplier_sku) {
+            const skuRes = await query(`
+                SELECT id, name
+                FROM products
+                WHERE sku = $1
+                LIMIT 1
+            `, [item.supplier_sku]).catch(() => ({ rows: [] }));
+
+            if (skuRes.rows.length > 0) {
+                match = skuRes.rows[0];
+            }
+        }
+
+        if (!match && item.description) {
+            const nameRes = await query(`
+                SELECT id, name
+                FROM products
+                WHERE LOWER(name) = LOWER($1)
+                LIMIT 1
+            `, [item.description]).catch(() => ({ rows: [] }));
+
+            if (nameRes.rows.length > 0) {
+                match = nameRes.rows[0];
+            }
+        }
 
         // 3. Fuzzy Match & Suggestions
         if (!match && item.description && item.description.length > 3) {
@@ -669,7 +769,7 @@ async function matchInvoiceItems(items: ParsedInvoiceItem[], supplierId?: string
                     // If similarity is very high (>0.8), consider it a match automatically? 
                     // Better to just suggest for now as user requested manual validation.
 
-                    suggestions = fuzzyRes.rows.map((row: any) => ({
+                    suggestions = fuzzyRes.rows.map((row: { id: string; name: string; sku: string }) => ({
                         productId: row.id,
                         productName: row.name,
                         sku: row.sku,
@@ -792,6 +892,7 @@ export async function parseInvoiceDocumentSecure(
                 provider: aiConfig.provider!,
                 apiKey: aiConfig.apiKey,
                 model: aiConfig.model || 'gpt-4o-mini',
+                fallbackApiKey: aiConfig.fallbackApiKey || null,
                 fallbackProvider: aiConfig.fallbackProvider || undefined,
             },
             fileBase64,
@@ -892,7 +993,7 @@ export async function parseInvoiceDocumentSecure(
                     parsedData.supplier.is_new = true;
                 } catch (err) {
                     // Si falla la auto-creación (ej. race condition), intentamos buscar de nuevo o seguimos sin ID
-                    console.warn('Error auto-creating supplier:', err);
+                    logger.warn({ err }, '[Invoice Parser] Error auto-creating supplier');
                     warnings.push('No se pudo crear el perfil del proveedor automáticamente');
                 }
             }
@@ -902,8 +1003,8 @@ export async function parseInvoiceDocumentSecure(
         const results = await matchInvoiceItems(itemsWithStatus, supplierId);
 
         // Calculate counts
-        const mappedCount = results.filter((i: any) => i.mapping_status === 'MAPPED').length;
-        const unmappedCount = results.filter((i: any) => i.mapping_status !== 'MAPPED').length;
+        const mappedCount = results.filter((i) => i.mapping_status === 'MAPPED').length;
+        const unmappedCount = results.filter((i) => i.mapping_status !== 'MAPPED').length;
 
         // Update parsed data with matched items
         parsedData.items = results as ParsedInvoiceItem[];
@@ -951,7 +1052,7 @@ export async function parseInvoiceDocumentSecure(
             parsedData.totals?.tax || null,
             parsedData.totals?.total || null,
             parsedData.totals?.discount || 0,
-            JSON.stringify(itemsWithStatus),
+            JSON.stringify(results),
             parsedData.notes || null,
             JSON.stringify(parsedData), // raw_ai_response
             aiResult.provider,
@@ -1004,7 +1105,7 @@ export async function parseInvoiceDocumentSecure(
             parsingId,
             data: {
                 ...parsedData,
-                items: itemsWithStatus,
+                items: results,
             },
             warnings: warnings.length > 0 ? warnings : undefined,
         };
@@ -1468,7 +1569,7 @@ export async function approveInvoiceParsingSecure(
 
     } catch (error: any) {
         await client.query('ROLLBACK');
-        console.error('Approval Error:', error);
+        logger.error({ error, parsingId: validated.data.parsingId }, '[Invoice Parser] Approval error');
         return { success: false, error: error.message || 'Error al aprobar factura' };
     } finally {
         client.release();
@@ -1555,6 +1656,8 @@ export async function getPendingParsingsSecure(options: {
         dateTo,
         locationId
     } = options;
+    const safePage = Number.isFinite(page) ? Math.max(1, Math.floor(page)) : 1;
+    const safePageSize = Number.isFinite(pageSize) ? Math.min(100, Math.max(1, Math.floor(pageSize))) : 20;
 
     const session = await getSession();
     if (!session) {
@@ -1576,7 +1679,7 @@ export async function getPendingParsingsSecure(options: {
         }
 
         if (searchTerm) {
-            const term = `% ${searchTerm.toLowerCase()} % `;
+            const term = `%${searchTerm.toLowerCase()}%`;
             params.push(term);
             whereClause += ` AND(
                     LOWER(ip.supplier_name) LIKE $${params.length} OR 
@@ -1601,7 +1704,8 @@ export async function getPendingParsingsSecure(options: {
         const totalCount = parseInt(countRes.rows[0].total);
 
         // Data query with pagination
-        const offset = (page - 1) * pageSize;
+        const offset = (safePage - 1) * safePageSize;
+        params.push(safePageSize, offset);
         const dataSql = `
             SELECT 
                 ip.id, ip.supplier_rut, ip.supplier_name, ip.location_id,
@@ -1618,7 +1722,7 @@ export async function getPendingParsingsSecure(options: {
             LEFT JOIN locations l ON ip.location_id = l.id
             ${whereClause}
             ORDER BY ip.created_at DESC
-            LIMIT ${pageSize} OFFSET ${offset}
+            LIMIT $${params.length - 1} OFFSET $${params.length}
             `;
 
         const dataRes = await query(dataSql, params);
@@ -1716,7 +1820,7 @@ export async function searchProductsForMappingSecure(
                 CASE WHEN p.sku ILIKE $2 THEN 0 ELSE 1 END,
             p.name
             LIMIT $3
-            `, [` % ${sanitized}% `, `${sanitized}% `, limit]);
+            `, [`%${sanitized}%`, `${sanitized}%`, limit]);
 
         return {
             success: true,

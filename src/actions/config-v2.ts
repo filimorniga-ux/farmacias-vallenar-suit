@@ -41,13 +41,14 @@ export interface SystemConfig {
 }
 
 export interface AIConfig {
-    provider: 'OPENAI' | 'GEMINI' | 'ANTHROPIC' | null;
+    provider: 'OPENAI' | 'GEMINI' | 'ANTHROPIC' | 'DEEPSEEK_OCR' | null;
     apiKey: string | null;
+    fallbackApiKey: string | null;
     model: string | null;
     maxTokens: number;
     temperature: number;
     monthlyLimit: number;
-    fallbackProvider: 'OPENAI' | 'GEMINI' | 'NONE' | null;
+    fallbackProvider: 'OPENAI' | 'GEMINI' | 'DEEPSEEK_OCR' | 'NONE' | null;
     isConfigured: boolean;
 }
 
@@ -67,6 +68,7 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
 // Keys que requieren encriptación automática
 const ENCRYPTED_KEYS = [
     'AI_API_KEY',
+    'AI_FALLBACK_API_KEY',
     'SII_CERT_PASSWORD',
     'PAYMENT_GATEWAY_KEY',
     'SMTP_PASSWORD',
@@ -233,7 +235,7 @@ export async function saveSystemConfigSecure(
     const shouldEncrypt = isEncrypted || ENCRYPTED_KEYS.includes(key);
 
     // Validar API Key si es AI_API_KEY
-    if (key === 'AI_API_KEY' && value.length < 20) {
+    if ((key === 'AI_API_KEY' || key === 'AI_FALLBACK_API_KEY') && value.length < 20) {
         return { success: false, error: 'API Key debe tener al menos 20 caracteres' };
     }
 
@@ -417,9 +419,10 @@ export async function getSystemConfigsSecure(
  */
 export async function getAIConfigSecure(): Promise<AIConfig> {
     try {
-        const [provider, apiKey, model, maxTokens, temperature, monthlyLimit, fallback] = await Promise.all([
+        const [provider, apiKey, fallbackApiKey, model, maxTokens, temperature, monthlyLimit, fallback] = await Promise.all([
             getSystemConfigSecure('AI_PROVIDER'),
             getSystemConfigSecure('AI_API_KEY'),
+            getSystemConfigSecure('AI_FALLBACK_API_KEY'),
             getSystemConfigSecure('AI_MODEL'),
             getSystemConfigSecure('AI_MAX_TOKENS'),
             getSystemConfigSecure('AI_TEMPERATURE'),
@@ -430,6 +433,7 @@ export async function getAIConfigSecure(): Promise<AIConfig> {
         return {
             provider: provider as AIConfig['provider'],
             apiKey: apiKey,
+            fallbackApiKey,
             model: model,
             maxTokens: parseInt(maxTokens || '4096', 10),
             temperature: parseFloat(temperature || '0.1'),
@@ -443,6 +447,7 @@ export async function getAIConfigSecure(): Promise<AIConfig> {
         return {
             provider: null,
             apiKey: null,
+            fallbackApiKey: null,
             model: null,
             maxTokens: 4096,
             temperature: 0.1,
@@ -594,6 +599,11 @@ export async function checkAIConfiguredSecure(): Promise<{
                     if (!response.ok) {
                         const err = await response.json().catch(() => ({}));
                         throw new Error(err.error?.message || response.statusText);
+                    }
+                } else if (config.provider === 'DEEPSEEK_OCR') {
+                    const endpoint = await getSystemConfigSecure('AI_DEEPSEEK_OCR_ENDPOINT');
+                    if (!endpoint) {
+                        throw new Error('Falta configurar AI_DEEPSEEK_OCR_ENDPOINT');
                     }
                 }
             } finally {

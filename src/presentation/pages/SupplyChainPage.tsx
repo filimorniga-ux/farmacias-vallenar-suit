@@ -207,7 +207,7 @@ const SupplyChainPage: React.FC = () => {
                     severity: 'WARNING',
                     title: '⚠️ Stock Crítico Detectado',
                     message: `${criticalCount} producto${criticalCount > 1 ? 's' : ''} sin stock suficiente. Revisa el módulo de pedido sugerido.`,
-                    actionUrl: '/cadena-suministro',
+                    actionUrl: '/supply-chain',
                     locationId: selectedLocation || undefined,
                     // Dedup: 1 notificación por sucursal por día
                     dedupKey: `supply_critical:${selectedLocation || 'all'}:${today}`,
@@ -1020,10 +1020,11 @@ const SupplyChainPage: React.FC = () => {
                         }}
                         order={selectedOrder}
                         onReceive={(orderId, items) => {
+                            const fallbackLocationId = selectedLocation || currentLocationId || locations[0]?.id;
                             return receivePurchaseOrder(
                                 orderId,
                                 items,
-                                selectedOrder.destination_location_id || 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6'
+                                selectedOrder.destination_location_id || fallbackLocationId
                             );
                         }}
                         onFinalizeReview={(orderId, reviewNotes) => finalizePurchaseOrderReview(orderId, reviewNotes)}
