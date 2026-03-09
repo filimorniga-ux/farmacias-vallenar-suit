@@ -1015,6 +1015,11 @@ export async function generateRestockSuggestionSecure(
     data?: Record<string, unknown>[];
     error?: string;
 }> {
+    const normalizedLimit = Number.isFinite(limit) ? Math.floor(limit) : 100;
+    const safeLimit = Math.min(Math.max(normalizedLimit, 1), 500);
+    const normalizedSearchQuery = searchQuery?.trim();
+    const safeSearchQuery = normalizedSearchQuery ? normalizedSearchQuery.slice(0, 120) : undefined;
+
     // Validate inputs
     let supplierValidated: string | undefined = undefined;
     if (supplierId) {
@@ -1036,7 +1041,7 @@ export async function generateRestockSuggestionSecure(
     const safeLocationId = normalizeUuid(locationId);
 
     logger.info(
-        { supplierId: supplierValidated || null, daysToCover, analysisWindow, locationId: safeLocationId, stockThreshold, searchQuery, limit },
+        { supplierId: supplierValidated || null, daysToCover, analysisWindow, locationId: safeLocationId, stockThreshold, searchQuery: safeSearchQuery, limit: safeLimit },
         '[MRP] Generate Suggestion Params'
     );
 
@@ -1050,8 +1055,8 @@ export async function generateRestockSuggestionSecure(
 
         const queryParams: (string | number | null)[] = [
             supplierValidated || null,
-            searchQuery ? `%${searchQuery}%` : null,
-            limit
+            safeSearchQuery ? `%${safeSearchQuery}%` : null,
+            safeLimit
         ];
 
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
@@ -1268,7 +1273,7 @@ export async function generateRestockSuggestionSecure(
 
         // Aumentar el límite real enviado a la DB para compensar el filtrado de "ceros" posterior
         // Si limit es 500, el $3 será 1500 para tener margen de encontrar 500 accionables.
-        queryParams[2] = Math.min(limit * 5, 2000);
+        queryParams[2] = Math.min(safeLimit * 5, 2000);
 
         const res = await pool.query(finalSql, queryParams);
 
@@ -1443,7 +1448,7 @@ export async function generateRestockSuggestionSecure(
 
         // REGLA DE NEGOCIO: Si NO hay una búsqueda específica, ocultar items con sugerencia = 0
         // Esto evita que el usuario vea 500 productos donde 470 dicen "Pedido Sugerido: 0"
-        if (!searchQuery) {
+        if (!safeSearchQuery) {
             validSuggestions = validSuggestions.filter(s => s.suggested_order_qty > 0);
         }
 
@@ -1465,7 +1470,7 @@ export async function generateRestockSuggestionSecure(
         });
 
         // Aplicar el límite final después de filtrar los ceros
-        const finalResults = sortedSuggestions.slice(0, limit);
+        const finalResults = sortedSuggestions.slice(0, safeLimit);
 
         if (trackHistory) {
             const supplierName = supplierValidated
@@ -1483,8 +1488,8 @@ export async function generateRestockSuggestionSecure(
                 analysis_window: analysisWindow,
                 location_id: safeLocationId,
                 stock_threshold: stockThreshold ?? null,
-                search_query: searchQuery ?? null,
-                limit,
+                search_query: safeSearchQuery ?? null,
+                limit: safeLimit,
                 total_results: finalResults.length,
                 critical_count: criticalCount,
                 transfer_count: transferCount,

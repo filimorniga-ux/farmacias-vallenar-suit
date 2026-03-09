@@ -136,6 +136,27 @@ describe('Procurement V2 Logic', () => {
             const params = vi.mocked(dbModule.pool.query).mock.calls[0]?.[1] as unknown[];
             expect(params).not.toContain('BODEGA_CENTRAL');
         });
+
+        it('should clamp limit and trim search query in suggestions query params', async () => {
+            vi.mocked(dbModule.pool.query).mockResolvedValue({
+                rows: []
+            } as any);
+
+            const res = await generateRestockSuggestionSecure(
+                undefined,
+                10,
+                30,
+                validUuid,
+                undefined,
+                `   ${'A'.repeat(180)}   `,
+                5000
+            );
+
+            expect(res.success).toBe(true);
+            const params = vi.mocked(dbModule.pool.query).mock.calls[0]?.[1] as unknown[];
+            expect(params[1]).toBe(`%${'A'.repeat(120)}%`);
+            expect(params[2]).toBe(2000); // safeLimit=500 => db query limit multiplier maxed at 2000
+        });
     });
 
     // --- Create PO Tests ---
