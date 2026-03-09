@@ -117,6 +117,14 @@ const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
+function revalidateInvoiceProcurementPaths(): void {
+    revalidatePath('/supply-chain');
+    revalidatePath('/logistica');
+    revalidatePath('/procurement/smart-order');
+    revalidatePath('/procurement/smart-invoice');
+    revalidatePath('/procurement/smart-invoice/list');
+}
+
 // ============================================================================
 // PROMPT DE SISTEMA PARA LA IA
 // ============================================================================
@@ -1098,7 +1106,7 @@ export async function parseInvoiceDocumentSecure(
             processingTimeMs,
         }, '✅ Invoice parsed successfully');
 
-        revalidatePath('/procurement');
+        revalidateInvoiceProcurementPaths();
 
         return {
             success: true,
@@ -1555,7 +1563,7 @@ export async function approveInvoiceParsingSecure(
 
         await client.query('COMMIT');
 
-        revalidatePath('/procurement');
+        revalidateInvoiceProcurementPaths();
 
         return {
             success: true,
@@ -1620,7 +1628,7 @@ export async function rejectInvoiceParsingSecure(
 
         logger.info({ parsingId, reason }, '❌ Invoice parsing rejected');
 
-        revalidatePath('/procurement');
+        revalidateInvoiceProcurementPaths();
 
         return { success: true };
 
@@ -1930,7 +1938,7 @@ export async function deleteInvoiceParsingSecure(
 
         logger.info({ parsingId, deletedBy: session.userId }, '[Invoice Parser] Parsing deleted');
 
-        revalidatePath('/procurement/smart-invoice/list');
+        revalidateInvoiceProcurementPaths();
         return { success: true };
 
     } catch (error: any) {

@@ -81,7 +81,7 @@ describe('TigerDataService fallbacks', () => {
         expect(mockGetShipmentsSecure).toHaveBeenCalledTimes(1);
         expect(mockGetSupplyChainHistorySecure).toHaveBeenCalledWith({
             page: 1,
-            pageSize: 200,
+            pageSize: 100,
             type: 'SHIPMENT',
             locationId: '550e8400-e29b-41d4-a716-446655440001'
         });
