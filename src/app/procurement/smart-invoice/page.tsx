@@ -583,7 +583,7 @@ function SmartInvoiceContent() {
                                     <span className="hidden sm:inline">Historial</span>
                                 </Link>
                                 <Link
-                                    to="/settings"
+                                    to="/settings/ai"
                                     className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                                 >
                                     <Settings size={18} />
@@ -637,7 +637,7 @@ function SmartInvoiceContent() {
                             <p className="text-gray-600 mb-2">{error}</p>
                             {error?.includes('API Key') && (
                                 <Link
-                                    to="/settings"
+                                    to="/settings/ai"
                                     className="text-purple-600 hover:text-purple-700 text-sm"
                                 >
                                     Ir a configuración de IA →
