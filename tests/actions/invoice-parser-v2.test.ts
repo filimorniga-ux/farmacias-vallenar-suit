@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getPendingParsingsSecure, parseInvoiceDocumentSecure, searchProductsForMappingSecure } from '@/actions/invoice-parser-v2';
 import { query } from '@/lib/db';
-import { getAIConfigSecure } from '@/actions/config-v2';
+import { getAIConfigSecure, getSystemConfigSecure } from '@/actions/config-v2';
 
 vi.mock('@/lib/db', () => ({
   pool: { connect: vi.fn() },
@@ -73,6 +73,7 @@ describe('invoice-parser-v2', () => {
       fallbackProvider: 'NONE',
       isConfigured: true,
     });
+    vi.mocked(getSystemConfigSecure).mockResolvedValue('https://ocr.example.com/parse');
 
     const mockQuery = vi.mocked(query);
     mockQuery.mockResolvedValueOnce({ rows: [{ count: '1' }] } as any);
@@ -86,5 +87,33 @@ describe('invoice-parser-v2', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('Límite mensual');
+  });
+
+  it('retorna error claro si DEEPSEEK_OCR no tiene endpoint configurado', async () => {
+    vi.mocked(getAIConfigSecure).mockResolvedValue({
+      provider: 'DEEPSEEK_OCR',
+      apiKey: null,
+      fallbackApiKey: null,
+      model: 'deepseek-ocr',
+      maxTokens: 4096,
+      temperature: 0.1,
+      monthlyLimit: 1000,
+      fallbackProvider: 'NONE',
+      isConfigured: true,
+    });
+    vi.mocked(getSystemConfigSecure).mockResolvedValue(null);
+
+    const mockQuery = vi.mocked(query);
+    mockQuery.mockResolvedValueOnce({ rows: [{ count: '0' }] } as any);
+
+    const result = await parseInvoiceDocumentSecure({
+      fileBase64: 'A'.repeat(140),
+      fileType: 'image',
+      fileName: 'factura-test.png',
+      locationId: '550e8400-e29b-41d4-a716-446655440222',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('DeepSeek OCR endpoint no configurado');
   });
 });
