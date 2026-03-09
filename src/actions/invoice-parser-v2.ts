@@ -873,6 +873,13 @@ export async function parseInvoiceDocumentSecure(
         return { success: false, error: 'Límite mensual de procesamiento de facturas alcanzado' };
     }
 
+    if (aiConfig.provider === 'DEEPSEEK_OCR') {
+        const endpoint = await getSystemConfigSecure('AI_DEEPSEEK_OCR_ENDPOINT');
+        if (!endpoint) {
+            return { success: false, error: 'DeepSeek OCR endpoint no configurado (AI_DEEPSEEK_OCR_ENDPOINT)' };
+        }
+    }
+
     const parsingId = randomUUID();
     const startTime = Date.now();
 
