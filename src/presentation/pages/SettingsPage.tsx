@@ -204,7 +204,7 @@ const SettingsPage: React.FC = () => {
                     </button>
 
                     {/* AI Tab (Manager Only) */}
-                    {(user?.role === 'MANAGER' || user?.role === 'ADMIN' || user?.role === 'GERENTE_GENERAL') && (
+                    {(user?.role === 'MANAGER' || user?.role === 'ADMIN' || user?.role === 'GERENTE_GENERAL' || user?.role === 'QF') && (
                         <button
                             onClick={() => setActiveTab('ai')}
                             className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'ai'
