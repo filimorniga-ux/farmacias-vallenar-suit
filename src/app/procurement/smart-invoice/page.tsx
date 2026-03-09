@@ -31,6 +31,7 @@ import {
     type ParsedInvoiceItem,
 } from '@/actions/invoice-parser-v2';
 import { checkAIConfiguredSecure } from '@/actions/config-v2';
+import { usePharmaStore } from '@/presentation/store/useStore';
 
 // ============================================================================
 // TIPOS
@@ -99,6 +100,7 @@ const reconstructInvoiceFromDb = (dbRow: any): ParsedInvoice => {
 
 function SmartInvoiceContent() {
     const router = useRouter();
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
 
     // Estados principales
     const [pageState, setPageState] = useState<PageState>('idle');
@@ -186,6 +188,10 @@ function SmartInvoiceContent() {
         });
     }, []);
 
+    const resolveActiveLocationId = useCallback((): string | null => {
+        return targetLocationId || currentLocationId || locations[0]?.id || null;
+    }, [targetLocationId, currentLocationId, locations]);
+
     // ========================================================================
     // HANDLERS
     // ========================================================================
@@ -206,8 +212,10 @@ function SmartInvoiceContent() {
                 throw new Error(aiCheck.error || 'Configure su API Key de IA primero');
             }
 
-            // Obtener locationId del usuario (simulado)
-            const locationId = 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6';
+            const locationId = resolveActiveLocationId();
+            if (!locationId) {
+                throw new Error('No se pudo determinar la sucursal destino para procesar la factura');
+            }
 
             // Llamar al parser
             const result = await parseInvoiceDocumentSecure({
@@ -241,7 +249,7 @@ function SmartInvoiceContent() {
             setPageState('error');
             toast.error(getErrorMessage(err.message));
         }
-    }, []);
+    }, [resolveActiveLocationId]);
 
     // Función auxiliar para procesar resultado exitoso
     const processSuccessResult = (result: any) => {
@@ -288,7 +296,10 @@ function SmartInvoiceContent() {
             } else {
                 // REPROCESS
                 toast.info('Reprocesando con IA...');
-                const locationId = 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6';
+                const locationId = resolveActiveLocationId();
+                if (!locationId) {
+                    throw new Error('No se pudo determinar la sucursal destino para reprocesar la factura');
+                }
 
                 const result = await parseInvoiceDocumentSecure({
                     fileBase64: duplicateConflict.fileBase64,
@@ -536,7 +547,7 @@ function SmartInvoiceContent() {
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
                                 <Link
-                                    href="/procurement"
+                                    href="/supply-chain"
                                     className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                                 >
                                     <ArrowLeft size={20} />

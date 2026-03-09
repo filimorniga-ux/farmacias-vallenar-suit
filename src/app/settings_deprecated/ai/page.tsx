@@ -31,6 +31,7 @@ interface AIUsageData {
 const AI_PROVIDERS = [
     { value: 'OPENAI', label: 'OpenAI', icon: '🤖', description: 'GPT-4o, más preciso' },
     { value: 'GEMINI', label: 'Google Gemini', icon: '✨', description: 'Gemini 1.5, más económico' },
+    { value: 'DEEPSEEK_OCR', label: 'DeepSeek OCR', icon: '🧾', description: 'OCR self-hosted compatible' },
 ] as const;
 
 const AI_MODELS: Record<string, Array<{ value: string; label: string; cost: string; description: string }>> = {
@@ -42,12 +43,16 @@ const AI_MODELS: Record<string, Array<{ value: string; label: string; cost: stri
         { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro', cost: '$$', description: 'Alta calidad' },
         { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash', cost: '$', description: 'Más rápido' },
     ],
+    DEEPSEEK_OCR: [
+        { value: 'deepseek-ocr', label: 'DeepSeek OCR', cost: '$', description: 'Endpoint OCR configurable' },
+    ]
 };
 
 const FALLBACK_OPTIONS = [
     { value: 'NONE', label: 'Sin respaldo' },
     { value: 'OPENAI', label: 'OpenAI' },
     { value: 'GEMINI', label: 'Google Gemini' },
+    { value: 'DEEPSEEK_OCR', label: 'DeepSeek OCR' },
 ];
 
 // ============================================================================
@@ -56,11 +61,12 @@ const FALLBACK_OPTIONS = [
 
 export default function AISettingsPage() {
     // Estado del formulario
-    const [provider, setProvider] = useState<'OPENAI' | 'GEMINI'>('OPENAI');
+    const [provider, setProvider] = useState<'OPENAI' | 'GEMINI' | 'DEEPSEEK_OCR'>('OPENAI');
     const [apiKey, setApiKey] = useState('');
+    const [fallbackApiKey, setFallbackApiKey] = useState('');
     const [model, setModel] = useState('gpt-4o-mini');
     const [monthlyLimit, setMonthlyLimit] = useState(1000);
-    const [fallbackProvider, setFallbackProvider] = useState<'OPENAI' | 'GEMINI' | 'NONE'>('NONE');
+    const [fallbackProvider, setFallbackProvider] = useState<'OPENAI' | 'GEMINI' | 'DEEPSEEK_OCR' | 'NONE'>('NONE');
 
     // Estado de UI
     const [showApiKey, setShowApiKey] = useState(false);
@@ -81,7 +87,7 @@ export default function AISettingsPage() {
                 checkAIConfiguredSecure(),
             ]);
 
-            if (configResult.provider) setProvider(configResult.provider as 'OPENAI' | 'GEMINI');
+            if (configResult.provider) setProvider(configResult.provider as 'OPENAI' | 'GEMINI' | 'DEEPSEEK_OCR');
             if (configResult.model) setModel(configResult.model);
             if (configResult.monthlyLimit) setMonthlyLimit(configResult.monthlyLimit);
             if (configResult.fallbackProvider) setFallbackProvider(configResult.fallbackProvider as any);
@@ -89,6 +95,9 @@ export default function AISettingsPage() {
             // No mostrar la API key real por seguridad
             if (configResult.apiKey) {
                 setApiKey(''); // Campo vacío, pero indicamos que está configurada
+            }
+            if (configResult.fallbackApiKey) {
+                setFallbackApiKey('');
             }
 
             setIsConfigured(checkResult.configured);
@@ -131,10 +140,16 @@ export default function AISettingsPage() {
     };
 
     // Manejar cambio de proveedor
-    const handleProviderChange = (newProvider: 'OPENAI' | 'GEMINI') => {
+    const handleProviderChange = (newProvider: 'OPENAI' | 'GEMINI' | 'DEEPSEEK_OCR') => {
         setProvider(newProvider);
         // Cambiar modelo al predeterminado del proveedor
-        setModel(newProvider === 'OPENAI' ? 'gpt-4o-mini' : 'gemini-1.5-flash');
+        setModel(
+            newProvider === 'OPENAI'
+                ? 'gpt-4o-mini'
+                : newProvider === 'GEMINI'
+                    ? 'gemini-1.5-flash'
+                    : 'deepseek-ocr'
+        );
         // Validar API key con nuevo proveedor
         if (apiKey) {
             setApiKeyError(validateApiKey(apiKey));
@@ -164,6 +179,9 @@ export default function AISettingsPage() {
             // Solo guardar API Key si se ingresó una nueva
             if (apiKey) {
                 configs.push({ key: 'AI_API_KEY', value: apiKey, isEncrypted: true } as any);
+            }
+            if (fallbackApiKey) {
+                configs.push({ key: 'AI_FALLBACK_API_KEY', value: fallbackApiKey, isEncrypted: true } as any);
             }
 
             for (const config of configs) {
@@ -298,6 +316,23 @@ export default function AISettingsPage() {
                                             }
                                         </p>
                                     </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            API Key Respaldo (opcional)
+                                        </label>
+                                        <input
+                                            type={showApiKey ? 'text' : 'password'}
+                                            value={fallbackApiKey}
+                                            onChange={(e) => setFallbackApiKey(e.target.value)}
+                                            placeholder="Solo si usarás proveedor alternativo"
+                                            className="w-full rounded-lg border border-gray-300 shadow-sm focus:ring-purple-500 focus:border-purple-500"
+                                            autoComplete="off"
+                                        />
+                                        <p className="mt-1 text-xs text-gray-500">
+                                            Se guarda como <code>AI_FALLBACK_API_KEY</code> encriptada.
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
 
@@ -373,7 +408,9 @@ export default function AISettingsPage() {
                                         <p className="mt-1 text-xs text-gray-500">
                                             {provider === 'OPENAI'
                                                 ? 'Obtener en platform.openai.com → API Keys'
-                                                : 'Obtener en aistudio.google.com → API Key'
+                                                : provider === 'GEMINI'
+                                                    ? 'Obtener en aistudio.google.com → API Key'
+                                                    : 'Configurar endpoint self-host en AI_DEEPSEEK_OCR_ENDPOINT'
                                             }
                                         </p>
                                     </div>

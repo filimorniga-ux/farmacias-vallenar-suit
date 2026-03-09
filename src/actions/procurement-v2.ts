@@ -134,7 +134,7 @@ async function validateApproverPin(client: PoolClient, pin: string, requiredRole
 
         return { valid: false, error: 'PIN inválido' };
     } catch (error) {
-        console.error('[PROCUREMENT-V2] PIN validation error:', error);
+        logger.error({ error }, '[PROCUREMENT-V2] PIN validation error');
         return { valid: false, error: 'Error validando PIN' };
     }
 }
@@ -326,7 +326,7 @@ export async function createPurchaseOrderSecure(data: z.infer<typeof CreatePurch
 
     } catch (error: unknown) {
         await client.query('ROLLBACK');
-        console.error('[PROCUREMENT-V2] Create PO error:', error);
+        logger.error({ error }, '[PROCUREMENT-V2] Create PO error');
         return {
             success: false,
             error: error instanceof Error ? error.message : 'Error al crear orden de compra'
@@ -429,7 +429,7 @@ export async function approvePurchaseOrderSecure(data: z.infer<typeof ApprovePur
 
     } catch (error: unknown) {
         await client.query('ROLLBACK');
-        console.error('[PROCUREMENT-V2] Approve PO error:', error);
+        logger.error({ error }, '[PROCUREMENT-V2] Approve PO error');
 
         if (error && typeof error === 'object' && 'code' in error && error.code === '55P03') {
             return { success: false, error: 'Orden está siendo procesada' };
@@ -628,7 +628,7 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
 
     } catch (error: unknown) {
         await client.query('ROLLBACK');
-        console.error('[PROCUREMENT-V2] Receive PO error:', error);
+        logger.error({ error }, '[PROCUREMENT-V2] Receive PO error');
         return {
             success: false,
             error: error instanceof Error ? error.message : 'Error al recibir orden'
@@ -719,7 +719,7 @@ export async function cancelPurchaseOrderSecure(data: z.infer<typeof CancelPurch
 
     } catch (error: unknown) {
         await client.query('ROLLBACK');
-        console.error('[PROCUREMENT-V2] Cancel PO error:', error);
+        logger.error({ error }, '[PROCUREMENT-V2] Cancel PO error');
         return {
             success: false,
             error: error instanceof Error ? error.message : 'Error al cancelar orden'
@@ -790,7 +790,7 @@ export async function deletePurchaseOrderSecure(params: {
 
     } catch (error: unknown) {
         await client.query('ROLLBACK');
-        console.error('Error deleting PO:', error);
+        logger.error({ error }, '[PROCUREMENT-V2] Delete PO error');
         return { success: false, error: error instanceof Error ? error.message : 'Error al eliminar orden' };
     } finally {
         client.release();
@@ -923,7 +923,7 @@ export async function getPurchaseOrderHistory(filters?: {
         };
 
     } catch (error: unknown) {
-        console.error('[PROCUREMENT-V2] Get history error:', error);
+        logger.error({ error }, '[PROCUREMENT-V2] Get history error');
         return {
             success: false,
             error: error instanceof Error ? error.message : 'Error obteniendo historial'
@@ -1491,7 +1491,7 @@ export async function generateRestockSuggestionSecure(
         return { success: true, data: finalResults };
 
     } catch (error: unknown) {
-        console.error('[PROCUREMENT-V2] MRP error:', error);
+        logger.error({ error }, '[PROCUREMENT-V2] MRP error');
         return { success: false, error: 'Error generando sugerencias: ' + (error instanceof Error ? error.message : 'Error desconocido') };
     }
 }
