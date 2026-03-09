@@ -32,6 +32,8 @@ doctl apps create --spec .do/app.staging.yaml
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `OPENAI_API_KEY`
+- `AI_DEEPSEEK_API_KEY` (si usas proveedor `DEEPSEEK_OCR`)
+- `AI_DEEPSEEK_OCR_ENDPOINT` (si usas proveedor `DEEPSEEK_OCR`)
 - `SENTRY_DSN` (si aplica)
 - `SENTRY_AUTH_TOKEN` (solo build si subes sourcemaps)
 
