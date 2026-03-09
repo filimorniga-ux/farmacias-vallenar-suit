@@ -13,6 +13,7 @@ import {
     getAIConfigSecure,
     getAIUsageSecure,
     checkAIConfiguredSecure,
+    getSystemConfigSecure,
     type AIConfig
 } from '@/actions/config-v2';
 
@@ -71,6 +72,7 @@ export default function AISettingsPage() {
     const [model, setModel] = useState('gpt-4o-mini');
     const [monthlyLimit, setMonthlyLimit] = useState(1000);
     const [fallbackProvider, setFallbackProvider] = useState<'OPENAI' | 'GEMINI' | 'DEEPSEEK_OCR' | 'NONE'>('NONE');
+    const [deepseekEndpoint, setDeepseekEndpoint] = useState('');
 
     // Estado de UI
     const [showApiKey, setShowApiKey] = useState(false);
@@ -90,6 +92,7 @@ export default function AISettingsPage() {
                 getAIUsageSecure(),
                 checkAIConfiguredSecure(),
             ]);
+            const deepseekEndpointValue = await getSystemConfigSecure('AI_DEEPSEEK_OCR_ENDPOINT');
 
             if (configResult.provider) setProvider(configResult.provider as 'OPENAI' | 'GEMINI' | 'DEEPSEEK_OCR');
             if (configResult.model) setModel(configResult.model);
@@ -102,6 +105,9 @@ export default function AISettingsPage() {
             }
             if (configResult.fallbackApiKey) {
                 setFallbackApiKey('');
+            }
+            if (deepseekEndpointValue) {
+                setDeepseekEndpoint(deepseekEndpointValue);
             }
 
             setIsConfigured(checkResult.configured);
@@ -175,6 +181,24 @@ export default function AISettingsPage() {
             return;
         }
 
+        if (provider === 'DEEPSEEK_OCR') {
+            if (!deepseekEndpoint.trim()) {
+                toast.error('Para DeepSeek OCR debe configurar AI_DEEPSEEK_OCR_ENDPOINT');
+                return;
+            }
+            try {
+                // Valida URL absoluta (http/https)
+                const endpointUrl = new URL(deepseekEndpoint.trim());
+                if (!['http:', 'https:'].includes(endpointUrl.protocol)) {
+                    toast.error('El endpoint DeepSeek debe iniciar con http:// o https://');
+                    return;
+                }
+            } catch {
+                toast.error('AI_DEEPSEEK_OCR_ENDPOINT no es una URL válida');
+                return;
+            }
+        }
+
         setIsSaving(true);
         const loadingId = toast.loading('Guardando configuración...');
 
@@ -193,6 +217,9 @@ export default function AISettingsPage() {
             }
             if (fallbackApiKey) {
                 configs.push({ key: 'AI_FALLBACK_API_KEY', value: fallbackApiKey, isEncrypted: true } as any);
+            }
+            if (deepseekEndpoint.trim()) {
+                configs.push({ key: 'AI_DEEPSEEK_OCR_ENDPOINT', value: deepseekEndpoint.trim() } as any);
             }
 
             for (const config of configs) {
@@ -360,6 +387,25 @@ export default function AISettingsPage() {
                                     </div>
                                 </div>
                             </div>
+
+                            {(provider === 'DEEPSEEK_OCR' || fallbackProvider === 'DEEPSEEK_OCR') && (
+                                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                                    <label className="block text-sm font-medium text-blue-900 mb-1">
+                                        Endpoint DeepSeek OCR
+                                    </label>
+                                    <input
+                                        type="url"
+                                        value={deepseekEndpoint}
+                                        onChange={(e) => setDeepseekEndpoint(e.target.value)}
+                                        placeholder="https://tu-endpoint-ocr/v1/parse"
+                                        className="w-full rounded-lg border border-blue-300 shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                                        autoComplete="off"
+                                    />
+                                    <p className="mt-1 text-xs text-blue-700">
+                                        Se guarda como <code>AI_DEEPSEEK_OCR_ENDPOINT</code>. Requerido para proveedor DeepSeek OCR.
+                                    </p>
+                                </div>
+                            )}
 
                             {/* Main Config Card */}
                             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
