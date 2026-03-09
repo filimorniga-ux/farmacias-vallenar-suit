@@ -1,9 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
-import RouteGuard from '@/components/auth/RouteGuard';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
     ArrowLeft, Sparkles, FileText, List, CheckCircle,
     XCircle, AlertTriangle, Loader, HelpCircle, Settings
@@ -100,8 +98,8 @@ const reconstructInvoiceFromDb = (dbRow: any): ParsedInvoice => {
 // ============================================================================
 
 function SmartInvoiceContent() {
-    const router = useRouter();
     const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const user = usePharmaStore((state) => state.user);
 
     // Estados principales
     const [pageState, setPageState] = useState<PageState>('idle');
@@ -142,7 +140,7 @@ function SmartInvoiceContent() {
     const [productModalInitialValues, setProductModalInitialValues] = useState<any>(null);
     const [editingItem, setEditingItem] = useState<ParsedInvoiceItem | null>(null);
 
-    const searchParams = useSearchParams();
+    const [searchParams] = useSearchParams();
     const editId = searchParams.get('edit');
 
     // Cargar para edición si viene ID en URL
@@ -539,8 +537,20 @@ function SmartInvoiceContent() {
     const isProcessing = pageState === 'processing' || pageState === 'approving';
     const showResults = pageState === 'validating' || pageState === 'mapping' || pageState === 'success' || pageState === 'approving';
 
+    const allowedRoles = new Set(['ADMIN', 'QF', 'MANAGER', 'WAREHOUSE', 'GERENTE_GENERAL']);
+    if (!user || !allowedRoles.has(user.role)) {
+        return (
+            <div className="min-h-screen bg-gray-50 p-4 md:p-8">
+                <div className="max-w-2xl mx-auto bg-white border border-red-200 rounded-xl p-8 text-center">
+                    <h2 className="text-2xl font-bold text-red-600 mb-2">Acceso denegado</h2>
+                    <p className="text-gray-600">No tienes permisos para usar Smart Invoice.</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <RouteGuard allowedRoles={['ADMIN', 'QF', 'MANAGER', 'WAREHOUSE', 'GERENTE_GENERAL']}>
+        <>
             <div className="min-h-screen bg-gray-50 relative">
                 {/* Header */}
                 <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
@@ -548,7 +558,7 @@ function SmartInvoiceContent() {
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
                                 <Link
-                                    href="/supply-chain"
+                                    to="/supply-chain"
                                     className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                                 >
                                     <ArrowLeft size={20} />
@@ -566,14 +576,14 @@ function SmartInvoiceContent() {
 
                             <div className="flex items-center gap-2">
                                 <Link
-                                    href="/procurement/smart-invoice/list"
+                                    to="/procurement/smart-invoice/list"
                                     className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                                 >
                                     <List size={18} />
                                     <span className="hidden sm:inline">Historial</span>
                                 </Link>
                                 <Link
-                                    href="/settings"
+                                    to="/settings"
                                     className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                                 >
                                     <Settings size={18} />
@@ -606,7 +616,7 @@ function SmartInvoiceContent() {
                                     Procesar otra factura
                                 </button>
                                 <Link
-                                    href="/procurement/smart-invoice/list"
+                                    to="/procurement/smart-invoice/list"
                                     className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                                 >
                                     Ver historial
@@ -627,7 +637,7 @@ function SmartInvoiceContent() {
                             <p className="text-gray-600 mb-2">{error}</p>
                             {error?.includes('API Key') && (
                                 <Link
-                                    href="/settings"
+                                    to="/settings"
                                     className="text-purple-600 hover:text-purple-700 text-sm"
                                 >
                                     Ir a configuración de IA →
@@ -964,7 +974,7 @@ function SmartInvoiceContent() {
                     } : null}
                 />
             </div>
-        </RouteGuard >
+        </>
     );
 }
 
