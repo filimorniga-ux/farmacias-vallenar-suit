@@ -365,7 +365,7 @@ const SettingsPage: React.FC = () => {
                                 <li>• Lectura automática de facturas (OCR con IA)</li>
                                 <li>• Mapeo inteligente de productos</li>
                                 <li>• Validación de RUT y montos</li>
-                                <li>• Integración con OpenAI y Google Gemini</li>
+                                <li>• Integración con OpenAI, Gemini y DeepSeek OCR</li>
                             </ul>
                         </div>
 
@@ -377,9 +377,7 @@ const SettingsPage: React.FC = () => {
                             Ir a Configuración de IA
                         </a>
 
-                        <p className="text-xs text-slate-400">
-                            Requiere API Key de OpenAI o Google Gemini
-                        </p>
+                        <p className="text-xs text-slate-400">OpenAI/Gemini requieren API Key. DeepSeek OCR puede operar por endpoint self-host.</p>
                     </div>
                 </div>
             )}

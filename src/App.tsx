@@ -30,6 +30,7 @@ import PriceCheckPage from './presentation/pages/PriceCheckPage';
 import InventorySettings from './presentation/pages/settings/InventorySettings';
 import ContextSelectionPage from './presentation/pages/ContextSelectionPage';
 import PrintingSettingsPage from './presentation/pages/settings/PrintingSettingsPage';
+import AISettingsPage from './app/settings_deprecated/ai/page';
 import TreasuryPage from './app/finance/treasury/page';
 import MonthlyClosingPage from './app/finance/monthly-closing/page';
 import { ProductSalesReportPage } from './presentation/pages/reports/ProductSalesReportPage';
@@ -76,6 +77,7 @@ function App({ forceContextSelection }: { forceContextSelection?: boolean }) {
                 <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
                 <Route path="/board" element={<ProtectedRoute><BoardPage /></ProtectedRoute>} />
                 <Route path="/settings/printing" element={<ProtectedRoute><PrintingSettingsPage /></ProtectedRoute>} />
+                <Route path="/settings/ai" element={<ProtectedRoute><AISettingsPage /></ProtectedRoute>} />
                 <Route path="/pos" element={<ProtectedRoute><POSMainScreen /></ProtectedRoute>} />
                 <Route path="/inventory" element={<ProtectedRoute><InventoryPage /></ProtectedRoute>} />
                 <Route path="/inventory/maintenance" element={<ProtectedRoute><InventorySettings /></ProtectedRoute>} />

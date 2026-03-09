@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import RouteGuard from '@/components/auth/RouteGuard';
 import {
     Save, Eye, EyeOff, Bot, Zap, AlertCircle, CheckCircle,
     RefreshCw, TrendingUp, DollarSign, Clock, Settings2,
     Sparkles, Shield, TestTube
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { usePharmaStore } from '@/presentation/store/useStore';
 import {
     saveSystemConfigSecure,
     getAIConfigSecure,
@@ -55,11 +55,15 @@ const FALLBACK_OPTIONS = [
     { value: 'DEEPSEEK_OCR', label: 'DeepSeek OCR' },
 ];
 
+const providerNeedsApiKey = (provider: 'OPENAI' | 'GEMINI' | 'DEEPSEEK_OCR'): boolean =>
+    provider !== 'DEEPSEEK_OCR';
+
 // ============================================================================
 // COMPONENTE PRINCIPAL
 // ============================================================================
 
 export default function AISettingsPage() {
+    const { user } = usePharmaStore();
     // Estado del formulario
     const [provider, setProvider] = useState<'OPENAI' | 'GEMINI' | 'DEEPSEEK_OCR'>('OPENAI');
     const [apiKey, setApiKey] = useState('');
@@ -120,6 +124,10 @@ export default function AISettingsPage() {
     // Validar API Key
     const validateApiKey = (key: string): string | null => {
         if (!key) return null; // Vacío es OK si ya está configurada
+
+        if (!providerNeedsApiKey(provider)) {
+            return null;
+        }
 
         if (provider === 'OPENAI' && !key.startsWith('sk-')) {
             return 'API Key de OpenAI debe comenzar con "sk-"';
@@ -220,7 +228,7 @@ export default function AISettingsPage() {
             return;
         }
 
-        if (!isConfigured && !apiKey) {
+        if (!isConfigured && providerNeedsApiKey(provider) && !apiKey) {
             toast.error('Ingrese una API Key y guarde la configuración primero');
             return;
         }
@@ -267,9 +275,21 @@ export default function AISettingsPage() {
         return 'bg-red-500';
     };
 
+    const allowedRoles = new Set(['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'QF']);
+    if (!user || !allowedRoles.has(user.role)) {
+        return (
+            <div className="min-h-screen bg-gray-50 p-4 md:p-8">
+                <div className="max-w-2xl mx-auto bg-white border border-red-200 rounded-xl p-8 text-center">
+                    <h2 className="text-2xl font-bold text-red-600 mb-2">Acceso denegado</h2>
+                    <p className="text-gray-600">No tienes permisos para acceder a la configuración de IA.</p>
+                </div>
+            </div>
+        );
+    }
+
     // Render
     return (
-        <RouteGuard allowedRoles={['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'QF']}>
+        <>
             <div className="min-h-screen bg-gray-50 p-4 md:p-8">
                 <div className="max-w-4xl mx-auto">
                     {/* Header */}
@@ -312,7 +332,9 @@ export default function AISettingsPage() {
                                         <p className={`text-sm ${isConfigured ? 'text-green-600' : 'text-yellow-600'}`}>
                                             {isConfigured
                                                 ? `Usando ${provider} - ${model}`
-                                                : 'Configure una API Key para habilitar el parsing de facturas'
+                                                : providerNeedsApiKey(provider)
+                                                    ? 'Configure una API Key para habilitar el parsing de facturas'
+                                                    : 'Configure el endpoint AI_DEEPSEEK_OCR_ENDPOINT para habilitar el parsing'
                                             }
                                         </p>
                                     </div>
@@ -377,7 +399,7 @@ export default function AISettingsPage() {
                                     {/* API Key */}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            API Key {isConfigured && <span className="text-green-600">(configurada)</span>}
+                                            API Key {providerNeedsApiKey(provider) ? '' : '(opcional)'} {isConfigured && <span className="text-green-600">(configurada)</span>}
                                         </label>
                                         <div className="relative">
                                             <input
@@ -410,7 +432,7 @@ export default function AISettingsPage() {
                                                 ? 'Obtener en platform.openai.com → API Keys'
                                                 : provider === 'GEMINI'
                                                     ? 'Obtener en aistudio.google.com → API Key'
-                                                    : 'Configurar endpoint self-host en AI_DEEPSEEK_OCR_ENDPOINT'
+                                                    : 'Opcional con DeepSeek OCR. Si no usa key, configure AI_DEEPSEEK_OCR_ENDPOINT'
                                             }
                                         </p>
                                     </div>
@@ -610,6 +632,6 @@ export default function AISettingsPage() {
                     )}
                 </div>
             </div>
-        </RouteGuard>
+        </>
     );
 }
