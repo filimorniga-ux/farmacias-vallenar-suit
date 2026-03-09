@@ -122,17 +122,20 @@ export default function AISettingsPage() {
     }, [loadConfig]);
 
     // Validar API Key
-    const validateApiKey = (key: string): string | null => {
+    const validateApiKey = (
+        key: string,
+        providerValue: 'OPENAI' | 'GEMINI' | 'DEEPSEEK_OCR' = provider
+    ): string | null => {
         if (!key) return null; // Vacío es OK si ya está configurada
 
-        if (!providerNeedsApiKey(provider)) {
+        if (!providerNeedsApiKey(providerValue)) {
             return null;
         }
 
-        if (provider === 'OPENAI' && !key.startsWith('sk-')) {
+        if (providerValue === 'OPENAI' && !key.startsWith('sk-')) {
             return 'API Key de OpenAI debe comenzar con "sk-"';
         }
-        if (provider === 'GEMINI' && !key.startsWith('AIza')) {
+        if (providerValue === 'GEMINI' && !key.startsWith('AIza')) {
             return 'API Key de Gemini debe comenzar con "AIza"';
         }
         if (key.length < 20) {
@@ -160,7 +163,7 @@ export default function AISettingsPage() {
         );
         // Validar API key con nuevo proveedor
         if (apiKey) {
-            setApiKeyError(validateApiKey(apiKey));
+            setApiKeyError(validateApiKey(apiKey, newProvider));
         }
     };
 
