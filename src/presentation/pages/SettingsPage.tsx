@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Settings, User, Shield, Save, Receipt, Printer, ToggleLeft, ToggleRight, AlertTriangle, CreditCard, Star, Monitor, Building, Wallet, Bot } from 'lucide-react';
 import SiiSettings from './settings/SiiSettings';
 import HardwarePage from './settings/HardwarePage';
@@ -369,13 +369,13 @@ const SettingsPage: React.FC = () => {
                             </ul>
                         </div>
 
-                        <a
-                            href="/settings/ai"
+                        <Link
+                            to="/settings/ai"
                             className="flex items-center gap-3 px-8 py-4 bg-violet-600 text-white font-bold rounded-xl hover:bg-violet-700 transition shadow-lg mt-4"
                         >
                             <Bot size={20} />
                             Ir a Configuración de IA
-                        </a>
+                        </Link>
 
                         <p className="text-xs text-slate-400">OpenAI/Gemini requieren API Key. DeepSeek OCR puede operar por endpoint self-host.</p>
                     </div>
