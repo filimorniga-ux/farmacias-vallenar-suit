@@ -1,10 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { getPendingParsingsSecure, searchProductsForMappingSecure } from '@/actions/invoice-parser-v2';
+import { getPendingParsingsSecure, parseInvoiceDocumentSecure, searchProductsForMappingSecure } from '@/actions/invoice-parser-v2';
 import { query } from '@/lib/db';
+import { getAIConfigSecure } from '@/actions/config-v2';
 
 vi.mock('@/lib/db', () => ({
   pool: { connect: vi.fn() },
   query: vi.fn(),
+}));
+
+vi.mock('@/actions/config-v2', () => ({
+  getAIConfigSecure: vi.fn(),
+  getSystemConfigSecure: vi.fn(),
 }));
 
 vi.mock('next/headers', () => ({
@@ -53,5 +59,32 @@ describe('invoice-parser-v2', () => {
     expect(params[0]).toBe('%PARA500%');
     expect(params[1]).toBe('PARA500%');
     expect(params[2]).toBe(10);
+  });
+
+  it('permite proveedor DEEPSEEK_OCR sin API key y avanza al control de límite mensual', async () => {
+    vi.mocked(getAIConfigSecure).mockResolvedValue({
+      provider: 'DEEPSEEK_OCR',
+      apiKey: null,
+      fallbackApiKey: null,
+      model: 'deepseek-ocr',
+      maxTokens: 4096,
+      temperature: 0.1,
+      monthlyLimit: 1,
+      fallbackProvider: 'NONE',
+      isConfigured: true,
+    });
+
+    const mockQuery = vi.mocked(query);
+    mockQuery.mockResolvedValueOnce({ rows: [{ count: '1' }] } as any);
+
+    const result = await parseInvoiceDocumentSecure({
+      fileBase64: 'A'.repeat(140),
+      fileType: 'image',
+      fileName: 'factura-test.png',
+      locationId: '550e8400-e29b-41d4-a716-446655440222',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Límite mensual');
   });
 });

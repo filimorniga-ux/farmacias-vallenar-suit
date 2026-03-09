@@ -52,6 +52,10 @@ export interface AIConfig {
     isConfigured: boolean;
 }
 
+function providerRequiresApiKey(provider: AIConfig['provider']): boolean {
+    return provider === 'OPENAI' || provider === 'GEMINI' || provider === 'ANTHROPIC';
+}
+
 // ============================================================================
 // CONSTANTES
 // ============================================================================
@@ -439,7 +443,10 @@ export async function getAIConfigSecure(): Promise<AIConfig> {
             temperature: parseFloat(temperature || '0.1'),
             monthlyLimit: parseInt(monthlyLimit || '1000', 10),
             fallbackProvider: fallback as AIConfig['fallbackProvider'],
-            isConfigured: !!(provider && apiKey),
+            isConfigured: !!(
+                provider &&
+                (providerRequiresApiKey(provider as AIConfig['provider']) ? apiKey : true)
+            ),
         };
 
     } catch (error) {
