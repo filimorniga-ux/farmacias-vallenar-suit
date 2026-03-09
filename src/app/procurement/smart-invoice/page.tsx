@@ -51,6 +51,7 @@ interface MappingEntry {
 const ERROR_MESSAGES: Record<string, string> = {
     'No autenticado': 'Su sesión ha expirado. Por favor, inicie sesión nuevamente.',
     'Configure su API Key': 'No hay API Key configurada. Vaya a Ajustes → IA.',
+    'DeepSeek OCR endpoint no configurado': 'Falta configurar el endpoint de DeepSeek OCR. Vaya a Ajustes → IA.',
     'Límite mensual': 'Se alcanzó el límite mensual de procesamiento. Contacte al administrador.',
     'Archivo muy grande': 'El archivo excede el límite de 10MB. Comprima la imagen.',
     'INVALID_DOCUMENT': 'El documento no parece ser una factura chilena válida.',
