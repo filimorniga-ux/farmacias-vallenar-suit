@@ -434,10 +434,23 @@ export async function getAIConfigSecure(): Promise<AIConfig> {
             getSystemConfigSecure('AI_FALLBACK_PROVIDER'),
         ]);
 
+        const deepseekEnvApiKey =
+            process.env.AI_DEEPSEEK_API_KEY ||
+            process.env.DEEPSEEK_API_KEY ||
+            null;
+
+        const resolvedApiKey =
+            apiKey ||
+            ((provider as AIConfig['provider']) === 'DEEPSEEK_OCR' ? deepseekEnvApiKey : null);
+
+        const resolvedFallbackApiKey =
+            fallbackApiKey ||
+            ((fallback as AIConfig['fallbackProvider']) === 'DEEPSEEK_OCR' ? deepseekEnvApiKey : null);
+
         return {
             provider: provider as AIConfig['provider'],
-            apiKey: apiKey,
-            fallbackApiKey,
+            apiKey: resolvedApiKey,
+            fallbackApiKey: resolvedFallbackApiKey,
             model: model,
             maxTokens: parseInt(maxTokens || '4096', 10),
             temperature: parseFloat(temperature || '0.1'),
@@ -445,7 +458,7 @@ export async function getAIConfigSecure(): Promise<AIConfig> {
             fallbackProvider: fallback as AIConfig['fallbackProvider'],
             isConfigured: !!(
                 provider &&
-                (providerRequiresApiKey(provider as AIConfig['provider']) ? apiKey : true)
+                (providerRequiresApiKey(provider as AIConfig['provider']) ? resolvedApiKey : true)
             ),
         };
 
