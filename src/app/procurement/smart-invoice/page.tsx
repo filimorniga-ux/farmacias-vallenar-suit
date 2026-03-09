@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useCallback, useEffect, Suspense } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
 import {
     ArrowLeft, Sparkles, FileText, List, CheckCircle,
     XCircle, AlertTriangle, Loader, HelpCircle, Settings
@@ -140,8 +139,13 @@ function SmartInvoiceContent() {
     const [productModalInitialValues, setProductModalInitialValues] = useState<any>(null);
     const [editingItem, setEditingItem] = useState<ParsedInvoiceItem | null>(null);
 
-    const [searchParams] = useSearchParams();
-    const editId = searchParams.get('edit');
+    const [editId, setEditId] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const params = new URLSearchParams(window.location.search);
+        setEditId(params.get('edit'));
+    }, []);
 
     // Cargar para edición si viene ID en URL
     useEffect(() => {
@@ -557,12 +561,12 @@ function SmartInvoiceContent() {
                     <div className="max-w-7xl mx-auto px-4 py-4">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
-                                <Link
-                                    to="/supply-chain"
+                                <a
+                                    href="/supply-chain"
                                     className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                                 >
                                     <ArrowLeft size={20} />
-                                </Link>
+                                </a>
                                 <div>
                                     <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
                                         <Sparkles className="text-purple-600" />
@@ -575,20 +579,20 @@ function SmartInvoiceContent() {
                             </div>
 
                             <div className="flex items-center gap-2">
-                                <Link
-                                    to="/procurement/smart-invoice/list"
+                                <a
+                                    href="/procurement/smart-invoice/list"
                                     className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                                 >
                                     <List size={18} />
                                     <span className="hidden sm:inline">Historial</span>
-                                </Link>
-                                <Link
-                                    to="/settings/ai"
+                                </a>
+                                <a
+                                    href="/settings/ai"
                                     className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                                 >
                                     <Settings size={18} />
                                     <span className="hidden sm:inline">Configurar IA</span>
-                                </Link>
+                                </a>
                             </div>
                         </div>
                     </div>
@@ -615,12 +619,12 @@ function SmartInvoiceContent() {
                                 >
                                     Procesar otra factura
                                 </button>
-                                <Link
-                                    to="/procurement/smart-invoice/list"
+                                <a
+                                    href="/procurement/smart-invoice/list"
                                     className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                                 >
                                     Ver historial
-                                </Link>
+                                </a>
                             </div>
                         </div>
                     )}
@@ -636,12 +640,12 @@ function SmartInvoiceContent() {
                             </h2>
                             <p className="text-gray-600 mb-2">{error}</p>
                             {error?.includes('API Key') && (
-                                <Link
-                                    to="/settings/ai"
+                                <a
+                                    href="/settings/ai"
                                     className="text-purple-600 hover:text-purple-700 text-sm"
                                 >
                                     Ir a configuración de IA →
-                                </Link>
+                                </a>
                             )}
                             <div className="mt-6">
                                 <button

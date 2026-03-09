@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
 import {
     ArrowLeft, Plus, RefreshCw, Search, Filter,
     Calendar, Eye, CheckCircle, XCircle, RotateCw,
@@ -339,12 +338,12 @@ export default function InvoiceListPage() {
                     <div className="max-w-7xl mx-auto px-4 py-4">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
-                                <Link
-                                    to="/procurement/smart-invoice"
+                                <a
+                                    href="/procurement/smart-invoice"
                                     className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                                 >
                                     <ArrowLeft size={20} />
-                                </Link>
+                                </a>
                                 <div>
                                     <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
                                         <FileText className="text-purple-600" />
@@ -365,13 +364,13 @@ export default function InvoiceListPage() {
                                 >
                                     <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
                                 </button>
-                                <Link
-                                    to="/procurement/smart-invoice"
+                                <a
+                                    href="/procurement/smart-invoice"
                                     className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium"
                                 >
                                     <Plus size={18} />
                                     <span className="hidden sm:inline">Nueva Factura</span>
-                                </Link>
+                                </a>
                             </div>
                         </div>
                     </div>
@@ -458,13 +457,13 @@ export default function InvoiceListPage() {
                             <div className="p-8 text-center">
                                 <FileText size={48} className="mx-auto text-gray-300 mb-4" />
                                 <p className="text-gray-500">No hay facturas que mostrar</p>
-                                <Link
-                                    to="/procurement/smart-invoice"
+                                <a
+                                    href="/procurement/smart-invoice"
                                     className="mt-4 inline-flex items-center gap-2 text-purple-600 hover:text-purple-700"
                                 >
                                     <Plus size={18} />
                                     Procesar primera factura
-                                </Link>
+                                </a>
                             </div>
                         ) : (
                             <div className="overflow-x-auto">
@@ -559,13 +558,13 @@ export default function InvoiceListPage() {
                                                         </button>
 
                                                         {['PENDING', 'VALIDATED', 'MAPPING', 'REJECTED', 'PARTIAL'].includes(parsing.status) && (
-                                                            <Link
-                                                                to={`/procurement/smart-invoice?edit=${parsing.id}`}
+                                                            <a
+                                                                href={`/procurement/smart-invoice?edit=${parsing.id}`}
                                                                 className="p-1.5 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
                                                                 title="Editar / Completar"
                                                             >
                                                                 <Edit size={16} />
-                                                            </Link>
+                                                            </a>
                                                         )}
 
                                                         {['PENDING', 'VALIDATED', 'MAPPING'].includes(parsing.status) && (
@@ -596,13 +595,13 @@ export default function InvoiceListPage() {
                                                         </button>
 
                                                         {parsing.status === 'ERROR' && (
-                                                            <Link
-                                                                to={`/procurement/smart-invoice?retry=${parsing.id}`}
+                                                            <a
+                                                                href={`/procurement/smart-invoice?retry=${parsing.id}`}
                                                                 className="p-1.5 text-purple-500 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
                                                                 title="Reprocesar"
                                                             >
                                                                 <RotateCw size={16} />
-                                                            </Link>
+                                                            </a>
                                                         )}
                                                     </div>
                                                 </td>
@@ -915,13 +914,13 @@ export default function InvoiceListPage() {
                                     {/* Action Footer for Detail View */}
                                     <div className="pt-6 flex gap-2">
                                         {['PENDING', 'VALIDATED', 'MAPPING', 'REJECTED', 'PARTIAL'].includes(selectedParsing.status) && (
-                                            <Link
-                                                to={`/procurement/smart-invoice?edit=${selectedParsing.id}`}
+                                            <a
+                                                href={`/procurement/smart-invoice?edit=${selectedParsing.id}`}
                                                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-center font-medium transition-colors flex items-center justify-center gap-2"
                                             >
                                                 <Edit size={18} />
                                                 Editar Factura
-                                            </Link>
+                                            </a>
                                         )}
                                         <button
                                             onClick={() => {
