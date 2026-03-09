@@ -616,6 +616,7 @@ async function callAIWithRetry(
     let currentProvider = config.provider;
     let currentApiKey = config.apiKey;
     let currentModel = config.model;
+    let fallbackActivated = false;
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         const startTime = Date.now();
@@ -676,7 +677,13 @@ async function callAIWithRetry(
             }, '[Invoice Parser] AI call failed, retrying...');
 
             // Si es el último intento con el provider principal, intentar fallback
-            if (attempt === MAX_RETRIES - 1 && config.fallbackProvider && config.fallbackProvider !== 'NONE') {
+            if (
+                attempt === MAX_RETRIES - 1 &&
+                !fallbackActivated &&
+                config.fallbackProvider &&
+                config.fallbackProvider !== 'NONE' &&
+                config.fallbackProvider !== currentProvider
+            ) {
                 logger.info({ fallback: config.fallbackProvider }, '[Invoice Parser] Trying fallback provider');
 
                 // Obtener API key del fallback
@@ -693,6 +700,7 @@ async function callAIWithRetry(
                         : config.fallbackProvider === 'GEMINI'
                             ? 'gemini-1.5-flash'
                             : 'deepseek-ocr';
+                    fallbackActivated = true;
                     attempt = -1; // Reset attempts for fallback
                     continue;
                 }
@@ -849,7 +857,8 @@ export async function parseInvoiceDocumentSecure(
 
     // Verificar configuración de IA
     const aiConfig = await getAIConfigSecure();
-    if (!aiConfig.isConfigured || !aiConfig.apiKey) {
+    const providerRequiresApiKey = aiConfig.provider === 'OPENAI' || aiConfig.provider === 'GEMINI' || aiConfig.provider === 'ANTHROPIC';
+    if (!aiConfig.isConfigured || (providerRequiresApiKey && !aiConfig.apiKey)) {
         return { success: false, error: 'Configure su API Key de IA en Ajustes → Configuración → IA' };
     }
 
@@ -898,7 +907,7 @@ export async function parseInvoiceDocumentSecure(
         const aiResult = await callAIWithRetry(
             {
                 provider: aiConfig.provider!,
-                apiKey: aiConfig.apiKey,
+                apiKey: aiConfig.apiKey || '',
                 model: aiConfig.model || 'gpt-4o-mini',
                 fallbackApiKey: aiConfig.fallbackApiKey || null,
                 fallbackProvider: aiConfig.fallbackProvider || undefined,
