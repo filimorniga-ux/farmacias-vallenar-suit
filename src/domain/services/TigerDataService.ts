@@ -427,7 +427,7 @@ export const TigerDataService = {
             const { getSupplyChainHistorySecure } = await import('../../actions/supply-v2');
             const fallback = await getSupplyChainHistorySecure({
                 page: 1,
-                pageSize: 200,
+                pageSize: 100,
                 type: 'SHIPMENT',
                 locationId: normalizedLocationId
             });
@@ -455,7 +455,7 @@ export const TigerDataService = {
             if (normalizedLocationId) {
                 const fallbackGlobal = await getSupplyChainHistorySecure({
                     page: 1,
-                    pageSize: 200,
+                    pageSize: 100,
                     type: 'SHIPMENT',
                 });
 

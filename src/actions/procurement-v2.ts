@@ -86,6 +86,14 @@ const GERENTE_ROLES = ['GERENTE_GENERAL', 'ADMIN'];
 const MANAGER_THRESHOLD = 500000; // CLP - requires MANAGER PIN
 const GERENTE_THRESHOLD = 1000000; // CLP - requires GERENTE_GENERAL PIN
 
+function revalidateProcurementPaths(): void {
+    revalidatePath('/supply-chain');
+    revalidatePath('/logistica');
+    revalidatePath('/procurement/smart-order');
+    revalidatePath('/procurement/smart-invoice');
+    revalidatePath('/procurement/smart-invoice/list');
+}
+
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
@@ -316,8 +324,7 @@ export async function createPurchaseOrderSecure(data: z.infer<typeof CreatePurch
 
         await client.query('COMMIT');
 
-        revalidatePath('/procurement');
-        revalidatePath('/logistica');
+        revalidateProcurementPaths();
 
         return {
             success: true,
@@ -422,8 +429,7 @@ export async function approvePurchaseOrderSecure(data: z.infer<typeof ApprovePur
 
         await client.query('COMMIT');
 
-        revalidatePath('/procurement');
-        revalidatePath('/logistica');
+        revalidateProcurementPaths();
 
         return { success: true };
 
@@ -620,9 +626,8 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
 
         await client.query('COMMIT');
 
-        revalidatePath('/procurement');
+        revalidateProcurementPaths();
         revalidatePath('/inventario');
-        revalidatePath('/logistica');
 
         return { success: true };
 
@@ -712,8 +717,7 @@ export async function cancelPurchaseOrderSecure(data: z.infer<typeof CancelPurch
 
         await client.query('COMMIT');
 
-        revalidatePath('/procurement');
-        revalidatePath('/logistica');
+        revalidateProcurementPaths();
 
         return { success: true };
 
@@ -784,7 +788,7 @@ export async function deletePurchaseOrderSecure(params: {
         `, [userId, order.location_id, orderId]);
 
         await client.query('COMMIT');
-        revalidatePath('/procurement');
+        revalidateProcurementPaths();
 
         return { success: true };
 

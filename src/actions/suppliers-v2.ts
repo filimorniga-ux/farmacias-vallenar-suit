@@ -96,7 +96,11 @@ const ALLOWED_ROLES = ['ADMIN', 'GERENTE_GENERAL', 'MANAGER', 'QF', 'WAREHOUSE']
 function revalidateSupplierPaths() {
     revalidatePath('/suppliers');
     revalidatePath('/proveedores');
-    revalidatePath('/procurement');
+    revalidatePath('/procurement/smart-order');
+    revalidatePath('/procurement/smart-invoice');
+    revalidatePath('/procurement/smart-invoice/list');
+    revalidatePath('/supply-chain');
+    revalidatePath('/logistica');
 }
 
 // ============================================================================
