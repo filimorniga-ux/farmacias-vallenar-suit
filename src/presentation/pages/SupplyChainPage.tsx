@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { usePharmaStore } from '../store/useStore';
 import { AutoOrderSuggestion } from '../../domain/types';
-import { Package, Truck, CheckCircle, AlertCircle, Plus, Calendar, TrendingUp, RefreshCw, AlertTriangle, Zap, DollarSign, Trash2, Filter, Calculator, MapPin, Search, BarChart3, Users, ChevronDown, ScanBarcode, Settings, ArrowLeftRight } from 'lucide-react';
+import { Package, Truck, CheckCircle, AlertCircle, Plus, Calendar, TrendingUp, RefreshCw, AlertTriangle, Zap, DollarSign, Trash2, Filter, Calculator, MapPin, Search, BarChart3, Users, ChevronDown, ScanBarcode, Settings, ArrowLeftRight, ShoppingCart } from 'lucide-react';
 import { PurchaseOrderReceivingModal } from '../components/scm/PurchaseOrderReceivingModal';
 import ManualOrderModal from '../components/supply/ManualOrderModal';
 import { MovementDetailModal } from '../components/scm/MovementDetailModal';
@@ -54,10 +54,8 @@ const SupplyChainPage: React.FC = () => {
         inventory,
         suppliers,
         purchaseOrders,
-        addPurchaseOrder,
         receivePurchaseOrder,
         finalizePurchaseOrderReview,
-        generateSuggestedPOs,
         locations,
         fetchLocations,
         currentLocationId,
@@ -376,40 +374,37 @@ const SupplyChainPage: React.FC = () => {
             return;
         }
 
-        // Separar por tipo de acción
-        const purchaseItems = selectedItems.filter(s => s.action_type !== 'TRANSFER');
-        const transferItems = selectedItems.filter(s => s.action_type === 'TRANSFER');
+        // Build a pre-loaded order to pass to the ManualOrderModal wizard.
+        // This ensures items are persisted correctly via createPurchaseOrderSecure,
+        // fixes the "0 items" bug caused by in-memory-only PO generation.
+        const firstSupplierId = selectedItems[0]?.supplier_id || '';
+        const allSameSupplier = selectedItems.every(s => (s.supplier_id || '') === firstSupplierId);
 
-        let totalOrders = 0;
+        // Convert suggestions to a PurchaseOrder-like shape for the modal
+        const preloadedOrder = {
+            id: `PO-AUTO-${Date.now()}`,
+            supplier_id: allSameSupplier ? firstSupplierId : '',
+            supplier_name: allSameSupplier ? (selectedItems[0]?.supplier_name || '') : '',
+            status: 'DRAFT' as const,
+            created_at: Date.now(),
+            is_auto_generated: true,
+            generation_reason: 'LOW_STOCK' as const,
+            destination_location_id: selectedLocation || currentLocationId || '',
+            target_warehouse_id: '',
+            items: selectedItems.map(s => ({
+                sku: s.sku,
+                name: s.product_name,
+                quantity_ordered: s.suggested_order_qty ?? 0,
+                quantity_received: 0,
+                cost_price: s.unit_cost ?? 0,
+                quantity: s.suggested_order_qty ?? 0
+            })),
+            notes: selectedItems.some(s => s.action_type === 'TRANSFER') ? '[TRASPASO]' : '',
+            total_estimated: selectedItems.reduce((sum, s) => sum + (s.total_estimated ?? 0), 0)
+        };
 
-        // Generar OC para compras normales y parciales
-        if (purchaseItems.length > 0) {
-            const pos = generateSuggestedPOs(purchaseItems);
-            pos.forEach(po => addPurchaseOrder(po));
-            totalOrders += pos.length;
-        }
-
-        // Para transferencias completas, generar como OC interna
-        if (transferItems.length > 0) {
-            const transferPOs = generateSuggestedPOs(
-                transferItems.map(t => ({
-                    ...t,
-                    supplier_name: 'TRASPASO INTERNO',
-                    supplier_id: 'TRANSFER',
-                    unit_cost: 0,
-                    total_estimated: 0
-                }))
-            );
-            transferPOs.forEach(po => addPurchaseOrder({ ...po, notes: `[TRASPASO] ${po.notes || ''}` } as typeof po));
-            totalOrders += transferPOs.length;
-            toast.info(`📦 ${transferPOs.length} traspaso(s) internos generados`);
-        }
-
-        if (totalOrders > 0) {
-            toast.success(`${totalOrders} orden(es) generada(s) como borrador`);
-        }
-        setSuggestions([]);
-        setSelectedSkus(new Set());
+        setSelectedOrder(preloadedOrder);
+        setIsManualOrderModalOpen(true);
     };
 
     const stats = {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, Info, Package, RefreshCw, ShieldCheck, User, X } from 'lucide-react';
+import { AlertCircle, Info, Package, Printer, FileDown, RefreshCw, ShieldCheck, User, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { getHistoryItemDetailsSecure } from '@/actions/supply-v2';
 
@@ -41,6 +41,51 @@ const extractTransferRouteMeta = (notes: unknown): TransferRouteMeta => {
 export const MovementDetailModal: React.FC<MovementDetailModalProps> = ({ isOpen, onClose, movement }) => {
     const [items, setItems] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+
+    const handlePrint = () => {
+        const printContent = document.getElementById('movement-detail-print-content');
+        if (!printContent) return;
+        const w = window.open('', '_blank', 'width=900,height=700');
+        if (!w) return;
+        w.document.write(`
+            <html><head><title>Detalle Movimiento</title>
+            <style>body{font-family:Arial,sans-serif;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5;font-weight:bold}h1,h2{color:#1e293b}.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:bold}</style>
+            </head><body>${printContent.innerHTML}</body></html>
+        `);
+        w.document.close();
+        w.focus();
+        w.print();
+        w.close();
+    };
+
+    const handleExcelExport = () => {
+        if (items.length === 0) {
+            toast.error('No hay productos para exportar');
+            return;
+        }
+        const headers = ['Producto', 'SKU', 'Cantidad Pedida', 'Cantidad Recibida', 'Lote', 'Estado'];
+        const rows = items.map(item => [
+            item.name || '',
+            item.sku || '',
+            item.quantity ?? 0,
+            item.quantity_received ?? item.quantity ?? 0,
+            item.lot_number || '-',
+            item.condition === 'DAMAGED' ? 'Dañado' : 'OK'
+        ]);
+        const csvContent = [headers, ...rows].map(row =>
+            row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+        ).join('\n');
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `movimiento-${movement?.id || 'detalle'}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast.success('Reporte exportado exitosamente');
+    };
 
     useEffect(() => {
         if (!isOpen || !movement) return;
@@ -162,7 +207,13 @@ export const MovementDetailModal: React.FC<MovementDetailModalProps> = ({ isOpen
                         </div>
                     </div>
 
-                    <div className="space-y-3">
+                    <div className="space-y-3" id="movement-detail-print-content">
+                        <div style={{ display: 'none' }} className="hidden">
+                            <h1>{isPO ? 'Orden de Compra' : 'Traspaso / Despacho'}</h1>
+                            <p><strong>ID:</strong> {movement.id}</p>
+                            <p><strong>Estado:</strong> {movement.status}</p>
+                            <p><strong>Ruta:</strong> {routeOrigin} → {routeDestination}</p>
+                        </div>
                         <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                             <Info size={16} className="text-slate-400" />
                             Desglose de productos ({items.length})
@@ -227,7 +278,25 @@ export const MovementDetailModal: React.FC<MovementDetailModalProps> = ({ isOpen
                     )}
                 </div>
 
-                <footer className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex justify-end">
+                <footer className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                    <div className="flex gap-2">
+                        <button
+                            onClick={handlePrint}
+                            disabled={items.length === 0}
+                            className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition text-sm disabled:opacity-40"
+                            title="Imprimir detalle"
+                        >
+                            <Printer size={16} /> Imprimir
+                        </button>
+                        <button
+                            onClick={handleExcelExport}
+                            disabled={items.length === 0}
+                            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition text-sm disabled:opacity-40"
+                            title="Exportar a Excel/CSV"
+                        >
+                            <FileDown size={16} /> Exportar Excel
+                        </button>
+                    </div>
                     <button
                         onClick={onClose}
                         className="px-6 py-2 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition shadow-sm text-sm"

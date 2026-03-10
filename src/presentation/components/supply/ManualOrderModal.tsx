@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Plus, Trash2, AlertTriangle, Save, Send, DollarSign, Calendar, Truck, Package } from 'lucide-react';
+import { X, Plus, Trash2, AlertTriangle, Save, Send, DollarSign, Calendar, Truck, Package, Printer, FileDown } from 'lucide-react';
 import { WMSProductScanner } from '@/presentation/components/wms/WMSProductScanner';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { useNotificationStore } from '@/presentation/store/useNotificationStore';
@@ -167,6 +167,45 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
 
         return { net: netTotal, tax: vatTotal, total: grossTotal, retail: retailTotal };
     }, [orderItems]);
+
+    const handlePrint = () => {
+        const printContent = document.getElementById('manual-order-print-content');
+        if (!printContent) { toast.error('No hay contenido para imprimir'); return; }
+        const w = window.open('', '_blank', 'width=1024,height=768');
+        if (!w) return;
+        w.document.write(`<html><head><title>Orden de Compra - ${customOrderId}</title>
+            <style>body{font-family:Arial,sans-serif;padding:24px}h1{color:#0e7490;margin-bottom:4px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #e2e8f0;padding:8px;text-align:left}th{background:#f8fafc;font-weight:bold;font-size:11px;text-transform:uppercase}.totals{margin-top:16px;text-align:right}.grand-total{font-size:22px;color:#0e7490;font-weight:900}</style>
+        </head><body>${printContent.innerHTML}</body></html>`);
+        w.document.close();
+        w.focus();
+        w.print();
+        w.close();
+    };
+
+    const handleExcelExport = () => {
+        if (orderItems.length === 0) { toast.error('No hay productos para exportar'); return; }
+        const supplier = selectedSupplier?.fantasy_name || selectedSupplier?.business_name || 'Sin proveedor';
+        const headers = ['Proveedor', 'SKU', 'Producto', 'Cantidad', 'Costo Neto', 'IVA', 'Costo Bruto', 'Subtotal'];
+        const rows = orderItems.map(item => {
+            const unitVat = Math.round((item.cost_price || 0) * 0.19);
+            const unitGross = (item.cost_price || 0) + unitVat;
+            return [supplier, item.sku, item.name, item.quantity, item.cost_price || 0, unitVat, unitGross, unitGross * item.quantity];
+        });
+        rows.push(['', '', '', '', '', '', 'TOTAL:', totals.total]);
+        const csvContent = [headers, ...rows].map(row =>
+            row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+        ).join('\n');
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `orden-${customOrderId}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast.success('Orden exportada exitosamente');
+    };
 
     const handleSave = async (status: 'DRAFT' | 'SENT') => {
         if (orderItems.length === 0) {
@@ -588,6 +627,19 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
 
                         {/* Totals Footer */}
                         <div className="p-6 bg-white border-t border-gray-200">
+                            <div id="manual-order-print-content" style={{ display: 'none' }}>
+                                <h1>Orden de Compra: {customOrderId}</h1>
+                                <p><strong>Proveedor:</strong> {selectedSupplier?.fantasy_name || 'Por definir'}</p>
+                                <table>
+                                    <thead><tr><th>SKU</th><th>Producto</th><th>Cantidad</th><th>Costo Neto</th><th>IVA</th><th>Bruto</th><th>Subtotal</th></tr></thead>
+                                    <tbody>{orderItems.map(item => {
+                                        const unitVat = Math.round((item.cost_price || 0) * 0.19);
+                                        const unitGross = (item.cost_price || 0) + unitVat;
+                                        return <tr key={item.sku}><td>{item.sku}</td><td>{item.name}</td><td>{item.quantity}</td><td>${(item.cost_price || 0).toLocaleString()}</td><td>${unitVat.toLocaleString()}</td><td>${unitGross.toLocaleString()}</td><td>${(unitGross * item.quantity).toLocaleString()}</td></tr>;
+                                    })}</tbody>
+                                </table>
+                                <div className="totals"><p>Neto: ${totals.net.toLocaleString()}</p><p>IVA: ${totals.tax.toLocaleString()}</p><p className="grand-total">TOTAL: ${totals.total.toLocaleString()}</p></div>
+                            </div>
                             <div className="flex justify-end items-center gap-8 mb-6">
                                 <div className="text-right">
                                     <p className="text-xs text-gray-500 mb-1 uppercase tracking-wider font-semibold">Neto Total</p>
@@ -604,23 +656,43 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
                                 </div>
                             </div>
 
-                            <div className="flex justify-end gap-4">
-                                <button
-                                    onClick={() => handleSave('DRAFT')}
-                                    disabled={isSaving}
-                                    className="px-6 py-3 text-gray-600 font-bold hover:bg-gray-100 rounded-xl transition flex items-center gap-2 disabled:opacity-50"
-                                >
-                                    <Save size={20} />
-                                    {isSaving ? 'Guardando...' : (initialOrder ? 'Actualizar Borrador' : 'Guardar Borrador')}
-                                </button>
-                                <button
-                                    onClick={() => handleSave('SENT')}
-                                    disabled={isSaving}
-                                    className="px-8 py-3 bg-cyan-600 text-white font-bold rounded-xl hover:bg-cyan-700 transition shadow-lg shadow-cyan-200 flex items-center gap-2 disabled:opacity-50"
-                                >
-                                    <Send size={20} />
-                                    {isSaving ? 'Enviando...' : 'Confirmar y Enviar'}
-                                </button>
+                            <div className="flex justify-between gap-4">
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={handlePrint}
+                                        disabled={orderItems.length === 0}
+                                        className="px-4 py-3 text-slate-600 font-bold hover:bg-slate-100 rounded-xl transition flex items-center gap-2 disabled:opacity-40 text-sm"
+                                        title="Imprimir orden"
+                                    >
+                                        <Printer size={18} /> Imprimir
+                                    </button>
+                                    <button
+                                        onClick={handleExcelExport}
+                                        disabled={orderItems.length === 0}
+                                        className="px-4 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition flex items-center gap-2 disabled:opacity-40 text-sm"
+                                        title="Exportar a Excel/CSV"
+                                    >
+                                        <FileDown size={18} /> Excel
+                                    </button>
+                                </div>
+                                <div className="flex gap-4">
+                                    <button
+                                        onClick={() => handleSave('DRAFT')}
+                                        disabled={isSaving}
+                                        className="px-6 py-3 text-gray-600 font-bold hover:bg-gray-100 rounded-xl transition flex items-center gap-2 disabled:opacity-50"
+                                    >
+                                        <Save size={20} />
+                                        {isSaving ? 'Guardando...' : (initialOrder ? 'Actualizar Borrador' : 'Guardar Borrador')}
+                                    </button>
+                                    <button
+                                        onClick={() => handleSave('SENT')}
+                                        disabled={isSaving}
+                                        className="px-8 py-3 bg-cyan-600 text-white font-bold rounded-xl hover:bg-cyan-700 transition shadow-lg shadow-cyan-200 flex items-center gap-2 disabled:opacity-50"
+                                    >
+                                        <Send size={20} />
+                                        {isSaving ? 'Enviando...' : 'Confirmar y Enviar'}
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
