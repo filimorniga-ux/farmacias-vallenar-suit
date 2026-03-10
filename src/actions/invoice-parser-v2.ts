@@ -26,6 +26,11 @@ import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
 import { randomUUID } from 'crypto';
 import { getAIConfigSecure, getSystemConfigSecure } from './config-v2';
+import {
+    getInternalDeepSeekTokenHeader,
+    isInternalDeepSeekRoute,
+    resolveDeepSeekOcrEndpoint,
+} from '@/lib/ai/deepseek-endpoint';
 
 // ============================================================================
 // TIPOS
@@ -547,17 +552,25 @@ async function callDeepSeekOCR(
     imageBase64: string,
     fileType: string
 ): Promise<{ data: any; inputTokens: number; outputTokens: number }> {
-    const endpoint = await getSystemConfigSecure('AI_DEEPSEEK_OCR_ENDPOINT');
+    const configuredEndpoint = await getSystemConfigSecure('AI_DEEPSEEK_OCR_ENDPOINT');
+    const endpoint = resolveDeepSeekOcrEndpoint(configuredEndpoint);
     if (!endpoint) {
-        throw new Error('DeepSeek OCR endpoint no configurado (AI_DEEPSEEK_OCR_ENDPOINT)');
+        throw new Error('DeepSeek OCR endpoint no configurado. Defina AI_DEEPSEEK_OCR_ENDPOINT o NEXT_PUBLIC_APP_URL');
+    }
+
+    const internalToken = getInternalDeepSeekTokenHeader();
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+    };
+
+    if (internalToken && isInternalDeepSeekRoute(endpoint)) {
+        headers['x-internal-ocr-token'] = internalToken;
     }
 
     const response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-        },
+        headers,
         body: JSON.stringify({
             model: model || 'deepseek-ocr',
             fileType,
@@ -874,9 +887,10 @@ export async function parseInvoiceDocumentSecure(
     }
 
     if (aiConfig.provider === 'DEEPSEEK_OCR') {
-        const endpoint = await getSystemConfigSecure('AI_DEEPSEEK_OCR_ENDPOINT');
+        const configuredEndpoint = await getSystemConfigSecure('AI_DEEPSEEK_OCR_ENDPOINT');
+        const endpoint = resolveDeepSeekOcrEndpoint(configuredEndpoint);
         if (!endpoint) {
-            return { success: false, error: 'DeepSeek OCR endpoint no configurado (AI_DEEPSEEK_OCR_ENDPOINT)' };
+            return { success: false, error: 'DeepSeek OCR endpoint no configurado. Defina AI_DEEPSEEK_OCR_ENDPOINT o NEXT_PUBLIC_APP_URL' };
         }
     }
 
