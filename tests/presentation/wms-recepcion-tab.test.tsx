@@ -111,7 +111,7 @@ describe('WMSRecepcionTab', () => {
         const shipmentCard = await screen.findByText('Desde: Bodega Central');
         fireEvent.click(shipmentCard.closest('button') as HTMLButtonElement);
 
-        const qtyInput = await screen.findByDisplayValue('10');
+        const qtyInput = await screen.findByRole('spinbutton');
         fireEvent.change(qtyInput, { target: { value: '12' } });
 
         fireEvent.click(screen.getByRole('button', { name: 'Confirmar Recepción' }));
@@ -129,7 +129,7 @@ describe('WMSRecepcionTab', () => {
         const shipmentCard = await screen.findByText('Desde: Bodega Central');
         fireEvent.click(shipmentCard.closest('button') as HTMLButtonElement);
 
-        const qtyInput = await screen.findByDisplayValue('10');
+        const qtyInput = await screen.findByRole('spinbutton');
         fireEvent.change(qtyInput, { target: { value: '12' } });
         fireEvent.blur(qtyInput, { target: { value: '12' } });
 

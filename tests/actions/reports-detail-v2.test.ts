@@ -104,6 +104,9 @@ describe('Reports V2 - Tax Summary', () => {
             rows: [{ total: 119000 }], rowCount: 1, command: '', oid: 0, fields: []
         }); // Sales
         vi.mocked(dbModule.query).mockResolvedValueOnce({
+            rows: [{ total: 0 }], rowCount: 1, command: '', oid: 0, fields: []
+        }); // Refunds
+        vi.mocked(dbModule.query).mockResolvedValueOnce({
             rows: [{ total: 59500 }], rowCount: 1, command: '', oid: 0, fields: []
         }); // Purchases
 
