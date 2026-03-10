@@ -34,6 +34,9 @@ doctl apps create --spec .do/app.staging.yaml
 - `OPENAI_API_KEY`
 - `AI_DEEPSEEK_API_KEY` (si usas proveedor `DEEPSEEK_OCR`)
 - `AI_DEEPSEEK_OCR_ENDPOINT` (si usas proveedor `DEEPSEEK_OCR`)
+  - Recomendado: `https://TU_DOMINIO/api/ai/deepseek-ocr`
+- `AI_INTERNAL_ENDPOINT_TOKEN` (opcional, recomendado para proteger `/api/ai/deepseek-ocr`)
+- `AI_DEEPSEEK_OCR_UPSTREAM_URL` (opcional, default: `https://api.deepseek.com/chat/completions`)
 - `SENTRY_DSN` (si aplica)
 - `SENTRY_AUTH_TOKEN` (solo build si subes sourcemaps)
 

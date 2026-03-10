@@ -23,6 +23,7 @@ import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
 import crypto from 'crypto';
+import { resolveDeepSeekOcrEndpoint } from '@/lib/ai/deepseek-endpoint';
 
 // ============================================================================
 // TIPOS
@@ -621,7 +622,8 @@ export async function checkAIConfiguredSecure(): Promise<{
                         throw new Error(err.error?.message || response.statusText);
                     }
                 } else if (config.provider === 'DEEPSEEK_OCR') {
-                    const endpoint = await getSystemConfigSecure('AI_DEEPSEEK_OCR_ENDPOINT');
+                    const configuredEndpoint = await getSystemConfigSecure('AI_DEEPSEEK_OCR_ENDPOINT');
+                    const endpoint = resolveDeepSeekOcrEndpoint(configuredEndpoint);
                     if (!endpoint) {
                         throw new Error('Falta configurar AI_DEEPSEEK_OCR_ENDPOINT');
                     }
