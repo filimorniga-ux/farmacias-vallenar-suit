@@ -87,7 +87,8 @@ export async function exportProductSalesSecure(params: ReportParams): Promise<{
                 MAX(p.sku) as sku,
                 MAX(p.name) as product_name,
                 MAX(p.category) as category,
-                SUM(si.quantity) as units_sold,
+                SUM(si.quantity - COALESCE(si.refunded_quantity, 0)) as units_sold,
+                SUM(COALESCE(si.refunded_quantity, 0)) as refunded_units,
                 SUM(si.total_price) as total_amount,
                 ROUND(AVG(si.unit_price), 0) as avg_price,
                 COUNT(DISTINCT s.id) as transaction_count
@@ -96,6 +97,7 @@ export async function exportProductSalesSecure(params: ReportParams): Promise<{
             JOIN products p ON ib.product_id::text = p.id::text
             JOIN sales s ON si.sale_id = s.id
             WHERE s.timestamp >= $1 AND s.timestamp <= $2
+            AND s.status NOT IN ('VOIDED')
         `;
 
         if (locationFilter) {
@@ -131,6 +133,7 @@ export async function exportProductSalesSecure(params: ReportParams): Promise<{
             sku: row.sku,
             category: row.category || 'General',
             units: Number(row.units_sold),
+            refunded: Number(row.refunded_units || 0),
             price_avg: Number(row.avg_price),
             total: Number(row.total_amount),
             transactions: Number(row.transaction_count)
@@ -146,7 +149,8 @@ export async function exportProductSalesSecure(params: ReportParams): Promise<{
                 { header: 'Producto', key: 'product', width: 40 },
                 { header: 'SKU', key: 'sku', width: 15 },
                 { header: 'Categoría', key: 'category', width: 15 },
-                { header: 'Canjes/Ventas (U)', key: 'units', width: 18 },
+                { header: 'Ventas Netas (U)', key: 'units', width: 18 },
+                { header: 'Devueltas (U)', key: 'refunded', width: 14 },
                 { header: 'Precio Promedio ($)', key: 'price_avg', width: 20 },
                 { header: 'Ingresos Totales ($)', key: 'total', width: 20 },
                 { header: 'Transacciones', key: 'transactions', width: 15 },

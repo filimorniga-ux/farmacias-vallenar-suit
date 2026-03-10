@@ -1243,21 +1243,39 @@ export async function getSalesHistorySecure(params: {
                 s.id, s.timestamp, s.status, s.total_amount, s.payment_method,
                 s.dte_folio, s.dte_type, s.customer_name, s.user_id as seller_id,
                 u.name as seller_name,
+                -- Campos de edición
+                s.edited_at, s.edit_reason,
+                eu.name as edit_authorized_name,
                 -- Items simplificados para lista
                 (
                     SELECT json_agg(json_build_object(
                         'name', p.name,
                         'quantity', si.quantity,
-                        'price', si.unit_price
+                        'price', si.unit_price,
+                        'refunded_quantity', COALESCE(si.refunded_quantity, 0)
                     )) 
                     FROM sale_items si 
-                    -- Cast explícito para evitar error uuid = varchar en batches antiguos o usuarios
                     LEFT JOIN inventory_batches ib ON si.batch_id::text = ib.id::text
                     LEFT JOIN products p ON ib.product_id::text = p.id::text
                     WHERE si.sale_id::text = s.id::text
-                ) as items
+                ) as items,
+                -- Devoluciones asociadas
+                (
+                    SELECT json_agg(json_build_object(
+                        'id', r.id, 'amount', r.total_amount,
+                        'reason', r.reason, 'ticket_number', r.ticket_number,
+                        'created_at', r.created_at, 'method', r.refund_method
+                    ))
+                    FROM refunds r
+                    WHERE r.sale_id::text = s.id::text AND r.status = 'COMPLETED'
+                ) as refunds,
+                COALESCE(
+                    (SELECT SUM(r.total_amount) FROM refunds r WHERE r.sale_id::text = s.id::text AND r.status = 'COMPLETED'),
+                    0
+                ) as refund_total
             FROM sales s
             LEFT JOIN users u ON s.user_id::text = u.id::text
+            LEFT JOIN users eu ON s.edit_authorized_by::text = eu.id::text
             ${whereClause}
             ORDER BY s.timestamp DESC
             LIMIT $${limitIndex} OFFSET $${offsetIndex}
@@ -1266,15 +1284,22 @@ export async function getSalesHistorySecure(params: {
         // Mapear resultado para frontend
         const mappedData = dataRes.rows.map(row => ({
             id: row.id,
-            timestamp: row.timestamp, // Se serializará automáticamente
+            timestamp: row.timestamp,
             status: row.status,
             total: Number(row.total_amount),
             payment_method: row.payment_method,
             dte_folio: row.dte_folio,
-            dte_status: row.dte_folio ? 'CONFIRMED_DTE' : 'PENDING', // Simplificado
+            dte_status: row.dte_folio ? 'CONFIRMED_DTE' : 'PENDING',
             customer: { fullName: row.customer_name || 'Desconocido' },
             seller_id: row.seller_name || row.seller_id,
-            items: row.items || []
+            items: row.items || [],
+            // Edición
+            edited_at: row.edited_at || null,
+            edit_reason: row.edit_reason || null,
+            edit_authorized_name: row.edit_authorized_name || null,
+            // Devoluciones
+            refunds: row.refunds || [],
+            refund_total: Number(row.refund_total || 0),
         }));
 
         // 5. Auditoría (Solo la primera página para no saturar)
@@ -1428,16 +1453,19 @@ export async function getSaleDetailsSecure(saleId: string) {
     const client = await pool.connect();
 
     try {
-        // 1. Obtener cabecera de venta con info de cliente y vendedor
+        // 1. Obtener cabecera de venta con info de cliente, vendedor y edición
         const saleRes = await client.query(`
             SELECT 
                 s.id, s.timestamp, s.status, s.total_amount, s.payment_method,
                 s.customer_rut, s.customer_name, s.dte_folio, s.notes,
                 s.queue_ticket_id,
+                s.edited_at, s.edit_reason, s.edit_authorized_by,
                 u.name as seller_name,
+                eu.name as edit_authorized_name,
                 c.email as customer_email, c.phone as customer_phone
             FROM sales s
             LEFT JOIN users u ON s.user_id::text = u.id::text
+            LEFT JOIN users eu ON s.edit_authorized_by::text = eu.id::text
             LEFT JOIN customers c ON s.customer_rut = c.rut
             WHERE s.id = $1
         `, [saleId]);
@@ -1461,6 +1489,16 @@ export async function getSaleDetailsSecure(saleId: string) {
             WHERE si.sale_id = $1
         `, [saleId]);
 
+        // 2b. Obtener devoluciones asociadas
+        const refundsRes = await client.query(`
+            SELECT r.id, r.total_amount, r.reason, r.ticket_number, r.refund_method, r.created_at,
+                   ru.name as refund_user_name
+            FROM refunds r
+            LEFT JOIN users ru ON r.user_id::text = ru.id::text
+            WHERE r.sale_id = $1 AND r.status = 'COMPLETED'
+            ORDER BY r.created_at DESC
+        `, [saleId]);
+
         // 3. Obtener ticket de fila
         let queueTicket = null;
         if (sale.queue_ticket_id) {
@@ -1473,6 +1511,7 @@ export async function getSaleDetailsSecure(saleId: string) {
         return {
             ...sale,
             items: itemsRes.rows,
+            refunds: refundsRes.rows,
             queueTicket
         };
 

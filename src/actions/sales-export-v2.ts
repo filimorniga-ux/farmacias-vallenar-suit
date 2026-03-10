@@ -62,8 +62,10 @@ export async function generateSalesReportSecure(
         let sql = `
             SELECT 
                 s.id, s.timestamp, s.total_amount, s.payment_method, s.dte_folio,
+                s.status,
                 l.name as location_name, t.name as terminal_name, u.name as seller_name,
-                si.sku, si.name as product_name, si.quantity, si.price
+                si.sku, si.name as product_name, si.quantity, si.price,
+                COALESCE(si.refunded_quantity, 0) as refunded_qty
             FROM sales s
             JOIN sale_items si ON s.id = si.sale_id
             LEFT JOIN locations l ON s.location_id = l.id
@@ -87,6 +89,13 @@ export async function generateSalesReportSecure(
 
         const res = await query(sql, sqlParams);
 
+        const STATUS_LABELS: Record<string, string> = {
+            'COMPLETED': 'Completada',
+            'VOIDED': 'Anulada',
+            'PARTIALLY_REFUNDED': 'Dev. Parcial',
+            'FULLY_REFUNDED': 'Dev. Total',
+        };
+
         const data = res.rows.map((row: any) => ({
             id: row.id.slice(0, 8),
             full_id: row.id,
@@ -97,10 +106,12 @@ export async function generateSalesReportSecure(
             sku: row.sku,
             product: row.product_name,
             qty: Number(row.quantity),
+            refunded: Number(row.refunded_qty),
             price: Number(row.price),
             total: Number(row.quantity) * Number(row.price),
             method: row.payment_method,
             dte: row.dte_folio || 'Voucher',
+            status: STATUS_LABELS[row.status] || row.status,
         }));
 
         const excel = new ExcelService();
@@ -118,10 +129,12 @@ export async function generateSalesReportSecure(
                 { header: 'SKU', key: 'sku', width: 15 },
                 { header: 'Descripción Producto', key: 'product', width: 35 },
                 { header: 'Cant.', key: 'qty', width: 8 },
+                { header: 'Devueltas', key: 'refunded', width: 10 },
                 { header: 'Precio Unit. ($)', key: 'price', width: 15 },
                 { header: 'Subtotal Item ($)', key: 'total', width: 15 },
                 { header: 'Medio de Pago', key: 'method', width: 15 },
                 { header: 'Folio DTE', key: 'dte', width: 15 },
+                { header: 'Estado', key: 'status', width: 15 },
             ],
             data,
         });
@@ -162,9 +175,20 @@ export async function exportSalesSummarySecure(
                 DATE(s.timestamp) as work_date,
                 COUNT(DISTINCT s.id) as trans_count,
                 SUM(s.total_amount) as total_val,
-                s.payment_method
+                s.payment_method,
+                COALESCE(
+                    (SELECT SUM(r2.total_amount) FROM refunds r2
+                     JOIN sales s2 ON r2.sale_id = s2.id
+                     WHERE DATE(s2.timestamp) = DATE(s.timestamp)
+                     AND s2.payment_method = s.payment_method
+                     AND r2.status = 'COMPLETED'
+                     ${locationFilter ? 'AND s2.location_id = $3::uuid' : ''}
+                    ), 0
+                ) as refund_val
             FROM sales s
-            WHERE s.timestamp >= $1::timestamp AND s.timestamp <= $2::timestamp ${locationFilter}
+            WHERE s.timestamp >= $1::timestamp AND s.timestamp <= $2::timestamp
+            AND s.status NOT IN ('VOIDED')
+            ${locationFilter}
             GROUP BY DATE(s.timestamp), s.payment_method
             ORDER BY DATE(s.timestamp) DESC
         `, sqlParams);
@@ -174,6 +198,8 @@ export async function exportSalesSummarySecure(
             count: Number(row.trans_count),
             method: row.payment_method,
             total: Number(row.total_val),
+            refunds: Number(row.refund_val),
+            net: Number(row.total_val) - Number(row.refund_val),
         }));
 
         const excel = new ExcelService();
@@ -186,7 +212,9 @@ export async function exportSalesSummarySecure(
                 { header: 'Fecha Contable', key: 'date', width: 15 },
                 { header: 'Cant. Transacciones', key: 'count', width: 22 },
                 { header: 'Medio de Pago', key: 'method', width: 20 },
-                { header: 'Monto Recaudado ($)', key: 'total', width: 22 },
+                { header: 'Monto Bruto ($)', key: 'total', width: 22 },
+                { header: 'Devoluciones ($)', key: 'refunds', width: 18 },
+                { header: 'Monto Neto ($)', key: 'net', width: 22 },
             ],
             data,
         });
