@@ -11,7 +11,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
     Warehouse, Truck, PackageCheck, ArrowLeftRight,
-    PackagePlus, MapPin, RefreshCw, Route, History
+    PackagePlus, MapPin, RefreshCw, Route, History, ClipboardList
 } from 'lucide-react';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { useLocationStore } from '@/presentation/store/useLocationStore';
@@ -23,6 +23,7 @@ import { WMSRecepcionTab } from '@/presentation/components/wms/tabs/WMSRecepcion
 import { WMSTransferenciaTab } from '@/presentation/components/wms/tabs/WMSTransferenciaTab';
 import { WMSTransitoTab } from '@/presentation/components/wms/tabs/WMSTransitoTab';
 import { WMSPedidosTab } from '@/presentation/components/wms/tabs/WMSPedidosTab';
+import { WMSCrearPedidoTab } from '@/presentation/components/wms/tabs/WMSCrearPedidoTab';
 import { WMSBottomTabBar } from '@/presentation/components/wms/WMSBottomTabBar';
 import { PurchaseOrderReceivingModal } from '@/presentation/components/scm/PurchaseOrderReceivingModal';
 import ManualOrderModal from '@/presentation/components/supply/ManualOrderModal';
@@ -30,7 +31,7 @@ import SupplyKanban from '../components/supply/SupplyKanban';
 import { SupplyChainHistoryTab } from '@/presentation/components/scm/SupplyChainHistoryTab';
 import { MovementDetailModal } from '@/presentation/components/scm/MovementDetailModal';
 
-export type WMSTab = 'despacho' | 'recepcion' | 'transferencia' | 'transito' | 'pedidos' | 'suministros' | 'historial';
+export type WMSTab = 'despacho' | 'recepcion' | 'transferencia' | 'transito' | 'pedidos' | 'suministros' | 'historial' | 'crear-pedido';
 
 const DESKTOP_TABS: { key: WMSTab; label: string; icon: React.ReactNode; color: string }[] = [
     { key: 'despacho', label: 'Despacho', icon: <Truck size={18} />, color: 'sky' },
@@ -38,6 +39,7 @@ const DESKTOP_TABS: { key: WMSTab; label: string; icon: React.ReactNode; color: 
     { key: 'transferencia', label: 'Transferencia', icon: <ArrowLeftRight size={18} />, color: 'purple' },
     { key: 'transito', label: 'En Tránsito', icon: <Route size={18} />, color: 'indigo' },
     { key: 'pedidos', label: 'Recep. Pedidos', icon: <PackagePlus size={18} />, color: 'amber' },
+    { key: 'crear-pedido', label: 'Crear Pedido', icon: <ClipboardList size={18} />, color: 'rose' },
     { key: 'suministros', label: 'Kanban Suministros', icon: <Truck size={18} />, color: 'cyan' },
     { key: 'historial', label: 'Historial', icon: <History size={18} />, color: 'slate' },
 ];
@@ -48,6 +50,7 @@ const TAB_COLORS: Record<string, { active: string; ring: string }> = {
     purple: { active: 'bg-purple-500 text-white shadow-purple-500/30', ring: 'ring-purple-200' },
     indigo: { active: 'bg-indigo-500 text-white shadow-indigo-500/30', ring: 'ring-indigo-200' },
     amber: { active: 'bg-amber-500 text-white shadow-amber-500/30', ring: 'ring-amber-200' },
+    rose: { active: 'bg-rose-500 text-white shadow-rose-500/30', ring: 'ring-rose-200' },
     cyan: { active: 'bg-cyan-500 text-white shadow-cyan-500/30', ring: 'ring-cyan-200' },
     slate: { active: 'bg-slate-700 text-white shadow-slate-700/30', ring: 'ring-slate-300' },
 };
@@ -198,6 +201,8 @@ export const WMSPage: React.FC = () => {
                 );
             case 'pedidos':
                 return <WMSPedidosTab />;
+            case 'crear-pedido':
+                return <WMSCrearPedidoTab />;
             case 'historial':
                 return <SupplyChainHistoryTab />;
             case 'suministros':

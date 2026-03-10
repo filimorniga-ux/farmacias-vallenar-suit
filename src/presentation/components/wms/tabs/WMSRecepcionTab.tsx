@@ -4,16 +4,18 @@
  * Flujo: Listar envíos pendientes → Seleccionar → Verificar productos → Confirmar recepción
  * Usa getShipmentsSecure y processReceptionSecure del backend.
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
     PackageCheck, Inbox, RefreshCw, FileText, Loader2, CheckCircle,
-    Eye, Package, Clock, Truck, ChevronRight, AlertTriangle
+    Package, Clock, Truck, ChevronRight, AlertTriangle,
+    KeyRound, Lock, ShieldCheck, X
 } from 'lucide-react';
 import { WMSReportPanel } from '../WMSReportPanel';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { getShipmentsSecure, processReceptionSecure } from '@/actions/wms-v2';
 import { exportStockMovementsSecure } from '@/actions/inventory-export-v2';
+import { validateSupervisorPin } from '@/actions/auth-v2';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
@@ -54,6 +56,12 @@ interface WMSRecepcionTabProps {
     onPreselectionHandled?: () => void;
 }
 
+interface ReportFilters {
+    startDate?: string;
+    endDate?: string;
+    movementType?: string;
+}
+
 export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
     preselectedShipmentId,
     onPreselectionHandled
@@ -71,6 +79,15 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
     const [receptionNotes, setReceptionNotes] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showReports, setShowReports] = useState(false);
+
+    // ── Estado modal PIN ────────────────────────────────────────────
+    const [pinOpen, setPinOpen] = useState(false);
+    const [pinTarget, setPinTarget] = useState<{ itemId: string; newQty: number } | null>(null);
+    const [pinValue, setPinValue] = useState('');
+    const [pinError, setPinError] = useState('');
+    const [pinLoading, setPinLoading] = useState(false);
+    const [authorizedDiffs, setAuthorizedDiffs] = useState<Record<string, number>>({});
+    const pinInputRef = useRef<HTMLInputElement>(null);
 
     // Cargar envíos pendientes
     const fetchPending = useCallback(async () => {
@@ -116,6 +133,7 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                 condition: 'GOOD' as const,
             }))
         );
+        setAuthorizedDiffs({});
     }, []);
 
     useEffect(() => {
@@ -138,15 +156,87 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
         onPreselectionHandled,
     ]);
 
-    // Actualizar cantidad recibida
+    // Actualizar cantidad (edición libre). La autorización se valida al salir del input.
     const handleQtyChange = (itemId: string, value: string) => {
         const num = value === '' ? 0 : parseInt(value, 10);
         if (isNaN(num)) return;
+        const safe = Math.max(0, num);
         setReceivedItems(prev =>
-            prev.map(item =>
-                item.itemId === itemId ? { ...item, receivedQty: Math.max(0, num) } : item
-            )
+            prev.map(i => i.itemId === itemId ? { ...i, receivedQty: safe } : i)
         );
+        // Si se modifica un ítem previamente autorizado, invalida esa autorización.
+        setAuthorizedDiffs(prev => {
+            if (!(itemId in prev)) return prev;
+            const next = { ...prev };
+            delete next[itemId];
+            return next;
+        });
+    };
+
+    // Al salir del input, si la cantidad difiere se solicita PIN.
+    const handleQtyBlur = (itemId: string, value: string) => {
+        const num = value === '' ? 0 : parseInt(value, 10);
+        if (isNaN(num)) return;
+        const safe = Math.max(0, num);
+
+        const item = receivedItems.find(i => i.itemId === itemId);
+        if (!item) return;
+        if (safe === item.expectedQty) return;
+        if (authorizedDiffs[itemId] === safe) return;
+
+        setPinTarget({ itemId, newQty: safe });
+        setPinValue('');
+        setPinError('');
+        setPinOpen(true);
+        setTimeout(() => pinInputRef.current?.focus(), 100);
+    };
+
+    const closePinModal = (revert = true) => {
+        if (revert && pinTarget) {
+            const fallbackQty = authorizedDiffs[pinTarget.itemId];
+            setReceivedItems(prev =>
+                prev.map(i => {
+                    if (i.itemId !== pinTarget.itemId) return i;
+                    return {
+                        ...i,
+                        receivedQty: typeof fallbackQty === 'number' ? fallbackQty : i.expectedQty
+                    };
+                })
+            );
+        }
+        setPinOpen(false);
+        setPinTarget(null);
+        setPinValue('');
+        setPinError('');
+    };
+
+    // Confirmar PIN y aplicar cambio
+    const confirmPin = async () => {
+        if (!pinTarget || pinValue.length < 4) {
+            setPinError('Ingrese un PIN válido (mín. 4 dígitos)');
+            return;
+        }
+        setPinLoading(true);
+        setPinError('');
+        try {
+            const res = await validateSupervisorPin(pinValue);
+            if (res.success) {
+                setReceivedItems(prev =>
+                    prev.map(i => i.itemId === pinTarget.itemId ? { ...i, receivedQty: pinTarget.newQty } : i)
+                );
+                setAuthorizedDiffs(prev => ({ ...prev, [pinTarget.itemId]: pinTarget.newQty }));
+                const authorizedBy = 'authorizedBy' in res ? res.authorizedBy?.name : undefined;
+                toast.success(`Cantidad autorizada por ${authorizedBy || 'Supervisor'}`);
+                closePinModal(false);
+            } else {
+                setPinError(res.error || 'PIN incorrecto');
+                if ('vibrate' in navigator) navigator.vibrate([50, 30, 50]);
+            }
+        } catch {
+            setPinError('Error de conexión');
+        } finally {
+            setPinLoading(false);
+        }
     };
 
     // Cambiar condición
@@ -163,6 +253,20 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
     // Confirmar recepción
     const handleConfirmReception = async () => {
         if (!selectedShipment) return;
+
+        const unauthorizedDiffs = receivedItems.filter(
+            (item) => item.receivedQty !== item.expectedQty && authorizedDiffs[item.itemId] !== item.receivedQty
+        );
+        if (unauthorizedDiffs.length > 0) {
+            const first = unauthorizedDiffs[0];
+            setPinTarget({ itemId: first.itemId, newQty: first.receivedQty });
+            setPinValue('');
+            setPinError('Debe autorizar las diferencias antes de confirmar');
+            setPinOpen(true);
+            setTimeout(() => pinInputRef.current?.focus(), 100);
+            toast.error('Hay diferencias de cantidad sin autorización');
+            return;
+        }
 
         setIsSubmitting(true);
         try {
@@ -181,6 +285,7 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                 setSelectedShipment(null);
                 setReceivedItems([]);
                 setReceptionNotes('');
+                setAuthorizedDiffs({});
                 await fetchPending();
                 await queryClient.invalidateQueries({ queryKey: ['inventory'] });
             } else {
@@ -204,7 +309,7 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
         setReceptionNotes('');
     };
 
-    const handleExportExcel = async (filters: any) => {
+    const handleExportExcel = async (filters: ReportFilters) => {
         const res = await exportStockMovementsSecure({
             startDate: filters.startDate,
             endDate: filters.endDate,
@@ -305,20 +410,28 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                                     </div>
                                 </div>
 
-                                {/* Input cantidad */}
-                                <input
-                                    type="number"
-                                    value={item.receivedQty}
-                                    onChange={(e) => handleQtyChange(item.itemId, e.target.value)}
-                                    min={0}
-                                    disabled={isSubmitting}
-                                    className={`w-20 h-9 text-center font-bold rounded-lg border-2 outline-none transition-all text-sm
-                                        ${item.receivedQty !== item.expectedQty
-                                            ? 'border-amber-300 bg-amber-50 text-amber-700'
-                                            : 'border-slate-200 text-slate-800'
-                                        }
-                                        focus:border-sky-400 focus:ring-2 focus:ring-sky-100`}
-                                />
+                                {/* Input cantidad + candado PIN */}
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <input
+                                        type="number"
+                                        value={item.receivedQty}
+                                        onChange={(e) => handleQtyChange(item.itemId, e.target.value)}
+                                        onBlur={(e) => handleQtyBlur(item.itemId, e.target.value)}
+                                        min={0}
+                                        disabled={isSubmitting}
+                                        className={`w-20 h-9 text-center font-bold rounded-lg border-2 outline-none transition-all text-sm
+                                            ${item.receivedQty !== item.expectedQty
+                                                ? 'border-amber-300 bg-amber-50 text-amber-700'
+                                                : 'border-slate-200 text-slate-800'
+                                            }
+                                            focus:border-sky-400 focus:ring-2 focus:ring-sky-100`}
+                                    />
+                                    {item.receivedQty !== item.expectedQty && authorizedDiffs[item.itemId] === item.receivedQty && (
+                                        <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-amber-100 text-amber-600" title="Diferencia requirió PIN">
+                                            <ShieldCheck size={14} />
+                                        </div>
+                                    )}
+                                </div>
 
                                 {/* Toggle condición */}
                                 <button
@@ -381,6 +494,73 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                         )}
                     </button>
                 </div>
+
+                {/* ── Modal PIN de Gerente ──────────────────────── */}
+                {pinOpen && (
+                    <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4 animate-in zoom-in-95 duration-200">
+                            <div className="flex items-center justify-between">
+                                <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                                    <KeyRound size={18} className="text-amber-500" />
+                                    Autorización Requerida
+                                </h3>
+                                <button onClick={() => closePinModal(true)} className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400">
+                                    <X size={16} />
+                                </button>
+                            </div>
+                            <p className="text-sm text-slate-500">
+                                La cantidad recibida difiere de la esperada.
+                                Ingrese el PIN de <strong className="text-slate-700">Gerente o Administrador</strong> para autorizar el cambio.
+                            </p>
+                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex justify-between text-sm">
+                                <span className="text-amber-700">Cantidad esperada</span>
+                                <strong className="text-amber-800">{pinTarget ? receivedItems.find(i => i.itemId === pinTarget.itemId)?.expectedQty : '—'}</strong>
+                            </div>
+                            <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 flex justify-between text-sm">
+                                <span className="text-sky-700">Nueva cantidad</span>
+                                <strong className="text-sky-800">{pinTarget?.newQty}</strong>
+                            </div>
+                            <div>
+                                <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1.5 block flex items-center gap-1.5">
+                                    <Lock size={12} /> PIN de Gerente/Admin
+                                </label>
+                                <input
+                                    ref={pinInputRef}
+                                    type="password"
+                                    inputMode="numeric"
+                                    maxLength={8}
+                                    value={pinValue}
+                                    onChange={e => { setPinValue(e.target.value.replace(/\D/g, '')); setPinError(''); }}
+                                    onKeyDown={e => { if (e.key === 'Enter') confirmPin(); }}
+                                    placeholder="••••"
+                                    className={`w-full p-3 text-center text-2xl tracking-[0.5em] border-2 rounded-xl outline-none font-mono transition-all
+                                        ${pinError ? 'border-red-400 bg-red-50' : 'border-slate-200 focus:border-amber-400 focus:ring-4 focus:ring-amber-100'}`}
+                                />
+                                {pinError && (
+                                    <p className="text-xs text-red-600 mt-1.5 flex items-center gap-1">
+                                        <AlertTriangle size={12} /> {pinError}
+                                    </p>
+                                )}
+                            </div>
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => closePinModal(true)}
+                                    className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={confirmPin}
+                                    disabled={pinLoading || pinValue.length < 4}
+                                    className="flex-[2] py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl shadow-lg shadow-amber-500/20 disabled:opacity-40 transition-all flex items-center justify-center gap-2"
+                                >
+                                    {pinLoading ? <Loader2 size={16} className="animate-spin" /> : <ShieldCheck size={16} />}
+                                    Autorizar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         );
     }

@@ -7,10 +7,10 @@
  * 
  * Zona horaria: America/Santiago (skill timezone-santiago)
  */
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
     FileSpreadsheet, Download, X, Filter,
-    Loader2, Clock, Package, Search
+    Loader2, Clock, Package, Search, Printer
 } from 'lucide-react';
 import { getStockHistorySecure } from '@/actions/wms-v2';
 import { toast } from 'sonner';
@@ -134,6 +134,7 @@ export const WMSReportPanel: React.FC<WMSReportPanelProps> = ({
     onClose,
     onExportExcel,
 }) => {
+    const printRef = useRef<HTMLDivElement>(null);
     // Filtros — fechas en hora Chile
     const today = getChileDateStr();
     const weekAgo = getChileDateStr(-7);
@@ -227,6 +228,22 @@ export const WMSReportPanel: React.FC<WMSReportPanelProps> = ({
             setExporting(false);
         }
     };
+
+    // Imprimir los resultados actuales
+    const handlePrint = useCallback(() => {
+        if (!printRef.current || results.length === 0) {
+            toast.info('Primero realice una búsqueda para imprimir los resultados');
+            return;
+        }
+        const title = `Reporte WMS - ${TAB_LABELS[activeTab]}`;
+        const printContent = `<!DOCTYPE html><html><head><title>${title}</title><style>body{font-family:Arial,sans-serif;font-size:11px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccc;padding:4px 6px;text-align:left}th{background:#f0f0f0;font-weight:bold}h2{margin-bottom:8px}p.meta{color:#666;margin-bottom:12px;font-size:10px}@media print{body{margin:0}}</style></head><body><h2>${title}</h2><p class="meta">Generado: ${new Date().toLocaleString('es-CL', { timeZone: 'America/Santiago' })} — ${results.length} registros</p>${printRef.current.innerHTML}</body></html>`;
+        const win = window.open('', '_blank');
+        if (!win) { toast.error('Permitir popups para imprimir'); return; }
+        win.document.write(printContent);
+        win.document.close();
+        win.focus();
+        setTimeout(() => { win.print(); win.close(); }, 250);
+    }, [activeTab, results]);
 
     // Formatear fecha Chile
     const formatDate = (isoDate: string) => {
@@ -387,119 +404,133 @@ export const WMSReportPanel: React.FC<WMSReportPanelProps> = ({
                             )}
                             Excel
                         </button>
+
+                        {/* Imprimir */}
+                        <button
+                            onClick={handlePrint}
+                            disabled={results.length === 0}
+                            className="px-5 py-2 bg-slate-700 hover:bg-slate-800 text-white font-bold 
+                                     rounded-xl shadow-lg shadow-slate-700/20
+                                     disabled:opacity-50 transition-all flex items-center gap-2"
+                        >
+                            <Printer size={16} />
+                            Imprimir
+                        </button>
                     </div>
                 </div>
 
                 {/* Tabla de resultados */}
                 <div className="flex-1 overflow-auto">
-                    {!hasSearched ? (
-                        <div className="flex flex-col items-center justify-center py-16 text-slate-400">
-                            <Filter size={40} className="mb-3 text-slate-300" />
-                            <p className="text-sm font-medium">Aplique filtros y presione Buscar</p>
-                        </div>
-                    ) : loading ? (
-                        <div className="flex items-center justify-center py-16">
-                            <Loader2 size={32} className="animate-spin text-sky-400" />
-                        </div>
-                    ) : results.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-16 text-slate-400">
-                            <Package size={40} className="mb-3 text-slate-300" />
-                            <p className="text-sm font-medium">Sin resultados para estos filtros</p>
-                        </div>
-                    ) : (
-                        <table className="w-full min-w-[1600px]">
-                            <thead className="bg-slate-50 sticky top-0">
-                                <tr>
-                                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">
-                                        Fecha
-                                    </th>
-                                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">
-                                        Producto
-                                    </th>
-                                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">
-                                        SKU
-                                    </th>
-                                    <th className="px-4 py-3 text-center text-xs font-bold text-slate-500 uppercase">
-                                        Flujo
-                                    </th>
-                                    <th className="px-4 py-3 text-center text-xs font-bold text-slate-500 uppercase">
-                                        Tipo
-                                    </th>
-                                    <th className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase">
-                                        Cantidad
-                                    </th>
-                                    <th className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase">
-                                        Stock Antes
-                                    </th>
-                                    <th className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase">
-                                        Stock Después
-                                    </th>
-                                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">
-                                        Origen
-                                    </th>
-                                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">
-                                        Destino
-                                    </th>
-                                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">
-                                        Responsable
-                                    </th>
-                                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">
-                                        Notas
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {results.map((row, idx) => (
-                                    <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                                        <td className="px-4 py-2.5 text-xs text-slate-600 whitespace-nowrap">
-                                            {formatDate(row.timestamp)}
-                                        </td>
-                                        <td className="px-4 py-2.5 text-sm font-medium text-slate-800 max-w-[200px] truncate">
-                                            {row.product_name}
-                                        </td>
-                                        <td className="px-4 py-2.5 text-xs text-slate-500 font-mono">
-                                            {row.sku}
-                                        </td>
-                                        <td className="px-4 py-2.5 text-center">
-                                            <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-sky-100 text-sky-700">
-                                                {row.operation_scope || MOVEMENT_LABELS[row.movement_type] || row.movement_type}
-                                            </span>
-                                        </td>
-                                        <td className="px-4 py-2.5 text-center">
-                                            <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${row.quantity > 0
-                                                ? 'bg-emerald-100 text-emerald-700'
-                                                : 'bg-red-100 text-red-700'
-                                                }`}>
-                                                {MOVEMENT_LABELS[row.movement_type] || row.movement_type}
-                                            </span>
-                                        </td>
-                                        <td className={`px-4 py-2.5 text-right text-sm font-bold ${row.quantity > 0 ? 'text-emerald-600' : 'text-red-600'
-                                            }`}>
-                                            {row.quantity > 0 ? '+' : ''}{row.quantity}
-                                        </td>
-                                        <td className="px-4 py-2.5 text-right text-sm text-slate-600">
-                                            {row.stock_before}
-                                        </td>
-                                        <td className="px-4 py-2.5 text-right text-sm text-slate-600">
-                                            {row.stock_after}
-                                        </td>
-                                        <td className="px-4 py-2.5 text-xs text-slate-600 max-w-[180px] truncate">
-                                            {getOriginLocation(row)}
-                                        </td>
-                                        <td className="px-4 py-2.5 text-xs text-slate-600 max-w-[180px] truncate">
-                                            {getDestinationLocation(row)}
-                                        </td>
-                                        <td className="px-4 py-2.5 text-xs text-slate-600 max-w-[180px] truncate">
-                                            {row.user_name || 'Sistema'}
-                                        </td>
-                                        <td className="px-4 py-2.5 text-xs text-slate-500 max-w-[150px] truncate">
-                                            {row.notes || '-'}
-                                        </td>
+                    <div ref={printRef} style={{ display: 'contents' }}>
+                        {!hasSearched ? (
+                            <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                                <Filter size={40} className="mb-3 text-slate-300" />
+                                <p className="text-sm font-medium">Aplique filtros y presione Buscar</p>
+                            </div>
+                        ) : loading ? (
+                            <div className="flex items-center justify-center py-16">
+                                <Loader2 size={32} className="animate-spin text-sky-400" />
+                            </div>
+                        ) : results.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                                <Package size={40} className="mb-3 text-slate-300" />
+                                <p className="text-sm font-medium">Sin resultados para estos filtros</p>
+                            </div>
+                        ) : (
+                            <table className="w-full min-w-[1600px]">
+                                <thead className="bg-slate-50 sticky top-0">
+                                    <tr>
+                                        <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">
+                                            Fecha
+                                        </th>
+                                        <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">
+                                            Producto
+                                        </th>
+                                        <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">
+                                            SKU
+                                        </th>
+                                        <th className="px-4 py-3 text-center text-xs font-bold text-slate-500 uppercase">
+                                            Flujo
+                                        </th>
+                                        <th className="px-4 py-3 text-center text-xs font-bold text-slate-500 uppercase">
+                                            Tipo
+                                        </th>
+                                        <th className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase">
+                                            Cantidad
+                                        </th>
+                                        <th className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase">
+                                            Stock Antes
+                                        </th>
+                                        <th className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase">
+                                            Stock Después
+                                        </th>
+                                        <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">
+                                            Origen
+                                        </th>
+                                        <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">
+                                            Destino
+                                        </th>
+                                        <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">
+                                            Responsable
+                                        </th>
+                                        <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">
+                                            Notas
+                                        </th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    )}
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {results.map((row, idx) => (
+                                        <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                                            <td className="px-4 py-2.5 text-xs text-slate-600 whitespace-nowrap">
+                                                {formatDate(row.timestamp)}
+                                            </td>
+                                            <td className="px-4 py-2.5 text-sm font-medium text-slate-800 max-w-[200px] truncate">
+                                                {row.product_name}
+                                            </td>
+                                            <td className="px-4 py-2.5 text-xs text-slate-500 font-mono">
+                                                {row.sku}
+                                            </td>
+                                            <td className="px-4 py-2.5 text-center">
+                                                <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-sky-100 text-sky-700">
+                                                    {row.operation_scope || MOVEMENT_LABELS[row.movement_type] || row.movement_type}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-2.5 text-center">
+                                                <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${row.quantity > 0
+                                                    ? 'bg-emerald-100 text-emerald-700'
+                                                    : 'bg-red-100 text-red-700'
+                                                    }`}>
+                                                    {MOVEMENT_LABELS[row.movement_type] || row.movement_type}
+                                                </span>
+                                            </td>
+                                            <td className={`px-4 py-2.5 text-right text-sm font-bold ${row.quantity > 0 ? 'text-emerald-600' : 'text-red-600'
+                                                }`}>
+                                                {row.quantity > 0 ? '+' : ''}{row.quantity}
+                                            </td>
+                                            <td className="px-4 py-2.5 text-right text-sm text-slate-600">
+                                                {row.stock_before}
+                                            </td>
+                                            <td className="px-4 py-2.5 text-right text-sm text-slate-600">
+                                                {row.stock_after}
+                                            </td>
+                                            <td className="px-4 py-2.5 text-xs text-slate-600 max-w-[180px] truncate">
+                                                {getOriginLocation(row)}
+                                            </td>
+                                            <td className="px-4 py-2.5 text-xs text-slate-600 max-w-[180px] truncate">
+                                                {getDestinationLocation(row)}
+                                            </td>
+                                            <td className="px-4 py-2.5 text-xs text-slate-600 max-w-[180px] truncate">
+                                                {row.user_name || 'Sistema'}
+                                            </td>
+                                            <td className="px-4 py-2.5 text-xs text-slate-500 max-w-[150px] truncate">
+                                                {row.notes || '-'}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
                 </div>
 
                 {/* Footer con paginación */}

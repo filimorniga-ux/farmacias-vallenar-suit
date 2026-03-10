@@ -7,9 +7,9 @@
  * Skills: estilo-marca (#0ea5e9), modo-produccion (touch targets)
  */
 import React from 'react';
-import { Truck, PackageCheck, ArrowLeftRight, PackagePlus, History, Route } from 'lucide-react';
+import { Truck, PackageCheck, ArrowLeftRight, PackagePlus, History, Route, ClipboardList } from 'lucide-react';
 
-type WMSTab = 'despacho' | 'recepcion' | 'transferencia' | 'transito' | 'pedidos' | 'suministros' | 'historial';
+type WMSTab = 'despacho' | 'recepcion' | 'transferencia' | 'transito' | 'pedidos' | 'suministros' | 'historial' | 'crear-pedido';
 
 interface WMSBottomTabBarProps {
     activeTab: WMSTab;
@@ -23,6 +23,7 @@ const TABS: { key: WMSTab; label: string; icon: typeof Truck; color: string; act
     { key: 'transferencia', label: 'Transfer.', icon: ArrowLeftRight, color: 'text-slate-400', activeColor: 'text-purple-500' },
     { key: 'transito', label: 'Tránsito', icon: Route, color: 'text-slate-400', activeColor: 'text-indigo-500' },
     { key: 'pedidos', label: 'Pedidos', icon: PackagePlus, color: 'text-slate-400', activeColor: 'text-amber-500' },
+    { key: 'crear-pedido', label: 'Crear OC', icon: ClipboardList, color: 'text-slate-400', activeColor: 'text-rose-500' },
     { key: 'suministros', label: 'K-Sumin.', icon: Truck, color: 'text-slate-400', activeColor: 'text-cyan-500' },
     { key: 'historial', label: 'Historial', icon: History, color: 'text-slate-400', activeColor: 'text-slate-700' },
 ];
@@ -33,6 +34,7 @@ const DOT_COLORS: Record<WMSTab, string> = {
     transferencia: 'bg-purple-500',
     transito: 'bg-indigo-500',
     pedidos: 'bg-amber-500',
+    'crear-pedido': 'bg-rose-500',
     suministros: 'bg-cyan-500',
     historial: 'bg-slate-700',
 };

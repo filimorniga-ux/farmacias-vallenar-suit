@@ -2,10 +2,11 @@
  * WMSProductCart - Lista editable de productos seleccionados para operación WMS
  * 
  * Permite editar cantidades con botones +/- y campo manual.
+ * checklistMode: agrega casillas de verificación para marcar ítems procesados.
  * Sigue skill input-behavior-chile: permite vacío temporal, valida onBlur.
  */
 import React, { useState, useCallback } from 'react';
-import { Trash2, Plus, Minus, Package, AlertTriangle } from 'lucide-react';
+import { Trash2, Plus, Minus, Package, AlertTriangle, Square, CheckCircle2 } from 'lucide-react';
 
 export interface WMSCartItem {
     id: string;           // ID del batch/producto
@@ -16,6 +17,7 @@ export interface WMSCartItem {
     lotNumber?: string;
     expiryDate?: number;
     laboratory?: string;
+    checked?: boolean;     // ✅ NUEVO: Para modo checklist
 }
 
 interface WMSProductCartProps {
@@ -25,6 +27,8 @@ interface WMSProductCartProps {
     onUpdateItem: (id: string, quantity: number) => void;
     /** Callback cuando se elimina un item */
     onRemoveItem: (id: string) => void;
+    /** ✅ NUEVO: Callback cuando se marca/desmarca un ítem en modo checklist */
+    onToggleCheck?: (id: string, checked: boolean) => void;
     /** Título del carrito */
     title?: string;
     /** Mostrar stock disponible */
@@ -33,16 +37,23 @@ interface WMSProductCartProps {
     disabled?: boolean;
     /** Límite máximo de items */
     maxItems?: number;
+    /** ✅ NUEVO: Modo checklist para marcar ítems confirmados */
+    checklistMode?: boolean;
+    /** ✅ NUEVO: Texto para el contador en modo checklist */
+    checklistLabel?: string;
 }
 
 export const WMSProductCart: React.FC<WMSProductCartProps> = ({
     items,
     onUpdateItem,
     onRemoveItem,
+    onToggleCheck,
     title = 'Productos',
     showStock = true,
     disabled = false,
     maxItems,
+    checklistMode = false,
+    checklistLabel = 'verificados',
 }) => {
     // Estado temporal para inputs vacíos (input-behavior-chile)
     const [editingValues, setEditingValues] = useState<Record<string, string>>({});
@@ -55,13 +66,12 @@ export const WMSProductCart: React.FC<WMSProductCartProps> = ({
     const handleQuantityBlur = useCallback((id: string, maxStock: number) => {
         const raw = editingValues[id];
         if (raw === undefined || raw === '') {
-            // Si quedó vacío, restaurar a 1
             onUpdateItem(id, 1);
         } else {
             const num = parseInt(raw, 10);
             if (isNaN(num) || num <= 0) {
                 onUpdateItem(id, 1);
-            } else if (num > maxStock) {
+            } else if (num > maxStock && maxStock > 0) {
                 onUpdateItem(id, maxStock);
             } else {
                 onUpdateItem(id, num);
@@ -75,7 +85,7 @@ export const WMSProductCart: React.FC<WMSProductCartProps> = ({
     }, [editingValues, onUpdateItem]);
 
     const incrementQty = useCallback((id: string, current: number, max: number) => {
-        if (current < max) onUpdateItem(id, current + 1);
+        if (max <= 0 || current < max) onUpdateItem(id, current + 1);
     }, [onUpdateItem]);
 
     const decrementQty = useCallback((id: string, current: number) => {
@@ -83,6 +93,8 @@ export const WMSProductCart: React.FC<WMSProductCartProps> = ({
     }, [onUpdateItem]);
 
     const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
+    const checkedcount = checklistMode ? items.filter(i => i.checked).length : 0;
+    const allChecked = checklistMode && items.length > 0 && checkedcount === items.length;
 
     if (items.length === 0) {
         return (
@@ -106,35 +118,75 @@ export const WMSProductCart: React.FC<WMSProductCartProps> = ({
                 <div className="flex items-center gap-3 text-xs text-slate-500">
                     <span>{items.length} producto{items.length !== 1 ? 's' : ''}</span>
                     <span className="w-px h-3 bg-slate-300" />
-                    <span className="font-bold text-slate-700">{totalItems} unidades</span>
+                    <span className="font-bold text-slate-700">{totalItems} uds</span>
+                    {checklistMode && (
+                        <>
+                            <span className="w-px h-3 bg-slate-300" />
+                            <span className={`font-bold ${allChecked ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                {checkedcount}/{items.length} {checklistLabel}
+                            </span>
+                        </>
+                    )}
                 </div>
                 {maxItems && (
-                    <span className={`text-xs font-medium ${items.length >= maxItems ? 'text-amber-600' : 'text-slate-400'
-                        }`}>
+                    <span className={`text-xs font-medium ${items.length >= maxItems ? 'text-amber-600' : 'text-slate-400'}`}>
                         {items.length}/{maxItems}
                     </span>
                 )}
             </div>
+
+            {/* Barra de progreso en modo checklist */}
+            {checklistMode && items.length > 0 && (
+                <div className="h-1.5 w-full bg-slate-100">
+                    <div
+                        className="h-full bg-emerald-500 transition-all duration-500"
+                        style={{ width: `${(checkedcount / items.length) * 100}%` }}
+                    />
+                </div>
+            )}
 
             {/* Items */}
             <div className="divide-y divide-slate-100 max-h-80 overflow-y-auto wms-content-scroll">
                 {items.map((item) => {
                     const editValue = editingValues[item.id];
                     const displayValue = editValue !== undefined ? editValue : item.quantity.toString();
-                    const isOverStock = item.quantity > item.maxStock;
+                    const isOverStock = item.maxStock > 0 && item.quantity > item.maxStock;
+                    const isChecked = checklistMode && !!item.checked;
 
                     return (
                         <div
                             key={item.id}
-                            className={`px-4 py-3 flex items-center gap-3 transition-colors ${isOverStock ? 'bg-red-50' : 'hover:bg-slate-50'
+                            className={`px-3 py-3 flex items-center gap-2.5 transition-all ${isChecked
+                                    ? 'bg-emerald-50 border-l-4 border-emerald-400'
+                                    : isOverStock
+                                        ? 'bg-red-50'
+                                        : 'hover:bg-slate-50'
                                 }`}
                         >
+                            {/* ✅ Casilla de verificación (solo en modo checklist) */}
+                            {checklistMode && (
+                                <button
+                                    onClick={() => onToggleCheck?.(item.id, !isChecked)}
+                                    disabled={disabled}
+                                    className={`shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all press-effect touch-target ${isChecked
+                                            ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-200'
+                                            : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                                        }`}
+                                    title={isChecked ? 'Desmarcar' : 'Marcar como verificado'}
+                                >
+                                    {isChecked
+                                        ? <CheckCircle2 size={20} />
+                                        : <Square size={18} />
+                                    }
+                                </button>
+                            )}
+
                             {/* Info del producto */}
-                            <div className="flex-1 min-w-0">
-                                <p className="font-semibold text-slate-800 text-sm truncate">
+                            <div className={`flex-1 min-w-0 ${isChecked ? 'opacity-70' : ''}`}>
+                                <p className={`font-semibold text-slate-800 text-sm truncate ${isChecked ? 'line-through decoration-emerald-500' : ''}`}>
                                     {item.name}
                                 </p>
-                                <div className="flex items-center gap-2 mt-0.5">
+                                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                                     <span className="text-xs text-slate-500">{item.sku}</span>
                                     {item.lotNumber && (
                                         <span className="text-xs text-slate-400">
@@ -142,8 +194,7 @@ export const WMSProductCart: React.FC<WMSProductCartProps> = ({
                                         </span>
                                     )}
                                     {showStock && (
-                                        <span className={`text-xs font-medium ${item.maxStock > 0 ? 'text-emerald-600' : 'text-red-500'
-                                            }`}>
+                                        <span className={`text-xs font-medium ${item.maxStock > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                                             Stock: {item.maxStock}
                                         </span>
                                     )}
@@ -157,16 +208,16 @@ export const WMSProductCart: React.FC<WMSProductCartProps> = ({
                             </div>
 
                             {/* Controles de cantidad */}
-                            <div className="flex items-center gap-1.5 shrink-0">
+                            <div className="flex items-center gap-1 shrink-0">
                                 <button
                                     onClick={() => decrementQty(item.id, item.quantity)}
                                     disabled={disabled || item.quantity <= 1}
-                                    className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 
+                                    className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 
                                              flex items-center justify-center text-slate-600
                                              disabled:opacity-30 disabled:cursor-not-allowed
                                              transition-colors press-effect touch-target"
                                 >
-                                    <Minus size={16} />
+                                    <Minus size={14} />
                                 </button>
 
                                 <input
@@ -176,8 +227,8 @@ export const WMSProductCart: React.FC<WMSProductCartProps> = ({
                                     onChange={(e) => handleQuantityChange(item.id, e.target.value)}
                                     onBlur={() => handleQuantityBlur(item.id, item.maxStock)}
                                     disabled={disabled}
-                                    className="w-14 h-10 text-center font-bold text-slate-900 
-                                             border border-slate-200 rounded-xl text-base
+                                    className="w-12 h-9 text-center font-bold text-slate-900 
+                                             border border-slate-200 rounded-xl text-sm
                                              focus:border-sky-400 focus:ring-2 focus:ring-sky-100
                                              disabled:bg-slate-50
                                              outline-none transition-all"
@@ -185,13 +236,13 @@ export const WMSProductCart: React.FC<WMSProductCartProps> = ({
 
                                 <button
                                     onClick={() => incrementQty(item.id, item.quantity, item.maxStock)}
-                                    disabled={disabled || item.quantity >= item.maxStock}
-                                    className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 
+                                    disabled={disabled || (item.maxStock > 0 && item.quantity >= item.maxStock)}
+                                    className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 
                                              flex items-center justify-center text-slate-600
                                              disabled:opacity-30 disabled:cursor-not-allowed
                                              transition-colors press-effect touch-target"
                                 >
-                                    <Plus size={16} />
+                                    <Plus size={14} />
                                 </button>
                             </div>
 
@@ -202,12 +253,12 @@ export const WMSProductCart: React.FC<WMSProductCartProps> = ({
                                     onRemoveItem(item.id);
                                 }}
                                 disabled={disabled}
-                                className="w-10 h-10 rounded-xl hover:bg-red-50 
+                                className="w-9 h-9 rounded-xl hover:bg-red-50 
                                          flex items-center justify-center text-slate-400 
                                          hover:text-red-500 disabled:opacity-30
                                          transition-colors shrink-0 press-effect touch-target"
                             >
-                                <Trash2 size={18} />
+                                <Trash2 size={16} />
                             </button>
                         </div>
                     );
@@ -217,9 +268,14 @@ export const WMSProductCart: React.FC<WMSProductCartProps> = ({
             {/* Footer resumen */}
             <div className="px-4 py-3 bg-slate-50 border-t border-slate-200">
                 <div className="flex items-center justify-between">
-                    <span className="text-sm text-slate-600">Total a mover</span>
-                    <span className="text-lg font-bold text-slate-900">
+                    <span className="text-sm text-slate-600">
+                        {checklistMode ? `Verificados: ${checkedcount}/${items.length}` : 'Total a mover'}
+                    </span>
+                    <span className={`text-lg font-bold ${checklistMode && allChecked ? 'text-emerald-600' : 'text-slate-900'}`}>
                         {totalItems} unidades
+                        {checklistMode && allChecked && (
+                            <span className="ml-2 text-xs text-emerald-600">✓ Completo</span>
+                        )}
                     </span>
                 </div>
             </div>
