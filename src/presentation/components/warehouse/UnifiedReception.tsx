@@ -112,6 +112,7 @@ const UnifiedReception: React.FC<UnifiedReceptionProps> = ({ isOpen, onClose, sh
                     quantity: i.quantity,
                     condition: i.condition
                 })),
+                unexpectedItems: [],
                 photos,
                 notes
             }),

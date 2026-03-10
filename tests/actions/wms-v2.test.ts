@@ -654,6 +654,7 @@ describe('WMS V2 - processReceptionSecure', () => {
         const result = await processReceptionSecure({
             shipmentId,
             receivedItems: [{ itemId: shipmentItemId, quantity: 2, condition: 'GOOD' }],
+            unexpectedItems: [],
             notes: 'Recepción de prueba',
         });
 

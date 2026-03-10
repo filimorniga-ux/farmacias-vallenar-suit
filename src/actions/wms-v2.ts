@@ -1114,9 +1114,20 @@ const ProcessReceptionSchema = z.object({
     receivedItems: z.array(z.object({
         itemId: UUIDSchema,
         quantity: z.number().min(0),
-        condition: z.enum(['GOOD', 'DAMAGED'])
+        condition: z.enum(['GOOD', 'DAMAGED']),
+        lotNumber: z.string().max(100).optional(),
+        expiryDate: z.string().optional(),   // ISO date string
     })),
-    photos: z.array(z.string()).optional(), // URLs
+    unexpectedItems: z.array(z.object({
+        sku: z.string().min(1),
+        name: z.string().min(1),
+        productId: UUIDSchema.optional(),
+        quantity: z.number().int().positive(),
+        condition: z.enum(['GOOD', 'DAMAGED']).default('GOOD'),
+        lotNumber: z.string().max(100).optional(),
+        expiryDate: z.string().optional(),
+    })).optional().default([]),
+    photos: z.array(z.string()).optional(),
     notes: z.string().optional()
 });
 
@@ -1318,7 +1329,7 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
     const validated = ProcessReceptionSchema.safeParse(data);
     if (!validated.success) return { success: false, error: 'Datos inválidos' };
 
-    const { shipmentId, receivedItems, notes } = validated.data;
+    const { shipmentId, receivedItems, unexpectedItems, notes } = validated.data;
 
     const client = await pool.connect();
 
@@ -1374,13 +1385,17 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
                 : canonicalProduct.salePrice;
 
             // Always create a new destination lot for each received line
-            // to keep transfer traceability at lot-level.
             const isTransferReception = shipment.type === 'INTER_BRANCH';
             const transferColor = isTransferReception ? getTransferLotColor(index) : null;
-            const lotNumber = isTransferReception
-                ? buildTransferLotNumber(shipmentId, index)
-                : buildDispatchLotNumber(shipmentId, index);
-            const expiry = sourceBatch?.expiry_date || null;
+
+            // Prefer frontend-provided lot/expiry, then source batch, then auto-generated
+            const lotNumber = received.lotNumber
+                || (isTransferReception
+                    ? buildTransferLotNumber(shipmentId, index)
+                    : buildDispatchLotNumber(shipmentId, index));
+            const expiry = received.expiryDate
+                ? new Date(received.expiryDate)
+                : (sourceBatch?.expiry_date || null);
 
             const finalBatchId = randomUUID();
             let qtyBefore = 0;
@@ -1423,6 +1438,64 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
                 finalBatchId,
                 shipmentId
             ]);
+        }
+
+        // 3b. Process Unexpected Items (not in original shipment)
+        if (unexpectedItems && unexpectedItems.length > 0) {
+            for (const [uIdx, unexpected] of unexpectedItems.entries()) {
+                if (unexpected.quantity <= 0) continue;
+
+                const canonicalProduct = await resolveCanonicalProductForMovement(client, {
+                    preferredProductId: unexpected.productId,
+                    sku: unexpected.sku,
+                });
+
+                if (!canonicalProduct) {
+                    console.warn(`[WMS-V2] Unexpected item SKU=${unexpected.sku} has no master product. Skipping.`);
+                    continue;
+                }
+
+                const uLotNumber = unexpected.lotNumber
+                    || `REC-UNEXP-${shipmentId.slice(0, 8)}-${uIdx}`;
+                const uExpiry = unexpected.expiryDate ? new Date(unexpected.expiryDate) : null;
+                const uBatchId = randomUUID();
+
+                await client.query(`
+                    INSERT INTO inventory_batches (
+                        id, product_id, warehouse_id, lot_number, expiry_date,
+                        quantity_real, sku, name, unit_cost, sale_price, location_id,
+                        source_system, created_at, updated_at
+                    ) VALUES (
+                        $1, $2, $3, $4, $5,
+                        $6, $7, $8, $9, $10, $11,
+                        'WMS_UNEXPECTED', NOW(), NOW()
+                    )
+                `, [
+                    uBatchId, canonicalProduct.id, destWarehouseId, uLotNumber, uExpiry,
+                    unexpected.quantity, unexpected.sku, unexpected.name,
+                    canonicalProduct.costPrice, canonicalProduct.salePrice,
+                    shipment.destination_location_id
+                ]);
+
+                await client.query(`
+                    INSERT INTO stock_movements (
+                        id, sku, product_name, location_id, movement_type,
+                        quantity, stock_before, stock_after, timestamp, user_id,
+                        notes, batch_id, reference_type, reference_id
+                    ) VALUES (
+                        $1, $2, $3, $4::uuid, 'UNEXPECTED_IN',
+                        $5, 0, $6, NOW(), $7::uuid,
+                        $8, $9::uuid, 'SHIPMENT', $10::uuid
+                    )
+                `, [
+                    randomUUID(), unexpected.sku, unexpected.name,
+                    shipment.destination_location_id,
+                    unexpected.quantity, unexpected.quantity,
+                    session.userId,
+                    `Recepción inesperada ${shipmentId} | Lote ${uLotNumber}`,
+                    uBatchId, shipmentId
+                ]);
+            }
         }
 
         // 4. Update Shipment Status
