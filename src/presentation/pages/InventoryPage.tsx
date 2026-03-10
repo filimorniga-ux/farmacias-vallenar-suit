@@ -115,7 +115,7 @@ export const InventoryList: React.FC<InventoryListProps> = React.memo(({
     }, []);
 
     // FIX: Memoize functions to prevent virtualizer thrashing
-    const estimateSize = useCallback(() => isMobile ? 220 : 85, [isMobile]);
+    const estimateSize = useCallback(() => isMobile ? 140 : 85, [isMobile]);
     const getScrollElement = useCallback(() => parentRef.current, []);
     const rowVirtualizer = useVirtualizer({
         count: hasNextPage ? items.length + 1 : items.length,
@@ -229,15 +229,15 @@ export const InventoryList: React.FC<InventoryListProps> = React.memo(({
                                 {isMobile ? (
                                     // MOBILE CARD VIEW (Grouped)
                                     <div
-                                        className={`p-4 rounded-2xl shadow-sm border flex flex-col gap-3 h-full ${item.is_retail_lot
+                                        className={`p-2.5 rounded-xl shadow-sm border flex flex-col gap-1.5 h-full ${item.is_retail_lot
                                             ? 'bg-amber-50/60 border-amber-200'
                                             : 'bg-white border-slate-100'
                                             }`}
                                     >
                                         {/* Header */}
                                         <div className="flex justify-between items-start">
-                                            <div onClick={() => toggleGroup(item.id)} className="flex-1">
-                                                <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
+                                            <div onClick={() => toggleGroup(item.id)} className="flex-1 min-w-0">
+                                                <h3 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 truncate">
                                                     {item.is_retail_lot && (
                                                         <span className="bg-amber-100 text-amber-800 text-[10px] px-2 py-0.5 rounded-full font-extrabold border border-amber-200">
                                                             AL DETAL
@@ -264,17 +264,17 @@ export const InventoryList: React.FC<InventoryListProps> = React.memo(({
                                         </div>
 
                                         {/* Body */}
-                                        <div className="grid grid-cols-2 gap-4 py-3 border-y border-slate-50">
+                                        <div className="grid grid-cols-2 gap-2 py-1.5 border-y border-slate-50">
                                             <div>
-                                                <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Stock Total</p>
-                                                <p className={`text-2xl font-bold ${item.stock_actual <= (item.stock_min || 5) ? 'text-red-600' : 'text-slate-800'}`}>
+                                                <p className="text-[9px] text-slate-400 uppercase font-bold tracking-wider">Stock</p>
+                                                <p className={`text-lg font-bold ${item.stock_actual <= (item.stock_min || 5) ? 'text-red-600' : 'text-slate-800'}`}>
                                                     {item.stock_actual || 0}
                                                 </p>
-                                                <p className="text-[10px] text-slate-400">Min: {item.stock_min || 5}</p>
+                                                <p className="text-[9px] text-slate-400">Min: {item.stock_min || 5}</p>
                                             </div>
                                             <div className="text-right">
-                                                <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Precio</p>
-                                                <p className="text-2xl font-bold text-slate-800">
+                                                <p className="text-[9px] text-slate-400 uppercase font-bold tracking-wider">Precio</p>
+                                                <p className="text-lg font-bold text-slate-800">
                                                     ${(item.price || 0).toLocaleString()}
                                                 </p>
                                             </div>
@@ -324,19 +324,19 @@ export const InventoryList: React.FC<InventoryListProps> = React.memo(({
                                         )}
 
                                         {/* Footer Actions */}
-                                        <div className="flex gap-2 mt-1">
+                                        <div className="flex gap-1.5 mt-0.5">
                                             <button
                                                 onClick={() => toggleGroup(item.id)}
-                                                className={`flex-1 h-10 rounded-xl flex items-center justify-center gap-2 font-bold text-sm transition-colors ${isExpanded ? 'bg-slate-200 text-slate-600' : 'bg-slate-100 text-slate-500'}`}
+                                                className={`flex-1 h-8 rounded-lg flex items-center justify-center gap-1.5 font-bold text-xs transition-colors ${isExpanded ? 'bg-slate-200 text-slate-600' : 'bg-slate-100 text-slate-500'}`}
                                             >
-                                                {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                                                {isExpanded ? 'Ocultar' : 'Ver Lotes'}
+                                                {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                                {isExpanded ? 'Ocultar' : 'Lotes'}
                                             </button>
 
                                             {isExpanded && canManageInventory && (
                                                 <button
                                                     onClick={() => onAddBatch(item)}
-                                                    className="h-10 px-3 bg-cyan-50 text-cyan-600 rounded-xl flex items-center justify-center gap-1 font-bold text-xs"
+                                                    className="h-8 px-2 bg-cyan-50 text-cyan-600 rounded-lg flex items-center justify-center gap-1 font-bold text-[10px]"
                                                 >
                                                     <Plus size={16} /> Lote
                                                 </button>
@@ -345,9 +345,9 @@ export const InventoryList: React.FC<InventoryListProps> = React.memo(({
                                             {canManageInventory && (
                                                 <button
                                                     onClick={() => onEdit(item)}
-                                                    className="h-10 w-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center"
+                                                    className="h-8 w-8 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center"
                                                 >
-                                                    <Edit size={18} />
+                                                    <Edit size={14} />
                                                 </button>
                                             )}
                                         </div>
@@ -752,23 +752,23 @@ const InventoryPage: React.FC = () => {
     };
 
     return (
-        <div className="h-dvh min-h-0 flex flex-col bg-slate-50 overflow-hidden">
-            <div className="p-4 md:p-6 pb-0 shrink-0 pt-safe">
+        <div className="md:h-dvh md:min-h-0 md:flex md:flex-col bg-slate-50 md:overflow-hidden min-h-dvh">
+            <div className="p-2 md:p-6 pb-0 md:shrink-0 pt-safe">
                 {/* Header */}
-                <header className="mb-6 flex flex-col md:flex-row md:justify-between md:items-end gap-4">
+                <header className="mb-2 md:mb-6 flex flex-col md:flex-row md:justify-between md:items-end gap-2 md:gap-4">
                     <div>
-                        <h1 className="text-3xl font-extrabold text-slate-900 flex items-center gap-3">
-                            <Package className="text-cyan-600" /> Maestro de Inventario
+                        <h1 className="text-xl md:text-3xl font-extrabold text-slate-900 flex items-center gap-2 md:gap-3">
+                            <Package className="text-cyan-600" size={20} /> Maestro de Inventario
                         </h1>
-                        <div className="flex items-center gap-3 mt-2">
-                            <p className="text-slate-500 font-medium">
+                        <div className="flex items-center gap-2 md:gap-3 mt-1 md:mt-2 flex-wrap">
+                            <p className="text-slate-500 font-medium text-xs md:text-base hidden md:block">
                                 WMS & Control de Stock
                             </p>
 
                             {/* Product Count Badge */}
-                            <div className="flex items-center gap-2 px-3 py-1 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full shadow-md">
-                                <Package size={14} className="text-white" />
-                                <span className="text-xs font-bold text-white">
+                            <div className="flex items-center gap-1.5 md:gap-2 px-2 md:px-3 py-0.5 md:py-1 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full shadow-md">
+                                <Package size={12} className="text-white" />
+                                <span className="text-[10px] md:text-xs font-bold text-white">
                                     {meta.total} artículo{meta.total !== 1 ? 's' : ''}
                                 </span>
                             </div>
@@ -851,34 +851,34 @@ const InventoryPage: React.FC = () => {
                     </MobileActionScroll>
                 </header>
 
-                <div className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide border-b border-slate-200 mb-6 pb-1">
+                <div className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide border-b border-slate-200 mb-2 md:mb-6 pb-0.5 md:pb-1">
                     <button
                         onClick={() => setActiveTab('ALL')}
-                        className={`flex-none min-w-[32%] md:min-w-0 md:flex-1 snap-center py-3 text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-4 ${activeTab === 'ALL' ? 'border-indigo-500 text-indigo-700 bg-indigo-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                        className={`flex-none min-w-[28%] md:min-w-0 md:flex-1 snap-center py-1.5 md:py-3 text-[11px] md:text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-2 md:px-4 ${activeTab === 'ALL' ? 'border-indigo-500 text-indigo-700 bg-indigo-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
                         🌎 TODOS
                     </button>
                     <button
                         onClick={() => setActiveTab('MEDS')}
-                        className={`flex-none min-w-[45%] md:min-w-0 md:flex-1 snap-center py-3 text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-4 ${activeTab === 'MEDS' ? 'border-cyan-500 text-cyan-700 bg-cyan-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                        className={`flex-none min-w-[36%] md:min-w-0 md:flex-1 snap-center py-1.5 md:py-3 text-[11px] md:text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-2 md:px-4 ${activeTab === 'MEDS' ? 'border-cyan-500 text-cyan-700 bg-cyan-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
                         💊 MEDICAMENTOS
                     </button>
                     <button
                         onClick={() => setActiveTab('RETAIL')}
-                        className={`flex-none min-w-[45%] md:min-w-0 md:flex-1 snap-center py-3 text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-4 ${activeTab === 'RETAIL' ? 'border-pink-500 text-pink-700 bg-pink-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                        className={`flex-none min-w-[28%] md:min-w-0 md:flex-1 snap-center py-1.5 md:py-3 text-[11px] md:text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-2 md:px-4 ${activeTab === 'RETAIL' ? 'border-pink-500 text-pink-700 bg-pink-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
                         🛍️ RETAIL
                     </button>
                     <button
                         onClick={() => setActiveTab('DETAIL')}
-                        className={`flex-none min-w-[42%] md:min-w-0 md:flex-1 snap-center py-3 text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-4 ${activeTab === 'DETAIL' ? 'border-amber-500 text-amber-700 bg-amber-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                        className={`flex-none min-w-[30%] md:min-w-0 md:flex-1 snap-center py-1.5 md:py-3 text-[11px] md:text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-2 md:px-4 ${activeTab === 'DETAIL' ? 'border-amber-500 text-amber-700 bg-amber-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
                         ✂️ AL DETAL
                     </button>
                     <button
                         onClick={() => setActiveTab('CONTROLLED')}
-                        className={`flex-none min-w-[45%] md:min-w-0 md:flex-1 snap-center py-3 text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-4 ${activeTab === 'CONTROLLED' ? 'border-purple-500 text-purple-700 bg-purple-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                        className={`flex-none min-w-[36%] md:min-w-0 md:flex-1 snap-center py-1.5 md:py-3 text-[11px] md:text-sm font-bold border-b-2 transition-colors whitespace-nowrap px-2 md:px-4 ${activeTab === 'CONTROLLED' ? 'border-purple-500 text-purple-700 bg-purple-50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
                         🔒 CONTROLADOS
                     </button>
