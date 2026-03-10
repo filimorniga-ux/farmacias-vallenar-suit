@@ -21,6 +21,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
 import CameraScanner from '../../ui/CameraScanner';
 import { useBarcodeScanner } from '@/presentation/hooks/useBarcodeScanner';
+import ProductFormModal from '../../inventory/ProductFormModal';
 
 interface PendingShipment {
     id: string;
@@ -53,6 +54,8 @@ interface ReceivedItem {
     condition: 'GOOD' | 'DAMAGED';
     unexpected?: boolean;
     productId?: string;
+    lotNumber?: string;
+    expiryDate?: string;
 }
 
 interface WMSRecepcionTabProps {
@@ -97,6 +100,13 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
     const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
     const [scanCount, setScanCount] = useState(0);
     const [lastScanFlash, setLastScanFlash] = useState<string | null>(null);
+
+    // ── Estado lote/vencimiento expandible ───────────────────────────
+    const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+
+    // ── Estado crear producto (Fase B) ──────────────────────────────
+    const [productModalOpen, setProductModalOpen] = useState(false);
+    const [productModalSku, setProductModalSku] = useState('');
 
     // Cargar envíos pendientes
     const fetchPending = useCallback(async () => {
@@ -281,12 +291,27 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
 
         setIsSubmitting(true);
         try {
+            // Split expected vs unexpected items
+            const expectedItems = receivedItems.filter(i => !i.unexpected);
+            const unexpectedList = receivedItems.filter(i => i.unexpected && i.receivedQty > 0);
+
             const result = await processReceptionSecure({
                 shipmentId: selectedShipment.id,
-                receivedItems: receivedItems.map(item => ({
+                receivedItems: expectedItems.map(item => ({
                     itemId: item.itemId,
                     quantity: item.receivedQty,
                     condition: item.condition,
+                    lotNumber: item.lotNumber || undefined,
+                    expiryDate: item.expiryDate || undefined,
+                })),
+                unexpectedItems: unexpectedList.map(item => ({
+                    sku: item.sku,
+                    name: item.name,
+                    productId: item.productId || undefined,
+                    quantity: item.receivedQty,
+                    condition: item.condition,
+                    lotNumber: item.lotNumber || undefined,
+                    expiryDate: item.expiryDate || undefined,
                 })),
                 notes: receptionNotes || undefined,
             });
@@ -379,10 +404,17 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                     setScanCount(prev => prev + 1);
                     toast.info(`📦 Producto inesperado agregado: ${product.name}`);
                 } else {
-                    // Completely unknown product
+                    // Completely unknown product — offer to create
                     toast.warning(`⚠️ Código no reconocido: ${normalizedCode}`, {
-                        description: 'No se encontró en el inventario ni en el pedido.',
-                        duration: 4000,
+                        description: 'No se encontró en el inventario.',
+                        duration: 6000,
+                        action: {
+                            label: 'Crear Producto',
+                            onClick: () => {
+                                setProductModalSku(normalizedCode);
+                                setProductModalOpen(true);
+                            },
+                        },
                     });
                 }
             }
@@ -548,86 +580,131 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                             else if (item.receivedQty > 0) { semaphoreColor = 'bg-orange-400'; semaphoreIcon = '🟠'; }
 
                             return (
-                                <div
-                                    key={item.itemId}
-                                    className={`px-4 py-3 flex items-center gap-3 transition-colors duration-300 ${isFlashing ? 'bg-emerald-50' : ''
-                                        } ${isUnexpected ? 'bg-blue-50/50' : ''}`}
-                                >
-                                    {/* Semaphore dot */}
-                                    <div className={`w-3 h-3 rounded-full shrink-0 ${semaphoreColor} transition-all ${isFlashing ? 'scale-150' : ''}`}
-                                        title={isUnexpected ? 'Inesperado' : isComplete ? 'Completo' : isExcess ? 'Excedente' : isMissing ? 'Faltante' : 'Sin escanear'}
-                                    />
+                                <React.Fragment key={item.itemId}>
+                                    <div
+                                        className={`px-4 py-3 flex items-center gap-3 transition-colors duration-300 ${isFlashing ? 'bg-emerald-50' : ''
+                                            } ${isUnexpected ? 'bg-blue-50/50' : ''}`}
+                                    >
+                                        {/* Semaphore dot */}
+                                        <div className={`w-3 h-3 rounded-full shrink-0 ${semaphoreColor} transition-all ${isFlashing ? 'scale-150' : ''}`}
+                                            title={isUnexpected ? 'Inesperado' : isComplete ? 'Completo' : isExcess ? 'Excedente' : isMissing ? 'Faltante' : 'Sin escanear'}
+                                        />
 
-                                    <div className="flex-1 min-w-0">
-                                        <p className="font-semibold text-slate-800 text-sm truncate flex items-center gap-1.5">
-                                            {item.name}
-                                            {isUnexpected && (
-                                                <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-bold">INESPERADO</span>
-                                            )}
-                                        </p>
-                                        <div className="flex items-center gap-2 mt-0.5">
-                                            <span className="text-xs text-slate-500">{item.sku}</span>
-                                            {!isUnexpected && (
-                                                <span className="text-xs text-slate-400">
-                                                    Esperado: <strong className="text-slate-600">{item.expectedQty}</strong>
-                                                </span>
-                                            )}
-                                            {isExcess && (
-                                                <span className="text-[10px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full font-bold">
-                                                    +{item.receivedQty - item.expectedQty} extra
-                                                </span>
-                                            )}
+                                        <div className="flex-1 min-w-0">
+                                            <p className="font-semibold text-slate-800 text-sm truncate flex items-center gap-1.5">
+                                                {item.name}
+                                                {isUnexpected && (
+                                                    <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-bold">INESPERADO</span>
+                                                )}
+                                            </p>
+                                            <div className="flex items-center gap-2 mt-0.5">
+                                                <span className="text-xs text-slate-500">{item.sku}</span>
+                                                {!isUnexpected && (
+                                                    <span className="text-xs text-slate-400">
+                                                        Esperado: <strong className="text-slate-600">{item.expectedQty}</strong>
+                                                    </span>
+                                                )}
+                                                {isExcess && (
+                                                    <span className="text-[10px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full font-bold">
+                                                        +{item.receivedQty - item.expectedQty} extra
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
-                                    </div>
 
-                                    {/* Input cantidad + candado PIN */}
-                                    <div className="flex items-center gap-2 shrink-0">
-                                        <input
-                                            type="number"
-                                            value={item.receivedQty}
-                                            onChange={(e) => handleQtyChange(item.itemId, e.target.value)}
-                                            onBlur={(e) => handleQtyBlur(item.itemId, e.target.value)}
-                                            min={0}
-                                            disabled={isSubmitting}
-                                            className={`w-16 h-9 text-center font-bold rounded-lg border-2 outline-none transition-all text-sm bg-white text-slate-800
+                                        {/* Input cantidad + candado PIN */}
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            <input
+                                                type="number"
+                                                value={item.receivedQty}
+                                                onChange={(e) => handleQtyChange(item.itemId, e.target.value)}
+                                                onBlur={(e) => handleQtyBlur(item.itemId, e.target.value)}
+                                                min={0}
+                                                disabled={isSubmitting}
+                                                className={`w-16 h-9 text-center font-bold rounded-lg border-2 outline-none transition-all text-sm bg-white text-slate-800
                                                 ${isComplete
-                                                    ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
-                                                    : isExcess
-                                                        ? 'border-amber-300 bg-amber-50 text-amber-700'
-                                                        : isUnexpected
-                                                            ? 'border-blue-300 bg-blue-50 text-blue-700'
-                                                            : item.receivedQty > 0
-                                                                ? 'border-orange-300 bg-orange-50 text-orange-700'
-                                                                : 'border-slate-200'
-                                                }
+                                                        ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                                        : isExcess
+                                                            ? 'border-amber-300 bg-amber-50 text-amber-700'
+                                                            : isUnexpected
+                                                                ? 'border-blue-300 bg-blue-50 text-blue-700'
+                                                                : item.receivedQty > 0
+                                                                    ? 'border-orange-300 bg-orange-50 text-orange-700'
+                                                                    : 'border-slate-200'
+                                                    }
                                                 focus:border-sky-400 focus:ring-2 focus:ring-sky-100
                                                 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
-                                        />
-                                        {!isUnexpected && (
-                                            <span className="text-xs text-slate-400 font-mono w-4 text-center">/</span>
-                                        )}
-                                        {!isUnexpected && (
-                                            <span className="text-xs font-bold text-slate-600 w-6 text-center">{item.expectedQty}</span>
-                                        )}
-                                        {item.receivedQty !== item.expectedQty && authorizedDiffs[item.itemId] === item.receivedQty && (
-                                            <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-amber-100 text-amber-600" title="Diferencia requirió PIN">
-                                                <ShieldCheck size={14} />
-                                            </div>
-                                        )}
+                                            />
+                                            {!isUnexpected && (
+                                                <span className="text-xs text-slate-400 font-mono w-4 text-center">/</span>
+                                            )}
+                                            {!isUnexpected && (
+                                                <span className="text-xs font-bold text-slate-600 w-6 text-center">{item.expectedQty}</span>
+                                            )}
+                                            {item.receivedQty !== item.expectedQty && authorizedDiffs[item.itemId] === item.receivedQty && (
+                                                <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-amber-100 text-amber-600" title="Diferencia requirió PIN">
+                                                    <ShieldCheck size={14} />
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Toggle condición */}
+                                        <button
+                                            onClick={() => toggleCondition(item.itemId)}
+                                            disabled={isSubmitting}
+                                            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors shrink-0 ${item.condition === 'GOOD'
+                                                ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                                                : 'bg-red-100 text-red-700 hover:bg-red-200'
+                                                }`}
+                                        >
+                                            {item.condition === 'GOOD' ? 'OK' : 'Dañado'}
+                                        </button>
+
+                                        {/* Expand lot/expiry */}
+                                        <button
+                                            onClick={() => setExpandedItemId(expandedItemId === item.itemId ? null : item.itemId)}
+                                            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors shrink-0"
+                                            title="Lote y vencimiento"
+                                        >
+                                            <ChevronRight size={14} className={`transition-transform ${expandedItemId === item.itemId ? 'rotate-90' : ''}`} />
+                                        </button>
                                     </div>
 
-                                    {/* Toggle condición */}
-                                    <button
-                                        onClick={() => toggleCondition(item.itemId)}
-                                        disabled={isSubmitting}
-                                        className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors shrink-0 ${item.condition === 'GOOD'
-                                            ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-                                            : 'bg-red-100 text-red-700 hover:bg-red-200'
-                                            }`}
-                                    >
-                                        {item.condition === 'GOOD' ? 'OK' : 'Dañado'}
-                                    </button>
-                                </div>
+                                    {/* Expandable lot/expiry fields */}
+                                    {expandedItemId === item.itemId && (
+                                        <div className="px-4 pb-3 flex gap-3 bg-slate-50/50 animate-in slide-in-from-top-1 duration-200">
+                                            <div className="flex-1">
+                                                <label className="text-[10px] font-semibold text-slate-500 uppercase mb-1 block">Nº Lote</label>
+                                                <input
+                                                    type="text"
+                                                    value={item.lotNumber || ''}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        setReceivedItems(prev => prev.map(i =>
+                                                            i.itemId === item.itemId ? { ...i, lotNumber: val } : i
+                                                        ));
+                                                    }}
+                                                    placeholder="Ej: LOT-2026-03"
+                                                    className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-700 focus:border-sky-400 focus:ring-1 focus:ring-sky-100 outline-none"
+                                                />
+                                            </div>
+                                            <div className="flex-1">
+                                                <label className="text-[10px] font-semibold text-slate-500 uppercase mb-1 block">Vencimiento</label>
+                                                <input
+                                                    type="date"
+                                                    value={item.expiryDate || ''}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        setReceivedItems(prev => prev.map(i =>
+                                                            i.itemId === item.itemId ? { ...i, expiryDate: val } : i
+                                                        ));
+                                                    }}
+                                                    className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-700 focus:border-sky-400 focus:ring-1 focus:ring-sky-100 outline-none"
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+                                </React.Fragment>
                             );
                         })}
                     </div>
@@ -753,6 +830,35 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                         onClose={() => setIsCameraScannerOpen(false)}
                         continuous
                         scanCount={scanCount}
+                    />
+                )}
+
+                {/* ── ProductFormModal para crear productos desconocidos ── */}
+                {productModalOpen && (
+                    <ProductFormModal
+                        initialValues={{ sku: productModalSku, barcode: productModalSku }}
+                        onClose={() => {
+                            setProductModalOpen(false);
+                            setProductModalSku('');
+                        }}
+                        onSuccess={(newProductId, productData) => {
+                            // Add the newly created product as unexpected item
+                            const newItem: ReceivedItem = {
+                                itemId: `unexpected-${Date.now()}`,
+                                sku: productData?.sku || productModalSku,
+                                name: productData?.name || 'Producto nuevo',
+                                expectedQty: 0,
+                                receivedQty: 1,
+                                condition: 'GOOD',
+                                unexpected: true,
+                                productId: newProductId,
+                            };
+                            setReceivedItems(prev => [...prev, newItem]);
+                            setScanCount(prev => prev + 1);
+                            setProductModalOpen(false);
+                            setProductModalSku('');
+                            toast.success(`✅ Producto creado y agregado: ${productData?.name || 'Nuevo'}`);
+                        }}
                     />
                 )}
             </div>

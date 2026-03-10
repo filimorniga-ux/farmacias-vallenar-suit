@@ -411,24 +411,39 @@ const SupplyChainPage: React.FC = () => {
             return;
         }
 
-        // Build a pre-loaded order to pass to the ManualOrderModal wizard.
-        // This ensures items are persisted correctly via createPurchaseOrderSecure,
-        // fixes the "0 items" bug caused by in-memory-only PO generation.
-        const firstSupplierId = selectedItems[0]?.supplier_id || '';
-        const allSameSupplier = selectedItems.every(s => (s.supplier_id || '') === firstSupplierId);
+        // Group items by supplier_id
+        const groupedBySupplier = new Map<string, typeof selectedItems>();
+        for (const item of selectedItems) {
+            const key = item.supplier_id || 'SIN_PROVEEDOR';
+            if (!groupedBySupplier.has(key)) groupedBySupplier.set(key, []);
+            groupedBySupplier.get(key)!.push(item);
+        }
 
-        // Convert suggestions to a PurchaseOrder-like shape for the modal
+        const supplierGroups = Array.from(groupedBySupplier.entries());
+
+        if (supplierGroups.length > 1) {
+            toast.info(`Se agruparán en ${supplierGroups.length} órdenes por proveedor`, {
+                description: supplierGroups.map(([, items]) =>
+                    `${items[0]?.supplier_name || 'Sin Proveedor'}: ${items.length} productos`
+                ).join(' • '),
+                duration: 5000,
+            });
+        }
+
+        // Open modal with first supplier group (or single group)
+        const [firstSupplierId, firstGroupItems] = supplierGroups[0];
+
         const preloadedOrder = {
             id: `PO-AUTO-${Date.now()}`,
-            supplier_id: allSameSupplier ? firstSupplierId : '',
-            supplier_name: allSameSupplier ? (selectedItems[0]?.supplier_name || '') : '',
+            supplier_id: firstSupplierId === 'SIN_PROVEEDOR' ? '' : firstSupplierId,
+            supplier_name: firstGroupItems[0]?.supplier_name || '',
             status: 'DRAFT' as const,
             created_at: Date.now(),
             is_auto_generated: true,
             generation_reason: 'LOW_STOCK' as const,
             destination_location_id: selectedLocation || currentLocationId || '',
             target_warehouse_id: '',
-            items: selectedItems.map(s => ({
+            items: firstGroupItems.map(s => ({
                 sku: s.sku,
                 name: s.product_name,
                 quantity_ordered: s.suggested_order_qty ?? 0,
@@ -436,8 +451,14 @@ const SupplyChainPage: React.FC = () => {
                 cost_price: s.unit_cost ?? 0,
                 quantity: s.suggested_order_qty ?? 0
             })),
-            notes: selectedItems.some(s => s.action_type === 'TRANSFER') ? '[TRASPASO]' : '',
-            total_estimated: selectedItems.reduce((sum, s) => sum + (s.total_estimated ?? 0), 0)
+            notes: firstGroupItems.some(s => s.action_type === 'TRANSFER') ? '[TRASPASO]' : '',
+            total_estimated: firstGroupItems.reduce((sum, s) => sum + (s.total_estimated ?? 0), 0),
+            // Metadata for multi-supplier generation
+            _supplierGroups: supplierGroups.length > 1 ? supplierGroups.slice(1).map(([sid, items]) => ({
+                supplier_id: sid === 'SIN_PROVEEDOR' ? '' : sid,
+                supplier_name: items[0]?.supplier_name || '',
+                items_count: items.length,
+            })) : undefined,
         };
 
         setSelectedOrder(preloadedOrder);
