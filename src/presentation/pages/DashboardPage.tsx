@@ -242,8 +242,8 @@ const DashboardPage: React.FC = () => {
 
     return (
         <div className="min-h-dvh bg-slate-50 pb-20">
-            {/* HEADER */}
-            <header className="bg-white/80 backdrop-blur-md sticky top-0 z-30 border-b border-slate-200 px-4 md:px-6 py-4 pt-safe">
+            {/* HEADER - Hidden on mobile (SidebarLayout already shows user & location) */}
+            <header className="hidden md:block bg-white/80 backdrop-blur-md sticky top-0 z-30 border-b border-slate-200 px-4 md:px-6 py-4 pt-safe">
                 <div className="max-w-4xl mx-auto flex justify-between items-center">
                     <div>
                         <h1 className="text-xl font-bold text-slate-800">Hola, {user?.name || 'Invitado'}</h1>
@@ -282,7 +282,7 @@ const DashboardPage: React.FC = () => {
                         </div>
 
                         <div className="flex flex-col items-end mr-4">
-                            <p className="text-sm font-bold text-slate-700 hidden md:block">{user?.name || 'Usuario'}</p>
+                            <p className="text-sm font-bold text-slate-700">{user?.name || 'Usuario'}</p>
                             {dashboardStats?.lastSaleTime && (
                                 <p className="text-[10px] text-slate-400 font-mono">
                                     Ult. venta: {new Date(dashboardStats.lastSaleTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
