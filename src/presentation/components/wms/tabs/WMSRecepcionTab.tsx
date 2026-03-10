@@ -1,14 +1,14 @@
 /**
  * WMSRecepcionTab - Tab de Recepción para el módulo WMS
  * 
- * Flujo: Listar envíos pendientes → Seleccionar → Verificar productos → Confirmar recepción
- * Usa getShipmentsSecure y processReceptionSecure del backend.
+ * Flujo: Listar envíos pendientes → Seleccionar → Escanear/Verificar productos → Confirmar recepción
+ * Soporta escaneo continuo con cámara o lector USB/BT.
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-    PackageCheck, Inbox, RefreshCw, FileText, Loader2, CheckCircle,
-    Package, Clock, Truck, ChevronRight, AlertTriangle,
-    KeyRound, Lock, ShieldCheck, X
+    Truck, Package, CheckCircle, AlertTriangle, Clock, ChevronRight,
+    Loader2, ShieldCheck, ArrowDown, ArrowUp, ArrowRight, FileText, X,
+    Camera, ScanBarcode, CirclePlus, KeyRound, Lock, Inbox, RefreshCw, PackageCheck
 } from 'lucide-react';
 import { WMSReportPanel } from '../WMSReportPanel';
 import { usePharmaStore } from '@/presentation/store/useStore';
@@ -19,6 +19,8 @@ import { validateSupervisorPin } from '@/actions/auth-v2';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
+import CameraScanner from '../../ui/CameraScanner';
+import { useBarcodeScanner } from '@/presentation/hooks/useBarcodeScanner';
 
 interface PendingShipment {
     id: string;
@@ -49,6 +51,8 @@ interface ReceivedItem {
     expectedQty: number;
     receivedQty: number;
     condition: 'GOOD' | 'DAMAGED';
+    unexpected?: boolean;
+    productId?: string;
 }
 
 interface WMSRecepcionTabProps {
@@ -88,6 +92,11 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
     const [pinLoading, setPinLoading] = useState(false);
     const [authorizedDiffs, setAuthorizedDiffs] = useState<Record<string, number>>({});
     const pinInputRef = useRef<HTMLInputElement>(null);
+
+    // ── Estado escáner ──────────────────────────────────────────────
+    const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
+    const [scanCount, setScanCount] = useState(0);
+    const [lastScanFlash, setLastScanFlash] = useState<string | null>(null);
 
     // Cargar envíos pendientes
     const fetchPending = useCallback(async () => {
@@ -129,11 +138,13 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                 sku: item.sku,
                 name: item.name,
                 expectedQty: item.quantity,
-                receivedQty: item.quantity, // Por defecto: todo correcto
+                receivedQty: 0,
                 condition: 'GOOD' as const,
+                productId: item.product_id,
             }))
         );
         setAuthorizedDiffs({});
+        setScanCount(0);
     }, []);
 
     useEffect(() => {
@@ -307,7 +318,90 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
         setSelectedShipment(null);
         setReceivedItems([]);
         setReceptionNotes('');
+        setScanCount(0);
+        setLastScanFlash(null);
     };
+
+    // ── Manejar escaneo de producto ──────────────────────────────────
+    const handleScanReceived = useCallback((code: string) => {
+        if (!selectedShipment) return;
+
+        const normalizedCode = code.trim().toUpperCase();
+
+        // Search by SKU or barcode in expected items
+        const idx = receivedItems.findIndex(
+            (item) => item.sku?.toUpperCase() === normalizedCode
+        );
+
+        if (idx >= 0) {
+            // Found in expected items — increment +1
+            setReceivedItems(prev => {
+                const updated = [...prev];
+                updated[idx] = { ...updated[idx], receivedQty: updated[idx].receivedQty + 1 };
+                return updated;
+            });
+            setScanCount(prev => prev + 1);
+            setLastScanFlash(receivedItems[idx].sku);
+            setTimeout(() => setLastScanFlash(null), 1200);
+        } else {
+            // Check if it's an already-added unexpected item
+            const unexpectedIdx = receivedItems.findIndex(
+                (item) => item.unexpected && item.sku?.toUpperCase() === normalizedCode
+            );
+
+            if (unexpectedIdx >= 0) {
+                setReceivedItems(prev => {
+                    const updated = [...prev];
+                    updated[unexpectedIdx] = { ...updated[unexpectedIdx], receivedQty: updated[unexpectedIdx].receivedQty + 1 };
+                    return updated;
+                });
+                setScanCount(prev => prev + 1);
+            } else {
+                // Search in store inventory by SKU
+                const { inventory } = usePharmaStore.getState();
+                const product = inventory.find(
+                    (p) => p.sku?.toUpperCase() === normalizedCode
+                );
+
+                if (product) {
+                    // Known product but not in this order — add as unexpected
+                    const newItem: ReceivedItem = {
+                        itemId: `unexpected-${Date.now()}`,
+                        sku: product.sku,
+                        name: product.name,
+                        expectedQty: 0,
+                        receivedQty: 1,
+                        condition: 'GOOD',
+                        unexpected: true,
+                        productId: product.id,
+                    };
+                    setReceivedItems(prev => [...prev, newItem]);
+                    setScanCount(prev => prev + 1);
+                    toast.info(`📦 Producto inesperado agregado: ${product.name}`);
+                } else {
+                    // Completely unknown product
+                    toast.warning(`⚠️ Código no reconocido: ${normalizedCode}`, {
+                        description: 'No se encontró en el inventario ni en el pedido.',
+                        duration: 4000,
+                    });
+                }
+            }
+            setLastScanFlash(normalizedCode);
+            setTimeout(() => setLastScanFlash(null), 1200);
+        }
+    }, [selectedShipment, receivedItems]);
+
+    // Hook for physical barcode scanners (USB/Bluetooth)
+    // useBarcodeScanner doesn't support 'enabled', so we conditionally forward
+    const barcodeScanProxy = useCallback((code: string) => {
+        if (selectedShipment && !isCameraScannerOpen && !pinOpen) {
+            handleScanReceived(code);
+        }
+    }, [selectedShipment, isCameraScannerOpen, pinOpen, handleScanReceived]);
+
+    useBarcodeScanner({
+        onScan: barcodeScanProxy,
+    });
 
     const handleExportExcel = async (filters: ReportFilters) => {
         const res = await exportStockMovementsSecure({
@@ -384,6 +478,46 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                     </div>
                 </div>
 
+                {/* ── Barra de Progreso + Controles Escaneo ─────── */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h4 className="font-bold text-slate-700 text-sm flex items-center gap-2">
+                                <ScanBarcode size={16} className="text-sky-500" />
+                                Progreso: {totalReceived}/{totalExpected}
+                            </h4>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                                Escanee o ajuste cantidades manualmente
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => setIsCameraScannerOpen(true)}
+                            disabled={isSubmitting}
+                            className="flex items-center gap-2 px-4 py-2.5 bg-sky-500 hover:bg-sky-600 text-white font-bold rounded-xl shadow-lg shadow-sky-200 transition-all text-sm disabled:opacity-50"
+                        >
+                            <Camera size={16} />
+                            Escanear
+                        </button>
+                    </div>
+                    {/* Progress bar */}
+                    <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                        <div
+                            className={`h-full rounded-full transition-all duration-500 ${totalReceived >= totalExpected
+                                ? 'bg-emerald-500'
+                                : totalReceived > 0
+                                    ? 'bg-sky-500'
+                                    : 'bg-slate-200'
+                                }`}
+                            style={{ width: `${Math.min(100, totalExpected > 0 ? (totalReceived / totalExpected) * 100 : 0)}%` }}
+                        />
+                    </div>
+                    {scanCount > 0 && (
+                        <p className="text-xs text-slate-400 text-center">
+                            {scanCount} escaneos realizados
+                        </p>
+                    )}
+                </div>
+
                 {/* Lista de items para recepcionar */}
                 <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
                     <div className="px-4 py-3 bg-slate-50 border-b border-slate-200">
@@ -391,61 +525,111 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                             Verificar Productos Recibidos
                         </h4>
                         <p className="text-xs text-slate-500 mt-0.5">
-                            Ajuste las cantidades reales y marque productos dañados
+                            {receivedItems.filter(i => i.unexpected).length > 0
+                                ? `⚠️ ${receivedItems.filter(i => i.unexpected).length} producto(s) inesperado(s)`
+                                : 'Ajuste cantidades o escanee productos'}
                         </p>
                     </div>
 
-                    <div className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
-                        {receivedItems.map((item) => (
-                            <div key={item.itemId} className="px-4 py-3 flex items-center gap-3">
-                                <div className="flex-1 min-w-0">
-                                    <p className="font-semibold text-slate-800 text-sm truncate">
-                                        {item.name}
-                                    </p>
-                                    <div className="flex items-center gap-2 mt-0.5">
-                                        <span className="text-xs text-slate-500">{item.sku}</span>
-                                        <span className="text-xs text-slate-400">
-                                            Esperado: <strong className="text-slate-600">{item.expectedQty}</strong>
-                                        </span>
-                                    </div>
-                                </div>
+                    <div className="divide-y divide-slate-100 max-h-[28rem] overflow-y-auto">
+                        {receivedItems.map((item) => {
+                            // Semaphore logic
+                            const isComplete = item.receivedQty === item.expectedQty && item.expectedQty > 0;
+                            const isExcess = item.receivedQty > item.expectedQty;
+                            const isMissing = item.receivedQty < item.expectedQty && !item.unexpected;
+                            const isUnexpected = !!item.unexpected;
+                            const isFlashing = lastScanFlash === item.sku;
 
-                                {/* Input cantidad + candado PIN */}
-                                <div className="flex items-center gap-2 shrink-0">
-                                    <input
-                                        type="number"
-                                        value={item.receivedQty}
-                                        onChange={(e) => handleQtyChange(item.itemId, e.target.value)}
-                                        onBlur={(e) => handleQtyBlur(item.itemId, e.target.value)}
-                                        min={0}
-                                        disabled={isSubmitting}
-                                        className={`w-20 h-9 text-center font-bold rounded-lg border-2 outline-none transition-all text-sm
-                                            ${item.receivedQty !== item.expectedQty
-                                                ? 'border-amber-300 bg-amber-50 text-amber-700'
-                                                : 'border-slate-200 text-slate-800'
-                                            }
-                                            focus:border-sky-400 focus:ring-2 focus:ring-sky-100`}
-                                    />
-                                    {item.receivedQty !== item.expectedQty && authorizedDiffs[item.itemId] === item.receivedQty && (
-                                        <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-amber-100 text-amber-600" title="Diferencia requirió PIN">
-                                            <ShieldCheck size={14} />
-                                        </div>
-                                    )}
-                                </div>
+                            let semaphoreColor = 'bg-slate-200'; // Not started
+                            let semaphoreIcon = '⬜';
+                            if (isUnexpected) { semaphoreColor = 'bg-blue-500'; semaphoreIcon = '🔵'; }
+                            else if (isComplete) { semaphoreColor = 'bg-emerald-500'; semaphoreIcon = '🟢'; }
+                            else if (isExcess) { semaphoreColor = 'bg-amber-400'; semaphoreIcon = '🟡'; }
+                            else if (item.receivedQty > 0) { semaphoreColor = 'bg-orange-400'; semaphoreIcon = '🟠'; }
 
-                                {/* Toggle condición */}
-                                <button
-                                    onClick={() => toggleCondition(item.itemId)}
-                                    disabled={isSubmitting}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${item.condition === 'GOOD'
-                                        ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-                                        : 'bg-red-100 text-red-700 hover:bg-red-200'
-                                        }`}
+                            return (
+                                <div
+                                    key={item.itemId}
+                                    className={`px-4 py-3 flex items-center gap-3 transition-colors duration-300 ${isFlashing ? 'bg-emerald-50' : ''
+                                        } ${isUnexpected ? 'bg-blue-50/50' : ''}`}
                                 >
-                                    {item.condition === 'GOOD' ? 'OK' : 'Dañado'}
-                                </button>
-                            </div>
-                        ))}
+                                    {/* Semaphore dot */}
+                                    <div className={`w-3 h-3 rounded-full shrink-0 ${semaphoreColor} transition-all ${isFlashing ? 'scale-150' : ''}`}
+                                        title={isUnexpected ? 'Inesperado' : isComplete ? 'Completo' : isExcess ? 'Excedente' : isMissing ? 'Faltante' : 'Sin escanear'}
+                                    />
+
+                                    <div className="flex-1 min-w-0">
+                                        <p className="font-semibold text-slate-800 text-sm truncate flex items-center gap-1.5">
+                                            {item.name}
+                                            {isUnexpected && (
+                                                <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-bold">INESPERADO</span>
+                                            )}
+                                        </p>
+                                        <div className="flex items-center gap-2 mt-0.5">
+                                            <span className="text-xs text-slate-500">{item.sku}</span>
+                                            {!isUnexpected && (
+                                                <span className="text-xs text-slate-400">
+                                                    Esperado: <strong className="text-slate-600">{item.expectedQty}</strong>
+                                                </span>
+                                            )}
+                                            {isExcess && (
+                                                <span className="text-[10px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full font-bold">
+                                                    +{item.receivedQty - item.expectedQty} extra
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Input cantidad + candado PIN */}
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        <input
+                                            type="number"
+                                            value={item.receivedQty}
+                                            onChange={(e) => handleQtyChange(item.itemId, e.target.value)}
+                                            onBlur={(e) => handleQtyBlur(item.itemId, e.target.value)}
+                                            min={0}
+                                            disabled={isSubmitting}
+                                            className={`w-16 h-9 text-center font-bold rounded-lg border-2 outline-none transition-all text-sm bg-white text-slate-800
+                                                ${isComplete
+                                                    ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                                    : isExcess
+                                                        ? 'border-amber-300 bg-amber-50 text-amber-700'
+                                                        : isUnexpected
+                                                            ? 'border-blue-300 bg-blue-50 text-blue-700'
+                                                            : item.receivedQty > 0
+                                                                ? 'border-orange-300 bg-orange-50 text-orange-700'
+                                                                : 'border-slate-200'
+                                                }
+                                                focus:border-sky-400 focus:ring-2 focus:ring-sky-100
+                                                [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
+                                        />
+                                        {!isUnexpected && (
+                                            <span className="text-xs text-slate-400 font-mono w-4 text-center">/</span>
+                                        )}
+                                        {!isUnexpected && (
+                                            <span className="text-xs font-bold text-slate-600 w-6 text-center">{item.expectedQty}</span>
+                                        )}
+                                        {item.receivedQty !== item.expectedQty && authorizedDiffs[item.itemId] === item.receivedQty && (
+                                            <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-amber-100 text-amber-600" title="Diferencia requirió PIN">
+                                                <ShieldCheck size={14} />
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Toggle condición */}
+                                    <button
+                                        onClick={() => toggleCondition(item.itemId)}
+                                        disabled={isSubmitting}
+                                        className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors shrink-0 ${item.condition === 'GOOD'
+                                            ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                                            : 'bg-red-100 text-red-700 hover:bg-red-200'
+                                            }`}
+                                    >
+                                        {item.condition === 'GOOD' ? 'OK' : 'Dañado'}
+                                    </button>
+                                </div>
+                            );
+                        })}
                     </div>
 
                     {/* Resumen */}
@@ -490,7 +674,7 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                         {isSubmitting ? (
                             <><Loader2 size={18} className="animate-spin" /> Procesando...</>
                         ) : (
-                            <><CheckCircle size={18} /> Confirmar Recepción</>
+                            <><CheckCircle size={18} /> Confirmar Recepción ({totalReceived}/{totalExpected})</>
                         )}
                     </button>
                 </div>
@@ -560,6 +744,16 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                             </div>
                         </div>
                     </div>
+                )}
+
+                {/* ── CameraScanner overlay ──────────────────────── */}
+                {isCameraScannerOpen && (
+                    <CameraScanner
+                        onScan={handleScanReceived}
+                        onClose={() => setIsCameraScannerOpen(false)}
+                        continuous
+                        scanCount={scanCount}
+                    />
                 )}
             </div>
         );
