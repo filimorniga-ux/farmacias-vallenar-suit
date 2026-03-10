@@ -7,7 +7,7 @@
  * - GERENTE_GENERAL PIN to close, ADMIN PIN to reopen
  */
 
-import { pool } from '@/lib/db';
+import { pool, type PoolClient } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
@@ -83,7 +83,7 @@ type Totals = {
     netResult: number;
 };
 
-async function validatePin(client: any, pin: string, roles: string[]) {
+async function validatePin(client: PoolClient, pin: string, roles: string[]) {
     const bcrypt = await import('bcryptjs');
     const users = await client.query(
         `SELECT id, name, role, access_pin_hash, access_pin FROM users WHERE role = ANY($1::text[]) AND is_active = true`,
@@ -181,7 +181,7 @@ function computeTotals(rows: RawEntryRow[]): { breakdown: Record<string, number>
 }
 
 async function recalcAndPersist(
-    client: any,
+    client: PoolClient,
     month: number,
     year: number,
     options?: {
@@ -350,9 +350,9 @@ export async function addClosingEntry(data: z.infer<typeof EntrySchema>) {
         await client.query('COMMIT');
         revalidatePath('/finance/monthly-closing');
         return { success: true };
-    } catch (e: any) {
+    } catch (e: unknown) {
         await client.query('ROLLBACK');
-        return { success: false, error: e.message };
+        return { success: false, error: e instanceof Error ? e.message : 'Error desconocido' };
     } finally {
         client.release();
     }
@@ -392,9 +392,9 @@ export async function deleteClosingEntry(entryId: string, month: number, year: n
         await client.query('COMMIT');
         revalidatePath('/finance/monthly-closing');
         return { success: true };
-    } catch (e: any) {
+    } catch (e: unknown) {
         await client.query('ROLLBACK');
-        return { success: false, error: e.message };
+        return { success: false, error: e instanceof Error ? e.message : 'Error desconocido' };
     } finally {
         client.release();
     }
@@ -436,9 +436,9 @@ export async function initiateClosingSecure(data: z.infer<typeof DraftSchema>) {
         await client.query('COMMIT');
         revalidatePath('/finance/monthly-closing');
         return { success: true };
-    } catch (e: any) {
+    } catch (e: unknown) {
         await client.query('ROLLBACK');
-        return { success: false, error: e.message };
+        return { success: false, error: e instanceof Error ? e.message : 'Error desconocido' };
     } finally {
         client.release();
     }
@@ -502,10 +502,12 @@ export async function executeClosingSecure(data: z.infer<typeof ExecuteClosingSc
         revalidatePath('/finance/monthly-closing');
         revalidatePath('/finance');
         return { success: true };
-    } catch (e: any) {
+    } catch (e: unknown) {
         await client.query('ROLLBACK');
-        if (e.code === '55P03') return { success: false, error: 'Período está siendo procesado' };
-        return { success: false, error: e.message };
+        if (e && typeof e === 'object' && 'code' in e && e.code === '55P03') {
+            return { success: false, error: 'Período está siendo procesado' };
+        }
+        return { success: false, error: e instanceof Error ? e.message : 'Error desconocido' };
     } finally {
         client.release();
     }
@@ -558,12 +560,23 @@ export async function reopenPeriodSecure(data: z.infer<typeof ReopenPeriodSchema
         revalidatePath('/finance/monthly-closing');
         revalidatePath('/finance');
         return { success: true };
-    } catch (e: any) {
+    } catch (e: unknown) {
         await client.query('ROLLBACK');
-        return { success: false, error: e.message };
+        return { success: false, error: e instanceof Error ? e.message : 'Error desconocido' };
     } finally {
         client.release();
     }
+}
+
+interface ClosingEntry {
+    id: string;
+    category: EntryCategory;
+    description: string | null;
+    reference_date: string;
+    amount: number;
+    direction: 'IN' | 'OUT';
+    created_by_name: string;
+    created_at: string;
 }
 
 export async function getClosingDataSecure(month: number, year: number) {
@@ -580,26 +593,26 @@ export async function getClosingDataSecure(month: number, year: number) {
             ),
         ]);
 
-        const grouped: Record<EntryCategory, any[]> = Object.keys(ENTRY_CATEGORIES).reduce(
+        const grouped: Record<EntryCategory, ClosingEntry[]> = Object.keys(ENTRY_CATEGORIES).reduce(
             (acc, key) => ({ ...acc, [key]: [] }),
-            {} as Record<EntryCategory, any[]>,
+            {} as Record<EntryCategory, ClosingEntry[]>,
         );
 
-        entries.rows.forEach((row: any) => {
+        entries.rows.forEach((row) => {
             grouped[row.category as EntryCategory].push({
                 id: row.id,
                 category: row.category,
                 description: row.description,
-                reference_date: row.reference_date,
+                reference_date: row.reference_date instanceof Date ? row.reference_date.toISOString() : row.reference_date,
                 amount: Number(row.amount || 0),
                 direction: row.direction,
                 created_by_name: row.created_by_name || 'N/D',
-                created_at: row.created_at,
+                created_at: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
             });
         });
 
         const { summary } = computeTotals(
-            entries.rows.map((r: any) => ({ category: r.category, amount: Number(r.amount || 0) })),
+            entries.rows.map((r) => ({ category: r.category as EntryCategory, amount: Number(r.amount || 0) })),
         );
 
         const base = closing.rows[0] || { status: 'DRAFT', notes: '' };
@@ -609,17 +622,17 @@ export async function getClosingDataSecure(month: number, year: number) {
             data: {
                 month,
                 year,
-                status: base.status,
-                notes: base.notes || '',
-                updated_at: base.updated_at || null,
-                closed_at: base.closed_at || null,
-                reopen_reason: base.reopen_reason || null,
+                status: base.status as 'DRAFT' | 'CLOSED',
+                notes: (base.notes as string) || '',
+                updated_at: base.updated_at instanceof Date ? base.updated_at.toISOString() : (base.updated_at || null),
+                closed_at: base.closed_at instanceof Date ? base.closed_at.toISOString() : (base.closed_at || null),
+                reopen_reason: (base.reopen_reason as string) || null,
                 entries: grouped,
                 totals: summary,
             },
         };
-    } catch (e: any) {
-        return { success: false, error: e.message };
+    } catch (e: unknown) {
+        return { success: false, error: e instanceof Error ? e.message : 'Error desconocido' };
     }
 }
 
@@ -632,7 +645,7 @@ export async function getClosingReport(month: number, year: number) {
         if (entries.rowCount === 0) return { success: false, error: 'Período no encontrado' };
 
         const { summary } = computeTotals(
-            entries.rows.map((r: any) => ({ category: r.category, amount: Number(r.amount || 0) })),
+            entries.rows.map((r) => ({ category: r.category as EntryCategory, amount: Number(r.amount || 0) })),
         );
 
         return {
@@ -643,7 +656,7 @@ export async function getClosingReport(month: number, year: number) {
                 totals: summary,
             },
         };
-    } catch (e: any) {
-        return { success: false, error: e.message };
+    } catch (e: unknown) {
+        return { success: false, error: e instanceof Error ? e.message : 'Error desconocido' };
     }
 }

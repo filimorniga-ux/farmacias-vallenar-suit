@@ -5,7 +5,7 @@
  * Deletes a product from both products and inventory_batches tables
  */
 
-import { query } from '@/lib/db';
+import { type PoolClient } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 
@@ -20,7 +20,7 @@ const DeleteProductSchema = z.object({
 const MANAGER_ROLES = ['GERENTE_GENERAL', 'ADMIN'];
 
 async function validatePin(
-    client: any,
+    client: PoolClient,
     pin: string,
     allowedRoles: string[]
 ): Promise<{ valid: boolean; user?: { id: string; name: string } }> {
@@ -39,7 +39,7 @@ async function validatePin(
             }
         }
         return { valid: false };
-    } catch (e) {
+    } catch {
         return { valid: false };
     }
 }
@@ -154,13 +154,13 @@ export async function deleteProductSecure(
         revalidatePath('/inventory');
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         console.error('[DELETE_PRODUCT] Error:', error);
 
         return {
             success: false,
-            error: error.message || 'Error al procesar la eliminación del producto'
+            error: error instanceof Error ? error.message : 'Error al procesar la eliminación del producto'
         };
     } finally {
         client.release();

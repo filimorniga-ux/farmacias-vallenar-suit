@@ -57,8 +57,8 @@ interface WMSRecepcionTabProps {
 }
 
 interface ReportFilters {
-    startDate?: string;
-    endDate?: string;
+    startDate: string;
+    endDate: string;
     movementType?: string;
 }
 

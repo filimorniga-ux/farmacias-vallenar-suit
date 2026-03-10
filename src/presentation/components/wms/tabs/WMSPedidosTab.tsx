@@ -27,8 +27,8 @@ import { InventoryBatch } from '@/domain/types';
 
 interface Supplier { id: string; business_name: string; rut?: string; }
 interface ReportFilters {
-    startDate?: string;
-    endDate?: string;
+    startDate: string;
+    endDate: string;
     movementType?: string;
 }
 
