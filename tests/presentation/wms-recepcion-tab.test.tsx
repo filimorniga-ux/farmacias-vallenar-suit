@@ -114,7 +114,7 @@ describe('WMSRecepcionTab', () => {
         const qtyInput = await screen.findByRole('spinbutton');
         fireEvent.change(qtyInput, { target: { value: '12' } });
 
-        fireEvent.click(screen.getByRole('button', { name: 'Confirmar Recepción' }));
+        fireEvent.click(screen.getByRole('button', { name: /Confirmar Recepción/i }));
 
         await waitFor(() => {
             expect(mocks.toastErrorMock).toHaveBeenCalledWith('Hay diferencias de cantidad sin autorización');
@@ -146,7 +146,7 @@ describe('WMSRecepcionTab', () => {
             expect(screen.queryByText('Autorización Requerida')).toBeNull();
         });
 
-        fireEvent.click(screen.getByRole('button', { name: 'Confirmar Recepción' }));
+        fireEvent.click(screen.getByRole('button', { name: /Confirmar Recepción/i }));
 
         await waitFor(() => {
             expect(mocks.processReceptionSecureMock).toHaveBeenCalledTimes(1);
