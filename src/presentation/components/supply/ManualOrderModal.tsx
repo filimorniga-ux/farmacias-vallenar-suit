@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Search, Plus, Trash2, AlertTriangle, Save, Send, DollarSign, Calendar, Truck, Package } from 'lucide-react';
+import { X, Plus, Trash2, AlertTriangle, Save, Send, DollarSign, Calendar, Truck, Package } from 'lucide-react';
+import { WMSProductScanner } from '@/presentation/components/wms/WMSProductScanner';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { useNotificationStore } from '@/presentation/store/useNotificationStore';
 import { toast } from 'sonner';
@@ -39,7 +40,6 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
     const [selectedSupplierId, setSelectedSupplierId] = useState('');
     const [customOrderId, setCustomOrderId] = useState('');
     const [expectedDate, setExpectedDate] = useState('');
-    const [searchTerm, setSearchTerm] = useState('');
     const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
     const [selectedSkus, setSelectedSkus] = useState<Set<string>>(new Set());
     const [isSaving, setIsSaving] = useState(false);
@@ -98,17 +98,12 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
         suppliers.find(s => s.id === selectedSupplierId),
         [selectedSupplierId, suppliers]);
 
-    const searchResults = useMemo(() => {
-        if (!searchTerm) return [];
-        return inventory.filter(item =>
-            item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            item.sku.includes(searchTerm)
-        ).slice(0, 5);
-    }, [searchTerm, inventory]);
-
     const handleAddItem = (product: InventoryBatch) => {
         if (orderItems.find(i => i.sku === product.sku)) {
-            toast.error('El producto ya está en la orden');
+            // Si ya existe, incrementar cantidad
+            setOrderItems(items => items.map(i =>
+                i.sku === product.sku ? { ...i, quantity: i.quantity + 1 } : i
+            ));
             return;
         }
 
@@ -120,7 +115,7 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
             cost_price: product.cost_price || product.cost_net || 0,
             sale_price: product.price_sell_unit || product.price || 0,
             stock_actual: product.stock_actual,
-            stock_max: product.stock_max || 100, // Default max if not set
+            stock_max: product.stock_max || 100,
             original_cost: product.cost_price || product.cost_net || 0
         }]);
         setSelectedSkus(prev => {
@@ -128,7 +123,6 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
             next.add(product.sku);
             return next;
         });
-        setSearchTerm('');
     };
 
     const updateItem = (sku: string, field: keyof OrderItem, value: any) => {
@@ -419,41 +413,15 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
                             </div>
                         </div>
 
-                        {/* Product Search */}
+                        {/* Product Search - Ahora con WMSProductScanner (lector físico + cámara) */}
                         <div className="space-y-2 flex-1">
                             <label className="text-sm font-bold text-gray-700">Agregar Productos</label>
-                            <div className="relative">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                                <input
-                                    type="text"
-                                    placeholder="Buscar por SKU o Nombre..."
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:border-cyan-500 focus:outline-none"
-                                />
-                            </div>
-
-                            {/* Search Results */}
-                            {searchTerm && (
-                                <div className="mt-2 border border-gray-200 rounded-xl overflow-hidden shadow-lg z-10 relative bg-white">
-                                    {searchResults.map(item => (
-                                        <button
-                                            key={item.id}
-                                            onClick={() => handleAddItem(item)}
-                                            className="w-full p-3 text-left hover:bg-cyan-50 border-b border-gray-100 last:border-0 transition flex justify-between items-center group"
-                                        >
-                                            <div>
-                                                <div className="font-bold text-gray-800 truncate max-w-[180px]">{item.name}</div>
-                                                <div className="text-xs text-gray-500">{item.sku} • Stock: {item.stock_actual}</div>
-                                            </div>
-                                            <Plus size={18} className="text-gray-300 group-hover:text-cyan-600" />
-                                        </button>
-                                    ))}
-                                    {searchResults.length === 0 && (
-                                        <div className="p-4 text-center text-gray-400 text-sm">No se encontraron productos</div>
-                                    )}
-                                </div>
-                            )}
+                            <WMSProductScanner
+                                inventory={inventory}
+                                onProductSelected={handleAddItem}
+                                placeholder="Escanear código o buscar producto..."
+                                autoFocus={false}
+                            />
                         </div>
                     </div>
 

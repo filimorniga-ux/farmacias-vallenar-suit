@@ -1,13 +1,21 @@
 /**
- * WMSPedidosTab - Recepción de Pedidos de Proveedor
- * Proveedor → Factura → Productos → Confirmar ingreso
+ * WMSPedidosTab v2 - Recepción de Pedidos de Proveedor
+ * 
+ * Mejoras v2:
+ * - WMSProductScanner integrado (lector físico + cámara del celular)
+ * - Modo checklist con casillas para marcar ítems recibidos
+ * - Cantidades editables en todas las etapas
+ * - Soporte para proveedor libre (no registrado)
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-    PackagePlus, FileText, Loader2, CheckCircle, Search,
-    Building, Receipt, Hash, Calendar, Plus, Trash2, Minus
+    FileText, Loader2, CheckCircle, Building,
+    Receipt, Calendar, ScanBarcode, ToggleLeft,
+    ToggleRight, UserPlus, AlertCircle
 } from 'lucide-react';
 import { WMSReportPanel } from '../WMSReportPanel';
+import { WMSProductScanner } from '../WMSProductScanner';
+import { WMSProductCart, WMSCartItem } from '../WMSProductCart';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { getSuppliersListSecure } from '@/actions/suppliers-v2';
 import { executeStockMovementSecure } from '@/actions/wms-v2';
@@ -15,11 +23,13 @@ import { exportStockMovementsSecure } from '@/actions/inventory-export-v2';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
+import { InventoryBatch } from '@/domain/types';
 
 interface Supplier { id: string; business_name: string; rut?: string; }
-interface OrderItem {
-    id: string; sku: string; name: string;
-    quantity: number; unitCost: number;
+interface ReportFilters {
+    startDate?: string;
+    endDate?: string;
+    movementType?: string;
 }
 
 export const WMSPedidosTab: React.FC = () => {
@@ -28,15 +38,27 @@ export const WMSPedidosTab: React.FC = () => {
 
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
     const [loadingSuppliers, setLoadingSuppliers] = useState(true);
+
+    // Proveedor: registrado o libre
     const [supplierId, setSupplierId] = useState('');
+    const [supplierFree, setSupplierFree] = useState(''); // Si no está registrado
+    const [useFreeSupplier, setUseFreeSupplier] = useState(false);
+
+    // Factura
     const [invoiceNumber, setInvoiceNumber] = useState('');
     const [invoiceDate, setInvoiceDate] = useState(() => {
-        return new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Santiago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+        return new Intl.DateTimeFormat('sv-SE', {
+            timeZone: 'America/Santiago',
+            year: 'numeric', month: '2-digit', day: '2-digit'
+        }).format(new Date());
     });
-    const [items, setItems] = useState<OrderItem[]>([]);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [showSearch, setShowSearch] = useState(false);
     const [notes, setNotes] = useState('');
+
+    // Productos
+    const [items, setItems] = useState<WMSCartItem[]>([]);
+
+    // UI States
+    const [checklistMode, setChecklistMode] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [showRep, setShowRep] = useState(false);
 
@@ -48,51 +70,54 @@ export const WMSPedidosTab: React.FC = () => {
         }).catch(() => setLoadingSuppliers(false));
     }, []);
 
-    // Buscar productos
-    const filtered = searchTerm.length >= 2
-        ? (() => {
-            const t = searchTerm.toLowerCase();
-            const map = new Map<string, typeof inventory[0]>();
-            inventory.forEach(p => {
-                if (p.name.toLowerCase().includes(t) || p.sku.toLowerCase().includes(t) || p.barcode?.toLowerCase().includes(t)) {
-                    if (!map.has(p.sku) || p.stock_actual > (map.get(p.sku)?.stock_actual || 0))
-                        map.set(p.sku, p);
-                }
-            });
-            return Array.from(map.values()).slice(0, 10);
-        })()
-        : [];
-
-    const addItem = (p: typeof inventory[0]) => {
+    // Agregar producto desde el escáner
+    const addProduct = useCallback((p: InventoryBatch) => {
         setItems(prev => {
-            if (prev.find(i => i.sku === p.sku)) {
-                return prev.map(i => i.sku === p.sku ? { ...i, quantity: i.quantity + 1 } : i);
+            const existing = prev.find(i => i.id === p.id);
+            if (existing) {
+                toast.success(`+1 a ${p.name}`);
+                return prev.map(i => i.id === p.id
+                    ? { ...i, quantity: i.quantity + 1 }
+                    : i
+                );
             }
-            return [...prev, { id: p.id, sku: p.sku, name: p.name, quantity: 1, unitCost: 0 }];
+            toast.success(`${p.name} agregado`);
+            return [...prev, {
+                id: p.id,
+                sku: p.sku,
+                name: p.name,
+                quantity: 1,
+                maxStock: p.stock_actual,
+                lotNumber: p.lot_number,
+                laboratory: p.laboratory,
+                checked: false,
+            }];
         });
-        setSearchTerm(''); setShowSearch(false);
-    };
+    }, []);
 
-    const updateQty = (sku: string, q: number) => {
-        setItems(p => p.map(i => i.sku === sku ? { ...i, quantity: Math.max(1, q) } : i));
-    };
-
-    const updateCost = (sku: string, c: number) => {
-        setItems(p => p.map(i => i.sku === sku ? { ...i, unitCost: Math.max(0, c) } : i));
-    };
-
-    const removeItem = (sku: string) => setItems(p => p.filter(i => i.sku !== sku));
+    // Toggle casilla en modo checklist
+    const toggleCheck = useCallback((id: string, checked: boolean) => {
+        if ('vibrate' in navigator) navigator.vibrate(10);
+        setItems(prev => prev.map(i => i.id === id ? { ...i, checked } : i));
+    }, []);
 
     const totalUnits = items.reduce((s, i) => s + i.quantity, 0);
-    const totalCost = items.reduce((s, i) => s + i.quantity * i.unitCost, 0);
+    const checkedCount = items.filter(i => i.checked).length;
 
     const confirm = async () => {
-        if (!supplierId) return toast.error('Seleccione proveedor');
+        const proveedorValido = useFreeSupplier ? !!supplierFree.trim() : !!supplierId;
+        if (!proveedorValido) return toast.error('Seleccione o ingrese un proveedor');
         if (!invoiceNumber) return toast.error('Ingrese número de factura');
         if (!items.length) return toast.error('Agregue productos');
+
+        // En modo checklist, verificar que todos estén marcados
+        if (checklistMode && checkedCount < items.length) {
+            const pendientes = items.length - checkedCount;
+            return toast.error(`Faltan ${pendientes} ítem${pendientes > 1 ? 's' : ''} por verificar`);
+        }
+
         setSubmitting(true);
         try {
-            // Procesar cada item como ingreso de stock
             let success = true;
             for (const item of items) {
                 const r = await executeStockMovementSecure({
@@ -100,14 +125,15 @@ export const WMSPedidosTab: React.FC = () => {
                     warehouseId: currentWarehouseId || currentLocationId,
                     type: 'PURCHASE_ENTRY',
                     quantity: item.quantity,
-                    reason: `Factura: ${invoiceNumber} | Proveedor: ${supplierId} | Fecha: ${invoiceDate}`,
-                    userId: currentLocationId, // Server resolves from session
+                    reason: `Factura: ${invoiceNumber} | Proveedor: ${useFreeSupplier ? supplierFree : supplierId} | Fecha: ${invoiceDate}${notes ? ` | Nota: ${notes}` : ''}`,
+                    userId: currentLocationId,
                 });
                 if (!r.success) { toast.error(`Error en ${item.sku}: ${r.error}`); success = false; break; }
             }
             if (success) {
-                toast.success(`Pedido registrado: ${totalUnits} unidades ingresadas`);
-                setSupplierId(''); setInvoiceNumber(''); setItems([]); setNotes('');
+                toast.success(`✅ Pedido registrado: ${totalUnits} unidades ingresadas`);
+                setSupplierId(''); setSupplierFree(''); setInvoiceNumber('');
+                setItems([]); setNotes(''); setChecklistMode(false);
                 await qc.invalidateQueries({ queryKey: ['inventory'] });
             }
         } catch (error) {
@@ -116,11 +142,10 @@ export const WMSPedidosTab: React.FC = () => {
                 extra: { supplierId, invoiceNumber, itemCount: items.length }
             });
             toast.error('Error de conexión');
-        }
-        finally { setSubmitting(false); }
+        } finally { setSubmitting(false); }
     };
 
-    const handleExportExcel = async (filters: any) => {
+    const handleExportExcel = async (filters: ReportFilters) => {
         const res = await exportStockMovementsSecure({
             startDate: filters.startDate,
             endDate: filters.endDate,
@@ -128,7 +153,6 @@ export const WMSPedidosTab: React.FC = () => {
             movementType: filters.movementType,
             limit: 5000
         });
-
         if (res.success && res.data && res.filename) {
             const link = document.createElement('a');
             link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${res.data}`;
@@ -141,16 +165,46 @@ export const WMSPedidosTab: React.FC = () => {
 
     return (
         <div className="space-y-5">
+
             {/* Proveedor */}
             <div>
-                <label className="text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-2">
-                    <Building size={16} className="text-sky-500" /> Proveedor
-                </label>
-                <select value={supplierId} onChange={e => setSupplierId(e.target.value)} disabled={loadingSuppliers}
-                    className="w-full p-3 bg-white border-2 border-slate-200 rounded-xl font-medium text-slate-800 focus:border-sky-400 focus:ring-4 focus:ring-sky-100 outline-none transition-all appearance-none">
-                    <option value="">{loadingSuppliers ? 'Cargando...' : 'Seleccionar proveedor...'}</option>
-                    {suppliers.map(s => <option key={s.id} value={s.id}>{s.business_name}{s.rut ? ` (${s.rut})` : ''}</option>)}
-                </select>
+                <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                        <Building size={16} className="text-sky-500" /> Proveedor
+                    </label>
+                    <button
+                        onClick={() => { setUseFreeSupplier(f => !f); setSupplierId(''); setSupplierFree(''); }}
+                        className="flex items-center gap-1.5 text-xs text-sky-600 font-semibold hover:text-sky-700 transition-colors"
+                    >
+                        <UserPlus size={13} />
+                        {useFreeSupplier ? 'Usar proveedor registrado' : 'Proveedor no registrado'}
+                    </button>
+                </div>
+
+                {!useFreeSupplier ? (
+                    <select
+                        value={supplierId}
+                        onChange={e => setSupplierId(e.target.value)}
+                        disabled={loadingSuppliers}
+                        className="w-full p-3 bg-white border-2 border-slate-200 rounded-xl font-medium text-slate-800 focus:border-sky-400 focus:ring-4 focus:ring-sky-100 outline-none transition-all appearance-none"
+                    >
+                        <option value="">{loadingSuppliers ? 'Cargando...' : 'Seleccionar proveedor...'}</option>
+                        {suppliers.map(s => (
+                            <option key={s.id} value={s.id}>{s.business_name}{s.rut ? ` (${s.rut})` : ''}</option>
+                        ))}
+                    </select>
+                ) : (
+                    <div className="relative">
+                        <UserPlus size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-500" />
+                        <input
+                            type="text"
+                            value={supplierFree}
+                            onChange={e => setSupplierFree(e.target.value)}
+                            placeholder="Nombre del proveedor (nuevo o externo)..."
+                            className="w-full pl-10 pr-4 py-3 border-2 border-amber-200 rounded-xl font-medium text-slate-800 placeholder:text-slate-400 focus:border-amber-400 focus:ring-4 focus:ring-amber-100 outline-none transition-all"
+                        />
+                    </div>
+                )}
             </div>
 
             {/* Factura */}
@@ -159,101 +213,114 @@ export const WMSPedidosTab: React.FC = () => {
                     <label className="text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-2">
                         <Receipt size={16} className="text-sky-500" /> Nº Factura
                     </label>
-                    <input type="text" value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)}
+                    <input
+                        type="text"
+                        value={invoiceNumber}
+                        onChange={e => setInvoiceNumber(e.target.value)}
                         placeholder="Ej: F-001234"
-                        className="w-full p-3 border-2 border-slate-200 rounded-xl font-medium text-slate-800 placeholder:text-slate-400 focus:border-sky-400 focus:ring-4 focus:ring-sky-100 outline-none transition-all" />
+                        className="w-full p-3 border-2 border-slate-200 rounded-xl font-medium text-slate-800 placeholder:text-slate-400 focus:border-sky-400 focus:ring-4 focus:ring-sky-100 outline-none transition-all"
+                    />
                 </div>
                 <div>
                     <label className="text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-2">
-                        <Calendar size={16} className="text-sky-500" /> Fecha Factura
+                        <Calendar size={16} className="text-sky-500" /> Fecha
                     </label>
-                    <input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)}
-                        className="w-full p-3 border-2 border-slate-200 rounded-xl font-medium text-slate-800 focus:border-sky-400 focus:ring-4 focus:ring-sky-100 outline-none transition-all" />
+                    <input
+                        type="date"
+                        value={invoiceDate}
+                        onChange={e => setInvoiceDate(e.target.value)}
+                        className="w-full p-3 border-2 border-slate-200 rounded-xl font-medium text-slate-800 focus:border-sky-400 focus:ring-4 focus:ring-sky-100 outline-none transition-all"
+                    />
                 </div>
             </div>
 
-            {/* Buscar y agregar productos */}
-            <div className="relative">
-                <label className="text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-2">
-                    <PackagePlus size={16} className="text-sky-500" /> Agregar Productos
+            {/* Escáner / Buscador */}
+            <div>
+                <label className="text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+                    <ScanBarcode size={16} className="text-sky-500" /> Agregar Productos
                 </label>
-                <div className="relative">
-                    <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input type="text" value={searchTerm}
-                        onChange={e => { setSearchTerm(e.target.value); setShowSearch(e.target.value.length >= 2); }}
-                        onFocus={() => searchTerm.length >= 2 && setShowSearch(true)}
-                        placeholder="Buscar producto por nombre o SKU..."
-                        className="w-full pl-10 pr-4 py-3 border-2 border-slate-200 rounded-xl font-medium text-slate-800 placeholder:text-slate-400 focus:border-sky-400 focus:ring-4 focus:ring-sky-100 outline-none transition-all" />
-                </div>
-                {showSearch && filtered.length > 0 && (
-                    <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
-                        {filtered.map(p => (
-                            <button key={p.sku} onClick={() => addItem(p)}
-                                className="w-full text-left px-4 py-2.5 hover:bg-sky-50 border-b last:border-0 border-slate-100 text-sm">
-                                <span className="font-semibold text-slate-800">{p.name}</span>
-                                <span className="text-xs text-slate-500 ml-2">{p.sku}</span>
-                            </button>
-                        ))}
-                    </div>
-                )}
+                <WMSProductScanner
+                    inventory={inventory}
+                    onProductSelected={addProduct}
+                    placeholder="Escanear código de barras o buscar producto..."
+                    autoFocus={false}
+                />
             </div>
 
-            {/* Items del pedido */}
+            {/* Lista de productos + toggle checklist */}
             {items.length > 0 && (
-                <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-                    <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex justify-between">
-                        <h4 className="font-bold text-slate-700 text-sm">Productos del Pedido</h4>
-                        <span className="text-xs text-slate-500">{items.length} items • {totalUnits} uds</span>
+                <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                    {/* Toggle Modo Checklist */}
+                    <div className="flex items-center justify-between px-1">
+                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                            Lista de recepción
+                        </span>
+                        <button
+                            onClick={() => setChecklistMode(m => !m)}
+                            className={`flex items-center gap-1.5 text-xs font-semibold transition-colors px-3 py-1.5 rounded-full ${checklistMode
+                                    ? 'bg-emerald-100 text-emerald-700'
+                                    : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                                }`}
+                        >
+                            {checklistMode ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
+                            {checklistMode ? 'Verificación activa' : 'Activar verificación'}
+                        </button>
                     </div>
-                    <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
-                        {items.map(item => (
-                            <div key={item.sku} className="px-4 py-3 flex items-center gap-3">
-                                <div className="flex-1 min-w-0">
-                                    <p className="font-semibold text-slate-800 text-sm truncate">{item.name}</p>
-                                    <p className="text-xs text-slate-500">{item.sku}</p>
-                                </div>
-                                <div className="flex items-center gap-2 shrink-0">
-                                    <div className="text-center">
-                                        <label className="text-[10px] text-slate-400 block">Cant.</label>
-                                        <input type="number" value={item.quantity} min={1}
-                                            onChange={e => updateQty(item.sku, parseInt(e.target.value) || 1)}
-                                            className="w-16 h-8 text-center font-bold text-slate-900 border border-slate-200 rounded-lg text-sm focus:border-sky-400 outline-none" />
-                                    </div>
-                                    <div className="text-center">
-                                        <label className="text-[10px] text-slate-400 block">Costo $</label>
-                                        <input type="number" value={item.unitCost} min={0}
-                                            onChange={e => updateCost(item.sku, parseInt(e.target.value) || 0)}
-                                            className="w-20 h-8 text-center font-bold text-slate-900 border border-slate-200 rounded-lg text-sm focus:border-sky-400 outline-none" />
-                                    </div>
-                                </div>
-                                <button onClick={() => removeItem(item.sku)}
-                                    className="w-8 h-8 rounded-lg hover:bg-red-50 flex items-center justify-center text-slate-400 hover:text-red-500 transition-colors">
-                                    <Trash2 size={16} />
-                                </button>
-                            </div>
-                        ))}
-                    </div>
-                    <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 flex justify-between">
-                        <span className="text-sm text-slate-600">Total estimado</span>
-                        <span className="text-lg font-bold text-slate-900">${totalCost.toLocaleString('es-CL')}</span>
-                    </div>
+
+                    {checklistMode && checkedCount < items.length && (
+                        <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                            <AlertCircle size={14} />
+                            Marca cada ítem mientras lo recibes físicamente. Debes verificar todos para confirmar.
+                        </div>
+                    )}
+
+                    <WMSProductCart
+                        items={items}
+                        onUpdateItem={(id, q) => setItems(p => p.map(i => i.id === id ? { ...i, quantity: q } : i))}
+                        onRemoveItem={id => setItems(p => p.filter(i => i.id !== id))}
+                        onToggleCheck={toggleCheck}
+                        checklistMode={checklistMode}
+                        checklistLabel="recibidos"
+                        title="Productos del Pedido"
+                        showStock={true}
+                        disabled={submitting}
+                    />
                 </div>
             )}
 
             {/* Notas */}
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Observaciones (opcional)..." rows={2}
-                className="w-full px-3 py-2.5 border-2 border-slate-200 rounded-xl text-sm font-medium text-slate-800 placeholder:text-slate-400 resize-none focus:border-sky-400 focus:ring-4 focus:ring-sky-100 outline-none transition-all" />
+            <textarea
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder="Observaciones del pedido (opcional)..."
+                rows={2}
+                className="w-full px-3 py-2.5 border-2 border-slate-200 rounded-xl text-sm font-medium text-slate-800 placeholder:text-slate-400 resize-none focus:border-sky-400 focus:ring-4 focus:ring-sky-100 outline-none transition-all"
+            />
 
             {/* Acciones — sticky en móvil */}
             <div className="wms-sticky-action mt-4 pt-3 -mx-4 px-4">
                 <div className="flex gap-3">
-                    <button onClick={() => setShowRep(true)}
-                        className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors flex items-center justify-center gap-2">
+                    <button
+                        onClick={() => setShowRep(true)}
+                        className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors flex items-center justify-center gap-2"
+                    >
                         <FileText size={18} /> Reportes
                     </button>
-                    <button onClick={confirm} disabled={!supplierId || !invoiceNumber || !items.length || submitting}
-                        className="flex-[2] py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/20 disabled:opacity-40 disabled:shadow-none disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2">
-                        {submitting ? <><Loader2 size={18} className="animate-spin" /> Procesando...</> : <><CheckCircle size={18} /> Registrar Pedido</>}
+                    <button
+                        onClick={confirm}
+                        disabled={
+                            (!supplierId && !supplierFree.trim()) ||
+                            !invoiceNumber ||
+                            !items.length ||
+                            submitting ||
+                            (checklistMode && checkedCount < items.length)
+                        }
+                        className="flex-[2] py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/20 disabled:opacity-40 disabled:shadow-none disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                    >
+                        {submitting
+                            ? <><Loader2 size={18} className="animate-spin" /> Procesando...</>
+                            : <><CheckCircle size={18} /> {checklistMode ? `Confirmar Recepción (${checkedCount}/${items.length})` : 'Registrar Pedido'}</>
+                        }
                     </button>
                 </div>
             </div>

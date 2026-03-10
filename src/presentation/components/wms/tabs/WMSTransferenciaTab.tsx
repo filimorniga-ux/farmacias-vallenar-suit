@@ -3,7 +3,7 @@
  * Scanner → Carrito → Origen↔Destino → PIN si necesario → Confirmar
  */
 import React, { useState, useCallback, useEffect } from 'react';
-import { ArrowLeftRight, Send, FileText, Loader2, ShieldCheck, KeyRound } from 'lucide-react';
+import { ArrowLeftRight, Send, FileText, Loader2, ShieldCheck, KeyRound, ToggleLeft, ToggleRight } from 'lucide-react';
 import { WMSProductScanner } from '../WMSProductScanner';
 import { WMSProductCart, WMSCartItem } from '../WMSProductCart';
 import { WMSLocationPicker } from '../WMSLocationPicker';
@@ -41,6 +41,14 @@ export const WMSTransferenciaTab: React.FC<{ isLoading?: boolean }> = ({ isLoadi
     const [pin, setPin] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [showRep, setShowRep] = useState(false);
+    const [checklistMode, setChecklistMode] = useState(false);
+
+    const toggleCheck = useCallback((id: string, checked: boolean) => {
+        if ('vibrate' in navigator) navigator.vibrate(10);
+        setCart(prev => prev.map(i => i.id === id ? { ...i, checked } : i));
+    }, []);
+
+    const checkedCount = cart.filter(i => i.checked).length;
 
     const totalQty = cart.reduce((s, i) => s + i.quantity, 0);
     const needsPin = totalQty >= PIN_THRESHOLD;
@@ -118,7 +126,28 @@ export const WMSTransferenciaTab: React.FC<{ isLoading?: boolean }> = ({ isLoadi
                     isLoading={isLoading}
                 />
             </div>
-            <WMSProductCart items={cart} onUpdateItem={(id, q) => setCart(p => p.map(i => i.id === id ? { ...i, quantity: q } : i))} onRemoveItem={id => setCart(p => p.filter(i => i.id !== id))} title="Productos a Transferir" disabled={submitting} />
+            {cart.length > 0 && (
+                <div className="flex items-center justify-between px-1 mb-1">
+                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Lista de transferencia</span>
+                    <button
+                        onClick={() => setChecklistMode(m => !m)}
+                        className={`flex items-center gap-1.5 text-xs font-semibold transition-colors px-3 py-1.5 rounded-full ${checklistMode ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                    >
+                        {checklistMode ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
+                        {checklistMode ? `Verificando (${checkedCount}/${cart.length})` : 'Activar verificación'}
+                    </button>
+                </div>
+            )}
+            <WMSProductCart
+                items={cart}
+                onUpdateItem={(id, q) => setCart(p => p.map(i => i.id === id ? { ...i, quantity: q } : i))}
+                onRemoveItem={id => setCart(p => p.filter(i => i.id !== id))}
+                onToggleCheck={toggleCheck}
+                title="Productos a Transferir"
+                checklistMode={checklistMode}
+                checklistLabel="verificados"
+                disabled={submitting}
+            />
             {cart.length > 0 && (
                 <div className="animate-in fade-in slide-in-from-top-4 duration-300">
                     <WMSLocationPicker mode="both" currentLocationId={effectiveLocationId} currentLocationName={locName}
