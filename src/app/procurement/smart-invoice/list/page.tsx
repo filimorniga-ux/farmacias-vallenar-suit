@@ -8,6 +8,7 @@ import {
     ChevronDown, Package, AlertCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { Link } from 'react-router-dom';
 
 // Components
 import { InvoiceStatusBadge, AIConfidenceIndicator } from '@/components/invoice';
@@ -338,12 +339,12 @@ export default function InvoiceListPage() {
                     <div className="max-w-7xl mx-auto px-4 py-4">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
-                                <a
-                                    href="/procurement/smart-invoice"
+                                <Link
+                                    to="/procurement/smart-invoice"
                                     className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                                 >
                                     <ArrowLeft size={20} />
-                                </a>
+                                </Link>
                                 <div>
                                     <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
                                         <FileText className="text-purple-600" />
@@ -364,13 +365,13 @@ export default function InvoiceListPage() {
                                 >
                                     <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
                                 </button>
-                                <a
-                                    href="/procurement/smart-invoice"
+                                <Link
+                                    to="/procurement/smart-invoice"
                                     className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium"
                                 >
                                     <Plus size={18} />
                                     <span className="hidden sm:inline">Nueva Factura</span>
-                                </a>
+                                </Link>
                             </div>
                         </div>
                     </div>
@@ -457,13 +458,13 @@ export default function InvoiceListPage() {
                             <div className="p-8 text-center">
                                 <FileText size={48} className="mx-auto text-gray-300 mb-4" />
                                 <p className="text-gray-500">No hay facturas que mostrar</p>
-                                <a
-                                    href="/procurement/smart-invoice"
+                                <Link
+                                    to="/procurement/smart-invoice"
                                     className="mt-4 inline-flex items-center gap-2 text-purple-600 hover:text-purple-700"
                                 >
                                     <Plus size={18} />
                                     Procesar primera factura
-                                </a>
+                                </Link>
                             </div>
                         ) : (
                             <div className="overflow-x-auto">

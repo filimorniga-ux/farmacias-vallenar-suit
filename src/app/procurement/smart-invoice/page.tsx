@@ -6,6 +6,7 @@ import {
     XCircle, AlertTriangle, Loader, HelpCircle, Settings
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { Link } from 'react-router-dom';
 
 // Components
 import {
@@ -561,12 +562,12 @@ function SmartInvoiceContent() {
                     <div className="max-w-7xl mx-auto px-4 py-4">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
-                                <a
-                                    href="/supply-chain"
+                                <Link
+                                    to="/supply-chain"
                                     className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                                 >
                                     <ArrowLeft size={20} />
-                                </a>
+                                </Link>
                                 <div>
                                     <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
                                         <Sparkles className="text-purple-600" />
@@ -579,20 +580,20 @@ function SmartInvoiceContent() {
                             </div>
 
                             <div className="flex items-center gap-2">
-                                <a
-                                    href="/procurement/smart-invoice/list"
+                                <Link
+                                    to="/procurement/smart-invoice/list"
                                     className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                                 >
                                     <List size={18} />
                                     <span className="hidden sm:inline">Historial</span>
-                                </a>
-                                <a
-                                    href="/settings/ai"
+                                </Link>
+                                <Link
+                                    to="/settings/ai"
                                     className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                                 >
                                     <Settings size={18} />
                                     <span className="hidden sm:inline">Configurar IA</span>
-                                </a>
+                                </Link>
                             </div>
                         </div>
                     </div>
@@ -619,12 +620,12 @@ function SmartInvoiceContent() {
                                 >
                                     Procesar otra factura
                                 </button>
-                                <a
-                                    href="/procurement/smart-invoice/list"
+                                <Link
+                                    to="/procurement/smart-invoice/list"
                                     className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                                 >
                                     Ver historial
-                                </a>
+                                </Link>
                             </div>
                         </div>
                     )}
@@ -640,12 +641,12 @@ function SmartInvoiceContent() {
                             </h2>
                             <p className="text-gray-600 mb-2">{error}</p>
                             {error?.includes('API Key') && (
-                                <a
-                                    href="/settings/ai"
+                                <Link
+                                    to="/settings/ai"
                                     className="text-purple-600 hover:text-purple-700 text-sm"
                                 >
                                     Ir a configuración de IA →
-                                </a>
+                                </Link>
                             )}
                             <div className="mt-6">
                                 <button
