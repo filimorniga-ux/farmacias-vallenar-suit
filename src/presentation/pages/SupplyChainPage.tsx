@@ -7,7 +7,7 @@ import ManualOrderModal from '../components/supply/ManualOrderModal';
 import { MovementDetailModal } from '../components/scm/MovementDetailModal';
 import { useNotificationStore } from '../store/useNotificationStore';
 import { toast } from 'sonner';
-import { generateRestockSuggestionSecure, type SuggestionAnalysisHistoryItem } from '../../actions/procurement-v2';
+import { generateRestockSuggestionSecure, generateSaleBasedSuggestionSecure, type SuggestionAnalysisHistoryItem } from '../../actions/procurement-v2';
 import { deletePurchaseOrderSecure } from '../../actions/supply-v2';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { CameraScanner } from '../components/ui/CameraScanner';
@@ -91,6 +91,11 @@ const SupplyChainPage: React.FC = () => {
     const [analysisHistoryRefreshKey, setAnalysisHistoryRefreshKey] = useState(0);
     const { isDesktopLike, isLandscape, viewportWidth } = usePlatform();
 
+    // NEW: Date-range analysis mode
+    const [analysisMode, setAnalysisMode] = useState<'window' | 'daterange'>('window');
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
+
     const isValidUuid = (value: string | undefined): value is string =>
         !!value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
@@ -157,16 +162,38 @@ const SupplyChainPage: React.FC = () => {
         setSuggestions([]);
 
         try {
-            const result = await generateRestockSuggestionSecure(
-                selectedSupplier || undefined,
-                daysToCover,    // Pass global defaults
-                analysisWindow, // Pass global defaults
-                selectedLocation || undefined,
-                stockFilter || undefined,
-                searchQuery || undefined,
-                topLimit,
-                true
-            );
+            let result: { success: boolean; data?: Record<string, unknown>[]; error?: string };
+
+            if (analysisMode === 'daterange') {
+                // Date-range mode: pure sales-based analysis
+                if (!dateFrom || !dateTo) {
+                    toast.error('Seleccione las fechas Desde y Hasta');
+                    setIsAnalyzing(false);
+                    return;
+                }
+                result = await generateSaleBasedSuggestionSecure(
+                    dateFrom,
+                    dateTo,
+                    daysToCover,
+                    selectedSupplier || undefined,
+                    selectedLocation || undefined,
+                    searchQuery || undefined,
+                    topLimit,
+                    true
+                );
+            } else {
+                // Window mode: traditional MRP analysis
+                result = await generateRestockSuggestionSecure(
+                    selectedSupplier || undefined,
+                    daysToCover,
+                    analysisWindow,
+                    selectedLocation || undefined,
+                    stockFilter || undefined,
+                    searchQuery || undefined,
+                    topLimit,
+                    true
+                );
+            }
 
             if (!result.success || !result.data) {
                 toast.error(result.error || 'Error al analizar demanda');
@@ -176,15 +203,25 @@ const SupplyChainPage: React.FC = () => {
 
             // Initialize items with the global settings and recalculate to ensure consistency
             const typedData = result.data as unknown as ExtendedSuggestion[];
-            const initializedSuggestions = typedData.map((item: ExtendedSuggestion) => {
-                // Ensure array/objects are safe
-                const baseItem = {
+            let initializedSuggestions: ExtendedSuggestion[];
+
+            if (analysisMode === 'daterange') {
+                // In date-range mode, suggestions come pre-calculated; no recalculation needed
+                initializedSuggestions = typedData.map((item: ExtendedSuggestion) => ({
                     ...item,
-                    velocities: item.velocities || { [analysisWindow]: item.daily_velocity }
-                };
-                // Calculate based on global filters
-                return recalculateItem(baseItem, analysisWindow, daysToCover);
-            });
+                    velocities: item.velocities || {},
+                    selected_analysis_window: analysisWindow,
+                    selected_coverage_days: daysToCover
+                }));
+            } else {
+                initializedSuggestions = typedData.map((item: ExtendedSuggestion) => {
+                    const baseItem = {
+                        ...item,
+                        velocities: item.velocities || { [analysisWindow]: item.daily_velocity }
+                    };
+                    return recalculateItem(baseItem, analysisWindow, daysToCover);
+                });
+            }
 
             setSuggestions(initializedSuggestions);
             setAnalysisHistoryRefreshKey((prev) => prev + 1);
@@ -602,10 +639,30 @@ const SupplyChainPage: React.FC = () => {
                                                     </select>
                                                 </div>
 
-                                                {/* Global Defaults - Labeled clearly for better UX */}
-                                                <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200" title="Configuración Predeterminada">
-                                                    <Settings size={14} className="text-slate-400" />
-                                                    <div className="flex items-center gap-1.5">
+                                                {/* Analysis Mode Toggle */}
+                                                <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
+                                                    <button
+                                                        onClick={() => setAnalysisMode('window')}
+                                                        className={`px-3 py-2 text-xs font-bold transition-all ${analysisMode === 'window'
+                                                            ? 'bg-purple-600 text-white shadow-sm'
+                                                            : 'text-slate-500 hover:bg-slate-100'}`}
+                                                    >
+                                                        📊 Ventana
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setAnalysisMode('daterange')}
+                                                        className={`px-3 py-2 text-xs font-bold transition-all ${analysisMode === 'daterange'
+                                                            ? 'bg-purple-600 text-white shadow-sm'
+                                                            : 'text-slate-500 hover:bg-slate-100'}`}
+                                                    >
+                                                        📅 Por Fechas
+                                                    </button>
+                                                </div>
+
+                                                {/* Window mode: Analysis Window selector */}
+                                                {analysisMode === 'window' && (
+                                                    <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200" title="Ventana de ventas a analizar">
+                                                        <Settings size={14} className="text-slate-400" />
                                                         <div className="flex flex-col -space-y-1">
                                                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Venta</span>
                                                             <select
@@ -620,22 +677,47 @@ const SupplyChainPage: React.FC = () => {
                                                                 <option value={90}>90d</option>
                                                             </select>
                                                         </div>
-                                                        <span className="text-slate-300 mt-2">/</span>
-                                                        <div className="flex flex-col -space-y-1">
-                                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Stock</span>
-                                                            <select
-                                                                className="bg-transparent font-bold text-slate-600 focus:outline-none cursor-pointer text-xs"
-                                                                value={daysToCover}
-                                                                onChange={(e) => setDaysToCover(Number(e.target.value))}
-                                                            >
-                                                                <option value={7}>7d</option>
-                                                                <option value={15}>15d</option>
-                                                                <option value={30}>30d</option>
-                                                                <option value={45}>45d</option>
-                                                                <option value={60}>60d</option>
-                                                                <option value={90}>90d</option>
-                                                            </select>
-                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* Date-range mode: From/To pickers */}
+                                                {analysisMode === 'daterange' && (
+                                                    <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
+                                                        <Calendar size={14} className="text-slate-400" />
+                                                        <input
+                                                            type="date"
+                                                            value={dateFrom}
+                                                            onChange={(e) => setDateFrom(e.target.value)}
+                                                            className="bg-transparent text-xs font-bold text-slate-600 focus:outline-none cursor-pointer"
+                                                            title="Fecha desde"
+                                                        />
+                                                        <span className="text-slate-300 text-xs">→</span>
+                                                        <input
+                                                            type="date"
+                                                            value={dateTo}
+                                                            onChange={(e) => setDateTo(e.target.value)}
+                                                            className="bg-transparent text-xs font-bold text-slate-600 focus:outline-none cursor-pointer"
+                                                            title="Fecha hasta"
+                                                        />
+                                                    </div>
+                                                )}
+
+                                                {/* Coverage Days */}
+                                                <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200" title="Días de cobertura a cubrir">
+                                                    <div className="flex flex-col -space-y-1">
+                                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Cobertura</span>
+                                                        <select
+                                                            className="bg-transparent font-bold text-slate-600 focus:outline-none cursor-pointer text-xs"
+                                                            value={daysToCover}
+                                                            onChange={(e) => setDaysToCover(Number(e.target.value))}
+                                                        >
+                                                            <option value={7}>7 días</option>
+                                                            <option value={15}>15 días</option>
+                                                            <option value={30}>30 días</option>
+                                                            <option value={45}>45 días</option>
+                                                            <option value={60}>60 días</option>
+                                                            <option value={90}>90 días</option>
+                                                        </select>
                                                     </div>
                                                 </div>
 
@@ -656,7 +738,7 @@ const SupplyChainPage: React.FC = () => {
                                                     </select>
                                                 </div>
 
-                                                {/* Top N Limit - NEW */}
+                                                {/* Top N Limit */}
                                                 <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
                                                     <BarChart3 size={14} className="text-slate-400" />
                                                     <span className="text-slate-500 text-xs">Top:</span>
@@ -673,71 +755,61 @@ const SupplyChainPage: React.FC = () => {
                                                 </div>
                                             </div>
 
-                                            {/* New Filters Row 2: Critical & Percentage */}
-                                            <div className="flex gap-2 text-sm flex-wrap items-center mt-2 w-full">
+                                            {/* Filters Row 2: Stock Level Chips (replaces confusing slider) */}
+                                            {analysisMode === 'window' && (
+                                                <div className="flex gap-2 text-sm flex-wrap items-center mt-2 w-full">
+                                                    {[
+                                                        { label: 'Todo', value: null, color: 'slate' },
+                                                        { label: '🔴 Crítico (<10%)', value: 0.1, color: 'red' },
+                                                        { label: '🟠 Bajo (<30%)', value: 0.3, color: 'amber' },
+                                                        { label: '🟡 Medio (<60%)', value: 0.6, color: 'yellow' },
+                                                    ].map((chip) => (
+                                                        <button
+                                                            key={chip.label}
+                                                            onClick={() => setStockFilter(stockFilter === chip.value ? null : chip.value)}
+                                                            className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition flex items-center gap-1.5 ${stockFilter === chip.value
+                                                                ? chip.color === 'red' ? 'bg-red-50 border-red-200 text-red-600 ring-2 ring-red-100'
+                                                                    : chip.color === 'amber' ? 'bg-amber-50 border-amber-200 text-amber-600 ring-2 ring-amber-100'
+                                                                        : chip.color === 'yellow' ? 'bg-yellow-50 border-yellow-200 text-yellow-600 ring-2 ring-yellow-100'
+                                                                            : 'bg-purple-50 border-purple-200 text-purple-600 ring-2 ring-purple-100'
+                                                                : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                                                                }`}
+                                                        >
+                                                            {chip.label}
+                                                        </button>
+                                                    ))}
 
-                                                {/* Critical Stock Toggle */}
-                                                <button
-                                                    onClick={() => setStockFilter(stockFilter === 0.1 ? null : 0.1)} // Toddle critical (using 10% as proxy or add specific state)
-                                                    className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition flex items-center gap-1.5 ${stockFilter === 0.1
-                                                        ? 'bg-red-50 border-red-200 text-red-600 ring-2 ring-red-100'
-                                                        : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
-                                                        }`}
-                                                >
-                                                    <AlertTriangle size={12} className={stockFilter === 0.1 ? "fill-red-600" : ""} />
-                                                    Stock Crítico
-                                                </button>
-
-                                                {/* Stock Percentage Slider (0-100%) */}
-                                                <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 flex-1 max-w-sm">
-                                                    <span className="text-secondary-500 text-xs font-semibold whitespace-nowrap">Nivel Stock:</span>
-                                                    <input
-                                                        type="range"
-                                                        min="0"
-                                                        max="100"
-                                                        step="5"
-                                                        className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
-                                                        value={stockFilter === null ? 100 : (stockFilter * 100)}
-                                                        onChange={(e) => {
-                                                            const val = Number(e.target.value);
-                                                            setStockFilter(val === 100 ? null : val / 100);
-                                                        }}
-                                                    />
-                                                    <span className="text-xs font-bold text-slate-700 w-12 text-right">
-                                                        {stockFilter === null ? 'Todo' : `${(stockFilter * 100).toFixed(0)}%`}
-                                                    </span>
-                                                </div>
-
-                                                {/* Delete Draft Button (Only visible if something selected) */}
-                                                {selectedOrder && (
-                                                    <button
-                                                        onClick={() => {
-                                                            if (confirm('¿Estás seguro de eliminar este borrador? Esta acción no se puede deshacer.')) {
-                                                                const userId = user?.id;
-                                                                if (!isValidUuid(userId)) {
-                                                                    toast.error('Sesión inválida para eliminar borrador');
-                                                                    return;
+                                                    {/* Delete Draft Button (Only visible if something selected) */}
+                                                    {selectedOrder && (
+                                                        <button
+                                                            onClick={() => {
+                                                                if (confirm('¿Estás seguro de eliminar este borrador? Esta acción no se puede deshacer.')) {
+                                                                    const userId = user?.id;
+                                                                    if (!isValidUuid(userId)) {
+                                                                        toast.error('Sesión inválida para eliminar borrador');
+                                                                        return;
+                                                                    }
+                                                                    deletePurchaseOrderSecure({ orderId: selectedOrder.id, userId })
+                                                                        .then((result) => {
+                                                                            if (!result.success) {
+                                                                                toast.error(result.error || 'Error al eliminar borrador');
+                                                                                return;
+                                                                            }
+                                                                            toast.success('Borrador eliminado');
+                                                                            setSelectedOrder(null);
+                                                                            // Refresh?
+                                                                        })
+                                                                        .catch(() => toast.error('Error al eliminar borrador'));
                                                                 }
-                                                                deletePurchaseOrderSecure({ orderId: selectedOrder.id, userId })
-                                                                    .then((result) => {
-                                                                        if (!result.success) {
-                                                                            toast.error(result.error || 'Error al eliminar borrador');
-                                                                            return;
-                                                                        }
-                                                                        toast.success('Borrador eliminado');
-                                                                        setSelectedOrder(null);
-                                                                        // Refresh?
-                                                                    })
-                                                                    .catch(() => toast.error('Error al eliminar borrador'));
-                                                            }
-                                                        }}
-                                                        className="ml-auto px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-xs font-bold transition flex items-center gap-1.5"
-                                                    >
-                                                        <Trash2 size={12} />
-                                                        Eliminar Borrador
-                                                    </button>
-                                                )}
-                                            </div>
+                                                            }}
+                                                            className="ml-auto px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-xs font-bold transition flex items-center gap-1.5"
+                                                        >
+                                                            <Trash2 size={12} />
+                                                            Eliminar Borrador
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            )}
 
                                             <button
                                                 data-testid="analyze-stock-btn"

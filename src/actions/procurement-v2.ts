@@ -1505,6 +1505,247 @@ export async function generateRestockSuggestionSecure(
     }
 }
 
+/**
+ * 📅 Generate Sale-Based Suggestion (Custom Date Range)
+ * Calculates purchase recommendations based PURELY on sales velocity
+ * within a custom date range, WITHOUT considering current stock.
+ *
+ * Example: If paracetamol sold 10 in 10 days → suggest 30 for 30-day coverage.
+ */
+export async function generateSaleBasedSuggestionSecure(
+    dateFrom: string,
+    dateTo: string,
+    daysToCover: number = 30,
+    supplierId?: string,
+    locationId?: string,
+    searchQuery?: string,
+    limit: number = 100,
+    trackHistory: boolean = false
+): Promise<{
+    success: boolean;
+    data?: Record<string, unknown>[];
+    error?: string;
+}> {
+    // Validate dates
+    const from = new Date(dateFrom);
+    const to = new Date(dateTo);
+
+    if (isNaN(from.getTime()) || isNaN(to.getTime())) {
+        return { success: false, error: 'Fechas inválidas' };
+    }
+
+    if (from >= to) {
+        return { success: false, error: 'La fecha "Desde" debe ser anterior a la fecha "Hasta"' };
+    }
+
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const periodDays = Math.ceil((to.getTime() - from.getTime()) / msPerDay);
+
+    if (periodDays > 365) {
+        return { success: false, error: 'El rango máximo de análisis es 365 días' };
+    }
+
+    if (daysToCover < 1 || daysToCover > 365) {
+        return { success: false, error: 'Días de cobertura debe estar entre 1 y 365' };
+    }
+
+    const safeLimit = Math.min(Math.max(Number.isFinite(limit) ? Math.floor(limit) : 100, 1), 500);
+    const safeSearchQuery = searchQuery?.trim()?.slice(0, 120) || undefined;
+    const safeLocationId = normalizeUuid(locationId);
+
+    let supplierValidated: string | undefined;
+    if (supplierId) {
+        const parsed = UUIDSchema.safeParse(supplierId);
+        if (!parsed.success) return { success: false, error: 'ID de proveedor inválido' };
+        supplierValidated = parsed.data;
+    }
+
+    logger.info(
+        { dateFrom, dateTo, periodDays, daysToCover, supplierId: supplierValidated || null, locationId: safeLocationId, limit: safeLimit },
+        '[MRP-SALES] Sale-Based Suggestion Params'
+    );
+
+    try {
+        const queryParams: (string | number | null)[] = [
+            dateFrom,
+            dateTo,
+            supplierValidated || null,
+            safeSearchQuery ? `%${safeSearchQuery}%` : null,
+            Math.min(safeLimit * 3, 2000)
+        ];
+
+        let paramIndex = 6;
+        let locationFilterSales = '';
+
+        if (safeLocationId) {
+            locationFilterSales = `AND s.location_id::text = $${paramIndex}::text`;
+            queryParams.push(safeLocationId);
+            paramIndex++;
+        }
+
+        const finalSql = `
+            WITH
+            TargetProducts AS (
+                SELECT
+                    p.id::uuid as product_id,
+                    p.name as product_name,
+                    p.sku as product_sku,
+                    COALESCE(p.cost_net, p.cost_price, 0) as internal_cost,
+                    (
+                        SELECT jsonb_agg(sub_s)
+                        FROM (
+                            SELECT
+                                s.id, s.business_name as name,
+                                COALESCE(ps.last_cost, ps.average_cost, 0) as cost_price,
+                                ps.supplier_sku, ps.is_preferred
+                            FROM product_suppliers ps
+                            JOIN suppliers s ON ps.supplier_id::text = s.id::text
+                            WHERE ps.product_id::text = p.id::text
+                            AND s.status = 'ACTIVE'
+                            AND ($3::text IS NULL OR ps.supplier_id::text = $3::text)
+                            ORDER BY COALESCE(ps.last_cost, ps.average_cost, 0) ASC NULLS LAST
+                            LIMIT 3
+                        ) sub_s
+                    ) as suppliers_data
+                FROM products p
+                WHERE
+                    ($4::text IS NULL OR p.name ILIKE $4::text OR p.sku ILIKE $4::text)
+                    AND p.name NOT ILIKE '%[AL DETAL]%'
+                    AND (
+                        $3::text IS NULL OR EXISTS (
+                            SELECT 1 FROM product_suppliers ps
+                            WHERE ps.product_id::text = p.id::text AND ps.supplier_id::text = $3::text
+                        )
+                    )
+            ),
+            SalesInPeriod AS (
+                SELECT
+                    ib.product_id,
+                    SUM(si.quantity) as total_sold
+                FROM sale_items si
+                JOIN sales s ON si.sale_id = s.id
+                JOIN inventory_batches ib ON si.batch_id = ib.id
+                JOIN locations l ON ib.location_id::text = l.id::text
+                WHERE s.timestamp >= $1::timestamp AND s.timestamp <= $2::timestamp
+                AND l.is_active = true
+                AND ib.product_id IN (SELECT product_id FROM TargetProducts)
+                ${locationFilterSales}
+                GROUP BY ib.product_id
+            ),
+            CurrentStock AS (
+                SELECT
+                    ib.product_id,
+                    SUM(ib.quantity_real) as total_stock
+                FROM inventory_batches ib
+                JOIN locations l ON ib.location_id::text = l.id::text
+                WHERE ib.quantity_real > 0 AND l.is_active = true
+                ${safeLocationId ? `AND ib.location_id::text = $${paramIndex - 1}::text` : ''}
+                GROUP BY ib.product_id
+            )
+            SELECT
+                tp.product_id,
+                tp.product_name,
+                tp.product_sku as sku,
+                tp.internal_cost as unit_cost,
+                tp.suppliers_data,
+                COALESCE(sp.total_sold, 0) as total_sold,
+                COALESCE(cs.total_stock, 0) as current_stock
+            FROM TargetProducts tp
+            INNER JOIN SalesInPeriod sp ON tp.product_id = sp.product_id
+            LEFT JOIN CurrentStock cs ON tp.product_id = cs.product_id
+            WHERE sp.total_sold > 0
+            ORDER BY sp.total_sold DESC
+            LIMIT $5
+        `;
+
+        const res = await pool.query(finalSql, queryParams);
+
+        const suggestions = res.rows.map(row => {
+            const totalSold = Number(row.total_sold);
+            const dailyVelocity = periodDays > 0 ? totalSold / periodDays : 0;
+            const suggested = Math.max(0, Math.ceil(dailyVelocity * daysToCover));
+            const currentStock = Number(row.current_stock);
+
+            // Resolve best supplier
+            let bestSupplier: Record<string, unknown> | null = null;
+            if (row.suppliers_data && (row.suppliers_data as Record<string, unknown>[]).length > 0) {
+                bestSupplier = (row.suppliers_data as Record<string, unknown>[]).find((s: Record<string, unknown>) => s.is_preferred) || null;
+                if (!bestSupplier) bestSupplier = (row.suppliers_data as Record<string, unknown>[])[0];
+            }
+            if (supplierValidated && row.suppliers_data) {
+                const specificSup = (row.suppliers_data as Record<string, unknown>[]).find((s: Record<string, unknown>) => s.id === supplierValidated);
+                if (specificSup) bestSupplier = specificSup;
+            }
+
+            const unitCost = Number(bestSupplier?.cost_price || row.unit_cost || 0);
+
+            return {
+                product_id: row.product_id,
+                product_name: row.product_name,
+                sku: row.sku,
+                image_url: null,
+                location_id: safeLocationId,
+                current_stock: currentStock,
+                global_stock: 0,
+                incoming_stock: 0,
+                safety_stock: 0,
+                min_stock: 0,
+                max_stock: suggested,
+                stock_level_percent: 0,
+                daily_velocity: Number(dailyVelocity.toFixed(3)),
+                suggested_order_qty: suggested,
+                days_coverage: dailyVelocity > 0 ? (currentStock / dailyVelocity).toFixed(1) : '0.0',
+                days_until_stockout: dailyVelocity > 0 ? Math.floor(currentStock / dailyVelocity) : 0,
+                urgency: (suggested > currentStock * 2 ? 'HIGH' : suggested > currentStock ? 'MEDIUM' : 'LOW') as 'HIGH' | 'MEDIUM' | 'LOW',
+                unit_cost: unitCost,
+                supplier_sku: bestSupplier?.supplier_sku || null,
+                supplier_id: (bestSupplier?.id as string) || null,
+                supplier_name: (bestSupplier?.name as string) || 'Sin Proveedor Asignado',
+                other_suppliers: (row.suppliers_data as Record<string, unknown>[] || []).map((s: Record<string, unknown>) => ({ ...s, cost: s.cost_price })),
+                total_estimated: suggested * unitCost,
+                reason: `📅 Ventas ${dateFrom} → ${dateTo}: ${totalSold}u en ${periodDays}d | Vel: ${dailyVelocity.toFixed(2)}/d | Cobertura: ${daysToCover}d`,
+                ai_confidence: undefined,
+                action_type: 'PURCHASE' as const,
+                transfer_sources: [],
+                velocities: { [periodDays]: dailyVelocity },
+                sold_counts: { [periodDays]: totalSold },
+                // Extra metadata for date-range mode
+                analysis_mode: 'daterange',
+                period_days: periodDays,
+                total_sold_in_period: totalSold
+            };
+        });
+
+        const finalResults = suggestions.slice(0, safeLimit);
+
+        if (trackHistory) {
+            const totalEstimated = finalResults.reduce((sum, item) => sum + Number(item.total_estimated || 0), 0);
+            void saveSuggestionAnalysisHistory({
+                supplier_id: supplierValidated || null,
+                supplier_name: supplierValidated
+                    ? (finalResults.find(i => i.supplier_id === supplierValidated)?.supplier_name as string | undefined) || null
+                    : null,
+                days_to_cover: daysToCover,
+                analysis_window: periodDays,
+                location_id: safeLocationId,
+                stock_threshold: null,
+                search_query: safeSearchQuery ?? null,
+                limit: safeLimit,
+                total_results: finalResults.length,
+                critical_count: finalResults.filter(i => i.urgency === 'HIGH').length,
+                transfer_count: 0,
+                total_estimated: Number(totalEstimated.toFixed(2))
+            });
+        }
+
+        return { success: true, data: finalResults };
+
+    } catch (error: unknown) {
+        logger.error({ error }, '[PROCUREMENT-V2] Sale-based suggestion error');
+        return { success: false, error: 'Error generando sugerencias por ventas: ' + (error instanceof Error ? error.message : 'Error desconocido') };
+    }
+}
+
 export interface TransferDetail {
     sku: string;
     product_name: string;
