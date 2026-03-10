@@ -105,7 +105,8 @@ export async function getProductSalesReportSecure(params: ReportParams) {
                 MAX(p.sku) as sku,
                 MAX(p.name) as product_name,
                 MAX(p.category) as category,
-                SUM(si.quantity) as units_sold,
+                SUM(si.quantity - COALESCE(si.refunded_quantity, 0)) as units_sold,
+                SUM(COALESCE(si.refunded_quantity, 0)) as refunded_units,
                 SUM(si.total_price) as total_amount,
                 ROUND(AVG(si.unit_price), 0) as avg_price,
                 COUNT(DISTINCT s.id) as transaction_count
@@ -115,6 +116,7 @@ export async function getProductSalesReportSecure(params: ReportParams) {
             JOIN sales s ON si.sale_id = s.id
             WHERE 
                 s.timestamp >= $1 AND s.timestamp <= $2
+                AND s.status NOT IN ('VOIDED')
         `;
 
         // Filter: Location
@@ -160,8 +162,9 @@ export async function getProductSalesReportSecure(params: ReportParams) {
         const summary: ReportSummary = result.rows.reduce((acc, row) => ({
             totalUnits: acc.totalUnits + Number(row.units_sold),
             totalAmount: acc.totalAmount + Number(row.total_amount),
-            transactionCount: acc.transactionCount + Number(row.transaction_count)
-        }), { totalUnits: 0, totalAmount: 0, transactionCount: 0 });
+            transactionCount: acc.transactionCount + Number(row.transaction_count),
+            refundedUnits: (acc as any).refundedUnits + Number(row.refunded_units || 0),
+        }), { totalUnits: 0, totalAmount: 0, transactionCount: 0, refundedUnits: 0 } as any);
 
         return {
             success: true,

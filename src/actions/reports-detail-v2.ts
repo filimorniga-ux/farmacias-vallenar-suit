@@ -207,6 +207,8 @@ export async function getCashFlowLedgerSecure(
             queryParams.push(locationId);
         }
 
+        const locFilterRefund = locationId ? `AND r.location_id = $3::uuid` : '';
+
         const sql = `
             SELECT id::text, timestamp, description, category, amount_in, amount_out, user_name
             FROM (
@@ -216,7 +218,22 @@ export async function getCashFlowLedgerSecure(
                     s.total_amount as amount_in, 0 as amount_out, u.name as user_name
                 FROM sales s
                 LEFT JOIN users u ON s.user_id::text = u.id::text
-                WHERE s.timestamp >= $1::timestamp AND s.timestamp <= $2::timestamp ${locFilterSale}
+                WHERE s.timestamp >= $1::timestamp AND s.timestamp <= $2::timestamp
+                AND s.status NOT IN ('VOIDED')
+                ${locFilterSale}
+                
+                UNION ALL
+
+                SELECT 
+                    r.id, extract(epoch from r.created_at) * 1000 as timestamp,
+                    'Devolución ' || COALESCE(r.ticket_number, '') as description,
+                    'REFUND' as category,
+                    0 as amount_in, r.total_amount as amount_out, u.name as user_name
+                FROM refunds r
+                LEFT JOIN users u ON r.user_id::text = u.id::text
+                WHERE r.created_at >= $1::timestamp AND r.created_at <= $2::timestamp
+                AND r.status = 'COMPLETED'
+                ${locFilterRefund}
                 
                 UNION ALL
                 
@@ -292,13 +309,25 @@ export async function getTaxSummarySecure(
         const startOfMonth = month ? new Date(`${month}-01`) : new Date(now.getFullYear(), now.getMonth(), 1);
         const endOfMonth = new Date(startOfMonth.getFullYear(), startOfMonth.getMonth() + 1, 0);
 
-        // Ventas
+        // Ventas (excluyendo anuladas)
         const salesRes = await query(`
             SELECT SUM(total_amount) as total FROM sales 
             WHERE timestamp >= $1::timestamp AND timestamp <= $2::timestamp
+            AND status NOT IN ('VOIDED')
         `, [startOfMonth.toISOString(), endOfMonth.toISOString()]);
 
-        const grossSales = Number(salesRes.rows[0]?.total) || 0;
+        // Devoluciones
+        let totalRefunds = 0;
+        try {
+            const refundsRes = await query(`
+                SELECT COALESCE(SUM(total_amount), 0) as total FROM refunds
+                WHERE created_at >= $1::timestamp AND created_at <= $2::timestamp
+                AND status = 'COMPLETED'
+            `, [startOfMonth.toISOString(), endOfMonth.toISOString()]);
+            totalRefunds = Number(refundsRes.rows[0]?.total) || 0;
+        } catch { /* tabla puede no existir */ }
+
+        const grossSales = (Number(salesRes.rows[0]?.total) || 0) - totalRefunds;
         const netSales = Math.round(grossSales / 1.19);
         const vatDebit = grossSales - netSales;
 
@@ -543,13 +572,24 @@ export async function getDetailedFinancialSummarySecure(
 
         const params = [startDateObj.toISOString(), endDateObj.toISOString()];
 
-        // 1. Sales
+        // 1. Sales (excluyendo anuladas)
         const salesRes = await query(`
             SELECT SUM(total_amount) as total 
             FROM sales 
             WHERE timestamp >= $1::timestamp AND timestamp <= $2::timestamp
+            AND status NOT IN ('VOIDED')
         `, params);
-        const totalSales = Number(salesRes.rows[0]?.total) || 0;
+        let totalSales = Number(salesRes.rows[0]?.total) || 0;
+
+        // 1b. Restar devoluciones
+        try {
+            const refundsRes = await query(`
+                SELECT COALESCE(SUM(total_amount), 0) as total FROM refunds
+                WHERE created_at >= $1::timestamp AND created_at <= $2::timestamp
+                AND status = 'COMPLETED'
+            `, params);
+            totalSales -= Number(refundsRes.rows[0]?.total) || 0;
+        } catch { /* tabla puede no existir */ }
 
         // 2. Expenses (Categorized by LIKE on reason)
         const expensesRes = await query(`

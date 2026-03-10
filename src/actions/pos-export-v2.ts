@@ -82,13 +82,25 @@ export async function exportSalesHistorySecure(
 
         const res = await query(`
             SELECT s.id, s.timestamp, s.total_amount, s.payment_method, s.dte_folio,
-                   l.name as branch_name, u.name as seller_name
+                   s.status, s.edited_at,
+                   l.name as branch_name, u.name as seller_name,
+                   COALESCE(
+                       (SELECT SUM(r.total_amount) FROM refunds r WHERE r.sale_id = s.id AND r.status = 'COMPLETED'),
+                       0
+                   ) as refund_amount
             FROM sales s
             LEFT JOIN locations l ON s.location_id = l.id
             LEFT JOIN users u ON s.user_id = u.id
             ${whereClause}
             ORDER BY s.timestamp DESC LIMIT 5000
         `, sqlParams);
+
+        const STATUS_LABELS: Record<string, string> = {
+            'COMPLETED': 'Completada',
+            'VOIDED': 'Anulada',
+            'PARTIALLY_REFUNDED': 'Dev. Parcial',
+            'FULLY_REFUNDED': 'Dev. Total',
+        };
 
         const data = res.rows.map((row: any) => ({
             id: row.id,
@@ -97,7 +109,10 @@ export async function exportSalesHistorySecure(
             seller: row.seller_name || '-',
             method: row.payment_method,
             dte: row.dte_folio || 'Voucher',
+            status: STATUS_LABELS[row.status] || row.status,
             total: Number(row.total_amount),
+            refund: Number(row.refund_amount),
+            edited: row.edited_at ? 'Sí' : 'No',
         }));
 
         const excel = new ExcelService();
@@ -113,7 +128,10 @@ export async function exportSalesHistorySecure(
                 { header: 'Vendedor Responsable', key: 'seller', width: 25 },
                 { header: 'Medio Pago', key: 'method', width: 15 },
                 { header: 'Folio DTE', key: 'dte', width: 15 },
+                { header: 'Estado', key: 'status', width: 15 },
                 { header: 'Monto Total ($)', key: 'total', width: 18 },
+                { header: 'Devolución ($)', key: 'refund', width: 15 },
+                { header: 'Editada', key: 'edited', width: 10 },
             ],
             data,
         });
