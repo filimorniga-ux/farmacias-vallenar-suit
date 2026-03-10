@@ -248,10 +248,10 @@ export const WMSCrearPedidoTab: React.FC = () => {
                         <button
                             onClick={() => { if (s < step) setStep(s); }}
                             className={`flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold transition-all ${step === s
-                                    ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/30'
-                                    : step > s
-                                        ? 'bg-emerald-500 text-white'
-                                        : 'bg-slate-200 text-slate-500'
+                                ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/30'
+                                : step > s
+                                    ? 'bg-emerald-500 text-white'
+                                    : 'bg-slate-200 text-slate-500'
                                 }`}
                         >
                             {step > s ? '✓' : s}
@@ -385,7 +385,7 @@ export const WMSCrearPedidoTab: React.FC = () => {
                                                 </button>
                                                 <input type="number" min={1} value={l.quantity || ''}
                                                     onChange={e => updateLine(l.sku, 'quantity', e.target.value)}
-                                                    className="w-10 h-6 text-center text-xs font-bold border-2 border-slate-200 rounded-lg focus:border-sky-400 outline-none" />
+                                                    className="w-10 h-6 text-center text-xs font-bold text-slate-800 bg-white border-2 border-slate-200 rounded-lg focus:border-sky-400 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
                                                 <button onClick={() => updateLine(l.sku, 'quantity', String(l.quantity + 1))}
                                                     className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors">
                                                     <Plus size={10} />
