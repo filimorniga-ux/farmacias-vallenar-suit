@@ -12,8 +12,7 @@
  * - Auditoría de exportaciones
  */
 
-import { pool, query } from '@/lib/db';
-import { z } from 'zod';
+import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { ExcelService } from '@/lib/excel-generator';
 import { formatDateTimeCL, formatDateCL, formatTimeCL } from '@/lib/timezone';
@@ -34,13 +33,13 @@ const ACCOUNTING_ROLES = ['CONTADOR', 'ADMIN', 'GERENTE_GENERAL', 'MANAGER'];
 // HELPERS
 // ============================================================================
 
-async function auditExport(userId: string, exportType: string, params: any): Promise<void> {
+async function auditExport(userId: string, exportType: string, params: Record<string, unknown>): Promise<void> {
     try {
         await query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, new_values, created_at)
             VALUES ($1, 'EXPORT', 'FINANCE', $2::jsonb, NOW())
         `, [userId, JSON.stringify({ export_type: exportType, ...params })]);
-    } catch { }
+    } catch { /* audit failure ignored */ }
 }
 
 // ============================================================================
@@ -92,7 +91,7 @@ export async function exportCashFlowSecure(
         await auditExport(session.userId, 'CASH_FLOW', { ...params, rows: data.length });
         return { success: true, data: buffer.toString('base64'), filename: `FlujoCaja_${params.startDate.split('T')[0]}.xlsx` };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Export] Cash flow error');
         return { success: false, error: 'Error exportando flujo de caja' };
     }
@@ -143,7 +142,7 @@ export async function exportTaxSummarySecure(
 
         await auditExport(session.userId, 'TAX_SUMMARY', { month });
         return { success: true, data: buffer.toString('base64'), filename: `Impuestos_${month || 'actual'}.xlsx` };
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Export] Tax summary error');
         return { success: false, error: 'Error exportando resumen tributario' };
     }
@@ -171,7 +170,16 @@ export async function exportPayrollSecure(
             return { success: false, error: payrollResult.error || 'Error obteniendo datos' };
         }
 
-        const data = payrollResult.data.map((p: any) => ({
+        interface PayrollRow {
+            rut: string;
+            name: string;
+            job_title: string;
+            base_salary: string | number;
+            deductions: { afp: string | number; health: string | number };
+            total_liquid: string | number;
+        }
+
+        const data = payrollResult.data.map((p: PayrollRow) => ({
             rut: p.rut,
             name: p.name,
             role: p.job_title,
@@ -201,7 +209,7 @@ export async function exportPayrollSecure(
 
         await auditExport(session.userId, 'PAYROLL', { month, year, rows: data.length });
         return { success: true, data: buffer.toString('base64'), filename: `Remuneraciones_${month}_${year}.xlsx` };
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Export] Payroll error');
         return { success: false, error: 'Error exportando nómina' };
     }
@@ -227,7 +235,7 @@ export async function exportAttendanceSecure(
     if (!ADMIN_ROLES.includes(session.role) && session.locationId) locationId = session.locationId;
 
     try {
-        const sqlParams: any[] = [params.startDate, params.endDate];
+        const sqlParams: (string | number | boolean | string[] | Date | null | undefined)[] = [params.startDate, params.endDate];
         let locFilter = '';
         if (locationId) { locFilter = 'AND a.location_id = $3'; sqlParams.push(locationId); }
 
@@ -246,7 +254,17 @@ export async function exportAttendanceSecure(
             ORDER BY ds.work_date DESC, u.name
         `, sqlParams);
 
-        const data = res.rows.map((row: any) => ({
+        interface AttendanceRow {
+            work_date: string | Date;
+            name: string;
+            rut: string;
+            job_title?: string;
+            loc_name?: string;
+            first_in?: string | Date;
+            last_out?: string | Date;
+        }
+
+        const data = res.rows.map((row: AttendanceRow) => ({
             date: formatDateCL(row.work_date),
             name: row.name,
             rut: row.rut,
@@ -276,7 +294,7 @@ export async function exportAttendanceSecure(
 
         await auditExport(session.userId, 'ATTENDANCE', { ...params, rows: data.length });
         return { success: true, data: buffer.toString('base64'), filename: `Asistencia_${params.startDate.split('T')[0]}.xlsx` };
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Export] Attendance error');
         return { success: false, error: 'Error exportando asistencia' };
     }
