@@ -150,11 +150,16 @@ export async function startPriceResearchSecure(params: StartResearchParams): Pro
         }
 
         // 2. Build product list query
+        // Use COALESCE to find best price: inventory_batches.sale_price > products.price
+        // This matches the pattern in get-products-v2.ts and inventory-v2.ts
         let sql = `
-            SELECT DISTINCT ON (p.id)
-                p.id, p.name, p.sku, p.barcode, p.sale_price, p.cost_price
+            SELECT
+                p.id, p.name, p.sku, p.barcode,
+                COALESCE(MAX(ib.sale_price), MAX(ib.price_sell_box), p.price, 0) as sale_price,
+                COALESCE(p.cost_price, MAX(ib.unit_cost), MAX(ib.cost_net), 0) as cost_price
             FROM products p
-            WHERE p.sale_price > 0
+            LEFT JOIN inventory_batches ib ON p.id::text = ib.product_id::text
+            WHERE COALESCE(p.price, 0) > 0 OR COALESCE(ib.sale_price, ib.price_sell_box, 0) > 0
               AND p.name IS NOT NULL
               AND LENGTH(p.name) > 3
         `;
@@ -170,7 +175,8 @@ export async function startPriceResearchSecure(params: StartResearchParams): Pro
             sql += ` AND p.category_id = $${sqlParams.length}`;
         }
 
-        sql += ` ORDER BY p.id, p.name`;
+        sql += ` GROUP BY p.id, p.name, p.sku, p.barcode, p.price, p.cost_price`;
+        sql += ` ORDER BY p.name`;
 
         const limit = params.limit || 500;
         sqlParams.push(limit);
@@ -184,12 +190,14 @@ export async function startPriceResearchSecure(params: StartResearchParams): Pro
 
         const sessionId = uuidv4();
 
-        const products = res.rows.map((row: Record<string, unknown>) => ({
-            name: String(row.name || ''),
-            sku: String(row.sku || ''),
-            currentPrice: Number(row.sale_price) || 0,
-            costPrice: Number(row.cost_price) || 0,
-        }));
+        const products = res.rows
+            .filter((row: Record<string, unknown>) => Number(row.sale_price) > 0)
+            .map((row: Record<string, unknown>) => ({
+                name: String(row.name || ''),
+                sku: String(row.sku || ''),
+                currentPrice: Number(row.sale_price) || 0,
+                costPrice: Number(row.cost_price) || 0,
+            }));
 
         logger.info({
             sessionId,
