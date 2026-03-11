@@ -47,11 +47,20 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
     // START RESEARCH
     // ========================================================================
 
-    const runResearch = useCallback(async (productList: typeof products, sid: string) => {
+    // Detect Electron environment
+    const isElectron = typeof window !== 'undefined'
+        && 'electronAPI' in window
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        && !!(window as any).electronAPI?.webPriceSearch;
+
+    /**
+     * Fallback: server-side search (degraded — DuckDuckGo blocks server fetch).
+     * Kept as legacy; will only work if DuckDuckGo re-enables server scraping.
+     */
+    const runResearchServerFallback = useCallback(async (productList: typeof products, sid: string) => {
         for (let i = 0; i < productList.length; i++) {
             if (abortRef.current) break;
 
-            // Pause check
             while (pauseRef.current && !abortRef.current) {
                 await new Promise(r => setTimeout(r, 500));
             }
@@ -73,16 +82,14 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
             if (res.success && res.result) {
                 setResults(prev => [...prev, res.result!]);
 
-                // Auto-select products with smartPrice recommendation that differs significantly
                 if (res.result.smartPrice && !res.result.smartPrice.marginProtectionApplied) {
                     const diff = Math.abs(res.result.smartPrice.recommendedPrice - res.result.currentPrice);
-                    if (diff > res.result.currentPrice * 0.02) { // >2% difference
+                    if (diff > res.result.currentPrice * 0.02) {
                         setSelectedSkus(prev => new Set([...prev, res.result!.sku]));
                     }
                 }
             }
 
-            // Rate limit delay (2.5s)
             if (i < productList.length - 1 && !abortRef.current) {
                 await new Promise(r => setTimeout(r, 2500));
             }
@@ -94,9 +101,61 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
         }
     }, [pin]);
 
+    /**
+     * Electron path: uses hidden BrowserWindow (real Chromium) via IPC.
+     * This avoids DuckDuckGo CAPTCHA/anomaly blocks. $0 costo.
+     */
+    const startElectronBatchSearch = useCallback((productList: typeof products) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const api = (window as any).electronAPI.webPriceSearch;
+
+        // Register event listeners
+        api.onProgress((data: { current: number; total: number; productName: string; sku: string }) => {
+            setCurrentIndex(data.current - 1);
+            setCurrentProduct(data.productName);
+        });
+
+        api.onResult((data: { current: number; total: number; sku: string; result: ProductResearchResult | null }) => {
+            setCurrentIndex(data.current);
+            if (data.result) {
+                // Add sku to result for apply logic
+                const resultWithSku = { ...data.result, sku: data.sku };
+                setResults(prev => [...prev, resultWithSku]);
+
+                // Auto-select significant recommendations
+                if (data.result.smartPrice && !data.result.smartPrice.marginProtectionApplied) {
+                    const diff = Math.abs(data.result.smartPrice.recommendedPrice - data.result.currentPrice);
+                    if (diff > data.result.currentPrice * 0.02) {
+                        setSelectedSkus(prev => new Set([...prev, data.sku]));
+                    }
+                }
+            }
+        });
+
+        api.onComplete(() => {
+            setStatus('DONE');
+            toast.success('Investigación completada');
+            api.removeAllListeners();
+        });
+
+        api.onError((data: { error: string }) => {
+            toast.error(`Error: ${data.error}`);
+            setStatus('DONE');
+            api.removeAllListeners();
+        });
+
+        // Start batch (non-blocking — results come via events)
+        api.startBatch(productList);
+    }, []);
+
     const handleStart = useCallback(async () => {
         if (!pin || pin.length < 4) {
             toast.error('Ingresa tu PIN de seguridad');
+            return;
+        }
+
+        if (!isElectron) {
+            toast.error('⚠️ Investigación de precios solo disponible en la app de escritorio (Electron). DuckDuckGo bloquea búsquedas desde el servidor.');
             return;
         }
 
@@ -122,25 +181,42 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
         toast.success(`Investigación iniciada: ${res.session.products.length} productos`);
         setStatus('RUNNING');
 
-        // Run sequentially
-        await runResearch(res.session.products, res.session.sessionId);
-    }, [pin, limit, runResearch]);
+        if (isElectron) {
+            startElectronBatchSearch(res.session.products);
+        } else {
+            await runResearchServerFallback(res.session.products, res.session.sessionId);
+        }
+    }, [pin, limit, isElectron, startElectronBatchSearch, runResearchServerFallback]);
 
     // ========================================================================
     // PAUSE / RESUME / STOP
     // ========================================================================
 
     const handlePause = () => {
+        if (isElectron) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (window as any).electronAPI.webPriceSearch.pauseBatch();
+        }
         pauseRef.current = true;
         setStatus('PAUSED');
     };
 
     const handleResume = () => {
+        if (isElectron) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (window as any).electronAPI.webPriceSearch.pauseBatch(); // toggle
+        }
         pauseRef.current = false;
         setStatus('RUNNING');
     };
 
     const handleStop = () => {
+        if (isElectron) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (window as any).electronAPI.webPriceSearch.stopBatch();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (window as any).electronAPI.webPriceSearch.removeAllListeners();
+        }
         abortRef.current = true;
         pauseRef.current = false;
         setStatus('DONE');
