@@ -8,7 +8,6 @@
  */
 
 import { query } from '@/lib/db';
-import { z } from 'zod';
 import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rate-limiter';
@@ -89,21 +88,22 @@ export async function getProductsSecure(
 
         const result = await query(sql, [`%${sanitizedTerm}%`, locationId]);
 
-        const data: ProductResult[] = result.rows.map((row: any) => ({
-            id: row.id,
-            sku: row.sku,
-            name: row.name,
-            description: row.description,
-            format: row.format,
+        const data: ProductResult[] = result.rows.map((row: Record<string, unknown>) => ({
+            id: row.id as string,
+            sku: row.sku as string,
+            name: row.name as string,
+            description: row.description as string,
+            format: row.format as string,
             price: Number(row.price),
             stock: canSeeStock ? Number(row.stock) : undefined,
-            location_name: row.location_name || 'Sucursal',
+            location_name: (row.location_name as string) || 'Sucursal',
         }));
 
         return { success: true, data };
 
-    } catch (error: any) {
-        logger.error({ error: error.message, stack: error.stack }, '[Products] Search error');
-        return { success: false, error: `Error en búsqueda: ${error.message}` };
+    } catch (error: unknown) {
+        const err = error as Error;
+        logger.error({ error: err.message, stack: err.stack }, '[Products] Search error');
+        return { success: false, error: `Error en búsqueda: ${err.message}` };
     }
 }

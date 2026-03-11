@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useRef, useCallback } from 'react';
-import { Globe, Play, Pause, CheckCircle2, XCircle, Search, AlertTriangle, TrendingUp, TrendingDown, Minus, Lock, Loader2, Clock, ExternalLink, BarChart3, Zap, ShieldCheck, Info } from 'lucide-react';
+import { Globe, Play, Pause, CheckCircle2, XCircle, Search, AlertTriangle, TrendingUp, TrendingDown, Minus, Lock, Loader2, Clock, ExternalLink, Zap, ShieldCheck, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { startPriceResearchSecure, researchSingleProductSecure, applyResearchPricesSecure } from '@/actions/price-research';
 import type { ProductResearchResult } from '@/lib/web-price-search';
@@ -24,7 +24,6 @@ type ResearchStatus = 'IDLE' | 'PREPARING' | 'RUNNING' | 'PAUSED' | 'DONE';
 export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanelProps) {
     // Auth
     const [pin, setPin] = useState('');
-    const [pinVerified, setPinVerified] = useState(false);
 
     // Search config
     const [limit, setLimit] = useState(50);
@@ -62,7 +61,6 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
             return;
         }
 
-        setPinVerified(true);
         setSessionId(res.session.sessionId);
         setProducts(res.session.products);
         setResults([]);
@@ -75,56 +73,56 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
         toast.success(`Investigación iniciada: ${res.session.products.length} productos`);
         setStatus('RUNNING');
 
-        // Run sequentially
-        await runResearch(res.session.products, res.session.sessionId);
-    }, [pin, limit]);
+        const runResearchInner = async (productList: typeof products, sid: string) => {
+            for (let i = 0; i < productList.length; i++) {
+                if (abortRef.current) break;
 
-    const runResearch = async (productList: typeof products, sid: string) => {
-        for (let i = 0; i < productList.length; i++) {
-            if (abortRef.current) break;
+                // Pause check
+                while (pauseRef.current && !abortRef.current) {
+                    await new Promise(r => setTimeout(r, 500));
+                }
+                if (abortRef.current) break;
 
-            // Pause check
-            while (pauseRef.current && !abortRef.current) {
-                await new Promise(r => setTimeout(r, 500));
-            }
-            if (abortRef.current) break;
+                const product = productList[i];
+                setCurrentIndex(i);
+                setCurrentProduct(product.name);
 
-            const product = productList[i];
-            setCurrentIndex(i);
-            setCurrentProduct(product.name);
+                const singleRes = await researchSingleProductSecure(
+                    product.name,
+                    product.sku,
+                    product.currentPrice,
+                    product.costPrice,
+                    sid,
+                    pin
+                );
 
-            const res = await researchSingleProductSecure(
-                product.name,
-                product.sku,
-                product.currentPrice,
-                product.costPrice,
-                sid,
-                pin
-            );
+                if (singleRes.success && singleRes.result) {
+                    setResults(prev => [...prev, singleRes.result!]);
 
-            if (res.success && res.result) {
-                setResults(prev => [...prev, res.result!]);
-
-                // Auto-select products with smartPrice recommendation that differs significantly
-                if (res.result.smartPrice && !res.result.smartPrice.marginProtectionApplied) {
-                    const diff = Math.abs(res.result.smartPrice.recommendedPrice - res.result.currentPrice);
-                    if (diff > res.result.currentPrice * 0.02) { // >2% difference
-                        setSelectedSkus(prev => new Set([...prev, res.result!.sku]));
+                    // Auto-select products with smartPrice recommendation that differs significantly
+                    if (singleRes.result.smartPrice && !singleRes.result.smartPrice.marginProtectionApplied) {
+                        const diff = Math.abs(singleRes.result.smartPrice.recommendedPrice - singleRes.result.currentPrice);
+                        if (diff > singleRes.result.currentPrice * 0.02) { // >2% difference
+                            setSelectedSkus(prev => new Set([...prev, singleRes.result!.sku]));
+                        }
                     }
+                }
+
+                // Rate limit delay (2.5s)
+                if (i < productList.length - 1 && !abortRef.current) {
+                    await new Promise(r => setTimeout(r, 2500));
                 }
             }
 
-            // Rate limit delay (2.5s)
-            if (i < productList.length - 1 && !abortRef.current) {
-                await new Promise(r => setTimeout(r, 2500));
+            if (!abortRef.current) {
+                setStatus('DONE');
+                toast.success('Investigación completada');
             }
-        }
+        };
 
-        if (!abortRef.current) {
-            setStatus('DONE');
-            toast.success('Investigación completada');
-        }
-    };
+        // Run sequentially
+        await runResearchInner(res.session.products, res.session.sessionId);
+    }, [pin, limit]);
 
     // ========================================================================
     // PAUSE / RESUME / STOP

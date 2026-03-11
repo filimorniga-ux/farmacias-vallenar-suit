@@ -37,8 +37,8 @@ export async function getLocationsSecure(): Promise<{
         const result = await query(
             `SELECT id, name, type FROM locations WHERE is_active = true ORDER BY name ASC`
         );
-        return { success: true, locations: result.rows };
-    } catch (error: any) {
+        return { success: true, locations: result.rows as { id: string; name: string }[] };
+    } catch {
         return { success: false, error: 'Error obteniendo ubicaciones' };
     }
 }

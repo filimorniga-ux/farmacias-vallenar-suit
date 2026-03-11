@@ -13,7 +13,7 @@
  * - Auditoría de cambios
  */
 
-import { pool, query } from '@/lib/db';
+import { pool, query, type PoolClient } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
@@ -58,7 +58,7 @@ async function getSession(): Promise<{ userId: string; role: string; locationId?
 }
 
 async function validateManagerPin(
-    client: any,
+    client: PoolClient,
     pin: string
 ): Promise<{ valid: boolean; manager?: { id: string; name: string } }> {
     try {
@@ -131,7 +131,7 @@ export async function getTerminalHardwareConfigSecure(
 
         return { success: true, config: terminal.config || {} };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Hardware] Get config error');
         return { success: false, error: 'Error obteniendo configuración' };
     }
@@ -201,7 +201,7 @@ export async function updateTerminalHardwareConfigSecure(
         revalidatePath('/caja');
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         logger.error({ error }, '[Hardware] Update config error');
         return { success: false, error: 'Error actualizando configuración' };
@@ -240,7 +240,7 @@ export async function testPrinterConnectionSecure(
 
         return { success: true, connected: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Hardware] Test printer error');
         return { success: false, error: 'Error testeando impresora' };
     }
@@ -277,7 +277,7 @@ export async function getAvailablePrintersSecure(
 
         return { success: true, printers };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[Hardware] Get printers error');
         return { success: false, error: 'Error obteniendo impresoras' };
     }
