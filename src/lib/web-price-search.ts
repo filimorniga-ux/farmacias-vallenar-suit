@@ -7,6 +7,8 @@
  * Skills activos: financial-precision-math, timezone-santiago
  */
 
+import { logger } from '@/lib/logger';
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -125,9 +127,9 @@ export async function searchProductPrice(productName: string): Promise<WebPriceR
     } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Unknown error';
         if (message.includes('abort')) {
-            console.warn(`[WebPrice] Timeout for "${productName}"`);
+            logger.warn({ productName }, '[WebPrice] Timeout');
         } else {
-            console.error(`[WebPrice] Error searching "${productName}":`, message);
+            logger.error({ productName, message }, '[WebPrice] Search error');
         }
         return [];
     }

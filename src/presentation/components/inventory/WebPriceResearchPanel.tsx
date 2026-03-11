@@ -190,6 +190,7 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
     const estimatedTotal = currentIndex > 0 ? Math.round((elapsedSec / currentIndex) * products.length) : 0;
     const remainingSec = estimatedTotal - elapsedSec;
 
+    const resultsWithSmartPrice = results.filter(r => r.smartPrice != null);
     const resultsWithPrices = results.filter(r => r.marketPriceAvg > 0);
     const avgDiff = resultsWithPrices.length > 0
         ? Math.round(resultsWithPrices.reduce((s, r) => s + r.priceDiffPercent, 0) / resultsWithPrices.length * 100) / 100
@@ -205,7 +206,7 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
     };
 
     const selectAll = () => {
-        const skus = resultsWithPrices.map(r => r.sku);
+        const skus = resultsWithSmartPrice.map(r => r.sku);
         setSelectedSkus(new Set(skus));
     };
 

@@ -5,12 +5,23 @@
  * 
  * Orquesta la búsqueda de precios en internet, guarda resultados en DB,
  * y permite aplicar actualizaciones selectivas.
+ * 
+ * Security: validatePinByRole (bcrypt + DB), rate limiting, audit trail
+ * Integrity: transacciones PostgreSQL para apply batch
  */
 
-import { query } from '@/lib/db';
+import { pool, query, type PoolClient } from '@/lib/db';
 import { logger } from '@/lib/logger';
-import { researchPricesBatch, calculateSmartPrice, type ProductResearchResult } from '@/lib/web-price-search';
+import { calculateSmartPrice, type ProductResearchResult } from '@/lib/web-price-search';
 import { v4 as uuidv4 } from 'uuid';
+import { headers } from 'next/headers';
+import bcrypt from 'bcryptjs';
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+const ADMIN_ROLES = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL'];
 
 // ============================================================================
 // TYPES
@@ -30,6 +41,92 @@ interface ResearchSession {
 }
 
 // ============================================================================
+// AUTH HELPERS
+// ============================================================================
+
+/**
+ * Obtiene sesión del usuario desde headers (middleware)
+ */
+async function getSession(): Promise<{ userId: string; role: string; userName: string } | null> {
+    try {
+        const headersList = await headers();
+        const userId = headersList.get('x-user-id');
+        const role = headersList.get('x-user-role');
+        const userName = headersList.get('x-user-name');
+        if (!userId || !role) return null;
+        return { userId, role, userName: userName || 'Desconocido' };
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Valida PIN contra la DB con bcrypt. Soporta PIN 1213 como dev fallback.
+ * Retorna el usuario autenticado si es válido.
+ */
+async function validatePinByRole(
+    client: PoolClient,
+    pin: string,
+    roles: string[]
+): Promise<{ valid: boolean; user?: { id: string; name: string; role: string } }> {
+    try {
+        // 1. Dev PIN fallback (mantener para desarrollo)
+        if (pin === '1213') {
+            return { valid: true, user: { id: 'dev-admin', name: 'Dev Admin', role: 'ADMIN' } };
+        }
+
+        // 2. Check env PIN (legacy compat)
+        const envPin = process.env.ADMIN_ACTION_PIN;
+        if (envPin && pin === envPin) {
+            return { valid: true, user: { id: 'env-admin', name: 'System Admin', role: 'ADMIN' } };
+        }
+
+        // 3. Check DB users with matching roles
+        let checkRateLimit: (id: string) => { allowed: boolean };
+        let recordFailedAttempt: (id: string) => void;
+        let resetAttempts: (id: string) => void;
+        try {
+            const limiter = await import('@/lib/rate-limiter');
+            checkRateLimit = limiter.checkRateLimit;
+            recordFailedAttempt = limiter.recordFailedAttempt;
+            resetAttempts = limiter.resetAttempts;
+        } catch {
+            // rate-limiter not available, continue without
+            checkRateLimit = () => ({ allowed: true });
+            recordFailedAttempt = () => {};
+            resetAttempts = () => {};
+        }
+
+        const usersRes = await client.query(`
+            SELECT id, name, access_pin_hash, access_pin, role
+            FROM users WHERE role = ANY($1::text[]) AND is_active = true
+        `, [roles]);
+
+        for (const user of usersRes.rows) {
+            const rateCheck = checkRateLimit(user.id);
+            if (!rateCheck.allowed) continue;
+
+            if (user.access_pin_hash) {
+                const valid = await bcrypt.compare(pin, user.access_pin_hash);
+                if (valid) {
+                    resetAttempts(user.id);
+                    return { valid: true, user: { id: user.id, name: user.name, role: user.role } };
+                }
+                recordFailedAttempt(user.id);
+            } else if (user.access_pin === pin) {
+                resetAttempts(user.id);
+                return { valid: true, user: { id: user.id, name: user.name, role: user.role } };
+            }
+        }
+
+        return { valid: false };
+    } catch (err) {
+        logger.error({ err }, '[PriceResearch] PIN validation error');
+        return { valid: false };
+    }
+}
+
+// ============================================================================
 // START RESEARCH SESSION
 // ============================================================================
 
@@ -42,15 +139,16 @@ export async function startPriceResearchSecure(params: StartResearchParams): Pro
     error?: string;
     session?: ResearchSession;
 }> {
-    // 1. Security Check
-    const correctPin = process.env.ADMIN_ACTION_PIN;
-    const isDevPin = params.pin === '1213';
-    if ((!correctPin && !isDevPin) || (correctPin && params.pin !== correctPin && !isDevPin)) {
-        logger.warn('[PriceResearch] Invalid PIN attempt');
-        return { success: false, error: 'PIN incorrecto' };
-    }
+    const client = await pool.connect();
 
     try {
+        // 1. Security: validar PIN contra DB con roles
+        const authResult = await validatePinByRole(client, params.pin, ADMIN_ROLES);
+        if (!authResult.valid) {
+            logger.warn('[PriceResearch] Invalid PIN attempt for startResearch');
+            return { success: false, error: 'PIN incorrecto o rol insuficiente' };
+        }
+
         // 2. Build product list query
         let sql = `
             SELECT DISTINCT ON (p.id)
@@ -78,7 +176,7 @@ export async function startPriceResearchSecure(params: StartResearchParams): Pro
         sqlParams.push(limit);
         sql += ` LIMIT $${sqlParams.length}`;
 
-        const res = await query(sql, sqlParams);
+        const res = await client.query(sql, sqlParams);
 
         if (res.rows.length === 0) {
             return { success: false, error: 'No se encontraron productos para investigar' };
@@ -93,7 +191,11 @@ export async function startPriceResearchSecure(params: StartResearchParams): Pro
             costPrice: Number(row.cost_price) || 0,
         }));
 
-        logger.info(`[PriceResearch] Session ${sessionId} started with ${products.length} products`);
+        logger.info({
+            sessionId,
+            products: products.length,
+            user: authResult.user?.name,
+        }, '[PriceResearch] Session started');
 
         return {
             success: true,
@@ -107,6 +209,8 @@ export async function startPriceResearchSecure(params: StartResearchParams): Pro
     } catch (error: unknown) {
         logger.error({ error }, '[PriceResearch] Failed to start session');
         return { success: false, error: 'Error al preparar investigación' };
+    } finally {
+        client.release();
     }
 }
 
@@ -126,14 +230,15 @@ export async function researchSingleProductSecure(
     sessionId: string,
     pin: string
 ): Promise<{ success: boolean; result?: ProductResearchResult; error?: string }> {
-    // Quick PIN check
-    const correctPin = process.env.ADMIN_ACTION_PIN;
-    const isDevPin = pin === '1213';
-    if ((!correctPin && !isDevPin) || (correctPin && pin !== correctPin && !isDevPin)) {
-        return { success: false, error: 'PIN inválido' };
-    }
+    const client = await pool.connect();
 
     try {
+        // Security: validar PIN
+        const authResult = await validatePinByRole(client, pin, ADMIN_ROLES);
+        if (!authResult.valid) {
+            return { success: false, error: 'PIN inválido' };
+        }
+
         const { searchProductPrice } = await import('@/lib/web-price-search');
         const webResults = await searchProductPrice(productName);
 
@@ -161,7 +266,7 @@ export async function researchSingleProductSecure(
             : 'LOW';
 
         // Save to DB
-        await query(`
+        await client.query(`
             INSERT INTO price_research_results 
                 (session_id, product_name, sku, current_price, market_price_min, market_price_max, market_price_avg, sources, price_diff_percent, confidence, status)
             VALUES 
@@ -198,69 +303,91 @@ export async function researchSingleProductSecure(
     } catch (error: unknown) {
         logger.error({ error }, `[PriceResearch] Error researching ${sku}`);
         return { success: false, error: 'Error en búsqueda' };
+    } finally {
+        client.release();
     }
 }
 
 // ============================================================================
-// APPLY PRICES
+// APPLY PRICES (with transaction + real user audit)
 // ============================================================================
 
 /**
  * Aplica precios de mercado seleccionados al inventario.
+ * Envuelto en transaction única para integridad.
  */
 export async function applyResearchPricesSecure(params: {
     pin: string;
     sessionId: string;
     items: Array<{ sku: string; newPrice: number }>;
 }): Promise<{ success: boolean; applied: number; error?: string }> {
-    const correctPin = process.env.ADMIN_ACTION_PIN;
-    const isDevPin = params.pin === '1213';
-    if ((!correctPin && !isDevPin) || (correctPin && params.pin !== correctPin && !isDevPin)) {
-        return { success: false, applied: 0, error: 'PIN incorrecto' };
-    }
+    const client = await pool.connect();
 
     try {
+        await client.query('BEGIN');
+
+        // 1. Security: validar PIN con roles
+        const authResult = await validatePinByRole(client, params.pin, ADMIN_ROLES);
+        if (!authResult.valid) {
+            await client.query('ROLLBACK');
+            return { success: false, applied: 0, error: 'PIN incorrecto o rol insuficiente' };
+        }
+
+        const appliedBy = authResult.user?.name || 'Desconocido';
+        const appliedById = authResult.user?.id || 'unknown';
         let applied = 0;
 
         for (const item of params.items) {
             // Round to nearest 50 CLP (business rule)
             const roundedPrice = Math.ceil(item.newPrice / 50) * 50;
 
-            // Update products table
-            await query(`
+            // Update products table (global price, same as pricing.ts pattern)
+            await client.query(`
                 UPDATE products SET sale_price = $1, updated_at = NOW() WHERE sku = $2
             `, [roundedPrice, item.sku]);
 
             // Update inventory_batches table
-            await query(`
+            await client.query(`
                 UPDATE inventory_batches SET sale_price = $1, updated_at = NOW() WHERE sku = $2
             `, [roundedPrice, item.sku]);
 
-            // Mark as applied in research results
-            await query(`
+            // Mark as applied in research results with real user
+            await client.query(`
                 UPDATE price_research_results 
-                SET status = 'APPLIED', applied_at = NOW(), applied_by = 'Admin'
+                SET status = 'APPLIED', applied_at = NOW(), applied_by = $3
                 WHERE session_id = $1 AND sku = $2
-            `, [params.sessionId, item.sku]);
+            `, [params.sessionId, item.sku, appliedBy]);
 
             applied++;
         }
 
-        // Log to audit
-        try {
-            await query(`
-                INSERT INTO audit_log (user_id, action_code, entity_type, new_values, created_at)
-                VALUES ('system', 'PRICE_RESEARCH_APPLY', 'PRODUCT', $1::jsonb, NOW())
-            `, [JSON.stringify({ sessionId: params.sessionId, applied, items: params.items.length })]);
-        } catch { /* audit failure ignored */ }
+        // Audit trail with real user
+        await client.query(`
+            INSERT INTO audit_log (user_id, action_code, entity_type, new_values, created_at)
+            VALUES ($1, 'PRICE_RESEARCH_APPLY', 'PRODUCT', $2::jsonb, NOW())
+        `, [appliedById, JSON.stringify({
+            sessionId: params.sessionId,
+            applied,
+            items: params.items.length,
+            appliedBy,
+        })]);
 
-        logger.info(`[PriceResearch] Applied ${applied} price updates from session ${params.sessionId}`);
+        await client.query('COMMIT');
+
+        logger.info({
+            sessionId: params.sessionId,
+            applied,
+            user: appliedBy,
+        }, '[PriceResearch] Prices applied successfully');
 
         return { success: true, applied };
 
     } catch (error: unknown) {
+        await client.query('ROLLBACK');
         logger.error({ error }, '[PriceResearch] Failed to apply prices');
         return { success: false, applied: 0, error: 'Error al aplicar precios' };
+    } finally {
+        client.release();
     }
 }
 
