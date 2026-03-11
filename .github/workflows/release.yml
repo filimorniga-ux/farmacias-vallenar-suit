@@ -11,6 +11,9 @@ on:
   release:
     types: [created]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: desktop-release-${{ github.ref }}
   cancel-in-progress: false

@@ -13,11 +13,10 @@
  * - Filtrado por ubicación
  */
 
-import { pool, query } from '@/lib/db';
+import { pool, query, type PoolClient } from '@/lib/db';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { revalidatePath } from 'next/cache';
-import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
 import bcrypt from 'bcryptjs';
 
@@ -63,7 +62,7 @@ async function getSession(): Promise<{ userId: string; role: string; locationId?
 }
 
 async function validatePin(
-    client: any,
+    client: PoolClient,
     pin: string,
     allowedRoles: string[]
 ): Promise<{ valid: boolean; user?: { id: string; name: string } }> {
@@ -106,7 +105,7 @@ async function validatePin(
  */
 export async function getFinancialAccountsSecure(): Promise<{
     success: boolean;
-    data?: any[];
+    data?: Record<string, unknown>[];
     error?: string;
 }> {
     const session = await getSession();
@@ -121,7 +120,7 @@ export async function getFinancialAccountsSecure(): Promise<{
             LEFT JOIN locations l ON fa.location_id = l.id
             WHERE 1=1
         `;
-        const params: any[] = [];
+        const params: unknown[] = [];
 
         // Filtrar por ubicación si no es admin
         if (!ADMIN_ROLES.includes(session.role) && session.locationId) {
@@ -131,10 +130,10 @@ export async function getFinancialAccountsSecure(): Promise<{
 
         sql += ' ORDER BY fa.created_at DESC';
 
-        const res = await query(sql, params);
+        const res = await query(sql, params as (string | number | boolean | Date | string[] | null | undefined)[]);
         return { success: true, data: res.rows };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[FinancialAccounts] Get error');
         return { success: false, error: 'Error obteniendo cuentas' };
     }
@@ -199,7 +198,7 @@ export async function createFinancialAccountSecure(
         revalidatePath('/settings');
         return { success: true, accountId };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         logger.error({ error }, '[FinancialAccounts] Create error');
         return { success: false, error: 'Error creando cuenta' };
@@ -252,7 +251,7 @@ export async function updateFinancialAccountSecure(
 
         // Actualizar
         const updates: string[] = ['updated_at = NOW()'];
-        const params: any[] = [];
+        const params: unknown[] = [];
         let paramIndex = 1;
 
         if (name !== undefined) {
@@ -268,7 +267,7 @@ export async function updateFinancialAccountSecure(
         await client.query(`
             UPDATE financial_accounts SET ${updates.join(', ')}
             WHERE id = $${paramIndex}
-        `, params);
+        `, params as (string | number | boolean | Date | string[] | null | undefined)[]);
 
         // Auditar
         await client.query(`
@@ -285,7 +284,7 @@ export async function updateFinancialAccountSecure(
         revalidatePath('/settings');
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         logger.error({ error }, '[FinancialAccounts] Update error');
         return { success: false, error: 'Error actualizando cuenta' };
@@ -350,7 +349,7 @@ export async function toggleAccountStatusSecure(
         revalidatePath('/settings');
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         await client.query('ROLLBACK');
         logger.error({ error }, '[FinancialAccounts] Toggle status error');
         return { success: false, error: 'Error cambiando estado' };
@@ -379,7 +378,7 @@ export async function getAccountBalance(
             return { success: false, error: 'Cuenta no encontrada' };
         }
         return { success: true, balance: Number(res.rows[0].balance) };
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[FinancialAccounts] Get balance error');
         return { success: false, error: 'Error obteniendo saldo' };
     }
@@ -392,7 +391,7 @@ export async function getAccountHistory(
     accountId: string,
     page: number = 1,
     pageSize: number = 20
-): Promise<{ success: boolean; data?: any[]; total?: number; error?: string }> {
+): Promise<{ success: boolean; data?: Record<string, unknown>[]; total?: number; error?: string }> {
     if (!UUIDSchema.safeParse(accountId).success) {
         return { success: false, error: 'ID inválido' };
     }
@@ -424,7 +423,7 @@ export async function getAccountHistory(
 
         return { success: true, data: res.rows, total };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error({ error }, '[FinancialAccounts] Get history error');
         return { success: false, error: 'Error obteniendo historial' };
     }
