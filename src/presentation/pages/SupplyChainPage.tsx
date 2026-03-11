@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { usePharmaStore } from '../store/useStore';
 import { AutoOrderSuggestion } from '../../domain/types';
-import { Package, Truck, CheckCircle, AlertCircle, Plus, Calendar, TrendingUp, RefreshCw, AlertTriangle, Zap, DollarSign, Trash2, Filter, Calculator, MapPin, Search, BarChart3, Users, ChevronDown, ScanBarcode, Settings, ArrowLeftRight, ShoppingCart } from 'lucide-react';
+import { Package, Truck, CheckCircle, AlertCircle, Plus, Calendar, TrendingUp, RefreshCw, AlertTriangle, Zap, DollarSign, Trash2, Filter, Calculator, MapPin, Search, BarChart3, Users, ChevronDown, ScanBarcode, Settings, ArrowLeftRight, ShoppingCart, Clock } from 'lucide-react';
 import { PurchaseOrderReceivingModal } from '../components/scm/PurchaseOrderReceivingModal';
 import ManualOrderModal from '../components/supply/ManualOrderModal';
 import { MovementDetailModal } from '../components/scm/MovementDetailModal';
@@ -81,7 +81,7 @@ const SupplyChainPage: React.FC = () => {
     const [daysToCover, setDaysToCover] = useState(15);
     const [stockFilter, setStockFilter] = useState<number | null>(null);
     const [selectedSkus, setSelectedSkus] = useState<Set<string>>(new Set());
-    const [activeTab, setActiveTab] = useState<'suggestions' | 'transfers'>('suggestions');
+    const [activeTab, setActiveTab] = useState<'suggestions' | 'transfers' | 'history'>('suggestions');
     const [suggestedQtyDrafts, setSuggestedQtyDrafts] = useState<Record<string, string>>({});
 
     // NEW: Search & Limits
@@ -591,6 +591,16 @@ const SupplyChainPage: React.FC = () => {
                                 </span>
                             )}
                         </button>
+                        <button
+                            onClick={() => setActiveTab('history')}
+                            className={`flex items-center gap-2 px-5 py-3 text-sm font-bold transition-all border-b-2 ${activeTab === 'history'
+                                ? 'border-amber-600 text-amber-700 bg-white'
+                                : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-white/50'
+                                }`}
+                        >
+                            <Clock size={16} />
+                            Historial
+                        </button>
                     </div>
 
                     {/* Tab Content: Suggestions (existing) */}
@@ -846,12 +856,6 @@ const SupplyChainPage: React.FC = () => {
                                 </div>
                             </div>
 
-                            <SuggestionAnalysisHistoryPanel
-                                locationId={selectedLocation || undefined}
-                                isActive={activeTab === 'suggestions'}
-                                refreshKey={analysisHistoryRefreshKey}
-                                onRestore={handleRestoreAnalysis}
-                            />
 
                             <div className="flex-1 overflow-y-auto p-0 scrollbar-hide bg-slate-50/50">
                                 {isAnalyzing ? (
@@ -1068,6 +1072,21 @@ const SupplyChainPage: React.FC = () => {
                             onTransferComplete={() => runIntelligentAnalysis()}
                             onGoBack={() => setActiveTab('suggestions')}
                         />
+                    )}
+
+                    {/* Tab Content: History */}
+                    {activeTab === 'history' && (
+                        <div className="flex-1 overflow-y-auto flex flex-col">
+                            <SuggestionAnalysisHistoryPanel
+                                locationId={selectedLocation || undefined}
+                                isActive={activeTab === 'history'}
+                                refreshKey={analysisHistoryRefreshKey}
+                                onRestore={(entry) => {
+                                    handleRestoreAnalysis(entry);
+                                    setActiveTab('suggestions');
+                                }}
+                            />
+                        </div>
                     )}
                 </div>
 
