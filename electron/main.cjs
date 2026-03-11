@@ -57,8 +57,8 @@ function createWindow() {
     });
 
     win.once('ready-to-show', () => {
-        // Maximize on first paint for desktop parity without white flash.
-        win.maximize();
+        // Enter fullscreen on first paint for immersive desktop experience.
+        win.setFullScreen(true);
         win.show();
     });
 
@@ -176,6 +176,20 @@ function createWindow() {
     // ----------------------------------------------------------------
     globalShortcut.register('CommandOrControl+Shift+I', () => {
         win.webContents.toggleDevTools();
+    });
+
+    // FULLSCREEN TOGGLE: F11
+    // ----------------------------------------------------------------
+    globalShortcut.register('F11', () => {
+        win.setFullScreen(!win.isFullScreen());
+    });
+
+    // EXIT FULLSCREEN: Escape
+    // ----------------------------------------------------------------
+    globalShortcut.register('Escape', () => {
+        if (win.isFullScreen()) {
+            win.setFullScreen(false);
+        }
     });
 
     return win;

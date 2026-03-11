@@ -1,5 +1,11 @@
 import { useEffect } from 'react';
 
+/**
+ * useKioskGuard — POS-specific kiosk protections
+ *
+ * Blocks back-button navigation and tab close/refresh.
+ * Fullscreen is now handled globally by useGlobalFullscreen in providers.tsx.
+ */
 export const useKioskGuard = (enabled: boolean = true) => {
     useEffect(() => {
         if (!enabled) return;
@@ -23,29 +29,9 @@ export const useKioskGuard = (enabled: boolean = true) => {
 
         window.addEventListener('beforeunload', handleBeforeUnload);
 
-        // 3. Request Full Screen on First Interaction
-        const enterFullScreen = async () => {
-            try {
-                if (!document.fullscreenElement) {
-                    await document.documentElement.requestFullscreen();
-                }
-            } catch (err) {
-                // Fullscreen request denied or not supported
-            }
-        };
-
-        // Attach to click listener to satisfy browser policy
-        const handleInteraction = () => {
-            enterFullScreen();
-            window.removeEventListener('click', handleInteraction);
-        };
-
-        window.addEventListener('click', handleInteraction);
-
         return () => {
             window.removeEventListener('popstate', blockBackNavigation);
             window.removeEventListener('beforeunload', handleBeforeUnload);
-            window.removeEventListener('click', handleInteraction);
         };
     }, [enabled]);
 };

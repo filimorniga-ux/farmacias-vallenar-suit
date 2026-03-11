@@ -29,8 +29,8 @@ const config: CapacitorConfig = {
     },
     StatusBar: {
       style: "DARK",
-      // En iOS evita que el contenido quede debajo de la Dynamic Island
-      overlapsWebView: false,
+      // Fullscreen: content extends behind the status bar (safe-areas handle overlap)
+      overlapsWebView: true,
       backgroundColor: "#00000000",
     },
   },
