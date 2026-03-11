@@ -26,9 +26,17 @@ export function usePlatform() {
                 height: window.innerHeight,
             });
         };
-        window.addEventListener('resize', handleResize);
+        // Orientation change fires before the viewport updates,
+        // so we delay the measurement to let the OS finish layout.
+        const handleOrientation = () => setTimeout(handleResize, 100);
 
-        return () => window.removeEventListener('resize', handleResize);
+        window.addEventListener('resize', handleResize);
+        window.addEventListener('orientationchange', handleOrientation);
+
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            window.removeEventListener('orientationchange', handleOrientation);
+        };
     }, []);
 
     const isLandscape = viewport.width > viewport.height;
