@@ -4,7 +4,7 @@ import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
 import {
     Filter, AlertTriangle, Search, Plus, FileSpreadsheet,
-    ChevronDown, ChevronUp, MoreHorizontal, History, RefreshCcw, Package, ScanBarcode, ArrowRightLeft, Edit, Trash2, Zap, Sparkles, Percent, Scissors
+    ChevronDown, ChevronUp, MoreHorizontal, History, RefreshCcw, Package, ScanBarcode, ArrowRightLeft, Edit, Trash2, Zap, Sparkles, Percent, Scissors, Globe
 } from 'lucide-react';
 import { MobileScanner } from '../../components/shared/MobileScanner';
 import StockEntryModal from '../components/inventory/StockEntryModal';
@@ -15,6 +15,7 @@ import InventoryExportModal from '../components/inventory/InventoryExportModal';
 import QuickStockModal from '../components/inventory/QuickStockModal';
 import ProductDeleteConfirm from '../components/inventory/ProductDeleteConfirm';
 import PriceAdjustmentModal from '../components/inventory/PriceAdjustmentModal';
+import WebPriceResearchPanel from '../components/inventory/WebPriceResearchPanel';
 import { InventoryCostEditor } from '../components/inventory/InventoryCostEditor';
 import { hasPermission } from '../../domain/security/roles';
 import MobileActionScroll from '../components/ui/MobileActionScroll';
@@ -659,6 +660,7 @@ const InventoryPage: React.FC = () => {
     const [isDeleting, setIsDeleting] = useState(false);
 
     const [isScannerOpen, setIsScannerOpen] = useState(false);
+    const [isPriceResearchOpen, setIsPriceResearchOpen] = useState(false);
 
     // Permissions
     const canManageInventory = hasPermission(user, 'MANAGE_INVENTORY');
@@ -844,6 +846,14 @@ const InventoryPage: React.FC = () => {
                                         className="px-6 py-3 bg-purple-600 text-white font-bold rounded-full hover:bg-purple-700 transition shadow-lg shadow-purple-200 flex items-center gap-2 whitespace-nowrap"
                                     >
                                         <Percent size={18} /> Ajuste Masivo
+                                    </button>
+                                )}
+                                {!isMobile && (user?.role === 'ADMIN' || user?.role === 'MANAGER' || user?.role === 'GERENTE_GENERAL') && (
+                                    <button
+                                        onClick={() => setIsPriceResearchOpen(true)}
+                                        className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold rounded-full hover:from-indigo-700 hover:to-violet-700 transition shadow-lg shadow-indigo-200 flex items-center gap-2 whitespace-nowrap"
+                                    >
+                                        <Globe size={18} /> Precios de Mercado
                                     </button>
                                 )}
                             </>
@@ -1121,6 +1131,15 @@ const InventoryPage: React.FC = () => {
                             const count = res.data?.pages.reduce((acc, page) => acc + page.data.length, 0) || 0;
                             console.log('📦 InventoryPage: Refetch completed', res.status, count);
                         });
+                    }}
+                />
+            )}
+
+            {isPriceResearchOpen && (
+                <WebPriceResearchPanel
+                    onClose={() => {
+                        setIsPriceResearchOpen(false);
+                        refetch();
                     }}
                 />
             )}
