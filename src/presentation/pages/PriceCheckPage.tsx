@@ -1,11 +1,12 @@
 'use client';
-import React, { useState, useEffect, useRef } from 'react';
-import { Search, ScanBarcode, X, Clock, Info, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Search, ScanBarcode, X, Clock, Info, AlertTriangle, Camera } from 'lucide-react';
 import { usePharmaStore } from '../store/useStore';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { InventoryBatch } from '../../domain/types';
 import { formatProductLabel, calculatePricePerUnit } from '../../domain/logic/productDisplay';
 import { motion, AnimatePresence } from 'framer-motion';
+import { CameraScanner } from '../components/ui/CameraScanner';
 
 const PriceCheckPage: React.FC = () => {
     const { inventory } = usePharmaStore();
@@ -13,6 +14,8 @@ const PriceCheckPage: React.FC = () => {
     const [selectedProduct, setSelectedProduct] = useState<InventoryBatch | null>(null);
     const [alternatives, setAlternatives] = useState<InventoryBatch[]>([]);
     const [isIdle, setIsIdle] = useState(false);
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
+    const [scanCount, setScanCount] = useState(0);
     const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
 
     // Reset timer on interaction
@@ -62,6 +65,24 @@ const PriceCheckPage: React.FC = () => {
         }
     });
 
+    // Camera scan handler
+    const handleCameraScan = useCallback((code: string) => {
+        const product = inventory.find(p => p.sku === code || p.barcode === code || p.id === code);
+        if (product) {
+            setSelectedProduct(product);
+            const alts = inventory.filter(p =>
+                p.id !== product.id &&
+                p.dci && product.dci &&
+                p.dci.toLowerCase() === product.dci.toLowerCase() &&
+                p.stock_actual > 0
+            ).sort((a, b) => a.price - b.price);
+            setAlternatives(alts);
+            setScanCount(prev => prev + 1);
+            setIsScannerOpen(false);
+            resetTimer();
+        }
+    }, [inventory]);
+
     // Search Logic
     const filteredProducts = inventory.filter(item => {
         if (!searchTerm) return false;
@@ -95,6 +116,13 @@ const PriceCheckPage: React.FC = () => {
                     <ScanBarcode size={32} className="text-cyan-400 animate-pulse" />
                     <span className="font-bold text-sm text-slate-300">Lector Activo</span>
                 </div>
+                <button
+                    onClick={() => setIsScannerOpen(true)}
+                    className="md:hidden bg-gradient-to-br from-cyan-500 to-blue-600 p-3 rounded-2xl border border-cyan-400/30 shadow-lg shadow-cyan-500/20 active:scale-95 transition-transform"
+                    title="Escanear con cámara"
+                >
+                    <Camera size={24} className="text-white" />
+                </button>
             </header>
 
             {/* Main Content */}
@@ -291,6 +319,16 @@ const PriceCheckPage: React.FC = () => {
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            {/* Camera Scanner Overlay */}
+            {isScannerOpen && (
+                <CameraScanner
+                    onScan={handleCameraScan}
+                    onClose={() => setIsScannerOpen(false)}
+                    continuous={false}
+                    scanCount={scanCount}
+                />
+            )}
         </div>
     );
 };
