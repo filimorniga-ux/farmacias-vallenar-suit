@@ -40,7 +40,7 @@ export const FinancialAccountsSettings: React.FC = () => {
         ]);
 
         if (accRes.success && accRes.data) {
-            setAccounts(accRes.data as FinancialAccount[]);
+            setAccounts(accRes.data as unknown as FinancialAccount[]);
         }
         if (locRes.success && locRes.data) {
             setLocations(locRes.data.locations.map((l: any) => ({ id: l.id, name: l.name })));

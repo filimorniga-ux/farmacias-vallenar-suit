@@ -47,39 +47,7 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
     // START RESEARCH
     // ========================================================================
 
-    const handleStart = useCallback(async () => {
-        if (!pin || pin.length < 4) {
-            toast.error('Ingresa tu PIN de seguridad');
-            return;
-        }
-
-        setStatus('PREPARING');
-
-        const res = await startPriceResearchSecure({ pin, limit });
-        if (!res.success || !res.session) {
-            toast.error(res.error || 'Error al preparar');
-            setStatus('IDLE');
-            return;
-        }
-
-        setPinVerified(true);
-        setSessionId(res.session.sessionId);
-        setProducts(res.session.products);
-        setResults([]);
-        setCurrentIndex(0);
-        setSelectedSkus(new Set());
-        pauseRef.current = false;
-        abortRef.current = false;
-        setStartTime(Date.now());
-
-        toast.success(`Investigación iniciada: ${res.session.products.length} productos`);
-        setStatus('RUNNING');
-
-        // Run sequentially
-        await runResearch(res.session.products, res.session.sessionId);
-    }, [pin, limit]);
-
-    const runResearch = async (productList: typeof products, sid: string) => {
+    const runResearch = useCallback(async (productList: typeof products, sid: string) => {
         for (let i = 0; i < productList.length; i++) {
             if (abortRef.current) break;
 
@@ -124,7 +92,39 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
             setStatus('DONE');
             toast.success('Investigación completada');
         }
-    };
+    }, [pin]);
+
+    const handleStart = useCallback(async () => {
+        if (!pin || pin.length < 4) {
+            toast.error('Ingresa tu PIN de seguridad');
+            return;
+        }
+
+        setStatus('PREPARING');
+
+        const res = await startPriceResearchSecure({ pin, limit });
+        if (!res.success || !res.session) {
+            toast.error(res.error || 'Error al preparar');
+            setStatus('IDLE');
+            return;
+        }
+
+        setPinVerified(true);
+        setSessionId(res.session.sessionId);
+        setProducts(res.session.products);
+        setResults([]);
+        setCurrentIndex(0);
+        setSelectedSkus(new Set());
+        pauseRef.current = false;
+        abortRef.current = false;
+        setStartTime(Date.now());
+
+        toast.success(`Investigación iniciada: ${res.session.products.length} productos`);
+        setStatus('RUNNING');
+
+        // Run sequentially
+        await runResearch(res.session.products, res.session.sessionId);
+    }, [pin, limit, runResearch]);
 
     // ========================================================================
     // PAUSE / RESUME / STOP
