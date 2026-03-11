@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useRef, useCallback } from 'react';
-import { Globe, Play, Pause, CheckCircle2, XCircle, Search, AlertTriangle, TrendingUp, TrendingDown, Minus, Lock, Loader2, Clock, ExternalLink, BarChart3, Zap } from 'lucide-react';
+import { Globe, Play, Pause, CheckCircle2, XCircle, Search, AlertTriangle, TrendingUp, TrendingDown, Minus, Lock, Loader2, Clock, ExternalLink, BarChart3, Zap, ShieldCheck, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { startPriceResearchSecure, researchSingleProductSecure, applyResearchPricesSecure } from '@/actions/price-research';
 import type { ProductResearchResult } from '@/lib/web-price-search';
@@ -32,7 +32,7 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
     // Research state
     const [status, setStatus] = useState<ResearchStatus>('IDLE');
     const [sessionId, setSessionId] = useState('');
-    const [products, setProducts] = useState<Array<{ name: string; sku: string; currentPrice: number }>>([]);
+    const [products, setProducts] = useState<Array<{ name: string; sku: string; currentPrice: number; costPrice: number }>>([]);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [currentProduct, setCurrentProduct] = useState('');
     const [results, setResults] = useState<ProductResearchResult[]>([]);
@@ -97,6 +97,7 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
                 product.name,
                 product.sku,
                 product.currentPrice,
+                product.costPrice,
                 sid,
                 pin
             );
@@ -104,9 +105,12 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
             if (res.success && res.result) {
                 setResults(prev => [...prev, res.result!]);
 
-                // Auto-select products with significant price difference (>5% cheaper in market)
-                if (res.result.priceDiffPercent < -5 && res.result.marketPriceAvg > 0) {
-                    setSelectedSkus(prev => new Set([...prev, res.result!.sku]));
+                // Auto-select products with smartPrice recommendation that differs significantly
+                if (res.result.smartPrice && !res.result.smartPrice.marginProtectionApplied) {
+                    const diff = Math.abs(res.result.smartPrice.recommendedPrice - res.result.currentPrice);
+                    if (diff > res.result.currentPrice * 0.02) { // >2% difference
+                        setSelectedSkus(prev => new Set([...prev, res.result!.sku]));
+                    }
                 }
             }
 
@@ -153,12 +157,12 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
         }
 
         const items = results
-            .filter(r => selectedSkus.has(r.sku) && r.marketPriceAvg > 0)
-            .map(r => ({ sku: r.sku, newPrice: r.marketPriceAvg }));
+            .filter(r => selectedSkus.has(r.sku) && r.smartPrice)
+            .map(r => ({ sku: r.sku, newPrice: r.smartPrice!.recommendedPrice }));
 
         if (items.length === 0) return;
 
-        if (!confirm(`¿Aplicar precio de mercado a ${items.length} productos? Los precios serán redondeados a $50 CLP.`)) return;
+        if (!confirm(`¿Aplicar precio inteligente a ${items.length} productos?\n\nReglas aplicadas:\n• Outliers filtrados (ofertas flash)\n• Mediana del mercado como referencia\n• Descuento competitivo del 3%\n• Precio protegido: nunca bajo el costo + 15% margen\n• Redondeado a $50 CLP`)) return;
 
         setIsApplying(true);
         const res = await applyResearchPricesSecure({ pin, sessionId, items });
@@ -264,8 +268,14 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
                                 </div>
                                 <h3 className="text-lg font-bold text-slate-800">Configurar Investigación</h3>
                                 <p className="text-sm text-slate-500 mt-1">
-                                    El sistema buscará precios de cada producto en farmacias online chilenas usando DuckDuckGo.
+                                    El sistema buscará precios en farmacias online chilenas y calculará un <strong>precio competitivo inteligente</strong>:
                                 </p>
+                                <ul className="text-xs text-slate-500 mt-2 space-y-1 ml-4 list-disc">
+                                    <li>Filtra ofertas flash y precios inflados (IQR)</li>
+                                    <li>Usa la <strong>mediana</strong> del mercado (no el mínimo ni promedio)</li>
+                                    <li>Aplica -3% descuento competitivo</li>
+                                    <li>Protege margen: nunca bajo costo + 15%</li>
+                                </ul>
                             </div>
 
                             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
@@ -403,25 +413,27 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
                                             <tr>
                                                 <th className="px-3 py-2.5 text-left font-semibold text-slate-600 w-8">✓</th>
                                                 <th className="px-3 py-2.5 text-left font-semibold text-slate-600">Producto</th>
-                                                <th className="px-3 py-2.5 text-right font-semibold text-slate-600">Precio Actual</th>
-                                                <th className="px-3 py-2.5 text-right font-semibold text-emerald-700 bg-emerald-50/50">Precio Web Mín</th>
-                                                <th className="px-3 py-2.5 text-right font-semibold text-blue-700 bg-blue-50/50">Precio Web Avg</th>
+                                                <th className="px-3 py-2.5 text-right font-semibold text-slate-600">Actual</th>
+                                                <th className="px-3 py-2.5 text-right font-semibold text-slate-500">Costo</th>
+                                                <th className="px-3 py-2.5 text-right font-semibold text-blue-700 bg-blue-50/50">Mediana Web</th>
+                                                <th className="px-3 py-2.5 text-right font-semibold text-indigo-700 bg-indigo-50/50">🧠 Recomendado</th>
                                                 <th className="px-3 py-2.5 text-center font-semibold text-slate-600">Δ%</th>
                                                 <th className="px-3 py-2.5 text-center font-semibold text-slate-600">Fuentes</th>
-                                                <th className="px-3 py-2.5 text-center font-semibold text-slate-600">Confianza</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100">
                                             {results.map((r) => {
-                                                const hasPrice = r.marketPriceAvg > 0;
-                                                const diff = r.priceDiffPercent;
+                                                const hasSmartPrice = r.smartPrice !== null && r.smartPrice !== undefined;
+                                                const diff = hasSmartPrice
+                                                    ? Math.round(((r.smartPrice!.recommendedPrice - r.currentPrice) / r.currentPrice) * 100)
+                                                    : 0;
                                                 return (
                                                     <tr
                                                         key={r.sku}
                                                         className={`hover:bg-slate-50 transition-colors ${selectedSkus.has(r.sku) ? 'bg-indigo-50/50' : ''}`}
                                                     >
                                                         <td className="px-3 py-2.5">
-                                                            {hasPrice && (
+                                                            {hasSmartPrice && (
                                                                 <input
                                                                     type="checkbox"
                                                                     checked={selectedSkus.has(r.sku)}
@@ -439,14 +451,29 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
                                                         <td className="px-3 py-2.5 text-right font-mono font-medium text-slate-700">
                                                             {formatPrice(r.currentPrice)}
                                                         </td>
-                                                        <td className="px-3 py-2.5 text-right font-mono font-bold text-emerald-700 bg-emerald-50/30">
-                                                            {hasPrice ? formatPrice(r.marketPriceMin) : <span className="text-slate-300">-</span>}
+                                                        <td className="px-3 py-2.5 text-right font-mono text-xs text-slate-400">
+                                                            {r.costPrice > 0 ? formatPrice(r.costPrice) : <span className="text-slate-200">-</span>}
                                                         </td>
-                                                        <td className="px-3 py-2.5 text-right font-mono font-bold text-blue-700 bg-blue-50/30">
-                                                            {hasPrice ? formatPrice(r.marketPriceAvg) : <span className="text-slate-300">-</span>}
+                                                        <td className="px-3 py-2.5 text-right font-mono font-medium text-blue-700 bg-blue-50/30">
+                                                            {hasSmartPrice ? formatPrice(r.smartPrice!.medianPrice) : <span className="text-slate-300">-</span>}
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-right bg-indigo-50/30">
+                                                            {hasSmartPrice ? (
+                                                                <div className="flex items-center justify-end gap-1" title={r.smartPrice!.reasoning}>
+                                                                    <span className="font-mono font-bold text-indigo-700">
+                                                                        {formatPrice(r.smartPrice!.recommendedPrice)}
+                                                                    </span>
+                                                                    {r.smartPrice!.marginProtectionApplied && (
+                                                                        <span title="Protección de margen activada"><ShieldCheck size={12} className="text-amber-500" /></span>
+                                                                    )}
+                                                                    {r.smartPrice!.outlierLowPrices.length > 0 && (
+                                                                        <span title={`${r.smartPrice!.outlierLowPrices.length} oferta(s) flash descartada(s)`}><Info size={10} className="text-slate-400" /></span>
+                                                                    )}
+                                                                </div>
+                                                            ) : <span className="text-slate-300">-</span>}
                                                         </td>
                                                         <td className="px-3 py-2.5 text-center">
-                                                            {hasPrice ? (
+                                                            {hasSmartPrice ? (
                                                                 <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${diff > 5 ? 'bg-red-100 text-red-700' : diff < -5 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
                                                                     {diff > 0 ? <TrendingUp size={10} /> : diff < 0 ? <TrendingDown size={10} /> : <Minus size={10} />}
                                                                     {diff > 0 ? '+' : ''}{diff}%
@@ -471,17 +498,6 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
                                                                     ))}
                                                                 </div>
                                                             ) : <span className="text-slate-300 text-xs">Sin datos</span>}
-                                                        </td>
-                                                        <td className="px-3 py-2.5 text-center">
-                                                            {r.webResults.length > 0 ? (
-                                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${r.webResults.some(w => w.confidence === 'HIGH') ? 'bg-emerald-100 text-emerald-700' :
-                                                                    r.webResults.some(w => w.confidence === 'MEDIUM') ? 'bg-amber-100 text-amber-700' :
-                                                                        'bg-slate-100 text-slate-500'
-                                                                    }`}>
-                                                                    {r.webResults.some(w => w.confidence === 'HIGH') ? 'ALTA' :
-                                                                        r.webResults.some(w => w.confidence === 'MEDIUM') ? 'MEDIA' : 'BAJA'}
-                                                                </span>
-                                                            ) : <span className="text-slate-300 text-xs">-</span>}
                                                         </td>
                                                     </tr>
                                                 );

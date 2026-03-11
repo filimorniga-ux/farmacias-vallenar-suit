@@ -23,12 +23,37 @@ export interface ProductResearchResult {
     productName: string;
     sku: string;
     currentPrice: number;
+    costPrice: number;
     webResults: WebPriceResult[];
     marketPriceMin: number;
     marketPriceMax: number;
     marketPriceAvg: number;
     priceDiffPercent: number;   // (avg_mercado - actual) / actual * 100
+    smartPrice: SmartPriceResult | null;
     researchedAt: string;
+}
+
+/**
+ * Resultado del algoritmo inteligente de selección de precios.
+ * Filtra outliers, usa mediana, aplica descuento competitivo y protege margen.
+ */
+export interface SmartPriceResult {
+    /** Precio recomendado final (redondeado a $50 CLP) */
+    recommendedPrice: number;
+    /** Precio mediana del mercado (sin descuento) */
+    medianPrice: number;
+    /** Precios después de filtrar outliers */
+    filteredPrices: number[];
+    /** Precios descartados como outliers bajos (ofertas flash) */
+    outlierLowPrices: number[];
+    /** Precios descartados como outliers altos */
+    outlierHighPrices: number[];
+    /** Descuento competitivo aplicado (%) */
+    competitiveDiscountPercent: number;
+    /** Si se aplicó protección de margen (precio no baja de costo + margen mínimo) */
+    marginProtectionApplied: boolean;
+    /** Razón legible del precio calculado */
+    reasoning: string;
 }
 
 // ============================================================================
@@ -268,6 +293,233 @@ export function calculateConfidence(resultTitle: string, productName: string): '
 }
 
 // ============================================================================
+// SMART PRICE ALGORITHM
+// ============================================================================
+
+/**
+ * Configuración del algoritmo de precios inteligentes.
+ */
+export interface SmartPriceConfig {
+    /** Descuento competitivo a aplicar (1-10%). Default: 3% */
+    competitiveDiscountPercent: number;
+    /** Margen mínimo sobre el costo (%). Default: 15% */
+    minMarginPercent: number;
+    /** Solo considerar resultados con confianza >= este nivel. Default: 'MEDIUM' */
+    minConfidence: 'HIGH' | 'MEDIUM' | 'LOW';
+}
+
+const DEFAULT_SMART_CONFIG: SmartPriceConfig = {
+    competitiveDiscountPercent: 3,
+    minMarginPercent: 15,
+    minConfidence: 'MEDIUM',
+};
+
+/**
+ * Algoritmo inteligente de selección de precio competitivo.
+ * 
+ * Reglas:
+ * 1. Filtra outliers usando IQR (Interquartile Range) — elimina ofertas flash y precios inflados
+ * 2. Usa la MEDIANA como precio de referencia (más robusto que promedio)
+ * 3. Aplica descuento competitivo configurable (1-10%) para ser competitivo
+ * 4. NUNCA baja del costo + margen mínimo (protección de pérdida)
+ * 5. Redondea a $50 CLP (regla de negocio)
+ */
+export function calculateSmartPrice(
+    webResults: WebPriceResult[],
+    currentPrice: number,
+    costPrice: number,
+    config: Partial<SmartPriceConfig> = {}
+): SmartPriceResult | null {
+    const cfg = { ...DEFAULT_SMART_CONFIG, ...config };
+
+    // 1. Filtrar por confianza mínima
+    const confidenceOrder = { HIGH: 3, MEDIUM: 2, LOW: 1 };
+    const minConfLevel = confidenceOrder[cfg.minConfidence];
+    const confidentResults = webResults.filter(
+        r => confidenceOrder[r.confidence] >= minConfLevel && r.price > 0
+    );
+
+    if (confidentResults.length < 2) {
+        // Sin suficientes datos confiables
+        return null;
+    }
+
+    const allPrices = confidentResults.map(r => r.price).sort((a, b) => a - b);
+
+    // 2. Filtrar outliers con IQR (Interquartile Range)
+    const { filtered, outlierLow, outlierHigh } = filterOutliersIQR(allPrices);
+
+    if (filtered.length === 0) {
+        return null;
+    }
+
+    // 3. Calcular mediana del set filtrado
+    const medianPrice = calculateMedian(filtered);
+
+    // 4. Aplicar descuento competitivo
+    const discountFactor = 1 - (cfg.competitiveDiscountPercent / 100);
+    let recommendedPrice = Math.round(medianPrice * discountFactor);
+
+    // 5. Protección de margen: nunca por debajo del costo + margen mínimo
+    let marginProtectionApplied = false;
+    if (costPrice > 0) {
+        const minAllowedPrice = Math.round(costPrice * (1 + cfg.minMarginPercent / 100));
+        if (recommendedPrice < minAllowedPrice) {
+            recommendedPrice = minAllowedPrice;
+            marginProtectionApplied = true;
+        }
+    }
+
+    // 6. Redondear a $50 CLP (hacia arriba)
+    recommendedPrice = Math.ceil(recommendedPrice / 50) * 50;
+
+    // 7. Generar razonamiento legible
+    const reasoning = buildReasoning(
+        allPrices.length,
+        filtered.length,
+        outlierLow,
+        outlierHigh,
+        medianPrice,
+        cfg.competitiveDiscountPercent,
+        recommendedPrice,
+        currentPrice,
+        costPrice,
+        marginProtectionApplied
+    );
+
+    return {
+        recommendedPrice,
+        medianPrice,
+        filteredPrices: filtered,
+        outlierLowPrices: outlierLow,
+        outlierHighPrices: outlierHigh,
+        competitiveDiscountPercent: cfg.competitiveDiscountPercent,
+        marginProtectionApplied,
+        reasoning,
+    };
+}
+
+/**
+ * Filtra outliers usando el método IQR (Interquartile Range).
+ * 
+ * Los precios fuera de [Q1 - 1.5*IQR, Q3 + 1.5*IQR] son outliers.
+ * Esto elimina automáticamente ofertas flash (Q1-) y precios inflados (Q3+).
+ */
+export function filterOutliersIQR(sortedPrices: number[]): {
+    filtered: number[];
+    outlierLow: number[];
+    outlierHigh: number[];
+} {
+    if (sortedPrices.length < 3) {
+        // Con menos de 3 datos no podemos calcular IQR, retornar todo
+        return { filtered: [...sortedPrices], outlierLow: [], outlierHigh: [] };
+    }
+
+    const q1 = calculatePercentile(sortedPrices, 25);
+    const q3 = calculatePercentile(sortedPrices, 75);
+    const iqr = q3 - q1;
+
+    // Si IQR es 0 (todos los precios iguales o muy similares), usar 10% del valor
+    const effectiveIQR = iqr > 0 ? iqr : q1 * 0.1;
+
+    const lowerBound = q1 - 1.5 * effectiveIQR;
+    const upperBound = q3 + 1.5 * effectiveIQR;
+
+    const filtered: number[] = [];
+    const outlierLow: number[] = [];
+    const outlierHigh: number[] = [];
+
+    for (const price of sortedPrices) {
+        if (price < lowerBound) {
+            outlierLow.push(price);
+        } else if (price > upperBound) {
+            outlierHigh.push(price);
+        } else {
+            filtered.push(price);
+        }
+    }
+
+    // Seguridad: si todo fue filtrado, retornar todo menos extremos
+    if (filtered.length === 0) {
+        return {
+            filtered: sortedPrices.slice(
+                Math.floor(sortedPrices.length * 0.1),
+                Math.ceil(sortedPrices.length * 0.9) || sortedPrices.length
+            ),
+            outlierLow: [],
+            outlierHigh: [],
+        };
+    }
+
+    return { filtered, outlierLow, outlierHigh };
+}
+
+/**
+ * Calcula la mediana de un array ordenado.
+ */
+export function calculateMedian(sorted: number[]): number {
+    if (sorted.length === 0) return 0;
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 !== 0
+        ? sorted[mid]
+        : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+}
+
+/**
+ * Calcula un percentil de un array ordenado.
+ */
+export function calculatePercentile(sorted: number[], percentile: number): number {
+    if (sorted.length === 0) return 0;
+    const index = (percentile / 100) * (sorted.length - 1);
+    const lower = Math.floor(index);
+    const upper = Math.ceil(index);
+    if (lower === upper) return sorted[lower];
+    return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower);
+}
+
+function buildReasoning(
+    totalPrices: number,
+    filteredCount: number,
+    outlierLow: number[],
+    outlierHigh: number[],
+    medianPrice: number,
+    discount: number,
+    recommended: number,
+    current: number,
+    cost: number,
+    marginProtected: boolean
+): string {
+    const parts: string[] = [];
+
+    parts.push(`Se encontraron ${totalPrices} precios en el mercado.`);
+
+    if (outlierLow.length > 0) {
+        parts.push(`Se descartaron ${outlierLow.length} precio(s) muy bajo(s) como ofertas flash ($${outlierLow.map(p => p.toLocaleString()).join(', $')}).`);
+    }
+    if (outlierHigh.length > 0) {
+        parts.push(`Se descartaron ${outlierHigh.length} precio(s) inflado(s) ($${outlierHigh.map(p => p.toLocaleString()).join(', $')}).`);
+    }
+
+    parts.push(`Mediana del mercado: $${medianPrice.toLocaleString()}.`);
+    parts.push(`Descuento competitivo: -${discount}%.`);
+
+    if (marginProtected) {
+        parts.push(`⚠️ Protección de margen activada: el precio no baja del costo ($${cost.toLocaleString()}) + margen mínimo.`);
+    }
+
+    const diff = recommended - current;
+    if (diff > 0) {
+        parts.push(`📈 Recomendación: subir $${diff.toLocaleString()} (+${Math.round(diff / current * 100)}%).`);
+    } else if (diff < 0) {
+        parts.push(`📉 Recomendación: bajar $${Math.abs(diff).toLocaleString()} (${Math.round(diff / current * 100)}%).`);
+    } else {
+        parts.push(`✅ Precio actual es competitivo.`);
+    }
+
+    return parts.join(' ');
+}
+
+// ============================================================================
 // BATCH PROCESSING
 // ============================================================================
 
@@ -286,9 +538,10 @@ export interface BatchProgress {
  * Usa un callback para reportar progreso (compatible con SSE).
  */
 export async function researchPricesBatch(
-    products: Array<{ name: string; sku: string; currentPrice: number }>,
+    products: Array<{ name: string; sku: string; currentPrice: number; costPrice: number }>,
     onProgress: (progress: BatchProgress) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    smartConfig?: Partial<SmartPriceConfig>
 ): Promise<ProductResearchResult[]> {
     const results: ProductResearchResult[] = [];
     const startTime = Date.now();
@@ -327,15 +580,20 @@ export async function researchPricesBatch(
                 ? Math.round(((marketPriceAvg - product.currentPrice) / product.currentPrice) * 10000) / 100
                 : 0;
 
+            // Calculate smart price recommendation
+            const smartPrice = calculateSmartPrice(webResults, product.currentPrice, product.costPrice, smartConfig);
+
             const result: ProductResearchResult = {
                 productName: product.name,
                 sku: product.sku,
                 currentPrice: product.currentPrice,
+                costPrice: product.costPrice,
                 webResults,
                 marketPriceMin,
                 marketPriceMax,
                 marketPriceAvg,
                 priceDiffPercent,
+                smartPrice,
                 researchedAt: new Date().toISOString(),
             };
 

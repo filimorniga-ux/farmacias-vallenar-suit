@@ -10,6 +10,10 @@ import {
     calculateConfidence,
     identifySource,
     parseSearchResults,
+    filterOutliersIQR,
+    calculateMedian,
+    calculateSmartPrice,
+    type WebPriceResult,
 } from '../../src/lib/web-price-search';
 
 // ============================================================================
@@ -178,5 +182,137 @@ describe('parseSearchResults', () => {
         `;
         const results = parseSearchResults(html, 'test');
         expect(results).toHaveLength(0);
+    });
+});
+
+// ============================================================================
+// filterOutliersIQR
+// ============================================================================
+
+describe('filterOutliersIQR', () => {
+    it('filtra outlier bajo (oferta flash)', () => {
+        // Normal: 5000, 5100, 5200, 5300, 5400 — Outlier: 990
+        const sorted = [990, 5000, 5100, 5200, 5300, 5400];
+        const { filtered, outlierLow } = filterOutliersIQR(sorted);
+        expect(outlierLow).toContain(990);
+        expect(filtered).not.toContain(990);
+    });
+
+    it('filtra outlier alto (precio inflado)', () => {
+        const sorted = [5000, 5100, 5200, 5300, 5400, 15000];
+        const { filtered, outlierHigh } = filterOutliersIQR(sorted);
+        expect(outlierHigh).toContain(15000);
+        expect(filtered).not.toContain(15000);
+    });
+
+    it('retorna todo si ≤2 elementos', () => {
+        const sorted = [5000, 5500];
+        const { filtered } = filterOutliersIQR(sorted);
+        expect(filtered).toEqual([5000, 5500]);
+    });
+
+    it('mantiene precios dentro del rango normal', () => {
+        const sorted = [4800, 4900, 5000, 5100, 5200];
+        const { filtered, outlierLow, outlierHigh } = filterOutliersIQR(sorted);
+        expect(filtered.length).toBe(5);
+        expect(outlierLow.length).toBe(0);
+        expect(outlierHigh.length).toBe(0);
+    });
+});
+
+// ============================================================================
+// calculateMedian
+// ============================================================================
+
+describe('calculateMedian', () => {
+    it('mediana de array impar', () => {
+        expect(calculateMedian([1000, 2000, 3000])).toBe(2000);
+    });
+
+    it('mediana de array par (promedio de los 2 centrales)', () => {
+        expect(calculateMedian([1000, 2000, 3000, 4000])).toBe(2500);
+    });
+
+    it('retorna 0 para array vacío', () => {
+        expect(calculateMedian([])).toBe(0);
+    });
+});
+
+// ============================================================================
+// calculateSmartPrice
+// ============================================================================
+
+describe('calculateSmartPrice', () => {
+    const makeResults = (prices: number[], confidence: 'HIGH' | 'MEDIUM' | 'LOW' = 'HIGH'): WebPriceResult[] =>
+        prices.map((price, i) => ({
+            source: `Source ${i}`,
+            price,
+            url: `https://example${i}.cl`,
+            title: `Product ${i}`,
+            confidence,
+        }));
+
+    it('aplica descuento competitivo del 3% sobre la mediana', () => {
+        const results = makeResults([10000, 10000, 10000, 10000]);
+        const smart = calculateSmartPrice(results, 12000, 5000);
+        expect(smart).not.toBeNull();
+        // Mediana = 10000, -3% = 9700, redondeado a $50 CLP = 9700
+        expect(smart!.recommendedPrice).toBe(9700);
+        expect(smart!.medianPrice).toBe(10000);
+        expect(smart!.competitiveDiscountPercent).toBe(3);
+    });
+
+    it('protege margen: no baja del costo + 15%', () => {
+        const results = makeResults([3000, 3100, 3200, 3300]);
+        const smart = calculateSmartPrice(results, 10000, 8000); // costo alto
+        expect(smart).not.toBeNull();
+        // Mediana = 3150, -3% = 3056, pero costo+15% = 9200
+        // Margen protegido: 9200, redondeado $50 = 9200
+        expect(smart!.marginProtectionApplied).toBe(true);
+        expect(smart!.recommendedPrice).toBeGreaterThanOrEqual(9200);
+    });
+
+    it('filtra outliers bajos (ofertas flash)', () => {
+        const results = makeResults([500, 10000, 10100, 10200, 10300, 10400]);
+        const smart = calculateSmartPrice(results, 12000, 5000);
+        expect(smart).not.toBeNull();
+        expect(smart!.outlierLowPrices.length).toBeGreaterThan(0);
+        expect(smart!.outlierLowPrices).toContain(500);
+    });
+
+    it('retorna null con <2 resultados confiables', () => {
+        const results = makeResults([5000]); // solo 1
+        const smart = calculateSmartPrice(results, 10000, 3000);
+        expect(smart).toBeNull();
+    });
+
+    it('ignora resultados con confianza LOW por defecto', () => {
+        const results = makeResults([5000, 5100, 5200], 'LOW');
+        const smart = calculateSmartPrice(results, 10000, 3000);
+        // minConfidence default = MEDIUM, so LOW results are ignored
+        expect(smart).toBeNull();
+    });
+
+    it('incluye resultados LOW si se configura minConfidence=LOW', () => {
+        const results = makeResults([5000, 5100, 5200], 'LOW');
+        const smart = calculateSmartPrice(results, 10000, 3000, { minConfidence: 'LOW' });
+        expect(smart).not.toBeNull();
+    });
+
+    it('permite configurar descuento competitivo personalizado', () => {
+        const results = makeResults([10000, 10000, 10000, 10000]);
+        const smart5 = calculateSmartPrice(results, 12000, 5000, { competitiveDiscountPercent: 5 });
+        const smart1 = calculateSmartPrice(results, 12000, 5000, { competitiveDiscountPercent: 1 });
+        expect(smart5).not.toBeNull();
+        expect(smart1).not.toBeNull();
+        // 5% discount should be cheaper than 1%
+        expect(smart5!.recommendedPrice).toBeLessThan(smart1!.recommendedPrice);
+    });
+
+    it('redondea a $50 CLP', () => {
+        const results = makeResults([10000, 10000, 10000, 10000]);
+        const smart = calculateSmartPrice(results, 12000, 5000);
+        expect(smart).not.toBeNull();
+        expect(smart!.recommendedPrice % 50).toBe(0);
     });
 });

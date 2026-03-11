@@ -9,7 +9,7 @@
 
 import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
-import { researchPricesBatch, type ProductResearchResult } from '@/lib/web-price-search';
+import { researchPricesBatch, calculateSmartPrice, type ProductResearchResult } from '@/lib/web-price-search';
 import { v4 as uuidv4 } from 'uuid';
 
 // ============================================================================
@@ -26,7 +26,7 @@ interface StartResearchParams {
 interface ResearchSession {
     sessionId: string;
     total: number;
-    products: Array<{ name: string; sku: string; currentPrice: number }>;
+    products: Array<{ name: string; sku: string; currentPrice: number; costPrice: number }>;
 }
 
 // ============================================================================
@@ -54,7 +54,7 @@ export async function startPriceResearchSecure(params: StartResearchParams): Pro
         // 2. Build product list query
         let sql = `
             SELECT DISTINCT ON (p.id)
-                p.id, p.name, p.sku, p.barcode, p.sale_price
+                p.id, p.name, p.sku, p.barcode, p.sale_price, p.cost_price
             FROM products p
             WHERE p.sale_price > 0
               AND p.name IS NOT NULL
@@ -90,6 +90,7 @@ export async function startPriceResearchSecure(params: StartResearchParams): Pro
             name: String(row.name || ''),
             sku: String(row.sku || ''),
             currentPrice: Number(row.sale_price) || 0,
+            costPrice: Number(row.cost_price) || 0,
         }));
 
         logger.info(`[PriceResearch] Session ${sessionId} started with ${products.length} products`);
@@ -121,6 +122,7 @@ export async function researchSingleProductSecure(
     productName: string,
     sku: string,
     currentPrice: number,
+    costPrice: number,
     sessionId: string,
     pin: string
 ): Promise<{ success: boolean; result?: ProductResearchResult; error?: string }> {
@@ -151,6 +153,9 @@ export async function researchSingleProductSecure(
             ? Math.round(((marketPriceAvg - currentPrice) / currentPrice) * 10000) / 100
             : 0;
 
+        // Calculate smart price (outlier filtering + competitive discount + margin protection)
+        const smartPrice = calculateSmartPrice(webResults, currentPrice, costPrice);
+
         const bestConfidence = webResults.length > 0
             ? (webResults.some(r => r.confidence === 'HIGH') ? 'HIGH' : webResults.some(r => r.confidence === 'MEDIUM') ? 'MEDIUM' : 'LOW')
             : 'LOW';
@@ -168,8 +173,8 @@ export async function researchSingleProductSecure(
             currentPrice,
             marketPriceMin,
             marketPriceMax,
-            marketPriceAvg,
-            JSON.stringify(webResults),
+            smartPrice ? smartPrice.recommendedPrice : marketPriceAvg,
+            JSON.stringify({ webResults, smartPrice }),
             priceDiffPercent,
             bestConfidence,
         ]);
@@ -178,11 +183,13 @@ export async function researchSingleProductSecure(
             productName,
             sku,
             currentPrice,
+            costPrice,
             webResults,
             marketPriceMin,
             marketPriceMax,
             marketPriceAvg,
             priceDiffPercent,
+            smartPrice,
             researchedAt: new Date().toISOString(),
         };
 
