@@ -94,6 +94,43 @@ contextBridge.exposeInMainWorld('electronAPI', {
         getDir: () =>
             ipcRenderer.invoke('backup-get-dir'),
     },
+
+    // ─────────────────────────────────────────────
+    // WEB PRICE SEARCH API (BrowserWindow-based)
+    // ─────────────────────────────────────────────
+    webPriceSearch: {
+        searchSingle: (productName, currentPrice, costPrice) =>
+            ipcRenderer.invoke('web-price-search-single', { productName, currentPrice, costPrice }),
+        startBatch: (products) =>
+            ipcRenderer.invoke('web-price-search-batch-start', { products }),
+        pauseBatch: () =>
+            ipcRenderer.invoke('web-price-search-batch-pause'),
+        stopBatch: () =>
+            ipcRenderer.invoke('web-price-search-batch-stop'),
+        getStatus: () =>
+            ipcRenderer.invoke('web-price-search-status'),
+
+        // Event listeners for batch processing
+        onProgress: (callback) => {
+            ipcRenderer.on('web-price-progress', (event, data) => callback(data));
+        },
+        onResult: (callback) => {
+            ipcRenderer.on('web-price-result', (event, data) => callback(data));
+        },
+        onComplete: (callback) => {
+            ipcRenderer.on('web-price-complete', (event, data) => callback(data));
+        },
+        onError: (callback) => {
+            ipcRenderer.on('web-price-error', (event, data) => callback(data));
+        },
+        // Remove all listeners (cleanup)
+        removeAllListeners: () => {
+            ipcRenderer.removeAllListeners('web-price-progress');
+            ipcRenderer.removeAllListeners('web-price-result');
+            ipcRenderer.removeAllListeners('web-price-complete');
+            ipcRenderer.removeAllListeners('web-price-error');
+        },
+    },
 });
 
 // Legacy support (backwards compatibility)

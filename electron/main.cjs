@@ -283,6 +283,52 @@ ipcMain.handle('get-price-audit-status', () => {
 });
 
 // ---------------------------------------------------------
+// WEB PRICE SEARCH IPC HANDLERS (BrowserWindow-based)
+// ---------------------------------------------------------
+const webPriceEngine = require('./webPriceEngine.cjs');
+
+// Search single product via hidden BrowserWindow
+ipcMain.handle('web-price-search-single', async (event, { productName, currentPrice, costPrice }) => {
+    try {
+        return await webPriceEngine.searchSingleProduct(productName, currentPrice, costPrice);
+    } catch (error) {
+        log.error('Web price search error:', error);
+        return { success: false, error: error.message };
+    }
+});
+
+// Start batch price search
+ipcMain.handle('web-price-search-batch-start', async (event, { products }) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { success: false, error: 'No window found' };
+
+    try {
+        log.info(`[WebPrice] Starting batch — ${products.length} products`);
+        // Run non-blocking
+        webPriceEngine.runBatch(win, products);
+        return { success: true, message: 'Batch started' };
+    } catch (error) {
+        log.error('[WebPrice] Failed to start batch:', error);
+        return { success: false, error: error.message };
+    }
+});
+
+// Pause/resume batch
+ipcMain.handle('web-price-search-batch-pause', () => {
+    return webPriceEngine.pauseBatch();
+});
+
+// Stop batch
+ipcMain.handle('web-price-search-batch-stop', () => {
+    return webPriceEngine.stopBatch();
+});
+
+// Get status
+ipcMain.handle('web-price-search-status', () => {
+    return webPriceEngine.getStatus();
+});
+
+// ---------------------------------------------------------
 // OFFLINE DATABASE IPC HANDLERS
 // ---------------------------------------------------------
 
