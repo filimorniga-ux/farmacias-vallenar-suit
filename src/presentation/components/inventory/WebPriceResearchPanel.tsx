@@ -47,11 +47,11 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
     // START RESEARCH
     // ========================================================================
 
-    // Detect Electron environment
-    const isElectron = typeof window !== 'undefined'
-        && 'electronAPI' in window
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        && !!(window as any).electronAPI?.webPriceSearch;
+    // Detect Electron environment (two-stage check)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const electronAPI = typeof window !== 'undefined' && 'electronAPI' in window ? (window as any).electronAPI : null;
+    const isElectronEnv = !!electronAPI?.isElectron;
+    const hasElectronSearch = !!electronAPI?.webPriceSearch;
 
     /**
      * Fallback: server-side search (degraded — DuckDuckGo blocks server fetch).
@@ -106,8 +106,7 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
      * This avoids DuckDuckGo CAPTCHA/anomaly blocks. $0 costo.
      */
     const startElectronBatchSearch = useCallback((productList: typeof products) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const api = (window as any).electronAPI.webPriceSearch;
+        const api = electronAPI.webPriceSearch;
 
         // Register event listeners
         api.onProgress((data: { current: number; total: number; productName: string; sku: string }) => {
@@ -146,7 +145,7 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
 
         // Start batch (non-blocking — results come via events)
         api.startBatch(productList);
-    }, []);
+    }, [electronAPI]);
 
     const handleStart = useCallback(async () => {
         if (!pin || pin.length < 4) {
@@ -154,8 +153,9 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
             return;
         }
 
-        if (!isElectron) {
-            toast.error('⚠️ Investigación de precios solo disponible en la app de escritorio (Electron). DuckDuckGo bloquea búsquedas desde el servidor.');
+        // Check if Electron with new API — prompt restart if old version
+        if (isElectronEnv && !hasElectronSearch) {
+            toast.error('🔄 Actualización necesaria: cierra y vuelve a abrir la app de escritorio para activar la búsqueda de precios mejorada.');
             return;
         }
 
@@ -181,41 +181,37 @@ export default function WebPriceResearchPanel({ onClose }: WebPriceResearchPanel
         toast.success(`Investigación iniciada: ${res.session.products.length} productos`);
         setStatus('RUNNING');
 
-        if (isElectron) {
+        if (hasElectronSearch) {
             startElectronBatchSearch(res.session.products);
         } else {
             await runResearchServerFallback(res.session.products, res.session.sessionId);
         }
-    }, [pin, limit, isElectron, startElectronBatchSearch, runResearchServerFallback]);
+    }, [pin, limit, hasElectronSearch, startElectronBatchSearch, runResearchServerFallback]);
 
     // ========================================================================
     // PAUSE / RESUME / STOP
     // ========================================================================
 
     const handlePause = () => {
-        if (isElectron) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (window as any).electronAPI.webPriceSearch.pauseBatch();
+        if (hasElectronSearch) {
+            electronAPI.webPriceSearch.pauseBatch();
         }
         pauseRef.current = true;
         setStatus('PAUSED');
     };
 
     const handleResume = () => {
-        if (isElectron) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (window as any).electronAPI.webPriceSearch.pauseBatch(); // toggle
+        if (hasElectronSearch) {
+            electronAPI.webPriceSearch.pauseBatch(); // toggle
         }
         pauseRef.current = false;
         setStatus('RUNNING');
     };
 
     const handleStop = () => {
-        if (isElectron) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (window as any).electronAPI.webPriceSearch.stopBatch();
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (window as any).electronAPI.webPriceSearch.removeAllListeners();
+        if (hasElectronSearch) {
+            electronAPI.webPriceSearch.stopBatch();
+            electronAPI.webPriceSearch.removeAllListeners();
         }
         abortRef.current = true;
         pauseRef.current = false;
