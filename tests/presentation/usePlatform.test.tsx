@@ -60,4 +60,37 @@ describe('usePlatform', () => {
         expect(result.current.isDesktopLike).toBe(true);
         expect(result.current.isMobile).toBe(false);
     });
+
+    it('recalcula viewport al orientationchange con delay de 100ms', () => {
+        vi.useFakeTimers();
+        try {
+            setUserAgent('Mozilla/5.0 (Linux; Android 14; Pixel 7)');
+            setViewport(390, 844);
+            const { result } = renderHook(() => usePlatform());
+
+            expect(result.current.isLandscape).toBe(false);
+            expect(result.current.viewportWidth).toBe(390);
+
+            act(() => {
+                setViewport(920, 430);
+                window.dispatchEvent(new Event('orientationchange'));
+            });
+
+            // Antes de los 100ms, aún conserva el viewport previo.
+            expect(result.current.viewportWidth).toBe(390);
+            expect(result.current.isLandscape).toBe(false);
+
+            act(() => {
+                vi.advanceTimersByTime(100);
+            });
+
+            expect(result.current.viewportWidth).toBe(920);
+            expect(result.current.viewportHeight).toBe(430);
+            expect(result.current.isLandscape).toBe(true);
+            expect(result.current.isDesktopLike).toBe(true);
+            expect(result.current.isMobile).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });
