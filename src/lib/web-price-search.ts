@@ -460,12 +460,17 @@ export function calculateSmartPrice(
     let prices = confidentResults.map(r => r.price).sort((a, b) => a - b);
 
     // 2. SANITY FILTER: discard prices wildly different from current price
-    if (currentPrice > 0) {
+    // Only apply if currentPrice >= 500. If currentPrice is 0 or 400 (very old data),
+    // the sanity bounds (120-1200) would be too strict and reject real valid prices.
+    if (currentPrice >= 500) {
         const sanityLow = currentPrice * 0.30;
         const sanityHigh = currentPrice * 3.00;
         const sane = prices.filter(p => p >= sanityLow && p <= sanityHigh);
         if (sane.length > 0) {
             prices = sane;
+        } else {
+            // NO prices are within sanity bounds. Better to return NO RESULT than an absurd price.
+            return null;
         }
     }
 

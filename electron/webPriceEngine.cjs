@@ -251,9 +251,19 @@ async function searchGoogleShopping(query) {
                             const titleEl = card.querySelector('h3, .tAxDx, a.translate-content, [class*="title"]');
                             const title = titleEl ? titleEl.textContent.trim() : '';
                             
-                            // Price — Google Shopping uses various patterns
-                            const priceEl = card.querySelector('.a8Pemb, .HRLxBb, [class*="price"], b');
-                            const priceText = priceEl ? priceEl.textContent.trim() : '';
+                            // Price — Google Shopping uses specific classes for the main price
+                            // .a8Pemb is the most common price class. We avoid general tags like 'b' which grab random bold text.
+                            const priceEl = card.querySelector('.a8Pemb, .HRLxBb, span[aria-hidden="true"]');
+                            let priceText = priceEl ? priceEl.textContent.trim() : '';
+                            
+                            // Prevent grabbing shipping costs like "Envío: $4.000"
+                            if (card.textContent.includes('Envío') || card.textContent.includes('despacho')) {
+                                // Double check the price element isn't inside a shipping div
+                                const shippingEl = card.querySelector('.vEjMR');
+                                if (shippingEl && shippingEl.contains(priceEl)) {
+                                    priceText = '';
+                                }
+                            }
                             
                             // Merchant / source
                             const merchantEl = card.querySelector('.aULzUe, .IuHnof, [class*="merchant"]');
@@ -596,10 +606,17 @@ function calculateSmartPrice(webResults, currentPrice, costPrice) {
     if (currentPrice > 0) {
         const sanityLow = currentPrice * 0.30;
         const sanityHigh = currentPrice * 3.00;
-        const sane = prices.filter(p => p >= sanityLow && p <= sanityHigh);
-        // Only apply sanity filter if it leaves us with results
-        if (sane.length > 0) {
-            prices = sane;
+        // Only apply sanity filter if currentPrice > 0 and sanity boundaries are reasonable (e.g., currentPrice > 500)
+        // If the current price is practically zero (e.g. 400), the sanity checker becomes too strict.
+        if (currentPrice >= 500) {
+            const sane = prices.filter(p => p >= sanityLow && p <= sanityHigh);
+            if (sane.length > 0) {
+                prices = sane;
+            } else {
+                // If NO prices are sane, it means we scraped entirely different/wrong products.
+                // It's better to return NO RESULT than to suggest an absurd 95% discount.
+                return null;
+            }
         }
     }
 

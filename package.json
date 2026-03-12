@@ -1,7 +1,7 @@
 {
   "name": "farmacias-vallenar-suit",
   "private": true,
-  "version": "1.0.18",
+  "version": "1.0.19",
   "description": "Sistema de gestión integral para Farmacias Vallenar",
   "repository": {
     "type": "git",
