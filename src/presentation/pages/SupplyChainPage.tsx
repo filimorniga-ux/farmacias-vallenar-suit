@@ -1134,7 +1134,7 @@ const SupplyChainPage: React.FC = () => {
                                 selectedOrder.destination_location_id || fallbackLocationId
                             );
                         }}
-                        onFinalizeReview={(orderId, reviewNotes) => finalizePurchaseOrderReview(orderId, reviewNotes)}
+                        onFinalizeReview={(orderId, reviewNotes, items) => finalizePurchaseOrderReview(orderId, reviewNotes, items)}
                     />
                 )
             }

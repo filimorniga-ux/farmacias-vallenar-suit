@@ -1266,8 +1266,14 @@ export async function generateRestockSuggestionSecure(
             LEFT JOIN SalesHistory sh ON tp.product_id = sh.product_id
             LEFT JOIN GlobalStockDetail gs ON tp.product_id = gs.product_id
             
-            -- Sort by highest sales volume first (Top N)
-            ORDER BY total_sold_in_period DESC, tp.product_name ASC
+            -- Sort by stock urgency first (Critical/Zero stock), then by highest sales volume (Top N)
+            ORDER BY 
+                CASE 
+                    WHEN COALESCE(cs.total_stock, 0) <= COALESCE(tp.safety_stock, 0) THEN 0
+                    ELSE 1
+                END ASC,
+                total_sold_in_period DESC, 
+                tp.product_name ASC
             LIMIT $3
         `;
 

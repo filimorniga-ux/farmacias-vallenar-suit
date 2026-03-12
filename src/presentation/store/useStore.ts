@@ -79,7 +79,7 @@ interface PharmaState {
     transferStock: (batchId: string, targetLocation: string, quantity: number) => Promise<void>;
     addPurchaseOrder: (po: PurchaseOrder) => void;
     receivePurchaseOrder: (poId: string, receivedItems: { sku: string, receivedQty: number; lotNumber?: string; expiryDate?: number }[], destinationLocationId: string) => Promise<void>;
-    finalizePurchaseOrderReview: (poId: string, reviewNotes?: string) => Promise<void>;
+    finalizePurchaseOrderReview: (poId: string, reviewNotes?: string, receivedItems?: { sku: string; receivedQty: number; lotNumber?: string; expiryDate?: number }[]) => Promise<void>;
     cancelPurchaseOrder: (poId: string) => void;
     removePurchaseOrder: (poId: string) => void;
     updatePurchaseOrder: (id: string, data: Partial<PurchaseOrder>) => void;
