@@ -567,27 +567,73 @@ function calculatePercentile(sorted, percentile) {
 }
 
 /**
- * Smart Price calculation (same algorithm as web-price-search.ts).
+ * Smart Price v2 — Conservative market-based pricing.
+ *
+ * Algorithm:
+ * 1. Filter by confidence (HIGH/MEDIUM only)
+ * 2. SANITY FILTER: discard prices that are <30% or >300% of current price
+ *    (these are almost certainly different products/concentrations)
+ * 3. Filter outliers via IQR
+ * 4. Find MODE (most repeated price bucket, rounded to $500) — if no mode, use median
+ * 5. Recommend = market price (NO competitive discount)
+ * 6. Protect margin: never below cost + 15%
+ * 7. Round to $50 CLP
  */
 function calculateSmartPrice(webResults, currentPrice, costPrice) {
-    const cfg = { competitiveDiscountPercent: 3, minMarginPercent: 15 };
+    const cfg = { minMarginPercent: 15 };
 
     const confidentResults = webResults.filter(
         r => (r.confidence === 'HIGH' || r.confidence === 'MEDIUM') && r.price > 0
     );
 
-    // Relaxed: accept with just 1 confident result (was 2)
     if (confidentResults.length < 1) return null;
 
-    const allPrices = confidentResults.map(r => r.price).sort((a, b) => a - b);
-    const { filtered, outlierLow, outlierHigh } = filterOutliersIQR(allPrices);
+    let prices = confidentResults.map(r => r.price).sort((a, b) => a - b);
+
+    // SANITY FILTER: discard prices wildly different from current price.
+    // If currentPrice is known, prices <30% or >300% of it are likely
+    // from a different product (different concentration, pack size, or form).
+    if (currentPrice > 0) {
+        const sanityLow = currentPrice * 0.30;
+        const sanityHigh = currentPrice * 3.00;
+        const sane = prices.filter(p => p >= sanityLow && p <= sanityHigh);
+        // Only apply sanity filter if it leaves us with results
+        if (sane.length > 0) {
+            prices = sane;
+        }
+    }
+
+    const { filtered, outlierLow, outlierHigh } = filterOutliersIQR(prices);
 
     if (filtered.length === 0) return null;
 
-    const medianPrice = calculateMedian(filtered);
-    const discountFactor = 1 - (cfg.competitiveDiscountPercent / 100);
-    let recommendedPrice = Math.round(medianPrice * discountFactor);
+    // MODE: find the most common price bucket (rounded to nearest $500)
+    // This gives us the "price that most stores agree on"
+    const bucketSize = 500;
+    const buckets = {};
+    for (const p of filtered) {
+        const bucket = Math.round(p / bucketSize) * bucketSize;
+        buckets[bucket] = (buckets[bucket] || 0) + 1;
+    }
+    
+    let modePrice = null;
+    let maxCount = 0;
+    for (const [bucket, count] of Object.entries(buckets)) {
+        if (count > maxCount) {
+            maxCount = count;
+            modePrice = parseInt(bucket, 10);
+        }
+    }
 
+    const medianPrice = calculateMedian(filtered);
+    
+    // Use MODE if it appears more than once, otherwise use MEDIAN
+    const referencePrice = (maxCount >= 2 && modePrice !== null) ? modePrice : medianPrice;
+
+    // NO competitive discount — recommend the market price as-is
+    let recommendedPrice = referencePrice;
+
+    // Margin protection: never below cost + min margin
     let marginProtectionApplied = false;
     if (costPrice > 0) {
         const minAllowedPrice = Math.round(costPrice * (1 + cfg.minMarginPercent / 100));
@@ -600,15 +646,17 @@ function calculateSmartPrice(webResults, currentPrice, costPrice) {
     // Round to $50 CLP
     recommendedPrice = Math.ceil(recommendedPrice / 50) * 50;
 
+    const usedMode = (maxCount >= 2 && modePrice !== null);
+
     return {
         recommendedPrice,
         medianPrice,
         filteredPrices: filtered,
         outlierLowPrices: outlierLow,
         outlierHighPrices: outlierHigh,
-        competitiveDiscountPercent: cfg.competitiveDiscountPercent,
+        competitiveDiscountPercent: 0,
         marginProtectionApplied,
-        reasoning: `${allPrices.length} precios encontrados, ${filtered.length} válidos. Mediana: $${medianPrice.toLocaleString()}. Descuento: -${cfg.competitiveDiscountPercent}%.${marginProtectionApplied ? ' ⚠️ Protección de margen activada.' : ''}`,
+        reasoning: `${prices.length} precios válidos, ${filtered.length} tras filtros. ${usedMode ? `Moda: $${modePrice.toLocaleString()} (×${maxCount})` : `Mediana: $${medianPrice.toLocaleString()}`}. Sin descuento aplicado.${marginProtectionApplied ? ' ⚠️ Protección de margen.' : ''}`,
     };
 }
 
