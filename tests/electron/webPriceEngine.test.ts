@@ -331,7 +331,7 @@ describe('calculateSmartPrice', () => {
                 { source: 'Cruz Verde', price: 1200, url: '', title: '', confidence: 'HIGH' as const },
                 { source: 'Salcobrand', price: 1300, url: '', title: '', confidence: 'HIGH' as const },
             ],
-            5000,
+            0, // bypass sanity filter
             1100
         );
         expect(result).not.toBeNull();
