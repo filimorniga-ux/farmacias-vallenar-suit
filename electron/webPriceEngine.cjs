@@ -25,11 +25,62 @@ const CONFIG = {
     /** Random jitter added to delay (ms) */
     jitterMs: 1500,
     /** Timeout waiting for page load (ms) */
-    pageLoadTimeoutMs: 12000,
+    pageLoadTimeoutMs: 15000,
     /** Max results to extract per search */
-    maxResultsPerProduct: 8,
+    maxResultsPerProduct: 10,
     /** User agent (matches real Chrome) */
     userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+};
+
+/** Common pharmacy abbreviations → expanded Spanish */
+const PHARMA_ABBREVIATIONS = {
+    'sol.oft.': 'solucion oftalmica',
+    'sol.oft': 'solucion oftalmica',
+    'sol oft': 'solucion oftalmica',
+    'sol.iny.': 'solucion inyectable',
+    'sol.iny': 'solucion inyectable',
+    'sol.oral': 'solucion oral',
+    'sol.nas.': 'solucion nasal',
+    'sol.nas': 'solucion nasal',
+    'comp.rec.': 'comprimidos recubiertos',
+    'comp.': 'comprimidos',
+    'comp ': 'comprimidos ',
+    'cap.': 'capsulas',
+    'cap ': 'capsulas ',
+    'caps.': 'capsulas',
+    'caps ': 'capsulas ',
+    'tab.': 'tabletas',
+    'tab ': 'tabletas ',
+    'buc.': 'bucal',
+    'antisep.': 'antiseptico',
+    'susp.': 'suspension',
+    'susp ': 'suspension ',
+    'amp.': 'ampollas',
+    'amp ': 'ampollas ',
+    'jbe.': 'jarabe',
+    'jbe ': 'jarabe ',
+    'cr.': 'crema',
+    'cr ': 'crema ',
+    'ung.': 'unguento',
+    'ung ': 'unguento ',
+    'sup.': 'supositorios',
+    'sup ': 'supositorios ',
+    'iny.': 'inyectable',
+    'iny ': 'inyectable ',
+    'gts.': 'gotas',
+    'gts ': 'gotas ',
+    'pol.': 'polvo',
+    'pol ': 'polvo ',
+    'sob.': 'sobres',
+    'sob ': 'sobres ',
+    'pom.': 'pomada',
+    'pom ': 'pomada ',
+    'aer.': 'aerosol',
+    'aer ': 'aerosol ',
+    'sol.': 'solucion',
+    'sol ': 'solucion ',
+    'lab.': 'laboratorio',
+    'lab ': 'laboratorio ',
 };
 
 /** Trusted Chilean pharmacy domains */
@@ -105,32 +156,24 @@ function destroyHiddenWindow() {
 /**
  * Searches DuckDuckGo for a product using a real browser.
  * Returns raw text data from the results page.
- *
- * @param {string} productName - Product name to search
- * @returns {Promise<{results: Array<{title: string, url: string, snippet: string}>}>}
  */
-async function searchWithBrowser(productName) {
+async function searchDuckDuckGo(query) {
     const win = getOrCreateHiddenWindow();
-    const query = buildSearchQuery(productName);
     const searchUrl = `https://duckduckgo.com/?q=${encodeURIComponent(query)}&kl=cl-es&ia=web`;
 
     return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
-            reject(new Error('Page load timeout'));
+            resolve({ results: [], pageTitle: 'timeout' });
         }, CONFIG.pageLoadTimeoutMs);
 
         win.webContents.once('did-finish-load', async () => {
             clearTimeout(timeout);
-
-            // Wait a bit for JS rendering
             await sleep(1500);
 
             try {
-                // Extract search results from real rendered DOM
                 const data = await win.webContents.executeJavaScript(`
                     (function() {
                         const results = [];
-                        // DuckDuckGo renders results in article[data-testid="result"] or .result
                         const articles = document.querySelectorAll('article[data-testid="result"], .result, [data-nrn="result"]');
                         
                         articles.forEach((article, i) => {
@@ -149,38 +192,197 @@ async function searchWithBrowser(productName) {
                             }
                         });
                         
-                        // Fallback: extract all visible text if no structured results
                         if (results.length === 0) {
                             const bodyText = document.body ? document.body.innerText : '';
-                            // Try to find price patterns in raw body text
                             results.push({ title: '', url: '', snippet: bodyText.substring(0, 5000) });
                         }
                         
                         return { results, pageTitle: document.title };
                     })()
                 `);
-
                 resolve(data);
             } catch (err) {
                 reject(err);
             }
         });
 
-        win.webContents.once('did-fail-load', (event, errorCode, errorDescription) => {
+        win.webContents.once('did-fail-load', () => {
             clearTimeout(timeout);
-            reject(new Error(`Page load failed: ${errorDescription}`));
+            resolve({ results: [], pageTitle: 'fail' });
         });
 
-        win.loadURL(searchUrl).catch(err => {
+        win.loadURL(searchUrl).catch(() => {
             clearTimeout(timeout);
-            reject(err);
+            resolve({ results: [], pageTitle: 'error' });
         });
     });
+}
+
+/**
+ * Searches Google Shopping for a product (fallback).
+ * Google Shopping shows prices directly in structured product cards.
+ */
+async function searchGoogleShopping(query) {
+    const win = getOrCreateHiddenWindow();
+    const searchUrl = `https://www.google.cl/search?q=${encodeURIComponent(query)}&tbm=shop&hl=es`;
+
+    return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            resolve({ results: [], pageTitle: 'timeout' });
+        }, CONFIG.pageLoadTimeoutMs);
+
+        win.webContents.once('did-finish-load', async () => {
+            clearTimeout(timeout);
+            await sleep(2000);
+
+            try {
+                const data = await win.webContents.executeJavaScript(`
+                    (function() {
+                        const results = [];
+                        
+                        // Google Shopping renders products in a grid
+                        // Each card has a title, price, and merchant name
+                        const cards = document.querySelectorAll('.sh-dgr__content, .sh-dlr__list-result, [data-docid], .KZmu8e');
+                        
+                        cards.forEach((card, i) => {
+                            if (i >= ${CONFIG.maxResultsPerProduct}) return;
+                            
+                            // Title
+                            const titleEl = card.querySelector('h3, .tAxDx, a.translate-content, [class*="title"]');
+                            const title = titleEl ? titleEl.textContent.trim() : '';
+                            
+                            // Price — Google Shopping uses various patterns
+                            const priceEl = card.querySelector('.a8Pemb, .HRLxBb, [class*="price"], b');
+                            const priceText = priceEl ? priceEl.textContent.trim() : '';
+                            
+                            // Merchant / source
+                            const merchantEl = card.querySelector('.aULzUe, .IuHnof, [class*="merchant"]');
+                            const merchant = merchantEl ? merchantEl.textContent.trim() : '';
+                            
+                            // Link
+                            const linkEl = card.querySelector('a');
+                            const url = linkEl ? linkEl.href : '';
+                            
+                            if (title || priceText) {
+                                results.push({ 
+                                    title: title, 
+                                    url: url, 
+                                    snippet: priceText + ' ' + merchant,
+                                    merchant: merchant
+                                });
+                            }
+                        });
+                        
+                        // Fallback: try to get all visible text with prices
+                        if (results.length === 0) {
+                            const bodyText = document.body ? document.body.innerText : '';
+                            results.push({ title: '', url: '', snippet: bodyText.substring(0, 8000), merchant: '' });
+                        }
+                        
+                        return { results, pageTitle: document.title };
+                    })()
+                `);
+                resolve(data);
+            } catch (err) {
+                reject(err);
+            }
+        });
+
+        win.webContents.once('did-fail-load', () => {
+            clearTimeout(timeout);
+            resolve({ results: [], pageTitle: 'fail' });
+        });
+
+        win.loadURL(searchUrl).catch(() => {
+            clearTimeout(timeout);
+            resolve({ results: [], pageTitle: 'error' });
+        });
+    });
+}
+
+/**
+ * Multi-strategy search: DuckDuckGo first, Google Shopping fallback.
+ */
+async function searchWithBrowser(productName) {
+    const normalizedName = normalizeProductName(productName);
+    const query = buildSearchQuery(normalizedName);
+
+    // Strategy 1: DuckDuckGo
+    const ddgResults = await searchDuckDuckGo(query);
+    
+    // Check if we got usable price data from DuckDuckGo
+    const ddgHasPrices = ddgResults.results.some(r => {
+        const text = `${r.title} ${r.snippet}`;
+        return extractCLPPrices(text).length > 0;
+    });
+
+    if (ddgHasPrices && ddgResults.results.length > 1) {
+        return ddgResults;
+    }
+
+    // Strategy 2: Google Shopping (better for pharmacy prices)
+    console.log(`[WebPriceEngine] DDG no prices for "${productName}", trying Google Shopping...`);
+    await sleep(1000); // Brief pause between engines
+    const gsResults = await searchGoogleShopping(query);
+    
+    // Merge: Google Shopping results first, then DDG
+    return {
+        results: [...gsResults.results, ...ddgResults.results],
+        pageTitle: gsResults.pageTitle,
+    };
 }
 
 // ============================================================================
 // PARSERS (pure functions, same logic as web-price-search.ts)
 // ============================================================================
+
+/**
+ * Normalizes pharmacy product names by expanding abbreviations,
+ * cleaning special characters, and formatting for better search results.
+ * 
+ * Examples:
+ *   "3A OFTENO SOL.OFT.0,1%5ML"         → "3A Ofteno Solucion Oftalmica 0.1% 5ml"
+ *   "AB ANTISEP.BUC.12COM."              → "AB Antiseptico Bucal 12 comprimidos"
+ *   "AARTAM METRONIDAZOL 500MG X20"      → "Metronidazol 500 mg x20"
+ *   "[AL DETAL] PARACETAMOL 500MG COMP." → "Paracetamol 500 mg comprimidos"
+ */
+function normalizeProductName(productName) {
+    let name = productName
+        .replace(/^\s*\[AL DETAL\]\s*/i, '')
+        .replace(/^\s*\[FRACCIONADO\]\s*/i, '')
+        .trim();
+
+    // Expand abbreviations (case-insensitive, order matters: longer first)
+    const sortedAbbrevs = Object.entries(PHARMA_ABBREVIATIONS)
+        .sort((a, b) => b[0].length - a[0].length);
+    
+    let lower = name.toLowerCase();
+    for (const [abbrev, expansion] of sortedAbbrevs) {
+        if (lower.includes(abbrev)) {
+            // Replace only the first occurrence
+            const idx = lower.indexOf(abbrev);
+            name = name.substring(0, idx) + expansion + name.substring(idx + abbrev.length);
+            lower = name.toLowerCase();
+        }
+    }
+
+    // Separate numbers stuck to units: "500MG" → "500 mg", "0,1%5ML" → "0.1% 5ml"
+    name = name
+        .replace(/(\d+),(\d+)/g, '$1.$2')               // comma → dot in decimals
+        .replace(/(\d)(mg|ml|mcg|g|ui|iu|%)/gi, '$1 $2')  // separate num+unit
+        .replace(/(%)\s*(\d)/g, '$1 $2')                  // separate % from next number
+        .replace(/(\d+)\s*(com|und|tab|cap)/gi, '$1 $2') // separate num+form count
+        .replace(/\./g, (match, offset, str) => {          // remove trailing dots
+            // Don't remove dots in decimal numbers like 0.1
+            if (/\d/.test(str[offset - 1] || '') && /\d/.test(str[offset + 1] || '')) return '.';
+            return ' ';
+        });
+
+    // Collapse multiple spaces, strip trailing whitespace
+    name = name.replace(/\s+/g, ' ').trim();
+
+    return name;
+}
 
 /**
  * Builds search query optimized for Chilean pharmacies.
@@ -193,8 +395,8 @@ function buildSearchQuery(productName) {
         .trim();
 
     const words = clean.split(' ');
-    if (words.length > 6) {
-        clean = words.slice(0, 6).join(' ');
+    if (words.length > 8) {
+        clean = words.slice(0, 8).join(' ');
     }
 
     return `${clean} precio farmacia Chile`;
@@ -232,37 +434,78 @@ function extractCLPPrices(text) {
 }
 
 /**
- * Identifies trusted pharmacy source from URL.
+ * Identifies source from URL.
+ * Returns trusted source if known, or generic .cl domain, or null.
  */
 function identifySource(url) {
     const lower = (url || '').toLowerCase();
+
+    // Check trusted sources first (pharmacy-specific)
     for (const [domain, name] of Object.entries(TRUSTED_SOURCES)) {
         if (lower.includes(domain)) {
-            return { name, domain };
+            return { name, domain, trusted: true };
         }
     }
+
+    // Accept ANY .cl domain as a Chilean source
+    const clMatch = lower.match(/(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+\.cl)/i);
+    if (clMatch) {
+        const domain = clMatch[1];
+        // Prettify: "redfarma.cl" → "Redfarma"
+        const name = domain.replace('.cl', '').replace(/-/g, ' ')
+            .replace(/\b\w/g, c => c.toUpperCase());
+        return { name, domain, trusted: false };
+    }
+
+    // Google Shopping merchant text (not a URL)
+    if (lower && !lower.startsWith('http') && lower.length > 2) {
+        return { name: lower.trim(), domain: 'google-shopping', trusted: false };
+    }
+
     return null;
 }
 
 /**
- * Calculates match confidence.
+ * Calculates match confidence using fuzzy character matching.
+ * Compares the *normalized* product name against the search result title.
+ * Uses both word-level and character-level matching.
  */
 function calculateConfidence(resultTitle, productName) {
     const titleLower = (resultTitle || '').toLowerCase();
-    const nameLower = productName.toLowerCase()
-        .replace(/^\s*\[al detal\]\s*/i, '')
-        .replace(/^\s*\[fraccionado\]\s*/i, '');
+    const normalizedName = normalizeProductName(productName).toLowerCase();
 
-    const stopWords = new Set(['con', 'del', 'para', 'que', 'los', 'las', 'por', 'una', 'comp', 'lab', 'und']);
-    const nameWords = nameLower.split(/\s+/).filter(w => w.length >= 3 && !stopWords.has(w));
+    // Stop words que no aportan a la coincidencia
+    const stopWords = new Set(['con', 'del', 'para', 'que', 'los', 'las', 'por', 'una',
+        'und', 'precio', 'farmacia', 'chile', 'comprar', 'oferta', 'venta']);
+
+    const nameWords = normalizedName.split(/\s+/).filter(w => w.length >= 2 && !stopWords.has(w));
 
     if (nameWords.length === 0) return 'LOW';
 
-    const matchCount = nameWords.filter(word => titleLower.includes(word)).length;
-    const matchRatio = matchCount / nameWords.length;
+    // Word-level matching (original approach, but with normalized name)
+    const wordMatchCount = nameWords.filter(word => titleLower.includes(word)).length;
+    const wordMatchRatio = wordMatchCount / nameWords.length;
 
-    if (matchRatio >= 0.7) return 'HIGH';
-    if (matchRatio >= 0.4) return 'MEDIUM';
+    // Character-level fuzzy matching (new): 
+    // Compare significant chars from product name against title
+    const nameChars = normalizedName.replace(/[^a-z0-9]/g, '');
+    const titleChars = titleLower.replace(/[^a-z0-9]/g, '');
+    let charMatches = 0;
+    let searchFrom = 0;
+    for (const ch of nameChars) {
+        const idx = titleChars.indexOf(ch, searchFrom);
+        if (idx >= 0) {
+            charMatches++;
+            searchFrom = idx + 1;
+        }
+    }
+    const charMatchRatio = nameChars.length > 0 ? charMatches / nameChars.length : 0;
+
+    // Combined score: weight words more, but chars help with abbreviations
+    const combinedScore = wordMatchRatio * 0.6 + charMatchRatio * 0.4;
+
+    if (combinedScore >= 0.50) return 'HIGH';
+    if (combinedScore >= 0.30) return 'MEDIUM';
     return 'LOW';
 }
 
@@ -333,7 +576,8 @@ function calculateSmartPrice(webResults, currentPrice, costPrice) {
         r => (r.confidence === 'HIGH' || r.confidence === 'MEDIUM') && r.price > 0
     );
 
-    if (confidentResults.length < 2) return null;
+    // Relaxed: accept with just 1 confident result (was 2)
+    if (confidentResults.length < 1) return null;
 
     const allPrices = confidentResults.map(r => r.price).sort((a, b) => a - b);
     const { filtered, outlierLow, outlierHigh } = filterOutliersIQR(allPrices);
@@ -385,21 +629,27 @@ async function searchSingleProduct(productName, currentPrice, costPrice) {
             const prices = extractCLPPrices(fullText);
             if (prices.length === 0) continue;
 
-            const sourceInfo = identifySource(item.url);
-            if (!sourceInfo) continue;
+            // Accept ANY identifiable source (trusted .cl, generic .cl, or merchant text)
+            const sourceInfo = identifySource(item.url || item.merchant || '');
+            const sourceName = sourceInfo ? sourceInfo.name : 'Web';
 
-            const confidence = calculateConfidence(item.title, productName);
+            const confidence = calculateConfidence(item.title || item.snippet, productName);
             const validPrices = prices.filter(p => p >= 100 && p <= 500000);
             if (validPrices.length === 0) continue;
 
             const bestPrice = Math.min(...validPrices);
 
+            // Boost confidence if source is a known trusted pharmacy
+            const finalConfidence = (sourceInfo && sourceInfo.trusted && confidence === 'LOW') 
+                ? 'MEDIUM' 
+                : confidence;
+
             webResults.push({
-                source: sourceInfo.name,
+                source: sourceName,
                 price: bestPrice,
                 url: item.url || '',
                 title: (item.title || '').substring(0, 120),
-                confidence,
+                confidence: finalConfidence,
             });
         }
 
@@ -566,6 +816,7 @@ module.exports = {
     stopBatch,
     getStatus,
     // Export pure functions for testing
+    normalizeProductName,
     buildSearchQuery,
     extractCLPPrices,
     identifySource,
