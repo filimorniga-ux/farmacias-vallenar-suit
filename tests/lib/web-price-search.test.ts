@@ -252,29 +252,29 @@ describe('calculateSmartPrice', () => {
             confidence,
         }));
 
-    it('aplica descuento competitivo del 3% sobre la mediana', () => {
+    it('no aplica descuento competitivo (usa precio de mercado directo)', () => {
         const results = makeResults([10000, 10000, 10000, 10000]);
         const smart = calculateSmartPrice(results, 12000, 5000);
         expect(smart).not.toBeNull();
-        // Mediana = 10000, -3% = 9700, redondeado a $50 CLP = 9700
-        expect(smart!.recommendedPrice).toBe(9700);
+        expect(smart!.recommendedPrice).toBe(10000);
         expect(smart!.medianPrice).toBe(10000);
-        expect(smart!.competitiveDiscountPercent).toBe(3);
+        expect(smart!.competitiveDiscountPercent).toBe(0);
     });
 
     it('protege margen: no baja del costo + 15%', () => {
         const results = makeResults([3000, 3100, 3200, 3300]);
         const smart = calculateSmartPrice(results, 10000, 8000); // costo alto
         expect(smart).not.toBeNull();
-        // Mediana = 3150, -3% = 3056, pero costo+15% = 9200
+        // Mediana = 3150, costo+15% = 9200
         // Margen protegido: 9200, redondeado $50 = 9200
         expect(smart!.marginProtectionApplied).toBe(true);
         expect(smart!.recommendedPrice).toBeGreaterThanOrEqual(9200);
     });
 
-    it('filtra outliers bajos (ofertas flash)', () => {
+    it('filtra outliers bajos con IQR (ofertas flash)', () => {
         const results = makeResults([500, 10000, 10100, 10200, 10300, 10400]);
-        const smart = calculateSmartPrice(results, 12000, 5000);
+        // currentPrice = 0 evita que el filtro de "sanidad" lo elimine antes que el IQR
+        const smart = calculateSmartPrice(results, 0, 5000);
         expect(smart).not.toBeNull();
         expect(smart!.outlierLowPrices.length).toBeGreaterThan(0);
         expect(smart!.outlierLowPrices).toContain(500);
@@ -300,14 +300,13 @@ describe('calculateSmartPrice', () => {
         expect(smart).not.toBeNull();
     });
 
-    it('permite configurar descuento competitivo personalizado', () => {
-        const results = makeResults([10000, 10000, 10000, 10000]);
-        const smart5 = calculateSmartPrice(results, 12000, 5000, { competitiveDiscountPercent: 5 });
-        const smart1 = calculateSmartPrice(results, 12000, 5000, { competitiveDiscountPercent: 1 });
-        expect(smart5).not.toBeNull();
-        expect(smart1).not.toBeNull();
-        // 5% discount should be cheaper than 1%
-        expect(smart5!.recommendedPrice).toBeLessThan(smart1!.recommendedPrice);
+    it('aplica filtro de sanidad — descarta precios muy diferentes (ej: otro producto)', () => {
+        // Precio actual es 10000. Precio de 470 es <30% → debería ser descartado
+        const results = makeResults([470, 9500, 10200]);
+        const smart = calculateSmartPrice(results, 10000, 3000);
+        expect(smart).not.toBeNull();
+        // Recomendado debe estar cerca de 9500-10200, no tirado al suelo por el 470
+        expect(smart!.recommendedPrice).toBeGreaterThan(5000);
     });
 
     it('redondea a $50 CLP', () => {

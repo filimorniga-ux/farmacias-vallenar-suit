@@ -298,9 +298,10 @@ describe('calculateSmartPrice', () => {
         expect(result).not.toBeNull();
         expect(result?.medianPrice).toBe(12990);
         expect(result?.recommendedPrice).toBeGreaterThan(0);
+        expect(result?.competitiveDiscountPercent).toBe(0);
     });
 
-    it('generates smart price with two confident results', () => {
+    it('generates smart price with two confident results — no discount', () => {
         const result = calculateSmartPrice(
             [
                 { source: 'Cruz Verde', price: 12990, url: '', title: '', confidence: 'HIGH' as const },
@@ -310,8 +311,9 @@ describe('calculateSmartPrice', () => {
             5000
         );
         expect(result).not.toBeNull();
-        expect(result?.recommendedPrice).toBeGreaterThan(0);
-        expect(result?.recommendedPrice).toBeLessThan(15000);
+        expect(result?.competitiveDiscountPercent).toBe(0);
+        // Without discount, recommended should be close to median
+        expect(result?.recommendedPrice).toBeGreaterThanOrEqual(result!.medianPrice - 500);
     });
 
     it('returns null with zero confident results', () => {
@@ -339,16 +341,19 @@ describe('calculateSmartPrice', () => {
         );
     });
 
-    it('rounds to $50 CLP', () => {
+    it('applies sanity filter — discards wildly different prices', () => {
+        // Current price is 10000. Price of 470 is <30% → should be discarded
         const result = calculateSmartPrice(
             [
-                { source: 'Test', price: 10000, url: '', title: '', confidence: 'HIGH' as const },
-                { source: 'Test2', price: 10500, url: '', title: '', confidence: 'HIGH' as const },
+                { source: 'Web', price: 470, url: '', title: '', confidence: 'HIGH' as const },
+                { source: 'Cruz Verde', price: 9500, url: '', title: '', confidence: 'HIGH' as const },
+                { source: 'Salcobrand', price: 10200, url: '', title: '', confidence: 'HIGH' as const },
             ],
-            12000,
-            4000
+            10000,
+            3000
         );
         expect(result).not.toBeNull();
-        expect(result!.recommendedPrice % 50).toBe(0);
+        // Recommended should be near 9500-10200, not pulled down by 470
+        expect(result!.recommendedPrice).toBeGreaterThan(5000);
     });
 });
