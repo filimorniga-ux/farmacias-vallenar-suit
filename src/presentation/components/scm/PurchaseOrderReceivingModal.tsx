@@ -19,6 +19,7 @@ interface ItemReceptionState {
     expectedQty: number;
     receivedQty: number;
     lotNumber: string;
+    barcode?: string;
     expiryDate: string; // YYYY-MM-DD
 }
 
@@ -60,6 +61,7 @@ function mapToReceptionState(item: Record<string, unknown>, mode: 'RECEIVE' | 'V
     const expiryDate = parsedExpiry && !Number.isNaN(parsedExpiry.getTime())
         ? parsedExpiry.toISOString().slice(0, 10)
         : '';
+    const barcode = typeof item.barcode === 'string' ? item.barcode : (typeof item.gtin === 'string' ? item.gtin : undefined);
 
     return {
         sku,
@@ -67,6 +69,7 @@ function mapToReceptionState(item: Record<string, unknown>, mode: 'RECEIVE' | 'V
         expectedQty,
         receivedQty: mode === 'RECEIVE' ? expectedQty : receivedQty,
         lotNumber,
+        barcode,
         expiryDate
     };
 }
@@ -83,6 +86,76 @@ export const PurchaseOrderReceivingModal: React.FC<PurchaseOrderReceivingModalPr
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isLoadingItems, setIsLoadingItems] = useState(false);
     const [reviewNotes, setReviewNotes] = useState('');
+    const [scanInput, setScanInput] = useState('');
+
+    // --- Audio Feedback for Scanner ---
+    const playScannerBeep = (type: 'success' | 'error') => {
+        try {
+            const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gainNode = ctx.createGain();
+
+            osc.connect(gainNode);
+            gainNode.connect(ctx.destination);
+
+            if (type === 'success') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
+                gainNode.gain.setValueAtTime(0.5, ctx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + 0.1);
+            } else {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(200, ctx.currentTime);
+                osc.frequency.setValueAtTime(150, ctx.currentTime + 0.2);
+                gainNode.gain.setValueAtTime(0.5, ctx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + 0.3);
+            }
+        } catch (e) {
+            console.error('AudioContext error:', e);
+        }
+    };
+
+    const handleBarcodeScan = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter' && scanInput.trim()) {
+            e.preventDefault();
+            const code = scanInput.trim().toLowerCase();
+            
+            // Find item by SKU or Barcode
+            const itemIndex = items.findIndex(item => 
+                item.sku.toLowerCase() === code || 
+                item.barcode?.toLowerCase() === code
+            );
+
+            if (itemIndex >= 0) {
+                const item = items[itemIndex];
+                if (item.receivedQty < item.expectedQty || mode !== 'RECEIVE') {
+                    // Valid scan, increment quantity
+                    const newItems = [...items];
+                    newItems[itemIndex] = { 
+                        ...item, 
+                        receivedQty: Number(item.receivedQty) + 1 
+                    };
+                    setItems(newItems);
+                    playScannerBeep('success');
+                    toast.success(`+1 ${item.name}`, { duration: 1500 });
+                } else {
+                    playScannerBeep('error');
+                    toast.warning(`Ya recepcionaste la cantidad esperada de ${item.name}`);
+                }
+            } else {
+                // Item not in order
+                playScannerBeep('error');
+                toast.error(`El código ${code} no pertenece a esta orden.`);
+            }
+            
+            setScanInput(''); // Clear for next scan
+        }
+    };
 
     useEffect(() => {
         if (!order) {
@@ -212,6 +285,33 @@ export const PurchaseOrderReceivingModal: React.FC<PurchaseOrderReceivingModalPr
                     </div>
                     <button onClick={onClose} className="text-slate-400 hover:text-white transition bg-slate-800 p-2 rounded-lg hover:bg-slate-700">✕</button>
                 </div>
+
+                {/* Scanner Interface */}
+                {mode === 'RECEIVE' && (
+                    <div className="bg-slate-50 border-b border-slate-200 p-4 shrink-0 flex items-center gap-3">
+                        <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400">
+                                <path d="M3 7V5a2 2 0 0 1 2-2h2"></path>
+                                <path d="M17 3h2a2 2 0 0 1 2 2v2"></path>
+                                <path d="M21 17v2a2 2 0 0 1-2 2h-2"></path>
+                                <path d="M7 21H5a2 2 0 0 1-2-2v-2"></path>
+                                <line x1="7" y1="8" x2="7" y2="16"></line>
+                                <line x1="12" y1="8" x2="12" y2="16"></line>
+                                <line x1="17" y1="8" x2="17" y2="16"></line>
+                            </svg>
+                        </div>
+                        <input
+                            type="text"
+                            placeholder="Escanea el código de barras o SKU del producto aquí..."
+                            className="flex-1 p-3 text-lg border-2 border-indigo-100 rounded-lg outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 font-mono shadow-sm"
+                            value={scanInput}
+                            onChange={(e) => setScanInput(e.target.value)}
+                            onKeyDown={handleBarcodeScan}
+                            autoFocus
+                            disabled={isReadOnly}
+                        />
+                    </div>
+                )}
 
                 {/* Body */}
                 <div className="p-6 overflow-y-auto bg-slate-50 flex-1">
