@@ -85,7 +85,58 @@ const RATE_LIMIT_MS = 2500;
 const REQUEST_TIMEOUT_MS = 8000;
 
 /** Max resultados por producto */
-const MAX_RESULTS_PER_PRODUCT = 8;
+const MAX_RESULTS_PER_PRODUCT = 10;
+
+/** Common pharmacy abbreviations → expanded Spanish */
+const PHARMA_ABBREVIATIONS: Record<string, string> = {
+    'sol.oft.': 'solucion oftalmica',
+    'sol.oft': 'solucion oftalmica',
+    'sol oft': 'solucion oftalmica',
+    'sol.iny.': 'solucion inyectable',
+    'sol.iny': 'solucion inyectable',
+    'sol.oral': 'solucion oral',
+    'sol.nas.': 'solucion nasal',
+    'sol.nas': 'solucion nasal',
+    'comp.rec.': 'comprimidos recubiertos',
+    'comp.': 'comprimidos',
+    'comp ': 'comprimidos ',
+    'cap.': 'capsulas',
+    'cap ': 'capsulas ',
+    'caps.': 'capsulas',
+    'caps ': 'capsulas ',
+    'tab.': 'tabletas',
+    'tab ': 'tabletas ',
+    'buc.': 'bucal',
+    'antisep.': 'antiseptico',
+    'susp.': 'suspension',
+    'susp ': 'suspension ',
+    'amp.': 'ampollas',
+    'amp ': 'ampollas ',
+    'jbe.': 'jarabe',
+    'jbe ': 'jarabe ',
+    'cr.': 'crema',
+    'cr ': 'crema ',
+    'ung.': 'unguento',
+    'ung ': 'unguento ',
+    'sup.': 'supositorios',
+    'sup ': 'supositorios ',
+    'iny.': 'inyectable',
+    'iny ': 'inyectable ',
+    'gts.': 'gotas',
+    'gts ': 'gotas ',
+    'pol.': 'polvo',
+    'pol ': 'polvo ',
+    'sob.': 'sobres',
+    'sob ': 'sobres ',
+    'pom.': 'pomada',
+    'pom ': 'pomada ',
+    'aer.': 'aerosol',
+    'aer ': 'aerosol ',
+    'sol.': 'solucion',
+    'sol ': 'solucion ',
+    'lab.': 'laboratorio',
+    'lab ': 'laboratorio ',
+};
 
 // ============================================================================
 // CORE SEARCH FUNCTION
@@ -139,20 +190,53 @@ export async function searchProductPrice(productName: string): Promise<WebPriceR
  * Construye la query de búsqueda optimizada para farmacias Chile
  */
 export function buildSearchQuery(productName: string): string {
-    // Limpiar nombre: remover prefijos como "[AL DETAL]", códigos internos
     let clean = productName
         .replace(/^\s*\[AL DETAL\]\s*/i, '')
         .replace(/^\s*\[FRACCIONADO\]\s*/i, '')
         .replace(/\s+/g, ' ')
         .trim();
 
-    // Si el nombre es muy largo (>60 chars), truncar a las primeras 6 palabras
     const words = clean.split(' ');
-    if (words.length > 6) {
-        clean = words.slice(0, 6).join(' ');
+    if (words.length > 8) {
+        clean = words.slice(0, 8).join(' ');
     }
 
     return `${clean} precio farmacia Chile`;
+}
+
+/**
+ * Normalizes pharmacy product names by expanding abbreviations.
+ */
+export function normalizeProductName(productName: string): string {
+    let name = productName
+        .replace(/^\s*\[AL DETAL\]\s*/i, '')
+        .replace(/^\s*\[FRACCIONADO\]\s*/i, '')
+        .trim();
+
+    const sortedAbbrevs = Object.entries(PHARMA_ABBREVIATIONS)
+        .sort((a, b) => b[0].length - a[0].length);
+    
+    let lower = name.toLowerCase();
+    for (const [abbrev, expansion] of sortedAbbrevs) {
+        if (lower.includes(abbrev)) {
+            const idx = lower.indexOf(abbrev);
+            name = name.substring(0, idx) + expansion + name.substring(idx + abbrev.length);
+            lower = name.toLowerCase();
+        }
+    }
+
+    name = name
+        .replace(/(\d+),(\d+)/g, '$1.$2')
+        .replace(/(\d)(mg|ml|mcg|g|ui|iu|%)/gi, '$1 $2')
+        .replace(/(%)\s*(\d)/g, '$1 $2')
+        .replace(/(\d+)\s*(com|und|tab|cap)/gi, '$1 $2')
+        .replace(/\./g, (match: string, offset: number, str: string) => {
+            if (/\d/.test(str[offset - 1] || '') && /\d/.test(str[offset + 1] || '')) return '.';
+            return ' ';
+        });
+
+    name = name.replace(/\s+/g, ' ').trim();
+    return name;
 }
 
 // ============================================================================
@@ -259,38 +343,63 @@ export function extractCLPPrices(text: string): number[] {
 }
 
 /**
- * Identifica la fuente (farmacia) a partir de la URL
+ * Identifica la fuente a partir de la URL.
+ * Acepta fuentes confiables y cualquier dominio .cl.
  */
-export function identifySource(url: string): { name: string; domain: string } | null {
+export function identifySource(url: string): { name: string; domain: string; trusted?: boolean } | null {
     const lower = url.toLowerCase();
     for (const [domain, name] of Object.entries(TRUSTED_SOURCES)) {
         if (lower.includes(domain)) {
-            return { name, domain };
+            return { name, domain, trusted: true };
         }
     }
+
+    // Accept any .cl domain
+    const clMatch = lower.match(/(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+\.cl)/i);
+    if (clMatch) {
+        const domain = clMatch[1];
+        const name = domain.replace('.cl', '').replace(/-/g, ' ')
+            .replace(/\b\w/g, c => c.toUpperCase());
+        return { name, domain, trusted: false };
+    }
+
     return null;
 }
 
 /**
- * Calcula confianza del match basado en similitud del título
+ * Calcula confianza del match usando fuzzy matching (palabras + caracteres).
  */
 export function calculateConfidence(resultTitle: string, productName: string): 'HIGH' | 'MEDIUM' | 'LOW' {
     const titleLower = resultTitle.toLowerCase();
-    const nameLower = productName.toLowerCase()
-        .replace(/^\s*\[al detal\]\s*/i, '')
-        .replace(/^\s*\[fraccionado\]\s*/i, '');
+    const normalizedName = normalizeProductName(productName).toLowerCase();
 
-    // Extract key words (3+ chars, without common words)
-    const stopWords = new Set(['con', 'del', 'para', 'que', 'los', 'las', 'por', 'una', 'comp', 'lab', 'und']);
-    const nameWords = nameLower.split(/\s+/).filter(w => w.length >= 3 && !stopWords.has(w));
+    const stopWords = new Set(['con', 'del', 'para', 'que', 'los', 'las', 'por', 'una',
+        'und', 'precio', 'farmacia', 'chile', 'comprar', 'oferta', 'venta']);
+    const nameWords = normalizedName.split(/\s+/).filter(w => w.length >= 2 && !stopWords.has(w));
 
     if (nameWords.length === 0) return 'LOW';
 
-    const matchCount = nameWords.filter(word => titleLower.includes(word)).length;
-    const matchRatio = matchCount / nameWords.length;
+    const wordMatchCount = nameWords.filter(word => titleLower.includes(word)).length;
+    const wordMatchRatio = wordMatchCount / nameWords.length;
 
-    if (matchRatio >= 0.7) return 'HIGH';
-    if (matchRatio >= 0.4) return 'MEDIUM';
+    // Character-level fuzzy matching
+    const nameChars = normalizedName.replace(/[^a-z0-9]/g, '');
+    const titleChars = titleLower.replace(/[^a-z0-9]/g, '');
+    let charMatches = 0;
+    let searchFrom = 0;
+    for (const ch of nameChars) {
+        const idx = titleChars.indexOf(ch, searchFrom);
+        if (idx >= 0) {
+            charMatches++;
+            searchFrom = idx + 1;
+        }
+    }
+    const charMatchRatio = nameChars.length > 0 ? charMatches / nameChars.length : 0;
+
+    const combinedScore = wordMatchRatio * 0.6 + charMatchRatio * 0.4;
+
+    if (combinedScore >= 0.50) return 'HIGH';
+    if (combinedScore >= 0.30) return 'MEDIUM';
     return 'LOW';
 }
 
@@ -341,7 +450,7 @@ export function calculateSmartPrice(
         r => confidenceOrder[r.confidence] >= minConfLevel && r.price > 0
     );
 
-    if (confidentResults.length < 2) {
+    if (confidentResults.length < 1) {
         // Sin suficientes datos confiables
         return null;
     }

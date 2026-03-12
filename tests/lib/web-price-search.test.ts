@@ -77,10 +77,10 @@ describe('buildSearchQuery', () => {
         expect(q).toContain('IBUPROFENO');
     });
 
-    it('trunca nombres largos a 6 palabras', () => {
+    it('trunca nombres largos a 8 palabras', () => {
         const q = buildSearchQuery('AARTAM METRONIDAZOL 500MG X20 COMP LAB PINNACLE B EXTRA LONG NAME');
         const words = q.replace(' precio farmacia Chile', '').trim().split(' ');
-        expect(words.length).toBeLessThanOrEqual(6);
+        expect(words.length).toBeLessThanOrEqual(8);
     });
 });
 
@@ -280,10 +280,11 @@ describe('calculateSmartPrice', () => {
         expect(smart!.outlierLowPrices).toContain(500);
     });
 
-    it('retorna null con <2 resultados confiables', () => {
+    it('funciona con 1 resultado confiable (antes requería 2)', () => {
         const results = makeResults([5000]); // solo 1
         const smart = calculateSmartPrice(results, 10000, 3000);
-        expect(smart).toBeNull();
+        expect(smart).not.toBeNull();
+        expect(smart!.medianPrice).toBe(5000);
     });
 
     it('ignora resultados con confianza LOW por defecto', () => {
