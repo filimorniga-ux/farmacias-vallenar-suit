@@ -31,21 +31,33 @@ export default function LockScreen({ isLocked, onUnlock }: LockScreenProps) {
         setIsValidating(true);
         setError('');
 
-        try {
-            // Validate PIN against current user (using secure bcrypt version)
-            const result = await authenticateUserSecure(user.id, pin);
+        const attemptUnlock = async (retryCount = 0): Promise<void> => {
+            try {
+                // Validate PIN against current user (using secure bcrypt version)
+                const result = await authenticateUserSecure(user.id, pin);
 
-            if (result.success) {
-                onUnlock();
-            } else {
-                setError(result.error || 'PIN Incorrecto');
-                setPin('');
+                if (result.success) {
+                    onUnlock();
+                    setIsValidating(false);
+                } else {
+                    setError(result.error || 'PIN Incorrecto');
+                    setPin('');
+                    setIsValidating(false);
+                }
+            } catch (err) {
+                console.error('LockScreen unlock error:', err);
+                if (retryCount < 1) {
+                    // Retry after 1s to allow network/DB/Electron to wake up from Sleep/Hibernation
+                    setTimeout(() => attemptUnlock(retryCount + 1), 1000);
+                } else {
+                    setError('Error de conexión. Restaurando sesión...');
+                    // Fallback to full reload to restore stale Next.js tokens or dropped DB sockets
+                    setTimeout(() => window.location.reload(), 1500);
+                }
             }
-        } catch (err) {
-            setError('Error de conexión');
-        } finally {
-            setIsValidating(false);
-        }
+        };
+
+        attemptUnlock(0);
     };
 
     if (!isLocked) return null;
