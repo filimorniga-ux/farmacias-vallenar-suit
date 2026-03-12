@@ -83,6 +83,12 @@ const FinalizePOReviewSchema = z.object({
     purchaseOrderId: z.string().min(1),
     reviewNotes: z.string().max(1200).optional(),
     managerPin: z.string().min(4).optional(),
+    receivedItems: z.array(z.object({
+        sku: z.string().min(1),
+        quantity: z.number().int().nonnegative(),
+        lotNumber: z.string().optional(),
+        expiryDate: z.number().optional()
+    })).optional()
 });
 
 const SupplyHistoryFiltersSchema = z.object({
@@ -346,7 +352,7 @@ async function applyReviewedItemsToInventory(client: DBRow, params: {
     }>;
 }): Promise<{ success: boolean; error?: string }> {
     for (const item of params.items) {
-        if (item.quantityReceived <= 0) continue;
+        if (item.quantityReceived === 0) continue;
 
         const canonical = await resolveCanonicalProductBySku(client, item.sku);
         if (!canonical) {
@@ -660,7 +666,60 @@ export async function receivePurchaseOrderSecure(
 
         if (totalReceivedUnits <= 0) {
             await client.query('ROLLBACK');
-            return { success: false, error: 'Debe recepcionar al menos una unidad para continuar a revisión' };
+            return { success: false, error: 'Debe recepcionar al menos una unidad para procesar la orden' };
+        }
+
+        const warehouseId = String(po.target_warehouse_id || '');
+        let locationId = po.location_id ? String(po.location_id) : '';
+
+        if (!locationId) {
+            const whRes = await client.query('SELECT location_id FROM warehouses WHERE id = $1', [warehouseId]);
+            if (whRes.rows.length > 0 && whRes.rows[0].location_id) {
+                locationId = String(whRes.rows[0].location_id);
+            }
+        }
+
+        if (!locationId) {
+            const locRes = await client.query('SELECT id FROM locations ORDER BY id ASC LIMIT 1');
+            if (locRes.rows.length > 0 && locRes.rows[0].id) {
+                locationId = String(locRes.rows[0].id);
+            }
+        }
+
+        if (!locationId) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'No se pudo resolver ubicación de destino para ingreso de stock' };
+        }
+
+        const receivedItemsForInventory = itemsToReceive.map((item: any) => {
+            const existingRow = itemsBySku.get(String(item.sku));
+            const requestedQty = Number(item.quantity || 0);
+            const orderedQty = Number(existingRow?.quantity_ordered || 0);
+            const boundedQty = Math.max(0, Math.min(requestedQty, orderedQty));
+            return {
+                sku: String(item.sku),
+                name: String(existingRow?.name || 'Producto'),
+                quantityReceived: boundedQty,
+                costPrice: Number(existingRow?.cost_price || 0),
+                lotNumber: item.lotNumber ? String(item.lotNumber) : null,
+                expiryDate: item.expiryDate ?? null,
+            };
+        }).filter((item: any) => item.quantityReceived > 0);
+
+        const movementType = isTransferRequestOrder(po.notes) ? 'TRANSFER_IN' : 'PURCHASE_ENTRY';
+
+        const applyRes = await applyReviewedItemsToInventory(client, {
+            purchaseOrderId,
+            warehouseId,
+            locationId,
+            userId,
+            movementType,
+            items: receivedItemsForInventory,
+        });
+
+        if (!applyRes.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: applyRes.error || 'No se pudo aplicar inventario' };
         }
 
         await client.query(`
@@ -672,7 +731,7 @@ export async function receivePurchaseOrderSecure(
 
         await insertSupplyAuditSafe(client, {
             userId,
-            actionCode: 'PURCHASE_ORDER_RECEIVED_PENDING_REVIEW',
+            actionCode: 'PURCHASE_ORDER_RECEIVED',
             entityType: 'PURCHASE_ORDER',
             entityId: purchaseOrderId,
             newValues: { items_received: itemsToReceive.length, units_received: totalReceivedUnits, status: 'REVIEW' },
@@ -781,35 +840,78 @@ export async function finalizePurchaseOrderReviewSecure(
             WHERE purchase_order_id = $1
         `, [purchaseOrderId]);
 
-        const receivedItems = poItemsRes.rows
-            .map((row: DBRow) => ({
-                sku: String(row.sku),
-                name: String(row.name || 'Producto'),
-                quantityReceived: Number(row.quantity_received || 0),
-                costPrice: Number(row.cost_price || 0),
-                lotNumber: row.lot_number ? String(row.lot_number) : null,
-                expiryDate: row.expiry_date ?? null,
-            }))
-            .filter((item) => item.quantityReceived > 0);
+        // Reconcile user-reported final quantities vs what was received initially
+        const itemsToAdjust: { sku: string; name: string; quantityReceived: number; costPrice: number; lotNumber?: string | null; expiryDate?: Date | null; }[] = [];
+        const finalQuantitiesFromUser = validated.data.receivedItems;
 
-        if (receivedItems.length === 0) {
-            await client.query('ROLLBACK');
-            return { success: false, error: 'No hay ítems recepcionados para verificar' };
+        let totalReviewedUnits = 0;
+        let totalReviewedItemsCount = 0;
+
+        for (const row of poItemsRes.rows) {
+            const sku = String(row.sku);
+            const oldQty = Number(row.quantity_received || 0);
+
+            let newQty = oldQty;
+            let lotNumber = row.lot_number ? String(row.lot_number) : null;
+            let expiryDate = row.expiry_date ? new Date(row.expiry_date) : null;
+
+            if (finalQuantitiesFromUser) {
+                const userItem = finalQuantitiesFromUser.find(i => i.sku === sku);
+                if (userItem) {
+                    newQty = Number(userItem.quantity);
+                    if (userItem.lotNumber) lotNumber = String(userItem.lotNumber);
+                    if (userItem.expiryDate) expiryDate = new Date(userItem.expiryDate);
+                } else {
+                    newQty = 0;
+                }
+            }
+
+            const delta = newQty - oldQty;
+
+            if (delta !== 0 || lotNumber !== row.lot_number || (expiryDate && row.expiry_date && expiryDate.getTime() !== new Date(row.expiry_date as string).getTime())) {
+                await client.query(`
+                    UPDATE purchase_order_items
+                    SET quantity_received = $1,
+                        lot_number = COALESCE(NULLIF($2, ''), lot_number),
+                        expiry_date = COALESCE($3::timestamptz, expiry_date)
+                    WHERE purchase_order_id = $4 AND sku = $5
+                `, [newQty, lotNumber, expiryDate, purchaseOrderId, sku]);
+            }
+
+            if (delta !== 0) {
+                itemsToAdjust.push({
+                    sku,
+                    name: String(row.name || 'Producto'),
+                    quantityReceived: delta,
+                    costPrice: Number(row.cost_price || 0),
+                    lotNumber,
+                    expiryDate
+                });
+            }
+
+            if (newQty > 0) {
+                totalReviewedItemsCount++;
+                totalReviewedUnits += newQty;
+            }
         }
 
         const movementType = isTransferRequestOrder(po.notes) ? 'TRANSFER_IN' : 'PURCHASE_ENTRY';
-        const applyRes = await applyReviewedItemsToInventory(client, {
-            purchaseOrderId,
-            warehouseId,
-            locationId,
-            userId,
-            movementType,
-            items: receivedItems,
-        });
 
-        if (!applyRes.success) {
-            await client.query('ROLLBACK');
-            return { success: false, error: applyRes.error || 'No se pudo aplicar inventario' };
+        // Only call inventory application if there are deltas
+        if (itemsToAdjust.length > 0) {
+            const applyRes = await applyReviewedItemsToInventory(client, {
+                purchaseOrderId,
+                warehouseId,
+                locationId,
+                userId,
+                movementType,
+                items: itemsToAdjust,
+            });
+
+            if (!applyRes.success) {
+                await client.query('ROLLBACK');
+                return { success: false, error: applyRes.error || 'No se pudo aplicar inventario' };
+            }
         }
 
         const trimmedReviewNotes = typeof reviewNotes === 'string' ? reviewNotes.trim() : '';
@@ -831,8 +933,8 @@ export async function finalizePurchaseOrderReviewSecure(
             entityId: purchaseOrderId,
             newValues: {
                 status: 'RECEIVED',
-                reviewed_items: receivedItems.length,
-                reviewed_units: receivedItems.reduce((acc, item) => acc + item.quantityReceived, 0),
+                reviewed_items: totalReviewedItemsCount,
+                reviewed_units: totalReviewedUnits,
                 movement_type: movementType,
             },
         });

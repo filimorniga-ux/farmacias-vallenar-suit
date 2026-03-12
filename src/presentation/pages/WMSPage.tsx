@@ -320,7 +320,7 @@ export const WMSPage: React.FC = () => {
                             selectedOrder?.target_warehouse_id || currentWarehouseId || currentLocationId
                         );
                     }}
-                    onFinalizeReview={(orderId, reviewNotes) => finalizePurchaseOrderReview(orderId, reviewNotes)}
+                    onFinalizeReview={(orderId, reviewNotes, items) => finalizePurchaseOrderReview(orderId, reviewNotes, items)}
                 />
 
                 <ManualOrderModal
@@ -434,7 +434,7 @@ export const WMSPage: React.FC = () => {
                         selectedOrder?.target_warehouse_id || currentWarehouseId || currentLocationId
                     );
                 }}
-                onFinalizeReview={(orderId, reviewNotes) => finalizePurchaseOrderReview(orderId, reviewNotes)}
+                onFinalizeReview={(orderId, reviewNotes, items) => finalizePurchaseOrderReview(orderId, reviewNotes, items)}
             />
 
             <ManualOrderModal

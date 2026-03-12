@@ -8,7 +8,7 @@ interface PurchaseOrderReceivingModalProps {
     isOpen: boolean;
     order: PurchaseOrder | null;
     onReceive: (orderId: string, receivedItems: { sku: string; receivedQty: number; lotNumber?: string; expiryDate?: number }[]) => void;
-    onFinalizeReview?: (orderId: string, reviewNotes?: string) => Promise<void> | void;
+    onFinalizeReview?: (orderId: string, reviewNotes?: string, receivedItems?: { sku: string; receivedQty: number; lotNumber?: string; expiryDate?: number }[]) => Promise<void> | void;
     mode?: 'RECEIVE' | 'VIEW' | 'REVIEW';
     onClose: () => void;
 }
@@ -67,7 +67,8 @@ function mapToReceptionState(item: Record<string, unknown>, mode: 'RECEIVE' | 'V
         sku,
         name,
         expectedQty,
-        receivedQty: mode === 'RECEIVE' ? expectedQty : receivedQty,
+        // En modo recepción se parte en 0 para soportar flujo "scan +1" continuo con pistola.
+        receivedQty: mode === 'RECEIVE' ? 0 : receivedQty,
         lotNumber,
         barcode,
         expiryDate
@@ -247,7 +248,13 @@ export const PurchaseOrderReceivingModal: React.FC<PurchaseOrderReceivingModalPr
                     toast.error('No se configuró la acción de cierre de revisión');
                     return;
                 }
-                await onFinalizeReview(order.id, reviewNotes);
+                const formattedItems = items.map(i => ({
+                    sku: i.sku,
+                    receivedQty: Number(i.receivedQty),
+                    lotNumber: i.lotNumber,
+                    expiryDate: i.expiryDate ? new Date(i.expiryDate).getTime() : undefined
+                }));
+                await onFinalizeReview(order.id, reviewNotes, formattedItems);
                 onClose();
             }
         } catch (error) {

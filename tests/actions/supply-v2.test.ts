@@ -343,9 +343,24 @@ describe('Supply V2 - Receive PO schema compatibility', () => {
             if (sql.includes('SELECT * FROM purchase_order_items WHERE purchase_order_id = $1')) {
                 return { rows: [{ sku: 'SKU-TEST-01', quantity_ordered: 2 }], rowCount: 1 } as any;
             }
+            if (sql.includes('FROM products p') && sql.includes('p.sku = $1')) {
+                return {
+                    rows: [{ id: '550e8400-e29b-41d4-a716-446655440906', name: 'Product', sale_price: 1500, cost_price: 900 }],
+                    rowCount: 1
+                } as any;
+            }
+            if (sql.includes('SELECT id, quantity_real FROM inventory_batches')) {
+                return { rows: [], rowCount: 0 } as any;
+            }
+            if (sql.includes('SELECT location_id FROM warehouses WHERE id = $1')) {
+                return { rows: [{ location_id: '550e8400-e29b-41d4-a716-446655440903' }], rowCount: 1 } as any;
+            }
             if (
                 sql.includes('UPDATE purchase_order_items SET quantity_received') ||
                 sql.includes('UPDATE purchase_orders') ||
+                sql.includes('INSERT INTO inventory_batches') ||
+                sql.includes('UPDATE inventory_batches') ||
+                sql.includes('INSERT INTO stock_movements') ||
                 sql.includes('INSERT INTO audit_log')
             ) {
                 return { rows: [], rowCount: 1 } as any;
@@ -399,9 +414,24 @@ describe('Supply V2 - Receive PO schema compatibility', () => {
             if (sql.includes('SELECT * FROM purchase_order_items WHERE purchase_order_id = $1')) {
                 return { rows: [{ sku: 'SKU-TEST-02', quantity_ordered: 1 }], rowCount: 1 } as any;
             }
+            if (sql.includes('FROM products p') && sql.includes('p.sku = $1')) {
+                return {
+                    rows: [{ id: '550e8400-e29b-41d4-a716-446655440906', name: 'Product', sale_price: 1500, cost_price: 900 }],
+                    rowCount: 1
+                } as any;
+            }
+            if (sql.includes('SELECT id, quantity_real FROM inventory_batches')) {
+                return { rows: [], rowCount: 0 } as any;
+            }
+            if (sql.includes('SELECT location_id FROM warehouses WHERE id = $1')) {
+                return { rows: [{ location_id: '550e8400-e29b-41d4-a716-446655440903' }], rowCount: 1 } as any;
+            }
             if (
                 sql.includes('UPDATE purchase_order_items SET quantity_received') ||
-                sql.includes('UPDATE purchase_orders SET status = \'REVIEW\'')
+                sql.includes('UPDATE purchase_orders') ||
+                sql.includes('INSERT INTO inventory_batches') ||
+                sql.includes('UPDATE inventory_batches') ||
+                sql.includes('INSERT INTO stock_movements')
             ) {
                 return { rows: [], rowCount: 1 } as any;
             }
@@ -507,7 +537,13 @@ describe('Supply V2 - Receive PO schema compatibility', () => {
         } as any);
 
         const result = await supplyV2.finalizePurchaseOrderReviewSecure(
-            { purchaseOrderId, reviewNotes: 'Recepción conforme' },
+            { 
+                purchaseOrderId, 
+                reviewNotes: 'Recepción conforme',
+                receivedItems: [
+                    { sku: 'SKU-TEST-03', quantity: 5, lotNumber: 'LOT-REV' } // 5 vs 3 = Delta +2
+                ]
+            },
             userId
         );
 
