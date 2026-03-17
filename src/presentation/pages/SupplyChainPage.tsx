@@ -18,6 +18,39 @@ import { exportSuggestedOrdersSecure } from '../../actions/procurement-export';
 import { FileDown } from 'lucide-react';
 import { usePlatform } from '@/hooks/usePlatform';
 
+// Helper Components
+const SupplierSelector = React.memo(({ item, className, onChangeSupplier }: { item: ExtendedSuggestion, className: string, onChangeSupplier: (sku: string, supplierId: string) => void }) => {
+    return (
+        <div className="relative">
+            {item.other_suppliers && item.other_suppliers.length > 1 ? (
+                <>
+                    <select
+                        aria-label="Seleccionar proveedor"
+                        className={`w-full appearance-none rounded-lg border border-slate-200 bg-slate-50 p-2 pr-7 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500 ${className}`}
+                        value={item.supplier_id || ''}
+                        onChange={(e) => onChangeSupplier(item.sku, e.target.value)}
+                    >
+                        {item.other_suppliers.map((supplier) => (
+                            <option key={supplier.id} value={supplier.id}>
+                                {supplier.name} (${supplier.cost || 0})
+                            </option>
+                        ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400" size={12} />
+                </>
+            ) : (
+                <div className={`truncate text-xs font-medium text-slate-600 ${className}`} title={item.supplier_name}>
+                    {item.supplier_name || 'Sin Proveedor'}
+                </div>
+            )}
+            <div className="mt-1 text-[10px] text-slate-400">
+                Costo: ${(item.unit_cost || 0).toLocaleString()}
+            </div>
+        </div>
+    );
+});
+SupplierSelector.displayName = 'SupplierSelector';
+
 // Extended type for frontend logic
 interface ExtendedSuggestion extends AutoOrderSuggestion {
     other_suppliers?: Array<{ id: string; name: string; cost: number; sku: string }>;
@@ -379,7 +412,7 @@ const SupplyChainPage: React.FC = () => {
         });
     };
 
-    const changeSupplier = (sku: string, supplierId: string) => {
+    const changeSupplier = React.useCallback((sku: string, supplierId: string) => {
         setSuggestions(items => items.map(item => {
             if (item.sku !== sku) return item;
 
@@ -395,7 +428,7 @@ const SupplyChainPage: React.FC = () => {
                 total_estimated: (item.suggested_order_qty || 0) * newSupplier.cost
             };
         }));
-    };
+    }, []);
 
     const removeSuggestion = (sku: string) => {
         setSuggestions(items => items.filter(i => i.sku !== sku));
@@ -428,31 +461,11 @@ const SupplyChainPage: React.FC = () => {
     };
 
     const renderSupplierSelector = (item: ExtendedSuggestion, className = 'max-w-[140px]') => (
-        <div className="relative">
-            {item.other_suppliers && item.other_suppliers.length > 1 ? (
-                <>
-                    <select
-                        className={`w-full appearance-none rounded-lg border border-slate-200 bg-slate-50 p-2 pr-7 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500 ${className}`}
-                        value={item.supplier_id || ''}
-                        onChange={(e) => changeSupplier(item.sku, e.target.value)}
-                    >
-                        {item.other_suppliers.map((supplier) => (
-                            <option key={supplier.id} value={supplier.id}>
-                                {supplier.name} (${supplier.cost || 0})
-                            </option>
-                        ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400" size={12} />
-                </>
-            ) : (
-                <div className={`truncate text-xs font-medium text-slate-600 ${className}`} title={item.supplier_name}>
-                    {item.supplier_name || 'Sin Proveedor'}
-                </div>
-            )}
-            <div className="mt-1 text-[10px] text-slate-400">
-                Costo: ${(item.unit_cost || 0).toLocaleString()}
-            </div>
-        </div>
+        <SupplierSelector
+            item={item}
+            className={className}
+            onChangeSupplier={changeSupplier}
+        />
     );
 
     const handleGenerateOrders = () => {
@@ -588,13 +601,15 @@ const SupplyChainPage: React.FC = () => {
         { id: 'history' as const, label: 'Historial', icon: Clock, color: 'amber' },
     ];
     const activeTabMeta = tabItems.find((tab) => tab.id === activeTab) ?? tabItems[0];
-    const filteredSuggestions = suggestions.filter((item) => {
-        const stockPercent = item.stock_level_percent ?? 0;
-        if (stockFilter !== null) {
-            return stockPercent <= (stockFilter * 100);
-        }
-        return true;
-    });
+    const filteredSuggestions = useMemo(() => {
+        return suggestions.filter((item) => {
+            const stockPercent = item.stock_level_percent ?? 0;
+            if (stockFilter !== null) {
+                return stockPercent <= (stockFilter * 100);
+            }
+            return true;
+        });
+    }, [suggestions, stockFilter]);
 
     return (
         <div data-testid="supply-chain-page" className="h-dvh p-3 md:p-6 pb-safe bg-slate-50 flex flex-col overflow-hidden">
@@ -772,6 +787,7 @@ const SupplyChainPage: React.FC = () => {
                                                 <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-3 min-h-[52px]">
                                                     <Users size={14} className="text-slate-400" />
                                                     <select
+                                                        aria-label="Filtrar por proveedor"
                                                         className="w-full bg-transparent font-bold text-slate-600 focus:outline-none cursor-pointer text-sm"
                                                         value={selectedSupplier}
                                                         onChange={(e) => setSelectedSupplier(e.target.value)}
@@ -810,6 +826,7 @@ const SupplyChainPage: React.FC = () => {
                                                         <div className="w-full">
                                                             <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Ventana</span>
                                                             <select
+                                                                aria-label="Ventana de análisis"
                                                                 className="w-full bg-transparent font-bold text-slate-600 focus:outline-none cursor-pointer text-sm"
                                                                 value={analysisWindow}
                                                                 onChange={(e) => setAnalysisWindow(Number(e.target.value))}
@@ -852,6 +869,7 @@ const SupplyChainPage: React.FC = () => {
                                                     <div className="w-full">
                                                         <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Cobertura</span>
                                                         <select
+                                                            aria-label="Días de cobertura"
                                                             className="w-full bg-transparent font-bold text-slate-600 focus:outline-none cursor-pointer text-sm"
                                                             value={daysToCover}
                                                             onChange={(e) => setDaysToCover(Number(e.target.value))}
@@ -869,6 +887,7 @@ const SupplyChainPage: React.FC = () => {
                                                 <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-3 min-h-[52px]">
                                                     <MapPin size={14} className="text-slate-400" />
                                                     <select
+                                                        aria-label="Filtrar por ubicación"
                                                         className="w-full bg-transparent font-bold text-slate-600 focus:outline-none cursor-pointer text-sm"
                                                         value={selectedLocation}
                                                         onChange={(e) => setSelectedLocation(e.target.value)}
@@ -887,6 +906,7 @@ const SupplyChainPage: React.FC = () => {
                                                     <div className="w-full">
                                                         <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Top</span>
                                                         <select
+                                                            aria-label="Límite de resultados"
                                                             className="w-full bg-transparent font-bold text-slate-600 focus:outline-none cursor-pointer text-sm"
                                                             value={topLimit}
                                                             onChange={(e) => setTopLimit(Number(e.target.value))}
@@ -1107,6 +1127,7 @@ const SupplyChainPage: React.FC = () => {
                                                                 <label className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-700">
                                                                     Ventana
                                                                     <select
+                                                                        aria-label={`Ventana de análisis para ${item.product_name}`}
                                                                         className="mt-2 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700"
                                                                         value={item.selected_analysis_window}
                                                                         onChange={(e) => updateItemAnalysisWindow(item, e.target.value, idx)}
@@ -1123,6 +1144,7 @@ const SupplyChainPage: React.FC = () => {
                                                                 <label className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-700">
                                                                     Cobertura
                                                                     <select
+                                                                        aria-label={`Cobertura para ${item.product_name}`}
                                                                         className="mt-2 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700"
                                                                         value={item.selected_coverage_days}
                                                                         onChange={(e) => updateItemCoverageDays(item, e.target.value, idx)}
@@ -1237,6 +1259,7 @@ const SupplyChainPage: React.FC = () => {
                                                             {/* Analysis Window Selector */}
                                                             <td className="p-4 text-center">
                                                                 <select
+                                                                    aria-label={`Ventana de análisis para ${item.product_name}`}
                                                                     className="text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-1.5 focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer text-center appearance-none"
                                                                     value={item.selected_analysis_window}
                                                                     onChange={(e) => updateItemAnalysisWindow(item, e.target.value, idx)}
@@ -1253,6 +1276,7 @@ const SupplyChainPage: React.FC = () => {
                                                             {/* Coverage Days Selector */}
                                                             <td className="p-4 text-center">
                                                                 <select
+                                                                    aria-label={`Cobertura para ${item.product_name}`}
                                                                     className="text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-1.5 focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer text-center appearance-none"
                                                                     value={item.selected_coverage_days}
                                                                     onChange={(e) => updateItemCoverageDays(item, e.target.value, idx)}
