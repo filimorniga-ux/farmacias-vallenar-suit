@@ -83,6 +83,77 @@ describe('Procurement V2 Logic', () => {
             expect(item.urgency).toBe('HIGH');
             expect(item.current_stock).toBe(-21);
             expect(item.days_coverage).toBe('0.0');
+            expect(item.days_until_stockout).toBe(0);
+        });
+
+        it('should handle exactly zero stock correctly', async () => {
+            vi.mocked(dbModule.pool.query).mockResolvedValue({
+                rows: [{
+                    product_id: 'prod-zero', product_name: 'Aspirina', sku: 'ASP100',
+                    current_stock: 0, other_warehouses_stock: 0,
+                    sold_7d: 14, sold_15d: 30, sold_30d: 60, sold_60d: 120, sold_90d: 180, sold_180d: 360, sold_365d: 730,
+                    safety_stock: 10, incoming_stock: 0,
+                    unit_cost: 100, internal_cost: 100,
+                    suppliers_data: null, stock_by_location: [],
+                    total_sold_in_period: 60, sales_history: []
+                }]
+            } as any);
+
+            const res = await generateRestockSuggestionSecure(mockSupplierId, 15, 30);
+            expect(res.success).toBe(true);
+            const item = res.data![0];
+            // Formula: velocity=60/30=2.0, maxStock=ceil(2.0*15+10)=40, net=40-0-0=40
+            expect(item.suggested_order_qty).toBe(40);
+            expect(item.urgency).toBe('HIGH');
+            expect(item.current_stock).toBe(0);
+            expect(item.days_coverage).toBe('0.0');
+            expect(item.days_until_stockout).toBe(0);
+        });
+
+        it('should handle zero safety_stock with negative stock', async () => {
+            vi.mocked(dbModule.pool.query).mockResolvedValue({
+                rows: [{
+                    product_id: 'prod-nosafety', product_name: 'NoSafety', sku: 'NOS001',
+                    current_stock: -5, other_warehouses_stock: 0,
+                    sold_7d: 14, sold_15d: 30, sold_30d: 60, sold_60d: 120, sold_90d: 180, sold_180d: 360, sold_365d: 730,
+                    safety_stock: 0, incoming_stock: 0,
+                    unit_cost: 100, internal_cost: 100,
+                    suppliers_data: null, stock_by_location: [],
+                    total_sold_in_period: 60, sales_history: []
+                }]
+            } as any);
+
+            const res = await generateRestockSuggestionSecure(mockSupplierId, 15, 30);
+            expect(res.success).toBe(true);
+            const item = res.data![0];
+            // effectiveSafety = 5. maxStock = max(5, ceil(2.0*15+0)) = 30. net = 30 - (-5) - 0 = 35.
+            expect(item.suggested_order_qty).toBe(35);
+            expect(item.urgency).toBe('HIGH');
+            expect(item.days_coverage).toBe('0.0');
+            expect(item.days_until_stockout).toBe(0);
+        });
+
+        it('should handle negative stock and zero velocity', async () => {
+            vi.mocked(dbModule.pool.query).mockResolvedValue({
+                rows: [{
+                    product_id: 'prod-nosales', product_name: 'NoSales', sku: 'NOS002',
+                    current_stock: -5, other_warehouses_stock: 0,
+                    sold_7d: 0, sold_15d: 0, sold_30d: 0, sold_60d: 0, sold_90d: 0, sold_180d: 0, sold_365d: 0,
+                    safety_stock: 0, incoming_stock: 0,
+                    unit_cost: 100, internal_cost: 100,
+                    suppliers_data: null, stock_by_location: [],
+                    total_sold_in_period: 0, sales_history: []
+                }]
+            } as any);
+
+            const res = await generateRestockSuggestionSecure(mockSupplierId, 15, 30);
+            expect(res.success).toBe(true);
+            const item = res.data![0];
+            // velocity = 0. effectiveSafety = 5. targetCoverageStock = 0. maxStock = max(5, 0+0) = 5. net = 5 - (-5) - 0 = 10.
+            expect(item.suggested_order_qty).toBe(10);
+            expect(item.urgency).toBe('HIGH');
+            expect(item.days_coverage).toBe('0.0');
+            expect(item.days_until_stockout).toBe(0);
         });
 
         it('should fail with invalid supplier UUID', async () => {
