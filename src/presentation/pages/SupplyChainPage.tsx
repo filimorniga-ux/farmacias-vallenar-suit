@@ -46,6 +46,11 @@ interface ExtendedSuggestion extends AutoOrderSuggestion {
         available_qty: number;
         location_id: string;
     }>;
+
+    // Dormant product fields
+    is_dormant?: boolean;
+    dormant_reason?: string;
+    historical_velocity_window?: number;
 }
 
 const SupplyChainPage: React.FC = () => {
@@ -936,6 +941,7 @@ const SupplyChainPage: React.FC = () => {
                                                                 <div className="flex items-center gap-2 mt-1">
                                                                     <span className="text-[10px] font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">{item.sku}</span>
                                                                     {item.urgency === 'HIGH' && <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded flex items-center gap-1"><AlertTriangle size={10} /> CRÍTICO</span>}
+                                                                    {item.is_dormant && <span className="text-[10px] font-bold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded flex items-center gap-1" title={item.dormant_reason || 'Producto sin stock prolongado'}>🛌 DORMIDO</span>}
                                                                 </div>
                                                             </td>
                                                             <td className="p-4">
