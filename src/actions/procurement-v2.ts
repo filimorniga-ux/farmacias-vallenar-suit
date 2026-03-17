@@ -1350,12 +1350,16 @@ export async function generateRestockSuggestionSecure(
             LEFT JOIN SalesHistory sh ON tp.product_id = sh.product_id
             LEFT JOIN GlobalStockDetail gs ON tp.product_id = gs.product_id
             
-            -- Sort by stock urgency first (Critical/Zero stock), then by highest sales volume (Top N)
+            -- Sort by stock urgency: zero/negative stock first (DORMANT products), then safety stock breach, then sales volume
             ORDER BY 
-                CASE 
-                    WHEN COALESCE(cs.total_stock, 0) <= COALESCE(tp.safety_stock, 0) THEN 0
-                    ELSE 1
-                END ASC,
+                -- 1. Productos con stock cero o negativo (DORMIDOS/CRÍTICOS) primero
+                CASE WHEN COALESCE(cs.total_stock, 0) <= 0 THEN 0 ELSE 1 END ASC,
+                -- 2. Dentro de stock ≤ 0: priorizar los que SÍ tienen historial de ventas (365d)
+                CASE WHEN COALESCE(cs.total_stock, 0) <= 0 
+                     THEN COALESCE(sh.sold_365d, 0) ELSE 0 END DESC,
+                -- 3. Productos bajo safety stock
+                CASE WHEN COALESCE(cs.total_stock, 0) <= COALESCE(tp.safety_stock, 0) THEN 0 ELSE 1 END ASC,
+                -- 4. Por ventas en período seleccionado
                 total_sold_in_period DESC, 
                 tp.product_name ASC
             LIMIT $3
@@ -1394,13 +1398,44 @@ export async function generateRestockSuggestionSecure(
             // Default velocity based on requested analysisWindow (fallback to 30 if not found)
             // If analysisWindow is e.g. 45, we fallback to closest or just 30. 
             // The frontend sends standard values (7,15,30,60,90,180).
-            const velocity = velocities[analysisWindow] || velocities[30] || 0;
+            let velocity = velocities[analysisWindow] || velocities[30] || 0;
 
             const stock = Number(row.current_stock);
             const globalStock = Number(row.other_warehouses_stock || 0);
             const incoming = Number(row.incoming_stock);
             const safety = Number(row.safety_stock);
             const leadTime = 0; // Default
+
+            // ============================================================
+            // 🛌 DETECCIÓN DE PRODUCTOS DORMIDOS
+            // Producto con stock ≤ 0, velocity actual = 0, pero con ventas históricas.
+            // Esto rompe el "círculo vicioso del desabasto": no se vende porque no hay
+            // stock → no aparece en sugerencias → nunca se compra.
+            // ============================================================
+            let isDormant = false;
+            let dormantReason = '';
+            let historicalWindow = 0;
+
+            if (velocity === 0 && stock <= 0 && incoming === 0) {
+                // Buscar en ventanas históricas más amplias (365d → 180d → 90d)
+                const historicalWindows = [365, 180, 90, 60];
+                for (const window of historicalWindows) {
+                    if (velocities[window] > 0) {
+                        velocity = velocities[window];
+                        historicalWindow = window;
+                        isDormant = true;
+                        const totalHistorical = sold_counts[window] || 0;
+                        dormantReason = `Sin stock. Venta histórica: ${totalHistorical}u en ${window}d (${velocity.toFixed(2)}/día)`;
+                        break;
+                    }
+                }
+
+                // Si aún no hay historial, marcar como dormido sin demanda conocida
+                if (!isDormant && stock <= 0) {
+                    isDormant = true;
+                    dormantReason = `Sin stock ni ventas registradas. Requiere revisión manual.`;
+                }
+            }
 
             // Estima el Stock Máximo Dinámico basado en la cobertura deseada
             // Si no hay ventas (velocity = 0), el maxStock será al menos el doble del stock de seguridad 
@@ -1524,12 +1559,16 @@ export async function generateRestockSuggestionSecure(
                 supplier_name: (bestSupplier?.name as string) || 'Sin Proveedor Asignado',
                 other_suppliers: (row.suppliers_data as Record<string, unknown>[] || []).map((s: Record<string, unknown>) => ({ ...s, cost: s.cost_price })),
                 total_estimated: suggested * Number(bestSupplier?.cost_price || row.unit_cost),
-                reason,
+                reason: isDormant ? `🛌 DORMIDO: ${dormantReason} | ${reason}` : reason,
                 ai_confidence: aiConfidence,
                 action_type: aiAction,
                 transfer_sources: transferSources,
                 velocities, // New field exposing all calculated velocities
-                sold_counts
+                sold_counts,
+                // Dormant product metadata
+                is_dormant: isDormant,
+                dormant_reason: isDormant ? dormantReason : undefined,
+                historical_velocity_window: historicalWindow > 0 ? historicalWindow : undefined,
             };
         }));
 
