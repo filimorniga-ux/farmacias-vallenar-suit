@@ -1417,8 +1417,8 @@ export async function generateRestockSuggestionSecure(
             let historicalWindow = 0;
 
             if (velocity === 0 && stock <= 0 && incoming === 0) {
-                // Buscar en ventanas históricas más amplias (365d → 180d → 90d)
-                const historicalWindows = [365, 180, 90, 60];
+                // Buscar en ventanas históricas más amplias (60d → 90d → 180d → 365d)
+                const historicalWindows = [60, 90, 180, 365];
                 for (const window of historicalWindows) {
                     if (velocities[window] > 0) {
                         velocity = velocities[window];
