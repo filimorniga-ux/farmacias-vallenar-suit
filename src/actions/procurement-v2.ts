@@ -711,6 +711,10 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
         // 7. Pricing Intelligence — registrar precios de proveedor y generar recomendaciones
         for (const alert of costAlerts) {
             try {
+                // Usamos un SAVEPOINT para que si ocurre un error (ej: violación de constraint en recomendación),
+                // no se rompa la transacción PostgreSQL completa de recepción.
+                await client.query('SAVEPOINT intel_sp');
+
                 await upsertSupplierPrice({
                     productId: alert.productId,
                     supplierId: alert.supplierId || order.supplier_id,
@@ -727,8 +731,11 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
                     orderId: validated.data.orderId,
                     client,
                 });
+
+                await client.query('RELEASE SAVEPOINT intel_sp');
             } catch (intelError) {
                 // No falla la recepción si la inteligencia de precios falla
+                await client.query('ROLLBACK TO SAVEPOINT intel_sp');
                 logger.error({ intelError, productId: alert.productId }, '[PROCUREMENT-V2] Pricing intelligence error (non-fatal)');
             }
         }

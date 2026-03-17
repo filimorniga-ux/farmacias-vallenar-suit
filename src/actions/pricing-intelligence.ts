@@ -3,6 +3,7 @@
 import { pool } from '@/lib/db';
 import { z } from 'zod';
 import * as Sentry from '@sentry/nextjs';
+import { getSessionSecure } from './auth-v2';
 
 // ============================================================================
 // PRICING INTELLIGENCE — Comparación entre Proveedores + Motor de Recomendaciones
@@ -136,7 +137,7 @@ export async function getSupplierPriceComparison(productId: string): Promise<{
             supplier_id: row.supplier_id,
             supplier_name: row.supplier_name || row.business_name || 'Sin nombre',
             unit_cost: Number(row.unit_cost),
-            last_seen_at: row.last_seen_at,
+            last_seen_at: row.last_seen_at instanceof Date ? row.last_seen_at.toISOString() : row.last_seen_at,
             is_current: row.is_current,
             delta_vs_current: currentCost > 0
                 ? Number((((Number(row.unit_cost) - currentCost) / currentCost) * 100).toFixed(2))
@@ -160,6 +161,14 @@ export async function getSupplierPriceComparison(productId: string): Promise<{
 const MIN_MARGIN_THRESHOLD = 15; // si margen cae < 15%, recomendar subir precio
 const COMFORT_MARGIN = 25;       // margen >25% = cómodo, mantener precio
 
+const GenerateRecommendationsSchema = z.object({
+    productId: UUIDSchema,
+    incomingCost: z.number().min(0),
+    previousCost: z.number().min(0),
+    supplierId: UUIDSchema,
+    orderId: UUIDSchema.optional(),
+});
+
 export async function generatePriceRecommendations(params: {
     productId: string;
     incomingCost: number;
@@ -169,6 +178,13 @@ export async function generatePriceRecommendations(params: {
     client?: import('pg').PoolClient;
 }): Promise<PriceRecommendation[]> {
     const recommendations: PriceRecommendation[] = [];
+
+    const validated = GenerateRecommendationsSchema.safeParse(params);
+    if (!validated.success) {
+        logger.error({ error: validated.error }, 'Invalid params in generatePriceRecommendations');
+        return recommendations;
+    }
+
     const executor = params.client || pool;
 
     try {
@@ -353,17 +369,7 @@ async function insertRecommendation(executor: import('pg').Pool | import('pg').P
     triggeredBy?: string;
     referenceId?: string;
 }): Promise<void> {
-    // Evitar duplicados: no crear si ya hay una recomendación PENDING del mismo tipo para el mismo producto
-    const existing = await executor.query(`
-        SELECT 1 FROM price_recommendations
-        WHERE product_id::text = $1::text
-          AND recommendation_type = $2
-          AND status = 'PENDING'
-        LIMIT 1
-    `, [params.productId, params.type]);
-
-    if (existing.rows.length > 0) return;
-
+    // Inserción atómica que ignora conflictos basándose en el índice parcial (solo 1 PENDING por producto y tipo)
     await executor.query(`
         INSERT INTO price_recommendations (
             product_id, recommendation_type, reason,
@@ -372,6 +378,7 @@ async function insertRecommendation(executor: import('pg').Pool | import('pg').P
             cheaper_supplier_id, savings_per_unit,
             triggered_by, reference_id
         ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        ON CONFLICT (product_id, recommendation_type) WHERE status = 'PENDING' DO NOTHING
     `, [
         params.productId,
         params.type,
@@ -395,17 +402,19 @@ async function insertRecommendation(executor: import('pg').Pool | import('pg').P
 const ResolveRecommendationSchema = z.object({
     recommendationId: UUIDSchema,
     action: z.enum(['ACCEPTED', 'REJECTED']),
-    userId: UUIDSchema,
 });
 
 export async function resolveRecommendation(
     recommendationId: string,
-    action: 'ACCEPTED' | 'REJECTED',
-    userId: string
+    action: 'ACCEPTED' | 'REJECTED'
 ): Promise<{ success: boolean; error?: string }> {
     try {
-        const validated = ResolveRecommendationSchema.safeParse({ recommendationId, action, userId });
+        const validated = ResolveRecommendationSchema.safeParse({ recommendationId, action });
         if (!validated.success) return { success: false, error: 'Parámetros inválidos' };
+
+        const session = await getSessionSecure();
+        if (!session || !session.userId) return { success: false, error: 'No autorizado' };
+        const userId = session.userId;
 
         const client = await pool.connect();
         try {
@@ -467,6 +476,14 @@ export async function resolveRecommendation(
     }
 }
 
+const LimitSchema = z.number().int().min(1).max(100).default(50);
+
+const serializeRecommendation = (row: any): PriceRecommendation => ({
+    ...row,
+    created_at: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+    resolved_at: row.resolved_at instanceof Date ? row.resolved_at.toISOString() : row.resolved_at,
+});
+
 // ============================================================================
 // 5. Obtener recomendaciones pendientes
 // ============================================================================
@@ -476,6 +493,9 @@ export async function getPendingRecommendations(limit = 50): Promise<{
     error?: string;
 }> {
     try {
+        const validatedLimit = LimitSchema.safeParse(limit);
+        const safeLimit = validatedLimit.success ? validatedLimit.data : 50;
+
         const res = await pool.query(`
             SELECT pr.*,
                    p.name as product_name, p.sku,
@@ -495,9 +515,9 @@ export async function getPendingRecommendations(limit = 50): Promise<{
                 END,
                 pr.created_at DESC
             LIMIT $1
-        `, [limit]);
+        `, [safeLimit]);
 
-        return { success: true, data: res.rows };
+        return { success: true, data: res.rows.map(serializeRecommendation) };
     } catch (error) {
         logger.error({ error }, 'getPendingRecommendations error');
         Sentry.captureException(error);
@@ -514,6 +534,9 @@ export async function getRecommendationHistory(limit = 50): Promise<{
     error?: string;
 }> {
     try {
+        const validatedLimit = LimitSchema.safeParse(limit);
+        const safeLimit = validatedLimit.success ? validatedLimit.data : 50;
+
         const res = await pool.query(`
             SELECT pr.*,
                    p.name as product_name, p.sku,
@@ -524,9 +547,9 @@ export async function getRecommendationHistory(limit = 50): Promise<{
             WHERE pr.status IN ('ACCEPTED', 'REJECTED')
             ORDER BY pr.resolved_at DESC
             LIMIT $1
-        `, [limit]);
+        `, [safeLimit]);
 
-        return { success: true, data: res.rows };
+        return { success: true, data: res.rows.map(serializeRecommendation) };
     } catch (error) {
         logger.error({ error }, 'getRecommendationHistory error');
         Sentry.captureException(error);
@@ -554,6 +577,9 @@ export async function getSupplierPriceOverview(limit = 30): Promise<{
     error?: string;
 }> {
     try {
+        const validatedLimit = LimitSchema.safeParse(limit);
+        const safeLimit = validatedLimit.success ? validatedLimit.data : 30;
+
         const res = await pool.query(`
             WITH supplier_prices AS (
                 SELECT
@@ -585,7 +611,7 @@ export async function getSupplierPriceOverview(limit = 30): Promise<{
             FROM supplier_prices sp
             ORDER BY (sp.most_expensive_cost - sp.cheapest_cost) DESC
             LIMIT $1
-        `, [limit]);
+        `, [safeLimit]);
 
         return { success: true, data: res.rows };
     } catch (error) {
