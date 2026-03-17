@@ -71,6 +71,11 @@ CREATE INDEX IF NOT EXISTS idx_pr_status ON price_recommendations(status)
 CREATE INDEX IF NOT EXISTS idx_pr_created ON price_recommendations(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_pr_type ON price_recommendations(recommendation_type);
 
+-- Constraint para prevenir recomendaciones pendientes duplicadas del mismo tipo y producto
+CREATE UNIQUE INDEX IF NOT EXISTS uq_pr_pending_product_type
+    ON price_recommendations(product_id, recommendation_type)
+    WHERE status = 'PENDING';
+
 ALTER TABLE price_recommendations ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "auth_pr" ON price_recommendations
     FOR ALL TO authenticated USING (true) WITH CHECK (true);

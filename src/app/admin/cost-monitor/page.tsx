@@ -91,8 +91,7 @@ export default function CostMonitorPage() {
     const handleResolve = async (id: string, action: 'ACCEPTED' | 'REJECTED') => {
         setResolvingId(id);
         try {
-            // TODO: pass real userId from session
-            const res = await resolveRecommendation(id, action, '00000000-0000-0000-0000-000000000000');
+            const res = await resolveRecommendation(id, action);
             if (res.success) {
                 toast.success(action === 'ACCEPTED' ? '✅ Recomendación aplicada' : '⏭️ Recomendación descartada');
                 loadData();
