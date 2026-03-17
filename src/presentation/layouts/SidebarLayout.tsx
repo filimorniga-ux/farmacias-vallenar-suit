@@ -3,7 +3,7 @@ import { useLocation, Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
     LayoutDashboard, ShoppingCart, Users, Settings, LogOut, X, Menu,
-    Package, BarChart3, Truck, UserCircle, Clock, Building2, MapPin, Wrench, RotateCcw, Landmark, FileSpreadsheet, Sparkles, MessageSquare, Calculator
+    Package, BarChart3, Truck, UserCircle, Clock, Building2, MapPin, Wrench, RotateCcw, Landmark, FileSpreadsheet, Sparkles, MessageSquare, Calculator, DollarSign
 } from 'lucide-react';
 import ContextBadge from '../components/layout/ContextBadge';
 import ChileClock from '../components/layout/ChileClock';
@@ -48,6 +48,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
         // Control Asistencia movido a Kiosko (/kiosk) - accesible desde RRHH o Configuración
         // { icon: Clock, label: 'Control Asistencia', path: '/access', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'sky' as AppThemeColor },
         { icon: Landmark, label: 'Tesorería', path: '/finance/treasury', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'], moduleId: 'TREASURY', color: 'sky' as AppThemeColor },
+        { icon: DollarSign, label: 'Monitor de Precios', path: '/admin/cost-monitor', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'COST_MONITOR', color: 'amber' as AppThemeColor, isExternal: true },
         { icon: FileSpreadsheet, label: 'Cierre Mensual', path: '/finance/monthly-closing', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'MONTHLY_CLOSING', color: 'slate' as AppThemeColor },
         { icon: Settings, label: 'Configuración', path: '/settings', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'SETTINGS', color: 'slate' as AppThemeColor },
     ];
@@ -130,17 +131,13 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                 <nav className="flex-1 overflow-y-auto px-2 space-y-1 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent py-2">
                     {filteredMenu.map((item) => {
                         const isActive = location.pathname === item.path;
-                        return (
-                            <Link
-                                key={item.path}
-                                to={item.path}
-                                onClick={() => setIsMobileMenuOpen(false)}
-                                title={isCollapsed ? item.label : ''}
-                                className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 group ${isActive
-                                    ? 'bg-slate-50 border border-slate-100 shadow-sm'
-                                    : 'hover:bg-slate-50 border border-transparent'
-                                    } ${isCollapsed ? 'justify-center' : ''}`}
-                            >
+                        const linkClassName = `flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 group ${isActive
+                            ? 'bg-slate-50 border border-slate-100 shadow-sm'
+                            : 'hover:bg-slate-50 border border-transparent'
+                        } ${isCollapsed ? 'justify-center' : ''}`;
+
+                        const innerContent = (
+                            <>
                                 <AppIcon
                                     icon={item.icon}
                                     color={item.color}
@@ -159,6 +156,33 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                                         className={`ml-auto w-1.5 h-1.5 rounded-full bg-${item.color}-500`}
                                     />
                                 )}
+                            </>
+                        );
+
+                        // Items con isExternal usan <a> nativo (rutas Next.js App Router)
+                        if ((item as any).isExternal) {
+                            return (
+                                <a
+                                    key={item.path}
+                                    href={item.path}
+                                    onClick={() => setIsMobileMenuOpen(false)}
+                                    title={isCollapsed ? item.label : ''}
+                                    className={linkClassName}
+                                >
+                                    {innerContent}
+                                </a>
+                            );
+                        }
+
+                        return (
+                            <Link
+                                key={item.path}
+                                to={item.path}
+                                onClick={() => setIsMobileMenuOpen(false)}
+                                title={isCollapsed ? item.label : ''}
+                                className={linkClassName}
+                            >
+                                {innerContent}
                             </Link>
                         );
                     })}
