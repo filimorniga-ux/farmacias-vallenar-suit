@@ -1159,7 +1159,7 @@ export async function generateRestockSuggestionSecure(
                     SUM(ib.quantity_real) as total_stock
                 FROM inventory_batches ib
                 JOIN locations l ON ib.location_id::text = l.id::text
-                WHERE ib.quantity_real > 0 AND l.is_active = true
+                WHERE l.is_active = true
                 ${locationFilterStock}
                 GROUP BY ib.product_id
             ),
@@ -1226,7 +1226,7 @@ export async function generateRestockSuggestionSecure(
                         SUM(ib.quantity_real) as location_total
                     FROM inventory_batches ib
                     JOIN locations l ON ib.location_id::text = l.id::text
-                    WHERE ib.quantity_real > 0 AND l.is_active = true
+                    WHERE l.is_active = true
                     AND ib.product_id IN (SELECT product_id FROM TargetProducts)
                     -- Exclude current location to find "Other" stock
                     ${safeLocationId ? `AND ib.location_id::text != $${paramIndex - 1}::text` : ''}
@@ -1336,7 +1336,7 @@ export async function generateRestockSuggestionSecure(
 
             // Suggested is the gap to fill maxStock
             let suggested = Math.max(0, Math.ceil(netNeeds));
-            const daysUntilStockout = velocity > 0 ? (stock / velocity) : (stock > 0 ? 999 : 0);
+            const daysUntilStockout = stock <= 0 ? 0 : (velocity > 0 ? (stock / velocity) : 999);
 
             // Calcular porcentaje de llenado (Regla de Negocio: 100 unidades = 100%)
             // El usuario define que "todo el stock" es de 100 unidades en adelante.
@@ -1431,7 +1431,7 @@ export async function generateRestockSuggestionSecure(
                 stock_level_percent: stockLevelPercent,
                 daily_velocity: Number(velocity.toFixed(3)),
                 suggested_order_qty: suggested,
-                days_coverage: velocity > 0 ? (stock / velocity).toFixed(1) : (stock > 0 ? '∞' : '0.0'),
+                days_coverage: stock <= 0 ? '0.0' : (velocity > 0 ? (stock / velocity).toFixed(1) : '∞'),
                 days_until_stockout: daysUntilStockout,
                 urgency: urgency,
                 unit_cost: Number(bestSupplier?.cost_price || row.unit_cost),
@@ -1644,7 +1644,7 @@ export async function generateSaleBasedSuggestionSecure(
                     SUM(ib.quantity_real) as total_stock
                 FROM inventory_batches ib
                 JOIN locations l ON ib.location_id::text = l.id::text
-                WHERE ib.quantity_real > 0 AND l.is_active = true
+                WHERE l.is_active = true
                 ${safeLocationId ? `AND ib.location_id::text = $${paramIndex - 1}::text` : ''}
                 GROUP BY ib.product_id
             )
@@ -1700,9 +1700,9 @@ export async function generateSaleBasedSuggestionSecure(
                 stock_level_percent: 0,
                 daily_velocity: Number(dailyVelocity.toFixed(3)),
                 suggested_order_qty: suggested,
-                days_coverage: dailyVelocity > 0 ? (currentStock / dailyVelocity).toFixed(1) : '0.0',
-                days_until_stockout: dailyVelocity > 0 ? Math.floor(currentStock / dailyVelocity) : 0,
-                urgency: (suggested > currentStock * 2 ? 'HIGH' : suggested > currentStock ? 'MEDIUM' : 'LOW') as 'HIGH' | 'MEDIUM' | 'LOW',
+                days_coverage: currentStock <= 0 ? '0.0' : (dailyVelocity > 0 ? (currentStock / dailyVelocity).toFixed(1) : '0.0'),
+                days_until_stockout: currentStock <= 0 ? 0 : (dailyVelocity > 0 ? Math.floor(currentStock / dailyVelocity) : 0),
+                urgency: (currentStock <= 0 ? 'HIGH' : suggested > currentStock * 2 ? 'HIGH' : suggested > currentStock ? 'MEDIUM' : 'LOW') as 'HIGH' | 'MEDIUM' | 'LOW',
                 unit_cost: unitCost,
                 supplier_sku: bestSupplier?.supplier_sku || null,
                 supplier_id: (bestSupplier?.id as string) || null,
