@@ -350,7 +350,7 @@ export const WMSPage: React.FC = () => {
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100">
             {/* Header */}
-            <div className="bg-white border-b border-slate-200 shadow-sm">
+            <div className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-30">
                 <div className="max-w-[1400px] mx-auto px-4 py-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
@@ -388,7 +388,7 @@ export const WMSPage: React.FC = () => {
             </div>
 
             {/* Desktop Tabs */}
-            <div className="bg-white border-b border-slate-200">
+            <div className="bg-white border-b border-slate-200 sticky top-[88px] z-20">
                 <div className="max-w-[1400px] mx-auto px-4">
                     <div className="flex flex-wrap gap-1.5 py-2">
                         {DESKTOP_TABS.map(tab => {
