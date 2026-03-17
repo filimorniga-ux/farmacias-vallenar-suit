@@ -29,6 +29,7 @@ import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
 import { logger } from '@/lib/logger';
 import { getSessionSecure } from './auth-v2';
+import { recordCostChange, createCostChangeNotification, type CostAlert } from './pricing-v2';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -456,6 +457,7 @@ export async function approvePurchaseOrderSecure(data: z.infer<typeof ApprovePur
 export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePurchaseOrderSchema>): Promise<{
     success: boolean;
     error?: string;
+    costAlerts?: CostAlert[];
 }> {
     // 1. Validate input
     const validated = ReceivePurchaseOrderSchema.safeParse(data);
@@ -503,6 +505,7 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
 
         // 3. Process each received item
         let totalReceived = 0;
+        const costAlerts: CostAlert[] = [];
 
         for (const receivedItem of validated.data.receivedItems) {
             if (receivedItem.quantityReceived <= 0) continue;
@@ -525,6 +528,76 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
                 return { success: false, error: `SKU ${item.sku} no encontrado en catálogo maestro` };
             }
             const productId = product.id;
+
+            // === COST CHANGE DETECTION ===
+            const incomingCost = Number(item.cost_price || 0);
+            const currentCost = product.costPrice;
+
+            if (incomingCost > 0 && currentCost > 0 && incomingCost !== currentCost) {
+                const changePercent = Number((((incomingCost - currentCost) / currentCost) * 100).toFixed(2));
+
+                costAlerts.push({
+                    sku: item.sku,
+                    productName: product.name,
+                    productId,
+                    oldCost: currentCost,
+                    newCost: incomingCost,
+                    changePercent,
+                    direction: incomingCost > currentCost ? 'UP' : 'DOWN',
+                    supplierId: order.supplier_id,
+                });
+
+                await recordCostChange({
+                    productId,
+                    changeType: 'COST_CHANGE',
+                    fieldChanged: 'cost_net',
+                    oldValue: currentCost,
+                    newValue: incomingCost,
+                    source: 'RECEPTION',
+                    referenceId: validated.data.orderId,
+                    supplierId: order.supplier_id,
+                    locationId: destinationLocationId,
+                    userId: validated.data.userId,
+                    notes: `OC ${validated.data.orderId.slice(0, 8)} | ${product.name}`,
+                    client,
+                });
+
+                // Actualizar costo maestro del producto
+                await client.query(`
+                    UPDATE products SET cost_net = $1, cost_price = $1 WHERE id::text = $2::text
+                `, [incomingCost, productId]);
+            } else if (incomingCost > 0 && currentCost === 0) {
+                // Producto sin costo previo → registrar como nuevo
+                costAlerts.push({
+                    sku: item.sku,
+                    productName: product.name,
+                    productId,
+                    oldCost: 0,
+                    newCost: incomingCost,
+                    changePercent: 100,
+                    direction: 'NEW',
+                    supplierId: order.supplier_id,
+                });
+
+                await recordCostChange({
+                    productId,
+                    changeType: 'COST_CHANGE',
+                    fieldChanged: 'cost_net',
+                    oldValue: 0,
+                    newValue: incomingCost,
+                    source: 'RECEPTION',
+                    referenceId: validated.data.orderId,
+                    supplierId: order.supplier_id,
+                    locationId: destinationLocationId,
+                    userId: validated.data.userId,
+                    notes: `Primer costo registrado via OC ${validated.data.orderId.slice(0, 8)}`,
+                    client,
+                });
+
+                await client.query(`
+                    UPDATE products SET cost_net = $1, cost_price = $1 WHERE id::text = $2::text
+                `, [incomingCost, productId]);
+            }
 
             // Update item received quantity
             await client.query(`
@@ -624,12 +697,23 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
             }
         });
 
+        // 6. Create cost change notification if any
+        if (costAlerts.length > 0) {
+            await createCostChangeNotification({
+                alerts: costAlerts,
+                orderId: validated.data.orderId,
+                userId: validated.data.userId,
+                client,
+            });
+        }
+
         await client.query('COMMIT');
 
         revalidateProcurementPaths();
         revalidatePath('/inventario');
+        revalidatePath('/precios');
 
-        return { success: true };
+        return { success: true, costAlerts: costAlerts.length > 0 ? costAlerts : undefined };
 
     } catch (error: unknown) {
         await client.query('ROLLBACK');
