@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import {
     TrendingUp, TrendingDown, DollarSign, BarChart3, Filter,
     Loader2, RefreshCw, ArrowUpRight, ArrowDownRight, Equal,
@@ -34,6 +35,7 @@ const formatDate = (dateStr: string) =>
     });
 
 export default function CostMonitorPage() {
+    const router = useRouter();
     const [period, setPeriod] = useState('30d');
     const [isLoading, setIsLoading] = useState(true);
     const [summary, setSummary] = useState<PriceDashboardSummary | null>(null);
@@ -75,7 +77,7 @@ export default function CostMonitorPage() {
             <nav className="sticky top-0 z-40 bg-white/90 backdrop-blur-lg border-b border-slate-200/60 shadow-sm">
                 <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 flex items-center gap-3">
                     <button
-                        onClick={() => window.history.length > 1 ? window.history.back() : (window.location.href = '/dashboard')}
+                        onClick={() => window.history.length > 1 ? router.back() : router.push('/dashboard')}
                         className="flex items-center gap-2 px-3 py-2 text-sm font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors"
                     >
                         <ArrowLeft size={18} />
