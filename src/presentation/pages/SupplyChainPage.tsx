@@ -94,7 +94,8 @@ const SupplyChainPage: React.FC = () => {
     const [topLimit, setTopLimit] = useState(100);
     const [isExporting, setIsExporting] = useState(false);
     const [analysisHistoryRefreshKey, setAnalysisHistoryRefreshKey] = useState(0);
-    const { isDesktopLike, isLandscape, viewportWidth } = usePlatform();
+    const { isMobile, isDesktopLike, isLandscape, viewportWidth } = usePlatform();
+    const [showAdvancedMobileFilters, setShowAdvancedMobileFilters] = useState(false);
 
     // NEW: Date-range analysis mode
     const [analysisMode, setAnalysisMode] = useState<'window' | 'daterange'>('window');
@@ -403,6 +404,57 @@ const SupplyChainPage: React.FC = () => {
         setSelectedSkus(newSet);
     };
 
+    const updateItemAnalysisWindow = (item: ExtendedSuggestion, nextValue: string, index: number) => {
+        const newWindow = Number.parseInt(nextValue, 10);
+        const newItem = recalculateItem(item, newWindow, item.selected_coverage_days || 15);
+        const newSuggestions = [...suggestions];
+        newSuggestions[index] = newItem;
+        setSuggestions(newSuggestions);
+    };
+
+    const updateItemCoverageDays = (item: ExtendedSuggestion, nextValue: string, index: number) => {
+        const newCoverage = Number.parseInt(nextValue, 10);
+        const newItem = recalculateItem(item, item.selected_analysis_window || 30, newCoverage);
+        const newSuggestions = [...suggestions];
+        newSuggestions[index] = newItem;
+        setSuggestions(newSuggestions);
+    };
+
+    const toggleSkuSelection = (sku: string, checked: boolean) => {
+        const newSet = new Set(selectedSkus);
+        if (checked) newSet.add(sku);
+        else newSet.delete(sku);
+        setSelectedSkus(newSet);
+    };
+
+    const renderSupplierSelector = (item: ExtendedSuggestion, className = 'max-w-[140px]') => (
+        <div className="relative">
+            {item.other_suppliers && item.other_suppliers.length > 1 ? (
+                <>
+                    <select
+                        className={`w-full appearance-none rounded-lg border border-slate-200 bg-slate-50 p-2 pr-7 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500 ${className}`}
+                        value={item.supplier_id || ''}
+                        onChange={(e) => changeSupplier(item.sku, e.target.value)}
+                    >
+                        {item.other_suppliers.map((supplier) => (
+                            <option key={supplier.id} value={supplier.id}>
+                                {supplier.name} (${supplier.cost || 0})
+                            </option>
+                        ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400" size={12} />
+                </>
+            ) : (
+                <div className={`truncate text-xs font-medium text-slate-600 ${className}`} title={item.supplier_name}>
+                    {item.supplier_name || 'Sin Proveedor'}
+                </div>
+            )}
+            <div className="mt-1 text-[10px] text-slate-400">
+                Costo: ${(item.unit_cost || 0).toLocaleString()}
+            </div>
+        </div>
+    );
+
     const handleGenerateOrders = () => {
         if (suggestions.length === 0) {
             toast.error('No hay sugerencias para generar');
@@ -527,6 +579,22 @@ const SupplyChainPage: React.FC = () => {
     // ... Logic moved to SupplyKanban ...
 
     const showSplitPanels = isDesktopLike || (isLandscape && viewportWidth >= 900);
+    const transferSuggestions = suggestions.filter(
+        (suggestion) => suggestion.action_type === 'TRANSFER' || suggestion.action_type === 'PARTIAL_TRANSFER'
+    );
+    const tabItems = [
+        { id: 'suggestions' as const, label: 'Motor de Sugerencias', icon: TrendingUp, color: 'purple' },
+        { id: 'transfers' as const, label: 'Traspasos Sugeridos', icon: ArrowLeftRight, color: 'emerald' },
+        { id: 'history' as const, label: 'Historial', icon: Clock, color: 'amber' },
+    ];
+    const activeTabMeta = tabItems.find((tab) => tab.id === activeTab) ?? tabItems[0];
+    const filteredSuggestions = suggestions.filter((item) => {
+        const stockPercent = item.stock_level_percent ?? 0;
+        if (stockFilter !== null) {
+            return stockPercent <= (stockFilter * 100);
+        }
+        return true;
+    });
 
     return (
         <div data-testid="supply-chain-page" className="h-dvh p-3 md:p-6 pb-safe bg-slate-50 flex flex-col overflow-hidden">
@@ -537,11 +605,11 @@ const SupplyChainPage: React.FC = () => {
                     </h1>
                     <p className="text-slate-500 text-sm">IA y Gestión Inteligente de Abastecimiento</p>
                 </div>
-                <div className="flex flex-wrap gap-2 w-full lg:w-auto">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 w-full lg:flex lg:flex-wrap lg:w-auto">
                     <button
                         onClick={handleGenerateOrders}
                         disabled={selectedSkus.size === 0}
-                        className="flex-1 lg:flex-none min-w-[160px] flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition text-sm shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="lg:flex-none lg:min-w-[160px] flex items-center justify-center gap-2 px-4 py-3 lg:py-2.5 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition text-sm shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <Package size={18} /> Generar ({suggestions.filter(s => selectedSkus.has(s.sku)).length})
                     </button>
@@ -550,14 +618,14 @@ const SupplyChainPage: React.FC = () => {
                             setSelectedOrder(null);
                             setIsManualOrderModalOpen(true);
                         }}
-                        className="flex-1 lg:flex-none min-w-[160px] flex items-center justify-center gap-2 px-4 py-2.5 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold hover:bg-slate-50 transition text-sm shadow-sm"
+                        className="lg:flex-none lg:min-w-[160px] flex items-center justify-center gap-2 px-4 py-3 lg:py-2.5 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold hover:bg-slate-50 transition text-sm shadow-sm"
                     >
                         <Plus size={18} /> Orden Manual
                     </button>
                     <button
                         onClick={handleExport}
                         disabled={isExporting}
-                        className="flex-1 lg:flex-none min-w-[160px] flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition text-sm shadow-sm disabled:opacity-50"
+                        className="lg:flex-none lg:min-w-[160px] flex items-center justify-center gap-2 px-4 py-3 lg:py-2.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition text-sm shadow-sm disabled:opacity-50"
                         title="Exportar análisis actual a Excel corporativo"
                     >
                         {isExporting ? <RefreshCw className="animate-spin" size={18} /> : <FileDown size={18} />}
@@ -570,180 +638,221 @@ const SupplyChainPage: React.FC = () => {
                 {/* Left: Predictive Analysis */}
                 <div className="flex-[3] bg-white rounded-3xl shadow-sm border border-slate-200 flex flex-col overflow-hidden">
                     {/* Tab Bar */}
-                    <div className="flex flex-wrap border-b border-slate-200 bg-slate-50/50 rounded-t-3xl">
-                        <button
-                            onClick={() => setActiveTab('suggestions')}
-                            className={`flex items-center gap-2 px-5 py-3 text-sm font-bold transition-all border-b-2 ${activeTab === 'suggestions'
-                                ? 'border-purple-600 text-purple-700 bg-white'
-                                : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-white/50'
-                                }`}
-                        >
-                            <TrendingUp size={16} />
-                            Motor de Sugerencias
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('transfers')}
-                            className={`flex items-center gap-2 px-5 py-3 text-sm font-bold transition-all border-b-2 ${activeTab === 'transfers'
-                                ? 'border-emerald-600 text-emerald-700 bg-white'
-                                : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-white/50'
-                                }`}
-                        >
-                            <ArrowLeftRight size={16} />
-                            Traspasos Sugeridos
-                            {suggestions.filter(s => s.action_type === 'TRANSFER' || s.action_type === 'PARTIAL_TRANSFER').length > 0 && (
-                                <span className="ml-1 px-1.5 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-700 rounded-full">
-                                    {suggestions.filter(s => s.action_type === 'TRANSFER' || s.action_type === 'PARTIAL_TRANSFER').length}
-                                </span>
-                            )}
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('history')}
-                            className={`flex items-center gap-2 px-5 py-3 text-sm font-bold transition-all border-b-2 ${activeTab === 'history'
-                                ? 'border-amber-600 text-amber-700 bg-white'
-                                : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-white/50'
-                                }`}
-                        >
-                            <Clock size={16} />
-                            Historial
-                        </button>
+                    <div className="border-b border-slate-200 bg-slate-50/50 rounded-t-3xl">
+                        <div className="md:hidden p-4 space-y-3">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Vista activa</p>
+                                    <p className="text-sm font-bold text-slate-800">{activeTabMeta.label}</p>
+                                </div>
+                                {transferSuggestions.length > 0 && (
+                                    <span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-bold text-emerald-700">
+                                        {transferSuggestions.length} traspasos
+                                    </span>
+                                )}
+                            </div>
+                            <div className="relative">
+                                <select
+                                    aria-label="Cambiar vista de abastecimiento"
+                                    value={activeTab}
+                                    onChange={(e) => setActiveTab(e.target.value as typeof activeTab)}
+                                    className="w-full appearance-none rounded-xl border border-slate-200 bg-white px-4 py-3 pr-10 text-sm font-bold text-slate-700 shadow-sm"
+                                >
+                                    {tabItems.map((tab) => (
+                                        <option key={tab.id} value={tab.id}>
+                                            {tab.label}
+                                        </option>
+                                    ))}
+                                </select>
+                                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                            </div>
+                        </div>
+
+                        <div className="hidden md:flex flex-wrap">
+                            {tabItems.map((tab) => {
+                                const Icon = tab.icon;
+                                const isActive = activeTab === tab.id;
+
+                                return (
+                                    <button
+                                        key={tab.id}
+                                        onClick={() => setActiveTab(tab.id)}
+                                        className={`flex items-center gap-2 px-5 py-3 text-sm font-bold transition-all border-b-2 ${isActive
+                                            ? tab.color === 'emerald'
+                                                ? 'border-emerald-600 text-emerald-700 bg-white'
+                                                : tab.color === 'amber'
+                                                    ? 'border-amber-600 text-amber-700 bg-white'
+                                                    : 'border-purple-600 text-purple-700 bg-white'
+                                            : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-white/50'
+                                            }`}
+                                    >
+                                        <Icon size={16} />
+                                        {tab.label}
+                                        {tab.id === 'transfers' && transferSuggestions.length > 0 && (
+                                            <span className="ml-1 px-1.5 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-700 rounded-full">
+                                                {transferSuggestions.length}
+                                            </span>
+                                        )}
+                                    </button>
+                                );
+                            })}
+                        </div>
                     </div>
 
                     {/* Tab Content: Suggestions (existing) */}
                     {activeTab === 'suggestions' && (
                         <>
                             <div className="p-4 md:p-5 border-b border-slate-100 flex flex-col gap-4">
-                                <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
-                                    <div className="space-y-4 w-full">
-                                        <div className="flex items-center gap-2">
-                                            <div className="p-1.5 bg-purple-100 text-purple-600 rounded-lg">
-                                                <TrendingUp size={18} />
-                                            </div>
-                                            <h2 className="text-lg font-bold text-slate-800">Motor de Sugerencias</h2>
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="flex items-center gap-2">
+                                        <div className="p-1.5 bg-purple-100 text-purple-600 rounded-lg">
+                                            <TrendingUp size={18} />
                                         </div>
+                                        <h2 className="text-lg font-bold text-slate-800">Motor de Sugerencias</h2>
+                                    </div>
+                                    <div className="hidden md:flex items-center gap-2 text-xs text-slate-400">
+                                        <span>{filteredSuggestions.length} visibles</span>
+                                        <span>•</span>
+                                        <span>{selectedSkus.size} seleccionados</span>
+                                    </div>
+                                </div>
 
-                                        <div className="flex flex-wrap gap-3 w-full">
-                                            {/* Search Box - NEW */}
-                                            <div className="flex-1 min-w-[200px] relative group">
-                                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-purple-500 transition-colors" size={16} />
-                                                <input
-                                                    type="text"
-                                                    placeholder="Buscar producto..."
-                                                    className="w-full pl-9 pr-12 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white transition-all font-medium"
-                                                    value={searchQuery}
-                                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                                    onKeyDown={(e) => e.key === 'Enter' && runIntelligentAnalysis()}
-                                                />
-                                                <button
-                                                    onClick={() => setIsScannerOpen(true)}
-                                                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 hover:bg-slate-200 rounded-lg text-slate-400 hover:text-purple-600 transition-colors"
-                                                    title="Escanear código de barras"
-                                                >
-                                                    <ScanBarcode size={18} />
-                                                </button>
+                                <div className="flex flex-col gap-3 w-full">
+                                    <div className="relative group">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-purple-500 transition-colors" size={16} />
+                                        <input
+                                            type="text"
+                                            placeholder="Buscar producto..."
+                                            className="w-full pl-9 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white transition-all font-medium"
+                                            value={searchQuery}
+                                            onChange={(e) => setSearchQuery(e.target.value)}
+                                            onKeyDown={(e) => e.key === 'Enter' && runIntelligentAnalysis()}
+                                        />
+                                        <button
+                                            onClick={() => setIsScannerOpen(true)}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 hover:bg-slate-200 rounded-lg text-slate-400 hover:text-purple-600 transition-colors"
+                                            title="Escanear código de barras"
+                                        >
+                                            <ScanBarcode size={18} />
+                                        </button>
+                                    </div>
+
+                                    {isScannerOpen && (
+                                        <CameraScanner
+                                            onScan={(code) => {
+                                                setSearchQuery(code);
+                                                toast.success(`Producto escaneado: ${code}`);
+                                                setIsScannerOpen(false);
+                                                setTimeout(() => runIntelligentAnalysis(), 500);
+                                            }}
+                                            onClose={() => setIsScannerOpen(false)}
+                                        />
+                                    )}
+
+                                    {isMobile && (
+                                        <div className="flex flex-wrap gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowAdvancedMobileFilters((current) => !current)}
+                                                className="flex-1 min-w-[180px] rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm flex items-center justify-center gap-2"
+                                                data-testid="mobile-filters-toggle"
+                                            >
+                                                <Filter size={16} />
+                                                {showAdvancedMobileFilters ? 'Ocultar filtros' : 'Filtros avanzados'}
+                                            </button>
+                                            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-500 flex items-center justify-center">
+                                                Top {topLimit} • {selectedSkus.size} sel.
                                             </div>
+                                        </div>
+                                    )}
 
-                                            {/* Camera Scanner Modal */}
-                                            {isScannerOpen && (
-                                                <CameraScanner
-                                                    onScan={(code) => {
-                                                        setSearchQuery(code);
-                                                        toast.success(`Producto escaneado: ${code}`);
-                                                        setIsScannerOpen(false);
-                                                        setTimeout(() => runIntelligentAnalysis(), 500);
-                                                    }}
-                                                    onClose={() => setIsScannerOpen(false)}
-                                                />
-                                            )}
-
-                                            {/* Filters Row */}
-                                            <div className="flex gap-2 text-sm flex-wrap w-full lg:w-auto">
-
-                                                {/* Supplier Selector */}
-                                                <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 min-w-[150px]">
+                                    {(!isMobile || showAdvancedMobileFilters) && (
+                                        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-2">
+                                                <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-3 min-h-[52px]">
                                                     <Users size={14} className="text-slate-400" />
                                                     <select
-                                                        className="bg-transparent font-bold text-slate-600 focus:outline-none cursor-pointer w-full text-xs"
+                                                        className="w-full bg-transparent font-bold text-slate-600 focus:outline-none cursor-pointer text-sm"
                                                         value={selectedSupplier}
                                                         onChange={(e) => setSelectedSupplier(e.target.value)}
                                                     >
-                                                        <option value="">Todos</option>
-                                                        {suppliers.map(s => (
-                                                            <option key={s.id} value={s.id}>
-                                                                {s.fantasy_name || s.business_name || 'Sin Nombre'}
+                                                        <option value="">Todos los proveedores</option>
+                                                        {suppliers.map((supplier) => (
+                                                            <option key={supplier.id} value={supplier.id}>
+                                                                {supplier.fantasy_name || supplier.business_name || 'Sin Nombre'}
                                                             </option>
                                                         ))}
                                                     </select>
                                                 </div>
 
-                                                {/* Analysis Mode Toggle */}
-                                                <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
+                                                <div className="grid grid-cols-2 rounded-xl border border-slate-200 bg-white overflow-hidden min-h-[52px]">
                                                     <button
                                                         onClick={() => setAnalysisMode('window')}
-                                                        className={`px-3 py-2 text-xs font-bold transition-all ${analysisMode === 'window'
+                                                        className={`px-3 py-3 text-xs font-bold transition-all ${analysisMode === 'window'
                                                             ? 'bg-purple-600 text-white shadow-sm'
                                                             : 'text-slate-500 hover:bg-slate-100'}`}
                                                     >
-                                                        📊 Ventana
+                                                        Ventana
                                                     </button>
                                                     <button
                                                         onClick={() => setAnalysisMode('daterange')}
-                                                        className={`px-3 py-2 text-xs font-bold transition-all ${analysisMode === 'daterange'
+                                                        className={`px-3 py-3 text-xs font-bold transition-all ${analysisMode === 'daterange'
                                                             ? 'bg-purple-600 text-white shadow-sm'
                                                             : 'text-slate-500 hover:bg-slate-100'}`}
                                                     >
-                                                        📅 Por Fechas
+                                                        Fechas
                                                     </button>
                                                 </div>
 
-                                                {/* Window mode: Analysis Window selector */}
-                                                {analysisMode === 'window' && (
-                                                    <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200" title="Ventana de ventas a analizar">
+                                                {analysisMode === 'window' ? (
+                                                    <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-3 min-h-[52px]">
                                                         <Settings size={14} className="text-slate-400" />
-                                                        <div className="flex flex-col -space-y-1">
-                                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Venta</span>
+                                                        <div className="w-full">
+                                                            <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Ventana</span>
                                                             <select
-                                                                className="bg-transparent font-bold text-slate-600 focus:outline-none cursor-pointer text-xs"
+                                                                className="w-full bg-transparent font-bold text-slate-600 focus:outline-none cursor-pointer text-sm"
                                                                 value={analysisWindow}
                                                                 onChange={(e) => setAnalysisWindow(Number(e.target.value))}
                                                             >
-                                                                <option value={7}>7d</option>
-                                                                <option value={15}>15d</option>
-                                                                <option value={30}>30d</option>
-                                                                <option value={60}>60d</option>
-                                                                <option value={90}>90d</option>
+                                                                <option value={7}>7 días</option>
+                                                                <option value={15}>15 días</option>
+                                                                <option value={30}>30 días</option>
+                                                                <option value={60}>60 días</option>
+                                                                <option value={90}>90 días</option>
                                                             </select>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 min-h-[52px] xl:col-span-2">
+                                                        <div className="flex items-start gap-2">
+                                                            <Calendar size={14} className="text-slate-400 mt-1" />
+                                                            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-2 w-full">
+                                                                <input
+                                                                    type="date"
+                                                                    value={dateFrom}
+                                                                    onChange={(e) => setDateFrom(e.target.value)}
+                                                                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600"
+                                                                    title="Fecha desde"
+                                                                />
+                                                                <span className="hidden sm:flex items-center justify-center text-slate-300 text-xs">→</span>
+                                                                <input
+                                                                    type="date"
+                                                                    value={dateTo}
+                                                                    onChange={(e) => setDateTo(e.target.value)}
+                                                                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600"
+                                                                    title="Fecha hasta"
+                                                                />
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 )}
 
-                                                {/* Date-range mode: From/To pickers */}
-                                                {analysisMode === 'daterange' && (
-                                                    <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
-                                                        <Calendar size={14} className="text-slate-400" />
-                                                        <input
-                                                            type="date"
-                                                            value={dateFrom}
-                                                            onChange={(e) => setDateFrom(e.target.value)}
-                                                            className="bg-transparent text-xs font-bold text-slate-600 focus:outline-none cursor-pointer"
-                                                            title="Fecha desde"
-                                                        />
-                                                        <span className="text-slate-300 text-xs">→</span>
-                                                        <input
-                                                            type="date"
-                                                            value={dateTo}
-                                                            onChange={(e) => setDateTo(e.target.value)}
-                                                            className="bg-transparent text-xs font-bold text-slate-600 focus:outline-none cursor-pointer"
-                                                            title="Fecha hasta"
-                                                        />
-                                                    </div>
-                                                )}
-
-                                                {/* Coverage Days */}
-                                                <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200" title="Días de cobertura a cubrir">
-                                                    <div className="flex flex-col -space-y-1">
-                                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Cobertura</span>
+                                                <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-3 min-h-[52px]">
+                                                    <Calculator size={14} className="text-slate-400" />
+                                                    <div className="w-full">
+                                                        <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Cobertura</span>
                                                         <select
-                                                            className="bg-transparent font-bold text-slate-600 focus:outline-none cursor-pointer text-xs"
+                                                            className="w-full bg-transparent font-bold text-slate-600 focus:outline-none cursor-pointer text-sm"
                                                             value={daysToCover}
                                                             onChange={(e) => setDaysToCover(Number(e.target.value))}
                                                         >
@@ -757,56 +866,58 @@ const SupplyChainPage: React.FC = () => {
                                                     </div>
                                                 </div>
 
-                                                {/* Location Selector */}
-                                                <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
+                                                <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-3 min-h-[52px]">
                                                     <MapPin size={14} className="text-slate-400" />
                                                     <select
-                                                        className="bg-transparent font-bold text-slate-600 focus:outline-none cursor-pointer max-w-[120px] truncate"
+                                                        className="w-full bg-transparent font-bold text-slate-600 focus:outline-none cursor-pointer text-sm"
                                                         value={selectedLocation}
                                                         onChange={(e) => setSelectedLocation(e.target.value)}
                                                     >
-                                                        <option value="">Todas</option>
-                                                        {locations.map(loc => (
-                                                            <option key={loc.id} value={loc.id}>
-                                                                {loc.name}
+                                                        <option value="">Todas las ubicaciones</option>
+                                                        {locations.map((location) => (
+                                                            <option key={location.id} value={location.id}>
+                                                                {location.name}
                                                             </option>
                                                         ))}
                                                     </select>
                                                 </div>
 
-                                                {/* Top N Limit */}
-                                                <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
+                                                <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-3 min-h-[52px]">
                                                     <BarChart3 size={14} className="text-slate-400" />
-                                                    <span className="text-slate-500 text-xs">Top:</span>
-                                                    <select
-                                                        className="bg-transparent font-bold text-slate-600 focus:outline-none cursor-pointer"
-                                                        value={topLimit}
-                                                        onChange={(e) => setTopLimit(Number(e.target.value))}
-                                                    >
-                                                        <option value={10}>10</option>
-                                                        <option value={50}>50</option>
-                                                        <option value={100}>100</option>
-                                                        <option value={500}>500</option>
-                                                    </select>
+                                                    <div className="w-full">
+                                                        <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Top</span>
+                                                        <select
+                                                            className="w-full bg-transparent font-bold text-slate-600 focus:outline-none cursor-pointer text-sm"
+                                                            value={topLimit}
+                                                            onChange={(e) => setTopLimit(Number(e.target.value))}
+                                                        >
+                                                            <option value={10}>10</option>
+                                                            <option value={50}>50</option>
+                                                            <option value={100}>100</option>
+                                                            <option value={500}>500</option>
+                                                        </select>
+                                                    </div>
                                                 </div>
                                             </div>
 
-                                            {/* Filters Row 2: Stock Level Chips (replaces confusing slider) */}
                                             {analysisMode === 'window' && (
-                                                <div className="flex gap-2 text-sm flex-wrap items-center mt-2 w-full">
+                                                <div className="flex flex-wrap items-center gap-2">
                                                     {[
                                                         { label: 'Todo', value: null, color: 'slate' },
-                                                        { label: '🔴 Crítico (<10%)', value: 0.1, color: 'red' },
-                                                        { label: '🟠 Bajo (<30%)', value: 0.3, color: 'amber' },
-                                                        { label: '🟡 Medio (<60%)', value: 0.6, color: 'yellow' },
+                                                        { label: 'Crítico (<10%)', value: 0.1, color: 'red' },
+                                                        { label: 'Bajo (<30%)', value: 0.3, color: 'amber' },
+                                                        { label: 'Medio (<60%)', value: 0.6, color: 'yellow' },
                                                     ].map((chip) => (
                                                         <button
                                                             key={chip.label}
                                                             onClick={() => setStockFilter(stockFilter === chip.value ? null : chip.value)}
-                                                            className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition flex items-center gap-1.5 ${stockFilter === chip.value
-                                                                ? chip.color === 'red' ? 'bg-red-50 border-red-200 text-red-600 ring-2 ring-red-100'
-                                                                    : chip.color === 'amber' ? 'bg-amber-50 border-amber-200 text-amber-600 ring-2 ring-amber-100'
-                                                                        : chip.color === 'yellow' ? 'bg-yellow-50 border-yellow-200 text-yellow-600 ring-2 ring-yellow-100'
+                                                            className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition ${stockFilter === chip.value
+                                                                ? chip.color === 'red'
+                                                                    ? 'bg-red-50 border-red-200 text-red-600 ring-2 ring-red-100'
+                                                                    : chip.color === 'amber'
+                                                                        ? 'bg-amber-50 border-amber-200 text-amber-600 ring-2 ring-amber-100'
+                                                                        : chip.color === 'yellow'
+                                                                            ? 'bg-yellow-50 border-yellow-200 text-yellow-600 ring-2 ring-yellow-100'
                                                                             : 'bg-purple-50 border-purple-200 text-purple-600 ring-2 ring-purple-100'
                                                                 : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
                                                                 }`}
@@ -815,7 +926,6 @@ const SupplyChainPage: React.FC = () => {
                                                         </button>
                                                     ))}
 
-                                                    {/* Delete Draft Button (Only visible if something selected) */}
                                                     {selectedOrder && (
                                                         <button
                                                             onClick={() => {
@@ -833,7 +943,6 @@ const SupplyChainPage: React.FC = () => {
                                                                             }
                                                                             toast.success('Borrador eliminado');
                                                                             setSelectedOrder(null);
-                                                                            // Refresh?
                                                                         })
                                                                         .catch(() => toast.error('Error al eliminar borrador'));
                                                                 }
@@ -846,21 +955,34 @@ const SupplyChainPage: React.FC = () => {
                                                     )}
                                                 </div>
                                             )}
-
-                                            <button
-                                                data-testid="analyze-stock-btn"
-                                                onClick={runIntelligentAnalysis}
-                                                disabled={isAnalyzing}
-                                                className="w-full sm:w-auto sm:ml-auto px-6 py-2.5 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition disabled:opacity-50 shadow-md shadow-purple-200 flex items-center justify-center gap-2 whitespace-nowrap"
-                                            >
-                                                {isAnalyzing ? <RefreshCw className="animate-spin" size={16} /> : <Zap size={16} />}
-                                                {isAnalyzing ? 'Analizando...' : 'Analizar'}
-                                            </button>
                                         </div>
+                                    )}
+
+                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                        <div className="flex flex-wrap gap-2 text-xs">
+                                            <span className="rounded-full bg-red-50 px-3 py-1.5 font-bold text-red-600">
+                                                Críticos: {stats.critical}
+                                            </span>
+                                            <span className="rounded-full bg-amber-50 px-3 py-1.5 font-bold text-amber-600">
+                                                Bajos: {stats.low}
+                                            </span>
+                                            <span className="rounded-full bg-emerald-50 px-3 py-1.5 font-bold text-emerald-600">
+                                                Traspasos: {stats.transfers}
+                                            </span>
+                                        </div>
+
+                                        <button
+                                            data-testid="analyze-stock-btn"
+                                            onClick={runIntelligentAnalysis}
+                                            disabled={isAnalyzing}
+                                            className="w-full sm:w-auto px-6 py-3 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition disabled:opacity-50 shadow-md shadow-purple-200 flex items-center justify-center gap-2 whitespace-nowrap"
+                                        >
+                                            {isAnalyzing ? <RefreshCw className="animate-spin" size={16} /> : <Zap size={16} />}
+                                            {isAnalyzing ? 'Analizando...' : 'Analizar'}
+                                        </button>
                                     </div>
                                 </div>
                             </div>
-
 
                             <div className="flex-1 overflow-y-auto p-0 scrollbar-hide bg-slate-50/50">
                                 {isAnalyzing ? (
@@ -881,6 +1003,180 @@ const SupplyChainPage: React.FC = () => {
                                             <p className="text-sm">Configure los filtros o busque un producto</p>
                                         </div>
                                     </div>
+                                ) : filteredSuggestions.length === 0 ? (
+                                    <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-4 px-6 text-center">
+                                        <div className="p-4 bg-white rounded-full shadow-sm">
+                                            <Filter className="text-slate-300" size={42} />
+                                        </div>
+                                        <div>
+                                            <p className="text-lg font-bold text-slate-600">Sin resultados visibles</p>
+                                            <p className="text-sm">Ajuste los filtros para ver más sugerencias</p>
+                                        </div>
+                                    </div>
+                                ) : isMobile ? (
+                                    <div className="p-3 space-y-3">
+                                        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm flex items-center justify-between gap-3">
+                                            <label className="flex items-center gap-3 text-sm font-semibold text-slate-700">
+                                                <input
+                                                    type="checkbox"
+                                                    className="w-4 h-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                                                    checked={filteredSuggestions.length > 0 && filteredSuggestions.every((item) => selectedSkus.has(item.sku))}
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            setSelectedSkus(new Set(filteredSuggestions.map((item) => item.sku)));
+                                                        } else {
+                                                            setSelectedSkus(new Set());
+                                                        }
+                                                    }}
+                                                />
+                                                Seleccionar visibles
+                                            </label>
+                                            <span className="text-xs font-bold text-slate-400">{filteredSuggestions.length} items</span>
+                                        </div>
+
+                                        {filteredSuggestions.map((item, idx) => (
+                                            <article
+                                                key={`${item.sku}-${idx}`}
+                                                data-testid={`suggestion-card-${item.sku}`}
+                                                className={`rounded-2xl border p-4 shadow-sm ${selectedSkus.has(item.sku)
+                                                    ? 'border-purple-300 bg-purple-50/40'
+                                                    : 'border-slate-200 bg-white'
+                                                    }`}
+                                            >
+                                                <div className="flex items-start gap-3">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="mt-1 h-4 w-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                                                        checked={selectedSkus.has(item.sku)}
+                                                        onChange={(e) => toggleSkuSelection(item.sku, e.target.checked)}
+                                                    />
+
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex items-start justify-between gap-3">
+                                                            <div className="min-w-0">
+                                                                <h3 className="font-bold text-slate-800 leading-tight">{item.product_name}</h3>
+                                                                <div className="mt-2 flex flex-wrap gap-2">
+                                                                    <span className="text-[10px] font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">{item.sku}</span>
+                                                                    {item.urgency === 'HIGH' && (
+                                                                        <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                                                            <AlertTriangle size={10} />
+                                                                            CRÍTICO
+                                                                        </span>
+                                                                    )}
+                                                                    {item.is_dormant && (
+                                                                        <span className="text-[10px] font-bold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded">
+                                                                            DORMIDO
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => removeSuggestion(item.sku)}
+                                                                className="text-slate-300 hover:text-red-500 transition p-1 hover:bg-red-50 rounded-md"
+                                                                aria-label={`Eliminar ${item.product_name}`}
+                                                            >
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        </div>
+
+                                                        <div className="mt-4 space-y-3">
+                                                            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                                                                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Proveedor</p>
+                                                                <div className="mt-1">
+                                                                    {renderSupplierSelector(item, 'max-w-none')}
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="grid grid-cols-2 gap-3">
+                                                                <div className="rounded-xl border border-slate-200 bg-white px-3 py-3">
+                                                                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Stock actual</p>
+                                                                    <p className="mt-1 text-lg font-bold text-slate-800">{item.current_stock || 0}</p>
+                                                                    <p className="text-xs text-slate-500">Min: {item.min_stock || 0}</p>
+                                                                    {(item.global_stock ?? 0) > 0 && (
+                                                                        <p className="mt-1 text-xs font-semibold text-emerald-600">{item.global_stock}u en otras sucursales</p>
+                                                                    )}
+                                                                </div>
+                                                                <div className="rounded-xl border border-slate-200 bg-white px-3 py-3">
+                                                                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Costo estimado</p>
+                                                                    <p className="mt-1 text-lg font-bold text-slate-800">${(item.total_estimated || 0).toLocaleString()}</p>
+                                                                    <p className="text-xs text-slate-500">Cobertura objetivo {item.selected_coverage_days || daysToCover}d</p>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="grid grid-cols-2 gap-3">
+                                                                <label className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-700">
+                                                                    Ventana
+                                                                    <select
+                                                                        className="mt-2 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700"
+                                                                        value={item.selected_analysis_window}
+                                                                        onChange={(e) => updateItemAnalysisWindow(item, e.target.value, idx)}
+                                                                    >
+                                                                        <option value={7}>7d ({item.sold_counts?.[7] || 0} u)</option>
+                                                                        <option value={15}>15d ({item.sold_counts?.[15] || 0} u)</option>
+                                                                        <option value={30}>30d ({item.sold_counts?.[30] || 0} u)</option>
+                                                                        <option value={60}>60d ({item.sold_counts?.[60] || 0} u)</option>
+                                                                        <option value={90}>90d ({item.sold_counts?.[90] || 0} u)</option>
+                                                                        <option value={180}>180d ({item.sold_counts?.[180] || 0} u)</option>
+                                                                        <option value={365}>365d ({item.sold_counts?.[365] || 0} u)</option>
+                                                                    </select>
+                                                                </label>
+                                                                <label className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-700">
+                                                                    Cobertura
+                                                                    <select
+                                                                        className="mt-2 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700"
+                                                                        value={item.selected_coverage_days}
+                                                                        onChange={(e) => updateItemCoverageDays(item, e.target.value, idx)}
+                                                                    >
+                                                                        <option value={7}>7 días</option>
+                                                                        <option value={15}>15 días</option>
+                                                                        <option value={30}>30 días</option>
+                                                                        <option value={45}>45 días</option>
+                                                                        <option value={60}>60 días</option>
+                                                                        <option value={90}>90 días</option>
+                                                                    </select>
+                                                                </label>
+                                                            </div>
+
+                                                            <label className="block rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-700">
+                                                                Cantidad sugerida
+                                                                <input
+                                                                    type="text"
+                                                                    inputMode="numeric"
+                                                                    pattern="[0-9]*"
+                                                                    className={`mt-2 w-full rounded-lg border px-3 py-2 text-base font-bold text-center shadow-sm ${item.action_type === 'TRANSFER'
+                                                                        ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                                                        : item.action_type === 'PARTIAL_TRANSFER'
+                                                                            ? 'border-amber-300 bg-amber-50 text-amber-700'
+                                                                            : 'border-purple-300 bg-white text-purple-700'
+                                                                        }`}
+                                                                    value={suggestedQtyDrafts[item.sku] ?? String(item.suggested_order_qty ?? 0)}
+                                                                    data-testid={`suggested-qty-input-${item.sku}`}
+                                                                    placeholder="0"
+                                                                    onChange={(e) => updateSuggestedQtyDraft(item, e.target.value)}
+                                                                    onBlur={() => normalizeSuggestedQtyDraftOnBlur(item)}
+                                                                />
+                                                            </label>
+
+                                                            {(item.action_type === 'TRANSFER' || item.action_type === 'PARTIAL_TRANSFER') && (
+                                                                <div className="flex flex-wrap gap-2">
+                                                                    {item.action_type === 'TRANSFER' && (
+                                                                        <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">
+                                                                            Traspaso sugerido
+                                                                        </span>
+                                                                    )}
+                                                                    {item.action_type === 'PARTIAL_TRANSFER' && (
+                                                                        <span className="rounded-full bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700">
+                                                                            Traspaso parcial
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </article>
+                                        ))}
+                                    </div>
                                 ) : (
                                     <div className="overflow-x-auto">
                                         <table className="w-full min-w-[1100px] text-left border-collapse">
@@ -890,9 +1186,9 @@ const SupplyChainPage: React.FC = () => {
                                                         <input
                                                             type="checkbox"
                                                             className="w-4 h-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
-                                                            checked={suggestions.length > 0 && selectedSkus.size === suggestions.length}
+                                                            checked={filteredSuggestions.length > 0 && filteredSuggestions.every((item) => selectedSkus.has(item.sku))}
                                                             onChange={(e) => {
-                                                                if (e.target.checked) setSelectedSkus(new Set(suggestions.map(s => s.sku)));
+                                                                if (e.target.checked) setSelectedSkus(new Set(filteredSuggestions.map((item) => item.sku)));
                                                                 else setSelectedSkus(new Set());
                                                             }}
                                                         />
@@ -907,33 +1203,14 @@ const SupplyChainPage: React.FC = () => {
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-100 text-sm bg-white">
-                                                {suggestions
-                                                    .filter(item => {
-                                                        // Fix NaN by defaulting
-                                                        const stockPercent = item.stock_level_percent ?? 0;
-
-                                                        // Stock Filter Logic (0-100%)
-                                                        if (stockFilter !== null) {
-                                                            // Item percent is 0-100 (integer)
-                                                            // Stock filter is 0-1 (float)
-                                                            // Convert filter to 0-100 for comparison
-                                                            return stockPercent <= (stockFilter * 100);
-                                                        }
-                                                        return true;
-                                                    })
-                                                    .map((item, idx) => (
+                                                {filteredSuggestions.map((item, idx) => (
                                                         <tr key={`${item.sku}-${idx}`} className={`group hover:bg-purple-50/50 transition border-l-4 ${selectedSkus.has(item.sku) ? 'border-l-purple-500 bg-purple-50/20' : 'border-l-transparent'}`}>
                                                             <td className="p-4">
                                                                 <input
                                                                     type="checkbox"
                                                                     className="w-4 h-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
                                                                     checked={selectedSkus.has(item.sku)}
-                                                                    onChange={(e) => {
-                                                                        const newSet = new Set(selectedSkus);
-                                                                        if (e.target.checked) newSet.add(item.sku);
-                                                                        else newSet.delete(item.sku);
-                                                                        setSelectedSkus(newSet);
-                                                                    }}
+                                                                    onChange={(e) => toggleSkuSelection(item.sku, e.target.checked)}
                                                                 />
                                                             </td>
                                                             <td className="p-4">
@@ -945,32 +1222,7 @@ const SupplyChainPage: React.FC = () => {
                                                                 </div>
                                                             </td>
                                                             <td className="p-4">
-                                                                <div className="relative">
-                                                                    {/* Force selection if item.supplier_id matches selectedSupplier logic handled in backend now */}
-                                                                    {item.other_suppliers && item.other_suppliers.length > 1 ? (
-                                                                        <div className="flex flex-col gap-1">
-                                                                            <select
-                                                                                className="text-xs font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-1.5 pr-6 appearance-none focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer truncate max-w-[140px]"
-                                                                                value={item.supplier_id || ''}
-                                                                                onChange={(e) => changeSupplier(item.sku, e.target.value)}
-                                                                            >
-                                                                                {item.other_suppliers.map(s => (
-                                                                                    <option key={s.id} value={s.id}>
-                                                                                        {s.name} (${s.cost || 0})
-                                                                                    </option>
-                                                                                ))}
-                                                                            </select>
-                                                                            <ChevronDown className="absolute right-2 top-2 pointer-events-none text-slate-400" size={12} />
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div className="text-xs font-medium text-slate-600 truncate max-w-[140px]" title={item.supplier_name}>
-                                                                            {item.supplier_name || 'Sin Proveedor'}
-                                                                        </div>
-                                                                    )}
-                                                                    <div className="text-[10px] text-slate-400 mt-0.5">
-                                                                        Costo: ${(item.unit_cost || 0).toLocaleString()}
-                                                                    </div>
-                                                                </div>
+                                                                {renderSupplierSelector(item)}
                                                             </td>
                                                             <td className="p-4 text-center">
                                                                 <div className="font-bold text-slate-800">{item.current_stock || 0}</div>
@@ -987,13 +1239,7 @@ const SupplyChainPage: React.FC = () => {
                                                                 <select
                                                                     className="text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-1.5 focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer text-center appearance-none"
                                                                     value={item.selected_analysis_window}
-                                                                    onChange={(e) => {
-                                                                        const newWindow = parseInt(e.target.value);
-                                                                        const newItem = recalculateItem(item, newWindow, item.selected_coverage_days || 15);
-                                                                        const newSuggestions = [...suggestions];
-                                                                        newSuggestions[idx] = newItem; // Update specific item using index (safer than map in large lists)
-                                                                        setSuggestions(newSuggestions);
-                                                                    }}
+                                                                    onChange={(e) => updateItemAnalysisWindow(item, e.target.value, idx)}
                                                                 >
                                                                     <option value={7}>7d ({item.sold_counts?.[7] || 0} u)</option>
                                                                     <option value={15}>15d ({item.sold_counts?.[15] || 0} u)</option>
@@ -1009,13 +1255,7 @@ const SupplyChainPage: React.FC = () => {
                                                                 <select
                                                                     className="text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-1.5 focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer text-center appearance-none"
                                                                     value={item.selected_coverage_days}
-                                                                    onChange={(e) => {
-                                                                        const newCoverage = parseInt(e.target.value);
-                                                                        const newItem = recalculateItem(item, item.selected_analysis_window || 30, newCoverage);
-                                                                        const newSuggestions = [...suggestions];
-                                                                        newSuggestions[idx] = newItem;
-                                                                        setSuggestions(newSuggestions);
-                                                                    }}
+                                                                    onChange={(e) => updateItemCoverageDays(item, e.target.value, idx)}
                                                                 >
                                                                     <option value={7}>7 días</option>
                                                                     <option value={15}>15 días</option>
@@ -1071,7 +1311,7 @@ const SupplyChainPage: React.FC = () => {
                     {/* Tab Content: Transfers */}
                     {activeTab === 'transfers' && (
                         <TransferSuggestionsPanel
-                            suggestions={suggestions.filter(s => s.action_type === 'TRANSFER' || s.action_type === 'PARTIAL_TRANSFER')}
+                            suggestions={transferSuggestions}
                             targetLocationId={selectedLocation || currentLocationId || ''}
                             targetLocationName={locations?.find(l => l.id === (selectedLocation || currentLocationId))?.name || 'Sucursal Actual'}
                             defaultWarehouseId={locations?.find(l => l.id === (selectedLocation || currentLocationId))?.default_warehouse_id}

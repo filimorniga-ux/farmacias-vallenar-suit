@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { usePharmaStore } from '../store/useStore';
 import TimeFilter, { DateRange } from '../components/bi/TimeFilter';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { TrendingUp, DollarSign, FileText, Package, Users, Download, AlertTriangle, CheckCircle, RefreshCw, ArrowDown, ArrowUp, Clock, X } from 'lucide-react';
+import { TrendingUp, DollarSign, FileText, Package, Users, Download, AlertTriangle, CheckCircle, RefreshCw, ArrowDown, ArrowUp, Clock, X, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 
 // V2 Backend Actions - Todas las funciones seguras
@@ -203,37 +203,39 @@ const ReportsPage: React.FC = () => {
     ];
 
     const tabs = allTabs.filter(t => !t.roles || (userRole && t.roles.includes(userRole)));
+    const activeTabLabel = tabs.find((tab) => tab.id === activeTab)?.label ?? 'Reportes';
 
     return (
-        <div className="p-4 md:p-6 space-y-6 h-[calc(100dvh-80px)] overflow-y-auto bg-gray-50 pb-safe touch-pan-y overscroll-contain">
+        <div className="p-3 md:p-6 space-y-4 md:space-y-6 h-[calc(100dvh-80px)] overflow-y-auto bg-gray-50 pb-safe touch-pan-y overscroll-contain">
             {/* Header */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-                        <TrendingUp className="w-8 h-8 text-blue-600" />
+                <div className="min-w-0">
+                    <h1 className="text-2xl md:text-3xl font-bold text-gray-900 flex items-center gap-3">
+                        <TrendingUp className="w-7 h-7 md:w-8 md:h-8 text-blue-600" />
                         Reportes de Gestión
                     </h1>
-                    <p className="text-gray-600 mt-1">Auditoría detallada y cumplimiento normativo</p>
+                    <p className="text-sm md:text-base text-gray-600 mt-1">Auditoría detallada y cumplimiento normativo</p>
                 </div>
-                <div className="flex flex-wrap gap-2 w-full md:w-auto">
+                <div className="grid grid-cols-2 gap-2 w-full md:flex md:flex-wrap md:w-auto">
                     <button
                         onClick={() => navigate('/reports/sales-by-product')}
-                        className="px-4 py-3 bg-white border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 flex items-center gap-2 font-bold shadow-sm transition-colors"
+                        className="col-span-2 md:col-span-1 min-h-11 px-4 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 flex items-center justify-center gap-2 font-bold shadow-sm transition-colors"
                     >
                         <Package className="w-5 h-5" />
                         Ventas por Producto
                     </button>
 
-                    <button onClick={fetchData} className="p-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 transition">
+                    <button onClick={fetchData} className="min-h-11 p-3 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-600 transition flex items-center justify-center">
                         <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
                     </button>
                     <button
                         onClick={handleExportExcel}
                         disabled={isExporting || loading}
-                        className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 font-bold shadow-lg shadow-green-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        className="min-h-11 px-4 md:px-6 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 flex items-center justify-center gap-2 font-bold shadow-lg shadow-green-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                         {isExporting ? <RefreshCw className="animate-spin w-5 h-5" /> : <Download className="w-5 h-5" />}
-                        Exportar Excel
+                        <span className="hidden sm:inline">Exportar Excel</span>
+                        <span className="sm:hidden">Exportar</span>
                     </button>
                 </div>
             </div>
@@ -243,7 +245,31 @@ const ReportsPage: React.FC = () => {
 
             {/* Tabs */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-                <div className="border-b border-gray-200">
+                <div className="md:hidden border-b border-gray-200 bg-slate-50/70 p-3">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                        Sección activa
+                    </label>
+                    <div className="relative">
+                        <select
+                            aria-label="Cambiar sección de reportes"
+                            value={activeTab}
+                            onChange={(e) => setActiveTab(e.target.value as typeof activeTab)}
+                            className="w-full appearance-none rounded-xl border border-slate-200 bg-white px-4 py-3 pr-10 text-sm font-bold text-slate-700 shadow-sm"
+                        >
+                            {tabs.map((tab) => (
+                                <option key={tab.id} value={tab.id}>
+                                    {tab.label}
+                                </option>
+                            ))}
+                        </select>
+                        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">
+                        Vista actual: <span className="font-semibold text-slate-700">{activeTabLabel}</span>
+                    </p>
+                </div>
+
+                <div className="hidden md:block border-b border-gray-200">
                     <div className="flex gap-1 p-2 overflow-x-auto touch-pan-x no-scrollbar">
                         {tabs.map(tab => (
                             <button
@@ -261,7 +287,7 @@ const ReportsPage: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="p-6 min-h-[400px]">
+                <div className="p-3 md:p-6 min-h-[320px] md:min-h-[400px]">
                     {loading && (
                         <div className="flex justify-center items-center h-64">
                             <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
@@ -273,7 +299,7 @@ const ReportsPage: React.FC = () => {
 
                             {/* NEW: Financial KPI Cards */}
                             {summary && (
-                                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
                                     <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm">
                                         <p className="text-xs text-slate-500 font-bold uppercase">Ventas Totales</p>
                                         <p className="text-2xl font-bold text-blue-600 mt-1">${summary.total_sales.toLocaleString('es-CL')}</p>
@@ -351,11 +377,11 @@ const ReportsPage: React.FC = () => {
                     {!loading && activeTab === 'tax' && taxData && (
                         <div className="space-y-6 animate-in fade-in">
                             <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl mb-6">
-                                <h3 className="font-bold text-blue-900 text-lg">Simulacro F29 - IVA Mensual</h3>
+                                <h3 className="font-bold text-blue-900 text-base md:text-lg">Simulacro F29 - IVA Mensual</h3>
                                 <p className="text-blue-700">Período calculado: {taxData.period}</p>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
                                 <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-24 h-24 bg-blue-100 rounded-bl-full -mr-4 -mt-4 opacity-50" />
                                     <p className="text-gray-500 font-medium">IVA Débito (Ventas)</p>
