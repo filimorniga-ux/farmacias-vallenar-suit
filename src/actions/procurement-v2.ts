@@ -30,6 +30,7 @@ import { randomUUID } from 'crypto';
 import { logger } from '@/lib/logger';
 import { getSessionSecure } from './auth-v2';
 import { recordCostChange, createCostChangeNotification, type CostAlert } from './pricing-v2';
+import { upsertSupplierPrice, generatePriceRecommendations } from './pricing-intelligence';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -705,6 +706,31 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
                 userId: validated.data.userId,
                 client,
             });
+        }
+
+        // 7. Pricing Intelligence — registrar precios de proveedor y generar recomendaciones
+        for (const alert of costAlerts) {
+            try {
+                await upsertSupplierPrice({
+                    productId: alert.productId,
+                    supplierId: alert.supplierId || order.supplier_id,
+                    unitCost: alert.newCost,
+                    orderId: validated.data.orderId,
+                    client,
+                });
+
+                await generatePriceRecommendations({
+                    productId: alert.productId,
+                    incomingCost: alert.newCost,
+                    previousCost: alert.oldCost,
+                    supplierId: alert.supplierId || order.supplier_id,
+                    orderId: validated.data.orderId,
+                    client,
+                });
+            } catch (intelError) {
+                // No falla la recepción si la inteligencia de precios falla
+                logger.error({ intelError, productId: alert.productId }, '[PROCUREMENT-V2] Pricing intelligence error (non-fatal)');
+            }
         }
 
         await client.query('COMMIT');
