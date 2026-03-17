@@ -717,7 +717,7 @@ const SupplyChainPage: React.FC = () => {
                     {/* Tab Content: Suggestions (existing) */}
                     {activeTab === 'suggestions' && (
                         <>
-                            <div className="p-4 md:p-5 border-b border-slate-100 flex flex-col gap-4">
+                            <div className="p-3 md:p-5 border-b border-slate-100 flex flex-col gap-2 md:gap-4">
                                 <div className="flex items-start justify-between gap-3">
                                     <div className="flex items-center gap-2">
                                         <div className="p-1.5 bg-purple-100 text-purple-600 rounded-lg">
@@ -732,7 +732,7 @@ const SupplyChainPage: React.FC = () => {
                                     </div>
                                 </div>
 
-                                <div className="flex flex-col gap-3 w-full">
+                                <div className="flex flex-col gap-2 md:gap-3 w-full">
                                     <div className="relative group">
                                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-purple-500 transition-colors" size={16} />
                                         <input
@@ -978,15 +978,15 @@ const SupplyChainPage: React.FC = () => {
                                         </div>
                                     )}
 
-                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                                        <div className="flex flex-wrap gap-2 text-xs">
-                                            <span className="rounded-full bg-red-50 px-3 py-1.5 font-bold text-red-600">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="flex flex-wrap gap-1.5 text-[10px] md:text-xs">
+                                            <span className="rounded-full bg-red-50 px-2 py-1 md:px-3 md:py-1.5 font-bold text-red-600">
                                                 Críticos: {stats.critical}
                                             </span>
-                                            <span className="rounded-full bg-amber-50 px-3 py-1.5 font-bold text-amber-600">
+                                            <span className="rounded-full bg-amber-50 px-2 py-1 md:px-3 md:py-1.5 font-bold text-amber-600">
                                                 Bajos: {stats.low}
                                             </span>
-                                            <span className="rounded-full bg-emerald-50 px-3 py-1.5 font-bold text-emerald-600">
+                                            <span className="rounded-full bg-emerald-50 px-2 py-1 md:px-3 md:py-1.5 font-bold text-emerald-600">
                                                 Traspasos: {stats.transfers}
                                             </span>
                                         </div>
@@ -995,7 +995,7 @@ const SupplyChainPage: React.FC = () => {
                                             data-testid="analyze-stock-btn"
                                             onClick={runIntelligentAnalysis}
                                             disabled={isAnalyzing}
-                                            className="w-full sm:w-auto px-6 py-3 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition disabled:opacity-50 shadow-md shadow-purple-200 flex items-center justify-center gap-2 whitespace-nowrap"
+                                            className="flex-shrink-0 px-4 py-2.5 md:px-6 md:py-3 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition disabled:opacity-50 shadow-md shadow-purple-200 flex items-center justify-center gap-2 whitespace-nowrap text-sm"
                                         >
                                             {isAnalyzing ? <RefreshCw className="animate-spin" size={16} /> : <Zap size={16} />}
                                             {isAnalyzing ? 'Analizando...' : 'Analizar'}
