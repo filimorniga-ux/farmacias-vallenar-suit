@@ -62,6 +62,29 @@ describe('Procurement V2 Logic', () => {
             expect(res.data![0].suggested_order_qty).toBe(15);
         });
 
+        it('should handle negative stock correctly (critical urgency)', async () => {
+            vi.mocked(dbModule.pool.query).mockResolvedValue({
+                rows: [{
+                    product_id: 'prod-neg', product_name: 'Abrilar JBE', sku: 'ABR100',
+                    current_stock: -21, other_warehouses_stock: 0,
+                    sold_7d: 14, sold_15d: 30, sold_30d: 60, sold_60d: 120, sold_90d: 180, sold_180d: 360, sold_365d: 730,
+                    safety_stock: 10, incoming_stock: 0,
+                    unit_cost: 100, internal_cost: 100,
+                    suppliers_data: null, stock_by_location: [],
+                    total_sold_in_period: 60, sales_history: []
+                }]
+            } as any);
+
+            const res = await generateRestockSuggestionSecure(mockSupplierId, 15, 30);
+            expect(res.success).toBe(true);
+            const item = res.data![0];
+            // Formula: velocity=60/30=2.0, maxStock=ceil(2.0*15+10)=40, net=40-(-21)-0=61
+            expect(item.suggested_order_qty).toBe(61);
+            expect(item.urgency).toBe('HIGH');
+            expect(item.current_stock).toBe(-21);
+            expect(item.days_coverage).toBe('0.0');
+        });
+
         it('should fail with invalid supplier UUID', async () => {
             const res = await generateRestockSuggestionSecure('invalid-uuid');
             expect(res.success).toBe(false);
