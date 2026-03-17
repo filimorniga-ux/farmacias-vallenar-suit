@@ -18,6 +18,12 @@ const mocks = vi.hoisted(() => {
     const toastErrorMock = vi.fn();
     const toastInfoMock = vi.fn();
     const generateRestockSuggestionSecureMock = vi.fn();
+    const platformState = {
+        isMobile: false,
+        isDesktopLike: true,
+        isLandscape: false,
+        viewportWidth: 1400,
+    };
 
     const pharmaState = {
         inventory: [],
@@ -47,6 +53,7 @@ const mocks = vi.hoisted(() => {
         toastInfoMock,
         generateRestockSuggestionSecureMock,
         usePharmaStoreMock,
+        platformState,
     };
 });
 
@@ -55,7 +62,7 @@ vi.mock('@/presentation/store/useStore', () => ({
 }));
 
 vi.mock('@/hooks/usePlatform', () => ({
-    usePlatform: () => ({ isDesktopLike: true, isLandscape: false, viewportWidth: 1400 }),
+    usePlatform: () => mocks.platformState,
 }));
 
 vi.mock('@/presentation/store/useNotificationStore', () => ({
@@ -119,6 +126,10 @@ const mockGenerateRestockSuggestionSecure = vi.mocked(generateRestockSuggestionS
 describe('SupplyChainPage - edición de sugerido', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.platformState.isMobile = false;
+        mocks.platformState.isDesktopLike = true;
+        mocks.platformState.isLandscape = false;
+        mocks.platformState.viewportWidth = 1400;
         mockGenerateRestockSuggestionSecure.mockResolvedValue({
             success: true,
             data: [
@@ -168,5 +179,25 @@ describe('SupplyChainPage - edición de sugerido', () => {
 
         fireEvent.change(qtyInput, { target: { value: '37' } });
         expect((qtyInput as HTMLInputElement).value).toBe('37');
+    });
+
+    it('muestra filtros colapsables y cards en móvil', async () => {
+        mocks.platformState.isMobile = true;
+        mocks.platformState.isDesktopLike = false;
+        mocks.platformState.viewportWidth = 390;
+
+        render(<SupplyChainPage />);
+
+        expect(screen.getByTestId('mobile-filters-toggle')).toBeTruthy();
+        expect(screen.getByLabelText('Cambiar vista de abastecimiento')).toBeTruthy();
+
+        fireEvent.click(screen.getByTestId('analyze-stock-btn'));
+
+        await waitFor(() => {
+            expect(mockGenerateRestockSuggestionSecure).toHaveBeenCalledTimes(1);
+        });
+
+        expect(screen.getByTestId('suggestion-card-SKU-001')).toBeTruthy();
+        expect(screen.queryByRole('table')).toBeNull();
     });
 });

@@ -1,11 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
-    Calendar, Download, FileText, Search, Loader, Printer,
-    ChevronLeft, ChevronRight, DollarSign, User, X, Eye
+    Download, FileText, Loader, Printer, User, X, Eye
 } from 'lucide-react';
 import { getCashReceipts, getReceiptDetails, CashReceipt, ReceiptDetailItem } from '@/actions/analytics/cash-receipts';
 import * as XLSX from 'xlsx';
@@ -13,6 +12,7 @@ import { toast } from 'sonner';
 import { printSaleTicket } from '../../utils/print-utils';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useLocationStore } from '../../store/useLocationStore';
+import { usePlatform } from '@/hooks/usePlatform';
 
 interface CashReceiptsReportProps {
     startDate: Date;
@@ -20,6 +20,7 @@ interface CashReceiptsReportProps {
 }
 
 export function CashReceiptsReport({ startDate, endDate }: CashReceiptsReportProps) {
+    const { isMobile } = usePlatform();
     const [loading, setLoading] = useState(false);
     const [data, setData] = useState<CashReceipt[]>([]);
 
@@ -61,11 +62,7 @@ export function CashReceiptsReport({ startDate, endDate }: CashReceiptsReportPro
         }
     }
 
-    useEffect(() => {
-        fetchData();
-    }, [startDate, endDate]);
-
-    async function fetchData() {
+    const fetchData = useCallback(async () => {
         setLoading(true);
         try {
             const res = await getCashReceipts({
@@ -84,7 +81,11 @@ export function CashReceiptsReport({ startDate, endDate }: CashReceiptsReportPro
         } finally {
             setLoading(false);
         }
-    }
+    }, [startDate, endDate]);
+
+    useEffect(() => {
+        fetchData();
+    }, [fetchData]);
 
     async function handleRowClick(receipt: CashReceipt) {
         setSelectedReceipt(receipt);
@@ -146,21 +147,21 @@ export function CashReceiptsReport({ startDate, endDate }: CashReceiptsReportPro
 
     return (
         <div className="space-y-6">
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
+            <div className="bg-white p-4 md:p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div className="flex items-center gap-4 min-w-0">
                     <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
                         <FileText size={20} className="text-blue-600" />
                         Reporte de Recibos y Comprobantes
                     </h3>
                 </div>
 
-                <div className="flex items-center gap-4">
-                    <div className="bg-purple-50 text-purple-700 px-4 py-2 rounded-lg text-sm font-bold">
+                <div className="flex w-full md:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                    <div className="bg-purple-50 text-purple-700 px-4 py-3 rounded-xl text-sm font-bold text-center">
                         Total Periodo: ${totalAmount.toLocaleString('es-CL')}
                     </div>
                     <button
                         onClick={handleExportExcel}
-                        className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                        className="flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-colors text-sm font-medium"
                     >
                         <Download size={16} />
                         Excel
@@ -168,9 +169,78 @@ export function CashReceiptsReport({ startDate, endDate }: CashReceiptsReportPro
                 </div>
             </div>
 
-            {/* Table */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="overflow-x-auto">
+            {isMobile ? (
+                <div className="space-y-3">
+                    {loading && (
+                        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 px-6 py-12 text-center text-gray-500">
+                            <Loader className="mx-auto animate-spin mb-2" size={24} />
+                            Cargando datos...
+                        </div>
+                    )}
+
+                    {!loading && data.length === 0 && (
+                        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 px-6 py-12 text-center text-gray-500">
+                            No hay recibos registrados en este período
+                        </div>
+                    )}
+
+                    {!loading && data.map((item) => (
+                        <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => handleRowClick(item)}
+                            className="w-full rounded-2xl border border-gray-200 bg-white p-4 text-left shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/40"
+                            data-testid={`receipt-card-${item.id}`}
+                        >
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                    <p className="text-sm font-bold text-gray-900">
+                                        {item.dte_folio || (item.id ? `INT-${item.id.slice(0, 6).toUpperCase()}` : 'Interno')}
+                                    </p>
+                                    <p className="mt-1 text-xs text-gray-500">
+                                        {format(new Date(item.timestamp), "dd 'de' MMMM - HH:mm", { locale: es })}
+                                    </p>
+                                </div>
+                                <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${item.status === 'COMPLETED'
+                                    ? 'bg-green-100 text-green-700'
+                                    : item.status === 'VOIDED'
+                                        ? 'bg-red-100 text-red-700'
+                                        : 'bg-gray-100 text-gray-700'
+                                    }`}>
+                                    {item.status === 'COMPLETED' ? 'Pagado' : item.status}
+                                </span>
+                            </div>
+
+                            <div className="mt-4 grid grid-cols-2 gap-3">
+                                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Cajero</p>
+                                    <p className="mt-1 text-sm font-semibold text-slate-700 truncate">{item.user_name}</p>
+                                </div>
+                                <div className="rounded-xl bg-slate-50 px-3 py-2 text-right">
+                                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Total</p>
+                                    <p className="mt-1 text-base font-bold text-slate-900">${item.total_amount.toLocaleString('es-CL')}</p>
+                                </div>
+                            </div>
+
+                            <div className="mt-3 rounded-xl border border-slate-200 px-3 py-2">
+                                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Resumen</p>
+                                <p className="mt-1 text-sm text-slate-600 line-clamp-2">
+                                    {item.items_summary || 'Sin detalle'}
+                                </p>
+                                <div className="mt-2 flex items-center justify-between text-xs text-blue-600 font-semibold">
+                                    <span>{item.items_count} item(s)</span>
+                                    <span className="inline-flex items-center gap-1">
+                                        Ver detalle
+                                        <Eye size={14} />
+                                    </span>
+                                </div>
+                            </div>
+                        </button>
+                    ))}
+                </div>
+            ) : (
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div className="overflow-x-auto">
                     <table className="w-full">
                         <thead className="bg-gray-50 border-b border-gray-200">
                             <tr>
@@ -186,14 +256,14 @@ export function CashReceiptsReport({ startDate, endDate }: CashReceiptsReportPro
                         <tbody className="divide-y divide-gray-200">
                             {loading ? (
                                 <tr>
-                                    <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                                         <Loader className="mx-auto animate-spin mb-2" size={24} />
                                         Cargando datos...
                                     </td>
                                 </tr>
                             ) : data.length === 0 ? (
                                 <tr>
-                                    <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                                         No hay recibos registrados en este período
                                     </td>
                                 </tr>
@@ -240,12 +310,13 @@ export function CashReceiptsReport({ startDate, endDate }: CashReceiptsReportPro
                         </tbody>
                     </table>
                 </div>
-            </div>
+                </div>
+            )}
 
             {/* Detail Modal */}
             {selectedReceipt && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col">
                         <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
                             <div>
                                 <h3 className="font-bold text-lg text-gray-900">Detalle de Recibo</h3>
@@ -261,7 +332,7 @@ export function CashReceiptsReport({ startDate, endDate }: CashReceiptsReportPro
                             </button>
                         </div>
 
-                        <div className="p-6 max-h-[60vh] overflow-y-auto">
+                        <div className="p-4 md:p-6 overflow-y-auto">
                             {loadingDetail ? (
                                 <div className="py-12 flex flex-col items-center justify-center text-gray-500">
                                     <Loader className="animate-spin mb-3 text-blue-500" size={32} />
@@ -270,7 +341,7 @@ export function CashReceiptsReport({ startDate, endDate }: CashReceiptsReportPro
                             ) : (
                                 <div className="space-y-6">
                                     {/* Info Card */}
-                                    <div className="grid grid-cols-2 gap-4 text-sm">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                                         <div className="bg-gray-50 p-3 rounded-lg">
                                             <p className="text-gray-500 text-xs uppercase font-bold">Cajero</p>
                                             <p className="font-medium text-gray-800">{selectedReceipt.user_name}</p>
@@ -284,40 +355,68 @@ export function CashReceiptsReport({ startDate, endDate }: CashReceiptsReportPro
                                         </div>
                                     </div>
 
-                                    {/* Items Table */}
-                                    <table className="w-full text-sm">
-                                        <thead className="bg-gray-50 text-gray-500 font-bold uppercase text-xs">
-                                            <tr>
-                                                <th className="py-2 px-3 text-left">Producto</th>
-                                                <th className="py-2 px-3 text-right">Cant.</th>
-                                                <th className="py-2 px-3 text-right">Precio Unit.</th>
-                                                <th className="py-2 px-3 text-right">Subtotal</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-100">
+                                    {isMobile ? (
+                                        <div className="space-y-3">
                                             {detailItems.map((item, idx) => (
-                                                <tr key={idx}>
-                                                    <td className="py-3 px-3 text-gray-800">{item.name}</td>
-                                                    <td className="py-3 px-3 text-right text-gray-600">{item.quantity}</td>
-                                                    <td className="py-3 px-3 text-right text-gray-500">${item.price.toLocaleString('es-CL')}</td>
-                                                    <td className="py-3 px-3 text-right font-medium text-gray-900">${item.total.toLocaleString('es-CL')}</td>
-                                                </tr>
+                                                <div key={idx} className="rounded-xl border border-gray-200 p-3">
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <p className="font-semibold text-gray-800">{item.name}</p>
+                                                        <p className="font-bold text-gray-900">${item.total.toLocaleString('es-CL')}</p>
+                                                    </div>
+                                                    <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-gray-500">
+                                                        <div className="rounded-lg bg-slate-50 px-3 py-2">
+                                                            <p className="font-bold uppercase tracking-wide text-slate-400">Cantidad</p>
+                                                            <p className="mt-1 text-sm font-semibold text-slate-700">{item.quantity}</p>
+                                                        </div>
+                                                        <div className="rounded-lg bg-slate-50 px-3 py-2">
+                                                            <p className="font-bold uppercase tracking-wide text-slate-400">Precio Unit.</p>
+                                                            <p className="mt-1 text-sm font-semibold text-slate-700">${item.price.toLocaleString('es-CL')}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             ))}
-                                        </tbody>
-                                        <tfoot className="border-t border-gray-200">
-                                            <tr>
-                                                <td colSpan={3} className="py-4 px-3 text-right font-bold text-gray-900 text-lg">Total</td>
-                                                <td className="py-4 px-3 text-right font-bold text-blue-600 text-lg">
+                                            <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-right">
+                                                <p className="text-xs font-bold uppercase tracking-wide text-blue-500">Total</p>
+                                                <p className="mt-1 text-xl font-bold text-blue-700">
                                                     ${selectedReceipt.total_amount.toLocaleString('es-CL')}
-                                                </td>
-                                            </tr>
-                                        </tfoot>
-                                    </table>
+                                                </p>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <table className="w-full text-sm">
+                                            <thead className="bg-gray-50 text-gray-500 font-bold uppercase text-xs">
+                                                <tr>
+                                                    <th className="py-2 px-3 text-left">Producto</th>
+                                                    <th className="py-2 px-3 text-right">Cant.</th>
+                                                    <th className="py-2 px-3 text-right">Precio Unit.</th>
+                                                    <th className="py-2 px-3 text-right">Subtotal</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
+                                                {detailItems.map((item, idx) => (
+                                                    <tr key={idx}>
+                                                        <td className="py-3 px-3 text-gray-800">{item.name}</td>
+                                                        <td className="py-3 px-3 text-right text-gray-600">{item.quantity}</td>
+                                                        <td className="py-3 px-3 text-right text-gray-500">${item.price.toLocaleString('es-CL')}</td>
+                                                        <td className="py-3 px-3 text-right font-medium text-gray-900">${item.total.toLocaleString('es-CL')}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                            <tfoot className="border-t border-gray-200">
+                                                <tr>
+                                                    <td colSpan={3} className="py-4 px-3 text-right font-bold text-gray-900 text-lg">Total</td>
+                                                    <td className="py-4 px-3 text-right font-bold text-blue-600 text-lg">
+                                                        ${selectedReceipt.total_amount.toLocaleString('es-CL')}
+                                                    </td>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
+                                    )}
                                     {/* Action Button */}
                                     <div className="mt-6 pt-4 border-t border-gray-100 flex justify-end gap-3">
                                         <button
                                             onClick={handleReprint}
-                                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-bold"
+                                            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-3 sm:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-bold"
                                         >
                                             <Printer size={18} />
                                             Reimprimir Comprobante
