@@ -26,6 +26,6 @@ CREATE INDEX IF NOT EXISTS idx_pch_source ON price_cost_history(source);
 CREATE INDEX IF NOT EXISTS idx_pch_product_date ON price_cost_history(product_id, created_at DESC);
 
 ALTER TABLE price_cost_history ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow all for authenticated" ON price_cost_history FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all for authenticated" ON price_cost_history FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 COMMENT ON TABLE price_cost_history IS 'Registro inmutable de cambios de costos y precios para auditoría y monitoreo';

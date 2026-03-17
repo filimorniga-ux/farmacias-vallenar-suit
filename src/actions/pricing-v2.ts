@@ -58,6 +58,8 @@ export interface PriceDashboardSummary {
 const PeriodSchema = z.enum(['today', '7d', '15d', '30d', '90d', '180d']);
 type Period = z.infer<typeof PeriodSchema>;
 
+const UUIDSchema = z.string().uuid('ID inválido');
+
 const periodToInterval: Record<Period, string> = {
     'today': '1 day',
     '7d': '7 days',
@@ -171,18 +173,29 @@ export async function createCostChangeNotification(params: {
 // ============================================================================
 // 3. Dashboard de Monitoreo de Costos y Precios
 // ============================================================================
+const GetPriceCostDashboardSchema = z.object({
+    period: PeriodSchema.optional().default('30d'),
+    locationId: UUIDSchema.optional(),
+});
+
 export async function getPriceCostDashboard(period: string, locationId?: string): Promise<{
     success: boolean;
     data?: PriceDashboardSummary;
     error?: string;
 }> {
     try {
-        const validPeriod = PeriodSchema.safeParse(period);
-        const interval = validPeriod.success ? periodToInterval[validPeriod.data] : '30 days';
+        const validated = GetPriceCostDashboardSchema.safeParse({ period, locationId });
+        if (!validated.success) {
+            return { success: false, error: 'Parámetros inválidos' };
+        }
 
-        const locationFilter = locationId ? 'AND pch.location_id::text = $2::text' : '';
+        const validPeriod = validated.data.period;
+        const validLocationId = validated.data.locationId;
+        const interval = periodToInterval[validPeriod];
+
+        const locationFilter = validLocationId ? 'AND pch.location_id::text = $2::text' : '';
         const params: (string | number)[] = [interval];
-        if (locationId) params.push(locationId);
+        if (validLocationId) params.push(validLocationId);
 
         const res = await pool.query(`
             SELECT
@@ -246,24 +259,38 @@ export async function getPriceCostDashboard(period: string, locationId?: string)
 // ============================================================================
 // 4. Historial de cambios por producto
 // ============================================================================
+const GetPriceCostHistorySchema = z.object({
+    productId: UUIDSchema.optional(),
+    period: PeriodSchema.optional().default('30d'),
+    limit: z.number().int().min(1).max(200).optional().default(50),
+});
+
 export async function getPriceCostHistory(
     productId?: string,
     period?: string,
     limit = 50
 ): Promise<{ success: boolean; data?: PriceCostHistoryEntry[]; error?: string }> {
     try {
-        const validPeriod = PeriodSchema.safeParse(period);
-        const interval = validPeriod.success ? periodToInterval[validPeriod.data] : '30 days';
+        const validated = GetPriceCostHistorySchema.safeParse({ productId, period, limit });
+        if (!validated.success) {
+            return { success: false, error: 'Parámetros inválidos' };
+        }
+
+        const validPeriod = validated.data.period;
+        const validProductId = validated.data.productId;
+        const validLimit = validated.data.limit;
+
+        const interval = periodToInterval[validPeriod];
 
         const conditions: string[] = [`pch.created_at >= NOW() - '${interval}'::interval`];
         const params: string[] = [];
 
-        if (productId) {
-            params.push(productId);
+        if (validProductId) {
+            params.push(validProductId);
             conditions.push(`pch.product_id::text = $${params.length}::text`);
         }
 
-        params.push(String(Math.min(limit, 200)));
+        params.push(String(validLimit));
         const limitParam = `$${params.length}::int`;
 
         const res = await pool.query(`
@@ -286,10 +313,23 @@ export async function getPriceCostHistory(
 // ============================================================================
 // 5. Nivelar precios entre lotes de un mismo producto
 // ============================================================================
+const LevelPricesSchema = z.object({
+    productId: UUIDSchema,
+    userId: UUIDSchema,
+});
+
 export async function levelPrices(
     productId: string,
     userId: string
 ): Promise<{ success: boolean; newPrice?: number; error?: string }> {
+    const validated = LevelPricesSchema.safeParse({ productId, userId });
+    if (!validated.success) {
+        return { success: false, error: 'Parámetros inválidos' };
+    }
+
+    const validProductId = validated.data.productId;
+    const validUserId = validated.data.userId;
+
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
@@ -300,7 +340,7 @@ export async function levelPrices(
             FROM inventory_batches
             WHERE product_id::text = $1::text AND quantity_real > 0
             ORDER BY created_at DESC
-        `, [productId]);
+        `, [validProductId]);
 
         if (batchesRes.rows.length < 2) {
             await client.query('ROLLBACK');
@@ -327,14 +367,14 @@ export async function levelPrices(
             const oldPrice = Number(batch.sale_price || 0);
             if (oldPrice !== avgPrice) {
                 await recordCostChange({
-                    productId,
+                    productId: validProductId,
                     batchId: batch.id,
                     changeType: 'PRICE_LEVELING',
                     fieldChanged: 'sale_price',
                     oldValue: oldPrice,
                     newValue: avgPrice,
                     source: 'LEVELING',
-                    userId,
+                    userId: validUserId,
                     client,
                 });
             }
@@ -344,18 +384,18 @@ export async function levelPrices(
             UPDATE inventory_batches
             SET sale_price = $1, unit_cost = $2, updated_at = NOW()
             WHERE product_id::text = $3::text AND quantity_real > 0
-        `, [avgPrice, avgCost, productId]);
+        `, [avgPrice, avgCost, validProductId]);
 
         // También actualizar el precio maestro del producto
         await client.query(`
             UPDATE products
             SET sale_price = $1, cost_net = $2, cost_price = $2
             WHERE id::text = $3::text
-        `, [avgPrice, avgCost, productId]);
+        `, [avgPrice, avgCost, validProductId]);
 
         await client.query('COMMIT');
 
-        logger.info({ productId, avgPrice, avgCost, batches: batchesRes.rows.length }, 'Prices leveled');
+        logger.info({ productId: validProductId, avgPrice, avgCost, batches: batchesRes.rows.length }, 'Prices leveled');
 
         return { success: true, newPrice: avgPrice };
     } catch (error) {
@@ -371,6 +411,12 @@ export async function levelPrices(
 // ============================================================================
 // 6. Generar costos faltantes (margen 30%)
 // ============================================================================
+const GenerateMissingCostsSchema = z.object({
+    margin: z.number().min(0).max(1).optional().default(0.30),
+    dryRun: z.boolean().optional().default(true),
+    userId: UUIDSchema.optional(),
+});
+
 export async function generateMissingCosts(
     margin: number = 0.30,
     dryRun: boolean = true,
@@ -382,6 +428,15 @@ export async function generateMissingCosts(
     error?: string;
 }> {
     try {
+        const validated = GenerateMissingCostsSchema.safeParse({ margin, dryRun, userId });
+        if (!validated.success) {
+            return { success: false, error: 'Parámetros inválidos' };
+        }
+
+        const validMargin = validated.data.margin;
+        const validDryRun = validated.data.dryRun;
+        const validUserId = validated.data.userId;
+
         // Buscar productos sin costo pero con precio de venta
         const res = await pool.query(`
             SELECT id::text as product_id, name, sku,
@@ -397,10 +452,10 @@ export async function generateMissingCosts(
             name: row.name,
             sku: row.sku,
             salePrice: Number(row.sale_price),
-            estimatedCost: Math.round(Number(row.sale_price) / (1 + margin)),
+            estimatedCost: Math.round(Number(row.sale_price) / (1 + validMargin)),
         }));
 
-        if (dryRun) {
+        if (validDryRun) {
             return { success: true, data: results, totalUpdated: 0 };
         }
 
@@ -423,15 +478,15 @@ export async function generateMissingCosts(
                     oldValue: 0,
                     newValue: item.estimatedCost,
                     source: 'BULK_GENERATE',
-                    userId,
-                    notes: `Auto-generado con margen ${(margin * 100).toFixed(0)}% sobre precio venta $${item.salePrice}`,
+                    userId: validUserId,
+                    notes: `Auto-generado con margen ${(validMargin * 100).toFixed(0)}% sobre precio venta $${item.salePrice}`,
                     client,
                 });
             }
 
             await client.query('COMMIT');
 
-            logger.info({ total: results.length, margin }, 'Bulk cost generation completed');
+            logger.info({ total: results.length, margin: validMargin }, 'Bulk cost generation completed');
             return { success: true, data: results, totalUpdated: results.length };
         } catch (error) {
             await client.query('ROLLBACK');
@@ -449,11 +504,23 @@ export async function generateMissingCosts(
 // ============================================================================
 // 7. Obtener resumen de cambios recientes (para widget de notificaciones)
 // ============================================================================
+const GetRecentCostAlertsSchema = z.object({
+    limit: z.number().int().min(1).max(50).optional().default(10),
+});
+
 export async function getRecentCostAlerts(limit = 10): Promise<{
     success: boolean;
     data?: PriceCostHistoryEntry[];
+    error?: string;
 }> {
     try {
+        const validated = GetRecentCostAlertsSchema.safeParse({ limit });
+        if (!validated.success) {
+            return { success: false, error: 'Parámetros inválidos' };
+        }
+
+        const validLimit = validated.data.limit;
+
         const res = await pool.query(`
             SELECT pch.*, p.name as product_name, p.sku
             FROM price_cost_history pch
@@ -462,7 +529,7 @@ export async function getRecentCostAlerts(limit = 10): Promise<{
               AND pch.change_type IN ('COST_CHANGE', 'PRICE_CHANGE')
             ORDER BY ABS(pch.change_percent) DESC
             LIMIT $1
-        `, [limit]);
+        `, [validLimit]);
 
         return { success: true, data: res.rows };
     } catch (error) {

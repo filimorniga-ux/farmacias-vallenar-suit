@@ -2,6 +2,7 @@
 
 import { pool } from '@/lib/db';
 import * as Sentry from '@sentry/nextjs';
+import { z } from 'zod';
 
 // ============================================================================
 // LABELS V2 — Generación de Etiquetas para Impresión
@@ -34,6 +35,44 @@ export interface LabelConfig {
     copies: number;
 }
 
+const UUIDSchema = z.string().uuid('ID inválido');
+
+const LabelItemSchema = z.object({
+    productName: z.string().min(1),
+    sku: z.string().min(1),
+    barcode: z.string().optional(),
+    salePrice: z.number().nonnegative(),
+    unitPrice: z.number().nonnegative().optional(),
+    expiryDate: z.string().optional(),
+    lotNumber: z.string().optional(),
+    laboratory: z.string().optional(),
+    quantity: z.number().int().positive().optional(),
+});
+
+const LabelConfigSchema = z.object({
+    size: z.enum(['50x25', '100x50']),
+    showBarcode: z.boolean(),
+    showExpiry: z.boolean(),
+    showLot: z.boolean(),
+    showLab: z.boolean(),
+    copies: z.number().int().positive(),
+});
+
+const GenerateLabelsHTMLSchema = z.object({
+    items: z.array(LabelItemSchema).min(1),
+    config: LabelConfigSchema.optional(),
+});
+
+const GetLabelsForReceptionSchema = z.object({
+    orderId: UUIDSchema,
+});
+
+const GetFEFOBatchesSchema = z.object({
+    productId: UUIDSchema,
+    locationId: UUIDSchema.optional(),
+    limit: z.number().int().min(1).max(100).optional().default(10),
+});
+
 // ============================================================================
 // 1. Generar HTML de etiquetas para impresión
 // ============================================================================
@@ -42,7 +81,15 @@ export async function generateLabelsHTML(
     config: LabelConfig = { size: '50x25', showBarcode: true, showExpiry: true, showLot: true, showLab: false, copies: 1 }
 ): Promise<{ success: boolean; html?: string; error?: string }> {
     try {
-        const is50x25 = config.size === '50x25';
+        const validated = GenerateLabelsHTMLSchema.safeParse({ items, config });
+        if (!validated.success) {
+            return { success: false, error: 'Parámetros inválidos' };
+        }
+
+        const validItems = validated.data.items;
+        const validConfig = validated.data.config || config;
+
+        const is50x25 = validConfig.size === '50x25';
         const labelWidth = is50x25 ? '50mm' : '100mm';
         const labelHeight = is50x25 ? '25mm' : '50mm';
         const fontSize = is50x25 ? '7px' : '10px';
@@ -54,20 +101,20 @@ export async function generateLabelsHTML(
 
         let labelsHTML = '';
 
-        for (const item of items) {
-            const copies = item.quantity || config.copies || 1;
+        for (const item of validItems) {
+            const copies = item.quantity || validConfig.copies || 1;
             for (let c = 0; c < copies; c++) {
                 labelsHTML += `
                     <div class="label" style="width:${labelWidth};height:${labelHeight};padding:2mm;box-sizing:border-box;border:0.5px dashed #ccc;page-break-inside:avoid;display:flex;flex-direction:column;justify-content:space-between;font-family:'Arial',sans-serif;">
                         <div style="font-size:${nameSize};font-weight:bold;color:#111;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
                             ${item.productName}
                         </div>
-                        ${config.showLab && item.laboratory ? `<div style="font-size:${fontSize};color:#666;">${item.laboratory}</div>` : ''}
+                        ${validConfig.showLab && item.laboratory ? `<div style="font-size:${fontSize};color:#666;">${item.laboratory}</div>` : ''}
                         <div style="display:flex;justify-content:space-between;align-items:flex-end;">
                             <div>
                                 <div style="font-size:${fontSize};color:#888;">SKU: ${item.sku}</div>
-                                ${config.showLot && item.lotNumber ? `<div style="font-size:${fontSize};color:#888;">Lote: ${item.lotNumber}</div>` : ''}
-                                ${config.showExpiry && item.expiryDate ? `<div style="font-size:${fontSize};color:#e11d48;font-weight:bold;">Venc: ${item.expiryDate}</div>` : ''}
+                                ${validConfig.showLot && item.lotNumber ? `<div style="font-size:${fontSize};color:#888;">Lote: ${item.lotNumber}</div>` : ''}
+                                ${validConfig.showExpiry && item.expiryDate ? `<div style="font-size:${fontSize};color:#e11d48;font-weight:bold;">Venc: ${item.expiryDate}</div>` : ''}
                             </div>
                             <div style="text-align:right;">
                                 <div style="font-size:${priceSize};font-weight:900;color:#0f172a;">
@@ -76,7 +123,7 @@ export async function generateLabelsHTML(
                                 ${item.unitPrice && item.unitPrice !== item.salePrice ? `<div style="font-size:${fontSize};color:#888;">Unit: ${formatCLP(item.unitPrice)}</div>` : ''}
                             </div>
                         </div>
-                        ${config.showBarcode && item.barcode ? `
+                        ${validConfig.showBarcode && item.barcode ? `
                             <div style="text-align:center;margin-top:1mm;">
                                 <div style="font-family:'Libre Barcode 39',monospace;font-size:24px;letter-spacing:2px;">*${item.barcode}*</div>
                                 <div style="font-size:6px;color:#999;">${item.barcode}</div>
@@ -109,7 +156,7 @@ export async function generateLabelsHTML(
                     <button onclick="window.print()" style="padding:8px 24px;background:#0ea5e9;color:white;border:none;border-radius:8px;font-weight:bold;cursor:pointer;font-size:14px;">
                         🖨️ Imprimir Etiquetas
                     </button>
-                    <span style="margin-left:12px;color:#64748b;font-size:13px;">${items.length} producto(s), ${items.reduce((s, i) => s + (i.quantity || 1), 0)} etiqueta(s)</span>
+                    <span style="margin-left:12px;color:#64748b;font-size:13px;">${validItems.length} producto(s), ${validItems.reduce((s, i) => s + (i.quantity || 1), 0)} etiqueta(s)</span>
                 </div>
                 <div class="labels-container">
                     ${labelsHTML}
@@ -134,6 +181,13 @@ export async function getLabelsForReception(orderId: string): Promise<{
     error?: string;
 }> {
     try {
+        const validated = GetLabelsForReceptionSchema.safeParse({ orderId });
+        if (!validated.success) {
+            return { success: false, error: 'Parámetros inválidos' };
+        }
+
+        const validOrderId = validated.data.orderId;
+
         const res = await pool.query(`
             SELECT
                 poi.sku,
@@ -149,7 +203,7 @@ export async function getLabelsForReception(orderId: string): Promise<{
             WHERE poi.purchase_order_id::text = $1::text
               AND poi.quantity_received > 0
             ORDER BY poi.name
-        `, [orderId]);
+        `, [validOrderId]);
 
         const items: LabelItem[] = res.rows.map(row => ({
             productName: row.product_name,
@@ -185,12 +239,22 @@ export async function getFEFOBatches(
         days_until_expiry: number | null;
         is_priority: boolean;
     }>;
+    error?: string;
 }> {
     try {
-        const locationFilter = locationId ? 'AND ib.location_id::text = $2::text' : '';
-        const params: (string | number)[] = [productId];
-        if (locationId) params.push(locationId);
-        params.push(limit);
+        const validated = GetFEFOBatchesSchema.safeParse({ productId, locationId, limit });
+        if (!validated.success) {
+            return { success: false, error: 'Parámetros inválidos' };
+        }
+
+        const validProductId = validated.data.productId;
+        const validLocationId = validated.data.locationId;
+        const validLimit = validated.data.limit;
+
+        const locationFilter = validLocationId ? 'AND ib.location_id::text = $2::text' : '';
+        const params: (string | number)[] = [validProductId];
+        if (validLocationId) params.push(validLocationId);
+        params.push(validLimit);
 
         const res = await pool.query(`
             SELECT
