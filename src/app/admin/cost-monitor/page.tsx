@@ -151,8 +151,8 @@ export default function CostMonitorPage() {
                                 {recommendations.length} alerta{recommendations.length > 1 ? 's' : ''}
                             </span>
                         )}
-                        <button onClick={loadData} className="p-2 text-slate-500 hover:bg-white rounded-xl border border-slate-200 transition-colors" title="Actualizar">
-                            <RefreshCw size={16} />
+                        <button onClick={loadData} aria-label="Actualizar datos" className="p-2 text-slate-500 hover:bg-white rounded-xl border border-slate-200 transition-colors" title="Actualizar">
+                            <RefreshCw size={16} aria-hidden="true" />
                         </button>
                     </div>
                 </div>
@@ -206,6 +206,8 @@ export default function CostMonitorPage() {
                         <div className="flex justify-end gap-2">
                             <button
                                 disabled={exporting}
+                                aria-label="Descargar Dashboard en Excel"
+                                aria-busy={exporting}
                                 onClick={async () => {
                                     if (!summary) return;
                                     setExporting(true);
@@ -218,19 +220,29 @@ export default function CostMonitorPage() {
                                 }}
                                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
                             >
-                                {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                                {exporting ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Download size={13} aria-hidden="true" />}
                                 Excel
                             </button>
                             <button
-                                onClick={() => {
+                                disabled={exporting}
+                                aria-label="Descargar Dashboard en PDF"
+                                aria-busy={exporting}
+                                onClick={async () => {
                                     if (!summary) return;
-                                    const pl = PERIODS.find(p => p.value === period)?.label || period;
-                                    printDashboardPDF(summary, pl);
-                                    toast.success('📄 PDF generado');
+                                    setExporting(true);
+                                    try {
+                                        const pl = PERIODS.find(p => p.value === period)?.label || period;
+                                        printDashboardPDF(summary, pl);
+                                        toast.success('📄 PDF generado');
+                                    } catch {
+                                        toast.error('Error al generar PDF');
+                                    } finally {
+                                        setExporting(false);
+                                    }
                                 }}
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 rounded-lg hover:bg-sky-100 transition-colors"
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 rounded-lg hover:bg-sky-100 transition-colors disabled:opacity-50"
                             >
-                                <Printer size={13} /> PDF
+                                {exporting ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Printer size={13} aria-hidden="true" />} PDF
                             </button>
                         </div>
                         {/* KPI Cards */}
@@ -351,6 +363,8 @@ export default function CostMonitorPage() {
                             <div className="flex gap-2">
                                 <button
                                     disabled={exporting}
+                                    aria-label="Descargar Recomendaciones en Excel"
+                                    aria-busy={exporting}
                                     onClick={async () => {
                                         setExporting(true);
                                         try {
@@ -361,17 +375,27 @@ export default function CostMonitorPage() {
                                     }}
                                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
                                 >
-                                    {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                                    {exporting ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Download size={13} aria-hidden="true" />}
                                     Excel
                                 </button>
                                 <button
-                                    onClick={() => {
-                                        printRecommendationsPDF(recommendations, resolvedRecs);
-                                        toast.success('📄 PDF generado');
+                                    disabled={exporting}
+                                    aria-label="Descargar Recomendaciones en PDF"
+                                    aria-busy={exporting}
+                                    onClick={async () => {
+                                        setExporting(true);
+                                        try {
+                                            printRecommendationsPDF(recommendations, resolvedRecs);
+                                            toast.success('📄 PDF generado');
+                                        } catch {
+                                            toast.error('Error al generar PDF');
+                                        } finally {
+                                            setExporting(false);
+                                        }
                                     }}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 rounded-lg hover:bg-sky-100 transition-colors"
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 rounded-lg hover:bg-sky-100 transition-colors disabled:opacity-50"
                                 >
-                                    <Printer size={13} /> PDF
+                                    {exporting ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Printer size={13} aria-hidden="true" />} PDF
                                 </button>
                             </div>
                         </div>
@@ -507,6 +531,8 @@ export default function CostMonitorPage() {
                             <div className="flex gap-2">
                                 <button
                                     disabled={exporting || supplierOverview.length === 0}
+                                    aria-label="Descargar Proveedores en Excel"
+                                    aria-busy={exporting}
                                     onClick={async () => {
                                         setExporting(true);
                                         try {
@@ -517,18 +543,27 @@ export default function CostMonitorPage() {
                                     }}
                                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
                                 >
-                                    {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                                    {exporting ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Download size={13} aria-hidden="true" />}
                                     Excel
                                 </button>
                                 <button
-                                    disabled={supplierOverview.length === 0}
-                                    onClick={() => {
-                                        printSuppliersPDF(supplierOverview);
-                                        toast.success('📄 PDF generado');
+                                    disabled={exporting || supplierOverview.length === 0}
+                                    aria-label="Descargar Proveedores en PDF"
+                                    aria-busy={exporting}
+                                    onClick={async () => {
+                                        setExporting(true);
+                                        try {
+                                            printSuppliersPDF(supplierOverview);
+                                            toast.success('📄 PDF generado');
+                                        } catch {
+                                            toast.error('Error al generar PDF');
+                                        } finally {
+                                            setExporting(false);
+                                        }
                                     }}
                                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 rounded-lg hover:bg-sky-100 transition-colors disabled:opacity-50"
                                 >
-                                    <Printer size={13} /> PDF
+                                    {exporting ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Printer size={13} aria-hidden="true" />} PDF
                                 </button>
                             </div>
                         </div>
@@ -607,6 +642,8 @@ export default function CostMonitorPage() {
                             <div className="flex gap-2">
                                 <button
                                     disabled={exporting || history.length === 0}
+                                    aria-label="Descargar Historial en Excel"
+                                    aria-busy={exporting}
                                     onClick={async () => {
                                         setExporting(true);
                                         try {
@@ -618,19 +655,28 @@ export default function CostMonitorPage() {
                                     }}
                                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
                                 >
-                                    {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                                    {exporting ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Download size={13} aria-hidden="true" />}
                                     Excel
                                 </button>
                                 <button
-                                    disabled={history.length === 0}
-                                    onClick={() => {
-                                        const pl = PERIODS.find(p => p.value === period)?.label || period;
-                                        printHistoryPDF(history, pl);
-                                        toast.success('📄 PDF generado');
+                                    disabled={exporting || history.length === 0}
+                                    aria-label="Descargar Historial en PDF"
+                                    aria-busy={exporting}
+                                    onClick={async () => {
+                                        setExporting(true);
+                                        try {
+                                            const pl = PERIODS.find(p => p.value === period)?.label || period;
+                                            printHistoryPDF(history, pl);
+                                            toast.success('📄 PDF generado');
+                                        } catch {
+                                            toast.error('Error al generar PDF');
+                                        } finally {
+                                            setExporting(false);
+                                        }
                                     }}
                                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 rounded-lg hover:bg-sky-100 transition-colors disabled:opacity-50"
                                 >
-                                    <Printer size={13} /> PDF
+                                    {exporting ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Printer size={13} aria-hidden="true" />} PDF
                                 </button>
                             </div>
                         </div>

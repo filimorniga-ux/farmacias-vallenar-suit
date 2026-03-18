@@ -66,7 +66,7 @@ interface SupplierRow {
    HELPERS
    ==================================================================== */
 
-const CLP = (v: number) =>
+const formatCLP = (v: number) =>
     new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(v);
 
 function downloadBlob(buffer: Buffer | ArrayBuffer | Uint8Array, filename: string) {
@@ -109,12 +109,12 @@ export async function exportDashboardExcel(summary: DashboardSummary, periodLabe
     const svc = new ExcelService();
 
     const kpiData = [
-        { indicador: 'Total Cambios', valor: summary.totalChanges },
-        { indicador: 'Costos Subieron', valor: summary.costIncreases },
-        { indicador: 'Costos Bajaron', valor: summary.costDecreases },
-        { indicador: 'Cambios de Precio', valor: summary.priceChanges },
-        { indicador: 'Nivelaciones', valor: summary.levelings },
-        { indicador: '% Variación Promedio', valor: summary.avgChangePercent },
+        { indicador: 'Total Cambios', valor: summary?.totalChanges || 0 },
+        { indicador: 'Costos Subieron', valor: summary?.costIncreases || 0 },
+        { indicador: 'Costos Bajaron', valor: summary?.costDecreases || 0 },
+        { indicador: 'Cambios de Precio', valor: summary?.priceChanges || 0 },
+        { indicador: 'Nivelaciones', valor: summary?.levelings || 0 },
+        { indicador: '% Variación Promedio', valor: summary?.avgChangePercent || 0 },
     ];
 
     const buffer = await svc.generateMultiSheetReport({
@@ -142,7 +142,7 @@ export async function exportDashboardExcel(summary: DashboardSummary, periodLabe
                     { header: 'Costo Nuevo', key: 'new_value', width: 18 },
                     { header: '% Cambio', key: 'change_percent', width: 12 },
                 ],
-                data: summary.topIncreases.map(r => ({
+                data: (summary?.topIncreases || []).map(r => ({
                     ...r,
                     change_percent: Number(r.change_percent).toFixed(1) + '%',
                 })),
@@ -158,7 +158,7 @@ export async function exportDashboardExcel(summary: DashboardSummary, periodLabe
                     { header: 'Costo Nuevo', key: 'new_value', width: 18 },
                     { header: '% Cambio', key: 'change_percent', width: 12 },
                 ],
-                data: summary.topDecreases.map(r => ({
+                data: (summary?.topDecreases || []).map(r => ({
                     ...r,
                     change_percent: Number(r.change_percent).toFixed(1) + '%',
                 })),
@@ -209,13 +209,13 @@ export async function exportRecommendationsExcel(
                 name: 'Pendientes',
                 title: 'Recomendaciones Pendientes',
                 columns: cols,
-                data: pending.map(mapRec),
+                data: (pending || []).map(mapRec),
             },
             {
                 name: 'Historial Decisiones',
                 title: 'Historial de Decisiones',
                 columns: resolvedCols,
-                data: resolved.map(rec => ({
+                data: (resolved || []).map(rec => ({
                     ...mapRec(rec),
                     estado: rec.status === 'ACCEPTED' ? 'Aplicado' : 'Descartado',
                     fecha_resolucion: rec.resolved_at ? formatDateTimeCL(rec.resolved_at) : '-',
@@ -245,7 +245,7 @@ export async function exportSuppliersExcel(data: SupplierRow[]) {
             { header: 'Spread', key: 'price_spread', width: 14 },
             { header: '# Proveedores', key: 'supplier_count', width: 14 },
         ],
-        data: data.map(r => ({
+        data: (data || []).map(r => ({
             ...r,
             current_cost: Number(r.current_cost),
             cheapest_cost: Number(r.cheapest_cost),
@@ -275,7 +275,7 @@ export async function exportHistoryExcel(data: HistoryRow[], periodLabel: string
             { header: '% Cambio', key: 'cambio', width: 12 },
             { header: 'Fuente', key: 'fuente', width: 14 },
         ],
-        data: data.map(r => ({
+        data: (data || []).map(r => ({
             ...r,
             fecha: formatDateTimeCL(r.created_at),
             tipo: r.change_type === 'PRICE_LEVELING' ? 'Nivelación' :
@@ -354,18 +354,18 @@ export function printDashboardPDF(summary: DashboardSummary, periodLabel: string
 
     // KPIs as small table
     addAutoTable(doc, ['Indicador', 'Valor'], [
-        ['Total Cambios', String(summary.totalChanges)],
-        ['Costos Subieron', String(summary.costIncreases)],
-        ['Costos Bajaron', String(summary.costDecreases)],
-        ['Cambios de Precio', String(summary.priceChanges)],
-        ['Nivelaciones', String(summary.levelings)],
-        ['% Variación Promedio', `${summary.avgChangePercent}%`],
+        ['Total Cambios', String(summary?.totalChanges || 0)],
+        ['Costos Subieron', String(summary?.costIncreases || 0)],
+        ['Costos Bajaron', String(summary?.costDecreases || 0)],
+        ['Cambios de Precio', String(summary?.priceChanges || 0)],
+        ['Nivelaciones', String(summary?.levelings || 0)],
+        ['% Variación Promedio', `${summary?.avgChangePercent || 0}%`],
     ], 28);
 
     const kpiEndY = (doc as any).lastAutoTable?.finalY || 70;
 
     // Top Increases
-    if (summary.topIncreases.length > 0) {
+    if ((summary?.topIncreases || []).length > 0) {
         doc.setFontSize(10).setFont('helvetica', 'bold');
         doc.text('Mayores Subidas de Costo', 10, kpiEndY + 8);
         addAutoTable(
@@ -373,7 +373,7 @@ export function printDashboardPDF(summary: DashboardSummary, periodLabel: string
             ['Producto', 'SKU', 'Anterior', 'Nuevo', '% Cambio'],
             summary.topIncreases.map(r => [
                 r.product_name || '-', r.sku || '-',
-                CLP(r.old_value), CLP(r.new_value),
+                formatCLP(r.old_value), formatCLP(r.new_value),
                 `+${Number(r.change_percent).toFixed(1)}%`,
             ]),
             kpiEndY + 12
@@ -383,7 +383,7 @@ export function printDashboardPDF(summary: DashboardSummary, periodLabel: string
     const incEndY = (doc as any).lastAutoTable?.finalY || kpiEndY + 20;
 
     // Top Decreases
-    if (summary.topDecreases.length > 0) {
+    if ((summary?.topDecreases || []).length > 0) {
         doc.setFontSize(10).setFont('helvetica', 'bold');
         doc.text('Mayores Bajadas de Costo', 10, incEndY + 8);
         addAutoTable(
@@ -391,7 +391,7 @@ export function printDashboardPDF(summary: DashboardSummary, periodLabel: string
             ['Producto', 'SKU', 'Anterior', 'Nuevo', '% Cambio'],
             summary.topDecreases.map(r => [
                 r.product_name || '-', r.sku || '-',
-                CLP(r.old_value), CLP(r.new_value),
+                formatCLP(r.old_value), formatCLP(r.new_value),
                 `${Number(r.change_percent).toFixed(1)}%`,
             ]),
             incEndY + 12
@@ -409,7 +409,7 @@ export function printRecommendationsPDF(
     const doc = createPDF('landscape');
     addPDFHeader(doc, 'Alertas y Recomendaciones de Precios');
 
-    if (pending.length > 0) {
+    if ((pending || []).length > 0) {
         doc.setFontSize(10).setFont('helvetica', 'bold');
         doc.text(`Recomendaciones Pendientes (${pending.length})`, 10, 28);
         addAutoTable(
@@ -418,10 +418,10 @@ export function printRecommendationsPDF(
             pending.map(r => [
                 r.product_name || '-',
                 REC_TYPE_LABELS[r.recommendation_type] || r.recommendation_type,
-                CLP(r.current_cost),
-                CLP(r.suggested_cost),
-                CLP(r.current_price),
-                CLP(r.suggested_price || 0),
+                formatCLP(r.current_cost),
+                formatCLP(r.suggested_cost),
+                formatCLP(r.current_price),
+                formatCLP(r.suggested_price || 0),
                 `${Number(r.margin_current).toFixed(1)}%`,
                 r.reason.length > 60 ? r.reason.substring(0, 57) + '...' : r.reason,
             ]),
@@ -434,7 +434,7 @@ export function printRecommendationsPDF(
 
     const pendingEndY = (doc as any).lastAutoTable?.finalY || 42;
 
-    if (resolved.length > 0) {
+    if ((resolved || []).length > 0) {
         doc.setFontSize(10).setFont('helvetica', 'bold');
         doc.text(`Historial de Decisiones (${resolved.length})`, 10, pendingEndY + 8);
         addAutoTable(
@@ -444,8 +444,8 @@ export function printRecommendationsPDF(
                 r.product_name || '-',
                 REC_TYPE_LABELS[r.recommendation_type] || r.recommendation_type,
                 r.status === 'ACCEPTED' ? '✓ Aplicado' : '✗ Descartado',
-                CLP(r.current_cost),
-                CLP(r.current_price),
+                formatCLP(r.current_cost),
+                formatCLP(r.current_price),
                 `${Number(r.margin_current).toFixed(1)}%`,
                 r.resolved_at ? formatDateTimeCL(r.resolved_at) : '-',
             ]),
@@ -464,14 +464,14 @@ export function printSuppliersPDF(data: SupplierRow[]) {
     addAutoTable(
         doc,
         ['Producto', 'SKU', 'Costo Actual', 'Más Barato', 'Proveedor', 'Más Caro', 'Proveedor', 'Spread', '# Prov.'],
-        data.map(r => [
+        (data || []).map(r => [
             r.product_name || '-', r.sku || '-',
-            CLP(Number(r.current_cost)),
-            CLP(Number(r.cheapest_cost)),
+            formatCLP(Number(r.current_cost)),
+            formatCLP(Number(r.cheapest_cost)),
             r.cheapest_supplier,
-            CLP(Number(r.most_expensive_cost)),
+            formatCLP(Number(r.most_expensive_cost)),
             r.most_expensive_supplier,
-            CLP(Number(r.price_spread)),
+            formatCLP(Number(r.price_spread)),
             String(r.supplier_count),
         ]),
         28
@@ -488,13 +488,13 @@ export function printHistoryPDF(data: HistoryRow[], periodLabel: string) {
     addAutoTable(
         doc,
         ['Fecha', 'Producto', 'SKU', 'Tipo', 'Anterior', 'Nuevo', '% Cambio', 'Fuente'],
-        data.map(r => [
+        (data || []).map(r => [
             formatDateTimeCL(r.created_at),
             r.product_name || '-', r.sku || '-',
             r.change_type === 'PRICE_LEVELING' ? 'Nivelación' :
                 r.change_type === 'COST_GENERATED' ? 'Auto' :
                     r.new_value > r.old_value ? 'Subida' : 'Bajada',
-            CLP(r.old_value), CLP(r.new_value),
+            formatCLP(r.old_value), formatCLP(r.new_value),
             `${Number(r.change_percent) > 0 ? '+' : ''}${Number(r.change_percent).toFixed(1)}%`,
             SOURCE_LABELS[r.source || ''] || r.source || '-',
         ]),
