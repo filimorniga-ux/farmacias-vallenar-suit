@@ -21,7 +21,7 @@ CREATE POLICY "pch_insert_authenticated"
   FOR INSERT
   TO authenticated
   WITH CHECK (
-    EXISTS (SELECT 1 FROM public.users WHERE id = user_id)
+    EXISTS (SELECT 1 FROM public.users WHERE id = user_id::text)
   );
 
 -- UPDATE: only records with valid user_id
@@ -29,8 +29,8 @@ CREATE POLICY "pch_update_own"
   ON public.price_cost_history
   FOR UPDATE
   TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.users WHERE id = user_id))
-  WITH CHECK (EXISTS (SELECT 1 FROM public.users WHERE id = user_id));
+  USING (EXISTS (SELECT 1 FROM public.users WHERE id = user_id::text))
+  WITH CHECK (EXISTS (SELECT 1 FROM public.users WHERE id = user_id::text));
 
 -- DELETE: no one should delete price history (audit trail)
 CREATE POLICY "pch_deny_delete"
