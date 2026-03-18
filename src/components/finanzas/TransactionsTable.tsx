@@ -9,7 +9,13 @@ interface TransactionsTableProps {
 }
 
 export default function TransactionsTable({ transactions }: TransactionsTableProps) {
-    const formatCurrency = (amount: number) => {
+    const formatCurrency = (amount: number | null | undefined) => {
+        if (amount === null || amount === undefined || isNaN(amount)) {
+            return new Intl.NumberFormat('es-CL', {
+                style: 'currency',
+                currency: 'CLP',
+            }).format(0);
+        }
         return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(amount);
     };
 

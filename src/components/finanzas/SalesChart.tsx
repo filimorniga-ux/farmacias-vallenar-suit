@@ -8,7 +8,13 @@ interface SalesChartProps {
 export default function SalesChart({ data }: SalesChartProps) {
     const maxTotal = Math.max(...data.map((d) => d.total), 1); // Avoid division by zero
 
-    const formatCurrency = (amount: number) => {
+    const formatCurrency = (amount: number | null | undefined) => {
+        if (amount === null || amount === undefined || isNaN(amount)) {
+            return new Intl.NumberFormat('es-CL', {
+                style: 'currency',
+                currency: 'CLP',
+            }).format(0);
+        }
         return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(amount);
     };
 

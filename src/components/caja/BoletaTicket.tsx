@@ -56,7 +56,7 @@ export default function BoletaTicket({ data }: BoletaTicketProps) {
                         </tr>
                     </thead>
                     <tbody>
-                        {data.items.map((item, index) => (
+                        {data.items?.map((item, index) => (
                             <tr key={index}>
                                 <td className="py-1 align-top">{item.cantidad}</td>
                                 <td className="py-1 align-top">{item.nombre}</td>

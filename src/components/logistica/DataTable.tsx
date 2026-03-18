@@ -13,7 +13,7 @@ export default function DataTable({ initialData }: DataTableProps) {
     // Extract unique warehouses from data for the dropdown
     const availableWarehouses = useMemo(() => {
         const map = new Map<string, string>();
-        initialData.forEach(item => {
+        initialData?.forEach(item => {
             if (item.warehouse_id && item.ubicacion_fisica) {
                 map.set(item.warehouse_id, item.ubicacion_fisica);
             }
@@ -47,7 +47,7 @@ export default function DataTable({ initialData }: DataTableProps) {
         // But for UX, we default to current.
         if (!selectedWarehouse) return [];
 
-        const filtered = initialData.filter(
+        const filtered = (initialData || []).filter(
             (item) => {
                 // Strict Warehouse Check
                 if (item.warehouse_id !== selectedWarehouse) return false;
@@ -213,7 +213,7 @@ export default function DataTable({ initialData }: DataTableProps) {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 bg-white">
-                        {processedData.map((item: any) => (
+                        {processedData?.map((item: any) => (
                             <tr key={isGrouped ? item.producto_id : `${item.producto_id}-${item.lote_id}`} className={getRowStyle(item)}>
                                 <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm sm:pl-6">
                                     <div className="flex items-center">

@@ -14,21 +14,17 @@ const ClientPanel: React.FC = () => {
     const [newClientPhone, setNewClientPhone] = useState('');
 
     // Formateador de RUT Chileno
-    const formatRut = (value: string) => {
-        // Eliminar puntos y guión
-        const clean = value.replace(/[^0-9kK]/g, '');
-        if (clean.length <= 1) return clean;
-
-        const body = clean.slice(0, -1);
-        const dv = clean.slice(-1).toUpperCase();
-
-        // Formato con puntos
-        let formattedBody = '';
-        for (let i = body.length - 1, j = 0; i >= 0; i--, j++) {
-            formattedBody = body.charAt(i) + (j > 0 && j % 3 === 0 ? '.' : '') + formattedBody;
+    const formatRut = (value: string | null | undefined): string => {
+        if (!value) return '';
+        try {
+            const cleanRut = String(value).replace(/[^0-9kK]/g, '');
+            if (cleanRut.length < 2) return cleanRut;
+            const body = cleanRut.slice(0, -1);
+            const dv = cleanRut.slice(-1).toUpperCase();
+            return `${parseInt(body).toLocaleString('es-CL')}-${dv}`;
+        } catch (e) {
+            return String(value);
         }
-
-        return `${formattedBody}-${dv}`;
     };
 
     const handleRutChange = (e: React.ChangeEvent<HTMLInputElement>) => {
