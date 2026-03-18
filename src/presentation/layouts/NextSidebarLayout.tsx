@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
     LayoutDashboard, ShoppingCart, Users, Settings, LogOut, X, Menu,
-    Package, BarChart3, Truck, UserCircle, Clock, Building2, MapPin, RotateCcw, Landmark, FileSpreadsheet, Sparkles
+    Package, BarChart3, Truck, UserCircle, Clock, Building2, MapPin, RotateCcw, Landmark, FileSpreadsheet, Sparkles, MessageSquare, DollarSign
 } from 'lucide-react';
 import ContextBadge from '@/presentation/components/layout/ContextBadge';
 import { usePharmaStore } from '@/presentation/store/useStore';
@@ -64,6 +64,7 @@ const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
         // Control Asistencia movido a Kiosko (/kiosk) - accesible desde RRHH o Configuración
         // { icon: Clock, label: 'Control Asistencia', path: '/access', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'sky' as AppThemeColor },
         { icon: Landmark, label: 'Tesorería', path: '/finance/treasury', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'], color: 'emerald' as AppThemeColor },
+        { icon: DollarSign, label: 'Monitor de Precios', path: '/admin/cost-monitor', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'amber' as AppThemeColor },
         { icon: FileSpreadsheet, label: 'Cierre Mensual', path: '/finance/monthly-closing', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'indigo' as AppThemeColor },
         { icon: Settings, label: 'Configuración', path: '/settings', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'gray' as AppThemeColor },
     ];
