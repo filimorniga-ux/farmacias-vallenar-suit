@@ -5,7 +5,8 @@ import {
     TrendingUp, TrendingDown, DollarSign, BarChart3,
     Loader2, RefreshCw, ArrowUpRight, ArrowDownRight, Equal,
     Package, Calendar, ChevronDown, CheckCircle2, XCircle,
-    AlertTriangle, Layers, Building2, ArrowRight, Zap, Shield
+    AlertTriangle, Layers, Building2, ArrowRight, Zap, Shield,
+    Download, Printer
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -21,6 +22,12 @@ import {
     resolveRecommendation,
     type PriceRecommendation,
 } from '@/actions/pricing-intelligence';
+import {
+    exportDashboardExcel, exportRecommendationsExcel,
+    exportSuppliersExcel, exportHistoryExcel,
+    printDashboardPDF, printRecommendationsPDF,
+    printSuppliersPDF, printHistoryPDF,
+} from '@/lib/cost-monitor-exports';
 
 const PERIODS = [
     { label: 'Hoy', value: 'today' },
@@ -62,6 +69,7 @@ export default function CostMonitorPage() {
     const [resolvedRecs, setResolvedRecs] = useState<PriceRecommendation[]>([]);
     const [supplierOverview, setSupplierOverview] = useState<any[]>([]);
     const [resolvingId, setResolvingId] = useState<string | null>(null);
+    const [exporting, setExporting] = useState(false);
 
     const loadData = useCallback(async () => {
         setIsLoading(true);
@@ -143,7 +151,7 @@ export default function CostMonitorPage() {
                                 {recommendations.length} alerta{recommendations.length > 1 ? 's' : ''}
                             </span>
                         )}
-                        <button onClick={loadData} className="p-2 text-slate-500 hover:bg-white rounded-xl border border-slate-200 transition-colors">
+                        <button onClick={loadData} className="p-2 text-slate-500 hover:bg-white rounded-xl border border-slate-200 transition-colors" title="Actualizar">
                             <RefreshCw size={16} />
                         </button>
                     </div>
@@ -194,6 +202,37 @@ export default function CostMonitorPage() {
                 {/* ========== DASHBOARD TAB ========== */}
                 {activeTab === 'dashboard' && (
                     <>
+                        {/* Export Actions */}
+                        <div className="flex justify-end gap-2">
+                            <button
+                                disabled={exporting}
+                                onClick={async () => {
+                                    if (!summary) return;
+                                    setExporting(true);
+                                    try {
+                                        const pl = PERIODS.find(p => p.value === period)?.label || period;
+                                        await exportDashboardExcel(summary, pl);
+                                        toast.success('✅ Excel descargado');
+                                    } catch { toast.error('Error al exportar'); }
+                                    finally { setExporting(false); }
+                                }}
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                            >
+                                {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                                Excel
+                            </button>
+                            <button
+                                onClick={() => {
+                                    if (!summary) return;
+                                    const pl = PERIODS.find(p => p.value === period)?.label || period;
+                                    printDashboardPDF(summary, pl);
+                                    toast.success('📄 PDF generado');
+                                }}
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 rounded-lg hover:bg-sky-100 transition-colors"
+                            >
+                                <Printer size={13} /> PDF
+                            </button>
+                        </div>
                         {/* KPI Cards */}
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                             <div className="bg-white rounded-xl p-3 border border-slate-200 shadow-sm">
@@ -301,13 +340,41 @@ export default function CostMonitorPage() {
                 {/* ========== RECOMMENDATIONS TAB ========== */}
                 {activeTab === 'recommendations' && (
                     <div className="space-y-4">
-                        <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                            <Zap size={18} className="text-amber-500" />
-                            Recomendaciones Pendientes
-                            {recommendations.length > 0 && (
-                                <span className="bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded-full">{recommendations.length}</span>
-                            )}
-                        </h2>
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                <Zap size={18} className="text-amber-500" />
+                                Recomendaciones Pendientes
+                                {recommendations.length > 0 && (
+                                    <span className="bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded-full">{recommendations.length}</span>
+                                )}
+                            </h2>
+                            <div className="flex gap-2">
+                                <button
+                                    disabled={exporting}
+                                    onClick={async () => {
+                                        setExporting(true);
+                                        try {
+                                            await exportRecommendationsExcel(recommendations, resolvedRecs);
+                                            toast.success('✅ Excel descargado');
+                                        } catch { toast.error('Error al exportar'); }
+                                        finally { setExporting(false); }
+                                    }}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                                >
+                                    {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                                    Excel
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        printRecommendationsPDF(recommendations, resolvedRecs);
+                                        toast.success('📄 PDF generado');
+                                    }}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 rounded-lg hover:bg-sky-100 transition-colors"
+                                >
+                                    <Printer size={13} /> PDF
+                                </button>
+                            </div>
+                        </div>
 
                         {recommendations.length === 0 ? (
                             <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
@@ -432,10 +499,39 @@ export default function CostMonitorPage() {
                 {/* ========== SUPPLIER COMPARISON TAB ========== */}
                 {activeTab === 'suppliers' && (
                     <div className="space-y-4">
-                        <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                            <Building2 size={18} className="text-teal-500" />
-                            Comparativa de Precios por Proveedor
-                        </h2>
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                <Building2 size={18} className="text-teal-500" />
+                                Comparativa de Precios por Proveedor
+                            </h2>
+                            <div className="flex gap-2">
+                                <button
+                                    disabled={exporting || supplierOverview.length === 0}
+                                    onClick={async () => {
+                                        setExporting(true);
+                                        try {
+                                            await exportSuppliersExcel(supplierOverview);
+                                            toast.success('✅ Excel descargado');
+                                        } catch { toast.error('Error al exportar'); }
+                                        finally { setExporting(false); }
+                                    }}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                                >
+                                    {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                                    Excel
+                                </button>
+                                <button
+                                    disabled={supplierOverview.length === 0}
+                                    onClick={() => {
+                                        printSuppliersPDF(supplierOverview);
+                                        toast.success('📄 PDF generado');
+                                    }}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 rounded-lg hover:bg-sky-100 transition-colors disabled:opacity-50"
+                                >
+                                    <Printer size={13} /> PDF
+                                </button>
+                            </div>
+                        </div>
 
                         {supplierOverview.length === 0 ? (
                             <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
@@ -488,7 +584,7 @@ export default function CostMonitorPage() {
                 {/* ========== HISTORY TAB ========== */}
                 {activeTab === 'history' && (
                     <div className="space-y-4">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
                             <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                                 <Calendar size={18} className="text-slate-500" />
                                 Historial Completo ({history.length})
@@ -507,6 +603,35 @@ export default function CostMonitorPage() {
                                         {p.label}
                                     </button>
                                 ))}
+                            </div>
+                            <div className="flex gap-2">
+                                <button
+                                    disabled={exporting || history.length === 0}
+                                    onClick={async () => {
+                                        setExporting(true);
+                                        try {
+                                            const pl = PERIODS.find(p => p.value === period)?.label || period;
+                                            await exportHistoryExcel(history, pl);
+                                            toast.success('✅ Excel descargado');
+                                        } catch { toast.error('Error al exportar'); }
+                                        finally { setExporting(false); }
+                                    }}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                                >
+                                    {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                                    Excel
+                                </button>
+                                <button
+                                    disabled={history.length === 0}
+                                    onClick={() => {
+                                        const pl = PERIODS.find(p => p.value === period)?.label || period;
+                                        printHistoryPDF(history, pl);
+                                        toast.success('📄 PDF generado');
+                                    }}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 rounded-lg hover:bg-sky-100 transition-colors disabled:opacity-50"
+                                >
+                                    <Printer size={13} /> PDF
+                                </button>
                             </div>
                         </div>
 
