@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 
@@ -5,20 +6,30 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatCurrency(amount: number): string {
+export function formatCurrency(amount: number | null | undefined): string {
+  if (amount === null || amount === undefined || isNaN(amount)) {
+    return new Intl.NumberFormat('es-CL', {
+      style: 'currency',
+      currency: 'CLP',
+    }).format(0);
+  }
   return new Intl.NumberFormat('es-CL', {
     style: 'currency',
     currency: 'CLP',
   }).format(amount);
 }
 
-export function formatRut(rut: string): string {
+export function formatRut(rut: string | null | undefined): string {
   if (!rut) return '';
-  const cleanRut = rut.replace(/[^0-9kK]/g, '');
-  if (cleanRut.length < 2) return cleanRut;
-  const body = cleanRut.slice(0, -1);
-  const dv = cleanRut.slice(-1).toUpperCase();
-  return `${parseInt(body).toLocaleString('es-CL')}-${dv}`;
+  try {
+    const cleanRut = String(rut).replace(/[^0-9kK]/g, '');
+    if (cleanRut.length < 2) return cleanRut;
+    const body = cleanRut.slice(0, -1);
+    const dv = cleanRut.slice(-1).toUpperCase();
+    return `${parseInt(body).toLocaleString('es-CL')}-${dv}`;
+  } catch (e) {
+    return String(rut);
+  }
 }
 
 // --- DATE & TIME UTILS (CHILE TIMEZONE) ---
@@ -35,19 +46,24 @@ export function getChileDate(): Date {
 /**
  * Format date to Chile local string
  */
-export function formatChileDate(date: Date | string, options: Intl.DateTimeFormatOptions = {}): string {
+export function formatChileDate(date: Date | string | null | undefined, options: Intl.DateTimeFormatOptions = {}): string {
   if (!date) return '-';
-  const d = typeof date === 'string' ? new Date(date) : date;
+  try {
+    const d = typeof date === 'string' ? new Date(date) : date;
+    if (isNaN(d.getTime())) return '-';
 
-  return d.toLocaleString('es-CL', {
-    timeZone: 'America/Santiago',
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    ...options
-  });
+    return d.toLocaleString('es-CL', {
+      timeZone: 'America/Santiago',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      ...options
+    });
+  } catch (e) {
+    return '-';
+  }
 }
 
 /**
@@ -62,29 +78,41 @@ export function getChileISOString(): string {
 /**
  * Format date ONLY (DD/MM/YYYY) in Chile Timezone
  */
-export function formatChileDateOnly(date: Date | string): string {
+export function formatChileDateOnly(date: Date | string | null | undefined): string {
   if (!date) return '-';
-  const d = typeof date === 'string' ? new Date(date) : date;
-  return d.toLocaleDateString('es-CL', {
-    timeZone: 'America/Santiago',
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric'
-  });
+  try {
+    const d = typeof date === 'string' ? new Date(date) : date;
+    if (isNaN(d.getTime())) return '-';
+
+    return d.toLocaleDateString('es-CL', {
+      timeZone: 'America/Santiago',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+  } catch (e) {
+    return '-';
+  }
 }
 
 /**
  * Format time ONLY (HH:mm) in Chile Timezone
  */
-export function formatChileTimeOnly(date: Date | string, withSeconds = false): string {
+export function formatChileTimeOnly(date: Date | string | null | undefined, withSeconds = false): string {
   if (!date) return '-';
-  const d = typeof date === 'string' ? new Date(date) : date;
-  return d.toLocaleTimeString('es-CL', {
-    timeZone: 'America/Santiago',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: withSeconds ? '2-digit' : undefined
-  });
+  try {
+    const d = typeof date === 'string' ? new Date(date) : date;
+    if (isNaN(d.getTime())) return '-';
+
+    return d.toLocaleTimeString('es-CL', {
+      timeZone: 'America/Santiago',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: withSeconds ? '2-digit' : undefined
+    });
+  } catch (e) {
+    return '-';
+  }
 }
 
 /**
@@ -144,7 +172,7 @@ export async function retryWithBackoff<T>(
       if (isRetryable && hasRetriesLeft) {
         const delay = baseDelayMs * Math.pow(2, attempt - 1);
         onRetry(attempt, error);
-        console.warn(`[Retry] Attempt ${attempt}/${maxRetries} failed with ${error.code}. Retrying in ${delay}ms...`);
+        logger.warn(`[Retry] Attempt ${attempt}/${maxRetries} failed with ${error.code}. Retrying in ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       } else {
         throw error;

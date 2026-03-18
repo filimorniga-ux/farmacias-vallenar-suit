@@ -37,7 +37,7 @@ export default function TicketBoleta({ data }: TicketBoletaProps) {
                         </tr>
                     </thead>
                     <tbody>
-                        {data.items.map((item, index) => (
+                        {data.items?.map((item, index) => (
                             <tr key={index}>
                                 <td className="py-1 align-top">{item.cantidad}</td>
                                 <td className="py-1 align-top truncate max-w-[120px]">{item.nombre}</td>
