@@ -59,7 +59,7 @@ export async function searchProductsAction(
 
         const sql = `
             WITH unified_inventory AS (
-                -- 1. Master Products
+                -- 1. Master Products (priority 1 — always preferred)
                 SELECT 
                     id::text,
                     name::text,
@@ -72,14 +72,14 @@ export async function searchProductsAction(
                     stock_actual as stock,
                     units_per_box,
                     is_bioequivalent,
-                    1 as priority -- Prefer Master Products
+                    1 as priority
                 FROM products p
                 WHERE p.stock_actual > 0
                 ${searchTerm ? `AND (p.name ILIKE $1 OR p.sku ILIKE $1 OR p.dci ILIKE $1)` : ''}
-                
+
                 UNION ALL
-                
-                -- 2. Legacy Batches
+
+                -- 2. Legacy Batches (priority 2 — only whole items, only if no master product exists)
                 SELECT 
                     id::text,
                     name::text,
@@ -92,27 +92,26 @@ export async function searchProductsAction(
                     quantity_real as stock,
                     1 as units_per_box,
                     false as is_bioequivalent,
-                    2 as priority -- Lower priority
+                    2 as priority
                 FROM inventory_batches ib
                 WHERE ib.quantity_real > 0
+                AND COALESCE(ib.is_retail_lot, false) = false
                 ${searchTerm ? `AND (ib.name ILIKE $1 OR ib.sku ILIKE $1)` : ''}
+                AND NOT EXISTS (
+                    SELECT 1 FROM products p2
+                    WHERE UPPER(TRIM(p2.name)) = UPPER(TRIM(ib.name))
+                    AND p2.stock_actual > 0
+                )
+            ),
+            deduplicated AS (
+                SELECT DISTINCT ON (UPPER(TRIM(name)))
+                    id, name, sku, dci, laboratory, format, isp_register,
+                    price, stock, units_per_box, is_bioequivalent
+                FROM unified_inventory
+                ORDER BY UPPER(TRIM(name)), priority ASC
             )
-            SELECT 
-                id,
-                name,
-                sku,
-                dci,
-                laboratory,
-                format,
-                isp_register,
-                price,
-                stock,
-                units_per_box,
-                is_bioequivalent
-            FROM unified_inventory
-            ORDER BY 
-                priority ASC, -- Pivot master products first
-                name ASC
+            SELECT * FROM deduplicated
+            ORDER BY name ASC
             LIMIT 50
         `;
 

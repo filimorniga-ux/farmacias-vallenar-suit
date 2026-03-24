@@ -19,7 +19,7 @@ export async function browseProductsAction(
 
         const sql = `
             WITH unified_inventory AS (
-                -- 1. Master Products
+                -- 1. Master Products (priority 1 — always preferred)
                 SELECT 
                     id::text,
                     name::text,
@@ -32,15 +32,15 @@ export async function browseProductsAction(
                     stock_actual as stock,
                     units_per_box,
                     is_bioequivalent,
-                    1 as priority -- Prefer Master Products
+                    1 as priority
                 FROM products p
                 WHERE 
                     p.stock_actual > 0
                     AND TRIM(p.name) ILIKE $1
-                
+
                 UNION ALL
-                
-                -- 2. Legacy Batches
+
+                -- 2. Legacy Batches (priority 2 — only whole items, only if no master product)
                 SELECT 
                     id::text,
                     name::text,
@@ -53,17 +53,27 @@ export async function browseProductsAction(
                     quantity_real as stock,
                     1 as units_per_box,
                     false as is_bioequivalent,
-                    2 as priority -- Lower priority
+                    2 as priority
                 FROM inventory_batches ib
                 WHERE 
                     ib.quantity_real > 0
+                    AND COALESCE(ib.is_retail_lot, false) = false
                     AND TRIM(ib.name) ILIKE $1
+                    AND NOT EXISTS (
+                        SELECT 1 FROM products p2
+                        WHERE UPPER(TRIM(p2.name)) = UPPER(TRIM(ib.name))
+                        AND p2.stock_actual > 0
+                    )
+            ),
+            deduplicated AS (
+                SELECT DISTINCT ON (UPPER(TRIM(name)))
+                    id, name, sku, dci, laboratory, format, isp_register,
+                    price, stock, units_per_box, is_bioequivalent, priority
+                FROM unified_inventory
+                ORDER BY UPPER(TRIM(name)), priority ASC
             )
-            SELECT 
-                *
-            FROM unified_inventory
-            ORDER BY 
-                name ASC
+            SELECT * FROM deduplicated
+            ORDER BY name ASC
             LIMIT $2 OFFSET $3
         `;
 
