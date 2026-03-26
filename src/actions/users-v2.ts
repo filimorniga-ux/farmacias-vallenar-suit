@@ -26,6 +26,7 @@ import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
 import { randomUUID } from 'crypto';
+import { getValidatedSession } from '@/lib/server-session';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DBRow = any;
@@ -146,34 +147,17 @@ interface UserData {
  * Get current session (Headers first, then Cookies)
  */
 async function getSession(): Promise<{ user?: { id: string; role: string } } | null> {
-    try {
-        const headersList = await headers();
-        const { cookies } = await import('next/headers');
-
-        // 1. Try Headers
-        let userId = headersList.get('x-user-id');
-        let role = headersList.get('x-user-role');
-
-        // 2. Try Cookies
-        if (!userId || !role) {
-            const cookieStore = await cookies();
-            userId = cookieStore.get('user_id')?.value || null;
-            role = cookieStore.get('user_role')?.value || null;
-        }
-
-        if (!userId || !role) {
-            return null;
-        }
-
-        return {
-            user: {
-                id: userId,
-                role: role
-            }
-        };
-    } catch {
+    const session = await getValidatedSession();
+    if (!session) {
         return null;
     }
+
+    return {
+        user: {
+            id: session.userId,
+            role: session.role,
+        }
+    };
 }
 
 /**

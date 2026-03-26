@@ -16,9 +16,9 @@ import { pool, query, type PoolClient } from '@/lib/db';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { revalidatePath } from 'next/cache';
-import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
 import bcrypt from 'bcryptjs';
+import { getValidatedSession } from '@/lib/server-session';
 
 // ============================================================================
 // SCHEMAS
@@ -54,17 +54,13 @@ const MANAGER_PIN_THRESHOLD = 100000; // > $100,000 requiere PIN MANAGER
 // HELPERS
 // ============================================================================
 
-async function getSession(): Promise<{ userId: string; role: string; terminalId?: string } | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        const terminalId = headersList.get('x-terminal-id');
-        if (!userId || !role) return null;
-        return { userId, role, terminalId: terminalId || undefined };
-    } catch {
+async function getSession(): Promise<{ userId: string; role: string } | null> {
+    const session = await getValidatedSession();
+    if (!session) {
         return null;
     }
+
+    return { userId: session.userId, role: session.role };
 }
 
 async function validatePinByRole(

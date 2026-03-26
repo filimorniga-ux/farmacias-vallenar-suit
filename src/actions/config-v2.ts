@@ -19,11 +19,11 @@
 
 import { pool, query } from '@/lib/db';
 import { z } from 'zod';
-import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
 import crypto from 'crypto';
 import { resolveDeepSeekOcrEndpoint } from '@/lib/ai/deepseek-endpoint';
+import { getValidatedSession } from '@/lib/server-session';
 
 // ============================================================================
 // TIPOS
@@ -187,15 +187,15 @@ function maskSensitiveValue(value: string): string {
 // ============================================================================
 
 async function getSession(): Promise<{ userId: string; role: string } | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        if (!userId || !role) return null;
-        return { userId, role };
-    } catch {
+    const session = await getValidatedSession();
+    if (!session) {
         return null;
     }
+
+    return {
+        userId: session.userId,
+        role: session.role,
+    };
 }
 
 function isAdmin(role: string): boolean {
@@ -223,14 +223,11 @@ export async function saveSystemConfigSecure(
     // Verificar sesión y permisos
     const session = await getSession();
 
-    // DEBUG LOGS
     if (!session) {
-        console.error('[ConfigV2] Save denied: No session found. Headers:', await headers());
-        return { success: false, error: 'No autenticado (Sesión no detectada en servidor)' };
+        return { success: false, error: 'No autenticado' };
     }
 
     if (!isAdmin(session.role)) {
-        console.error(`[ConfigV2] Save denied: Role ${session.role} is not admin.`);
         return { success: false, error: `Acceso denegado: Rol ${session.role} no autorizado` };
     }
 

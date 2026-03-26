@@ -7,22 +7,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as usersV2 from '@/actions/users-v2';
 import * as dbModule from '@/lib/db';
+import { getValidatedSession } from '@/lib/server-session';
 
 // Mock content
 const validAdminId = '550e8400-e29b-41d4-a716-446655440001';
 const validUserId = '550e8400-e29b-41d4-a716-446655440002';
 const newUserId = '550e8400-e29b-41d4-a716-446655440003';
 
-const { mockHeaders } = vi.hoisted(() => ({
-    mockHeaders: new Map([
-        ['x-user-id', '550e8400-e29b-41d4-a716-446655440001'],
-        ['x-user-role', 'ADMIN']
-    ])
+vi.mock('next/headers', () => ({
+    headers: vi.fn().mockReturnValue(Promise.resolve(new Map())),
+    cookies: vi.fn(() => ({ get: vi.fn() }))
 }));
 
-vi.mock('next/headers', () => ({
-    headers: vi.fn().mockReturnValue(Promise.resolve(mockHeaders)),
-    cookies: vi.fn(() => ({ get: vi.fn() }))
+vi.mock('@/lib/server-session', () => ({
+    getValidatedSession: vi.fn(),
 }));
 
 vi.mock('@/lib/db', () => {
@@ -73,8 +71,14 @@ vi.mock('crypto', () => ({
 // Reset mocks before each test
 beforeEach(() => {
     vi.clearAllMocks();
-    mockHeaders.set('x-user-id', validAdminId); // Reset to default admin
-    mockHeaders.set('x-user-role', 'ADMIN');
+    vi.mocked(getValidatedSession).mockResolvedValue({
+        userId: validAdminId,
+        role: 'ADMIN',
+        locationId: 'loc-1',
+        userName: 'Admin User',
+        tokenVersion: 1,
+        sessionToken: 'token',
+    });
 });
 
 // Test data
@@ -234,9 +238,7 @@ describe('Users V2 - RBAC Enforcement', () => {
     });
 
     it('should reject unauthenticated user', async () => {
-        vi.mocked(await import('next/headers')).headers.mockResolvedValueOnce(
-            new Map() as any
-        );
+        vi.mocked(getValidatedSession).mockResolvedValueOnce(null);
 
         const mockClient = createMockClient([]);
 
@@ -665,4 +667,3 @@ function createMockClient(queryResults: any[] = []) {
 
     return mockClient;
 }
-

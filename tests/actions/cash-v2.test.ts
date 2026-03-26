@@ -7,15 +7,23 @@ import * as cashV2 from '@/actions/cash-v2';
 
 vi.mock('@/lib/db', () => ({ query: vi.fn(), pool: { connect: vi.fn() } }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
-vi.mock('next/headers', () => ({
-    headers: vi.fn(async () => new Map([['x-user-id', 'user-1'], ['x-user-role', 'CASHIER']]))
+vi.mock('@/lib/server-session', () => ({
+    getValidatedSession: vi.fn(async () => ({
+        userId: 'user-1',
+        role: 'CASHIER',
+        locationId: 'loc-1',
+        userName: 'Caja',
+        tokenVersion: 1,
+        sessionToken: 'token',
+    })),
 }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
+import { getValidatedSession } from '@/lib/server-session';
+
 describe('Cash V2 - Authentication', () => {
     it('should require authentication', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map() as any);
+        vi.mocked(getValidatedSession).mockResolvedValueOnce(null);
 
         const result = await cashV2.createCashMovementSecure({
             terminalId: '550e8400-e29b-41d4-a716-446655440000',
