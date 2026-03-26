@@ -43,3 +43,12 @@ release/
 data_imports/
 coverage/
 .agent/tmp/
+
+# Material criptográfico y certificados
+config/certs/
+*.pfx
+*.p12
+*.pem
+*.key
+*.crt
+*.cer
