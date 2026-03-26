@@ -5,13 +5,18 @@ import { query } from '@/lib/db';
 import { classifyPgError } from '@/lib/db-errors';
 import { createCorrelationId, type ActionFailure } from '@/lib/action-response';
 import { logger } from '@/lib/logger';
-import { cookies } from 'next/headers';
+import {
+    createServerSession,
+    getValidatedSession,
+    invalidateCurrentSession,
+} from '@/lib/server-session';
 
 export interface AuthenticatedUser {
     id: string;
     name: string;
     role: string;
     assigned_location_id?: string | null;
+    token_version?: number;
 }
 
 export type AuthActionResult =
@@ -19,12 +24,6 @@ export type AuthActionResult =
     | ActionFailure;
 
 const DEVELOPMENT_PIN = '1213';
-const SESSION_COOKIE_OPTIONS = {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax' as const,
-    path: '/',
-};
 
 function authFailure(input: {
     code: string;
@@ -64,17 +63,7 @@ async function isValidUserPin(pin: string, user: UserPinRecord) {
 }
 
 export async function getSessionSecure() {
-    const cookieStore = await cookies();
-    const userId = cookieStore.get('user_id')?.value;
-    const role = cookieStore.get('user_role')?.value;
-    const locationId = cookieStore.get('user_location')?.value;
-    const userName = cookieStore.get('user_name')?.value;
-
-    if (!userId || !role) {
-        return null;
-    }
-
-    return { userId, role, locationId, userName: userName || 'Usuario' };
+    return getValidatedSession();
 }
 
 export async function verifyUserPin(userId: string, pin: string) {
@@ -220,15 +209,13 @@ export async function authenticateUserSecure(userId: string, pin: string, locati
             }
 
             // Es un PIN temporal válido!
-            const cookieStore = await cookies();
-            cookieStore.set('user_id', user.id, SESSION_COOKIE_OPTIONS);
-            cookieStore.set('user_role', user.role, SESSION_COOKIE_OPTIONS);
-            cookieStore.set('user_name', user.name, SESSION_COOKIE_OPTIONS);
-
             const targetLocationId = locationId || user.assigned_location_id;
-            if (targetLocationId) {
-                cookieStore.set('user_location', targetLocationId, SESSION_COOKIE_OPTIONS);
-            }
+            const { tokenVersion } = await createServerSession({
+                userId: user.id,
+                userName: user.name,
+                role: user.role,
+                locationId: targetLocationId,
+            });
 
             return {
                 success: true,
@@ -237,21 +224,19 @@ export async function authenticateUserSecure(userId: string, pin: string, locati
                     id: user.id,
                     name: user.name,
                     role: user.role,
-                    assigned_location_id: user.assigned_location_id
+                    assigned_location_id: user.assigned_location_id,
+                    token_version: tokenVersion,
                 }
             };
         }
 
-        const cookieStore = await cookies();
-
-        cookieStore.set('user_id', user.id, SESSION_COOKIE_OPTIONS);
-        cookieStore.set('user_role', user.role, SESSION_COOKIE_OPTIONS);
-        cookieStore.set('user_name', user.name, SESSION_COOKIE_OPTIONS);
-
         const targetLocationId = locationId || user.assigned_location_id;
-        if (targetLocationId) {
-            cookieStore.set('user_location', targetLocationId, SESSION_COOKIE_OPTIONS);
-        }
+        const { tokenVersion } = await createServerSession({
+            userId: user.id,
+            userName: user.name,
+            role: user.role,
+            locationId: targetLocationId,
+        });
 
         return {
             success: true,
@@ -259,7 +244,8 @@ export async function authenticateUserSecure(userId: string, pin: string, locati
                 id: user.id,
                 name: user.name,
                 role: user.role,
-                assigned_location_id: user.assigned_location_id
+                assigned_location_id: user.assigned_location_id,
+                token_version: tokenVersion,
             }
         };
 
@@ -296,4 +282,8 @@ export async function authenticateUserSecure(userId: string, pin: string, locati
             userMessage: classified.userMessage,
         });
     }
+}
+
+export async function logoutCurrentSessionSecure() {
+    await invalidateCurrentSession();
 }

@@ -67,20 +67,28 @@ describe('Auth V2 - Typed error mapping', () => {
     });
 
     it('returns success and writes session cookies when credentials are valid', async () => {
-        vi.mocked(dbModule.query).mockResolvedValueOnce({
-            rows: [{
-                id: 'user-1',
-                name: 'Gerente',
-                role: 'MANAGER',
-                access_pin: '1234',
-                assigned_location_id: 'loc-1',
-                is_active: true,
-            }],
-            rowCount: 1,
-            command: '',
-            oid: 0,
-            fields: []
-        });
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'user-1',
+                    name: 'Gerente',
+                    role: 'MANAGER',
+                    access_pin: '1234',
+                    assigned_location_id: 'loc-1',
+                    is_active: true,
+                }],
+                rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: []
+            })
+            .mockResolvedValueOnce({
+                rows: [{ token_version: 1 }],
+                rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: []
+            });
 
         const result = await authV2.authenticateUserSecure('user-1', '1234');
 
@@ -91,21 +99,29 @@ describe('Auth V2 - Typed error mapping', () => {
     });
 
     it('returns success when user only has access_pin_hash', async () => {
-        vi.mocked(dbModule.query).mockResolvedValueOnce({
-            rows: [{
-                id: 'user-hash',
-                name: 'Gerente Hash',
-                role: 'MANAGER',
-                access_pin_hash: 'hashed_4321',
-                access_pin: null,
-                assigned_location_id: 'loc-2',
-                is_active: true,
-            }],
-            rowCount: 1,
-            command: '',
-            oid: 0,
-            fields: []
-        });
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'user-hash',
+                    name: 'Gerente Hash',
+                    role: 'MANAGER',
+                    access_pin_hash: 'hashed_4321',
+                    access_pin: null,
+                    assigned_location_id: 'loc-2',
+                    is_active: true,
+                }],
+                rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: []
+            })
+            .mockResolvedValueOnce({
+                rows: [{ token_version: 2 }],
+                rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: []
+            });
 
         const result = await authV2.authenticateUserSecure('user-hash', '4321');
 
@@ -116,21 +132,29 @@ describe('Auth V2 - Typed error mapping', () => {
     });
 
     it('accepts dev pin 1213 in non-production to preserve sandbox access', async () => {
-        vi.mocked(dbModule.query).mockResolvedValueOnce({
-            rows: [{
-                id: 'user-dev',
-                name: 'Usuario Dev',
-                role: 'CASHIER',
-                access_pin_hash: 'hashed_9999',
-                access_pin: '9999',
-                assigned_location_id: 'loc-dev',
-                is_active: true,
-            }],
-            rowCount: 1,
-            command: '',
-            oid: 0,
-            fields: []
-        });
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'user-dev',
+                    name: 'Usuario Dev',
+                    role: 'CASHIER',
+                    access_pin_hash: 'hashed_9999',
+                    access_pin: '9999',
+                    assigned_location_id: 'loc-dev',
+                    is_active: true,
+                }],
+                rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: []
+            })
+            .mockResolvedValueOnce({
+                rows: [{ token_version: 3 }],
+                rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: []
+            });
 
         const result = await authV2.authenticateUserSecure('user-dev', '1213');
 

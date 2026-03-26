@@ -13,12 +13,12 @@ vi.mock('@/lib/db', () => ({
     pool: mockPool,
 }));
 
-vi.mock('@/actions/auth-v2', () => ({
-    getSessionSecure: vi.fn(),
+vi.mock('@/lib/server-session', () => ({
+    getValidatedSession: vi.fn(),
 }));
 
 import { GET } from '@/app/api/db-test/route';
-import { getSessionSecure } from '@/actions/auth-v2';
+import { getValidatedSession } from '@/lib/server-session';
 
 describe('GET /api/db-test', () => {
     beforeEach(() => {
@@ -26,7 +26,7 @@ describe('GET /api/db-test', () => {
     });
 
     it('rechaza requests sin sesión activa', async () => {
-        vi.mocked(getSessionSecure).mockResolvedValueOnce(null);
+        vi.mocked(getValidatedSession).mockResolvedValueOnce(null);
 
         const response = await GET();
         const payload = await response.json();
@@ -36,11 +36,13 @@ describe('GET /api/db-test', () => {
     });
 
     it('rechaza roles sin permisos operativos', async () => {
-        vi.mocked(getSessionSecure).mockResolvedValueOnce({
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
             userId: 'cashier-1',
             role: 'CASHIER',
             locationId: 'loc-1',
             userName: 'Caja',
+            tokenVersion: 1,
+            sessionToken: 'token',
         });
 
         const response = await GET();
@@ -51,11 +53,13 @@ describe('GET /api/db-test', () => {
     });
 
     it('permite acceso a roles autorizados y mantiene la respuesta de diagnóstico', async () => {
-        vi.mocked(getSessionSecure).mockResolvedValueOnce({
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
             userId: 'admin-1',
             role: 'ADMIN',
             locationId: 'loc-1',
             userName: 'Admin',
+            tokenVersion: 2,
+            sessionToken: 'token',
         });
         mockPool.query.mockResolvedValueOnce({
             rows: [{

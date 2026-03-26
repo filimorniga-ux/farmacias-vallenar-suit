@@ -1,15 +1,15 @@
-import { getSessionSecure } from '@/actions/auth-v2';
 import { NextResponse } from 'next/server';
+import { getValidatedSession } from '@/lib/server-session';
 
 export const OPERATIONS_API_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'] as const;
 export const INVENTORY_API_ROLES = ['WAREHOUSE', 'QF', ...OPERATIONS_API_ROLES] as const;
 
 type AuthorizedApiResult =
-    | { ok: true; session: NonNullable<Awaited<ReturnType<typeof getSessionSecure>>> }
+    | { ok: true; session: NonNullable<Awaited<ReturnType<typeof getValidatedSession>>> }
     | { ok: false; response: NextResponse };
 
 export async function requireApiRoles(allowedRoles: readonly string[]): Promise<AuthorizedApiResult> {
-    const session = await getSessionSecure();
+    const session = await getValidatedSession();
 
     if (!session) {
         return {
