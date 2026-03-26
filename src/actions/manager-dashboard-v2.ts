@@ -77,16 +77,11 @@ export interface ManagerDashboardData {
 // HELPERS
 // ==========================================
 
-async function getSession() {
-    const session = await getValidatedSession();
-    if (!session) {
-        return { userId: null, role: null };
-    }
+const AUTHORIZED_ROLES = new Set(['MANAGER', 'ADMIN', 'GERENTE_GENERAL']);
 
-    return { userId: session.userId, role: session.role };
+function normalizeRole(role?: string | null) {
+    return String(role || '').trim().toUpperCase();
 }
-
-const AUTHORIZED_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
 
 // ==========================================
 // MAIN ACTION
@@ -96,9 +91,14 @@ export async function getManagerRealTimeDataSecure(
     selectedLocationId?: string
 ): Promise<{ success: boolean; data?: ManagerDashboardData; error?: string }> {
     try {
-        const session = await getSession();
-        if (!session.userId || !session.role || !AUTHORIZED_ROLES.includes(session.role)) {
-            return { success: false, error: 'Acceso denegado: Rol no autorizado' };
+        const session = await getValidatedSession();
+        if (!session?.userId) {
+            return { success: false, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
+        }
+
+        const normalizedRole = normalizeRole(session.role);
+        if (!AUTHORIZED_ROLES.has(normalizedRole)) {
+            return { success: false, error: `Acceso denegado: Rol ${normalizedRole || 'desconocido'} no autorizado` };
         }
 
         // 1. Get Branch Summaries (All Stores)
