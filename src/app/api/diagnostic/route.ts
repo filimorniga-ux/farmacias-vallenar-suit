@@ -1,7 +1,13 @@
 import { NextResponse } from 'next/server';
 import { Client } from 'pg';
+import { OPERATIONS_API_ROLES, requireApiRoles } from '@/lib/api-auth';
 
 export async function GET(req: Request) {
+    const auth = await requireApiRoles(OPERATIONS_API_ROLES);
+    if (!auth.ok) {
+        return auth.response;
+    }
+
     const { searchParams } = new URL(req.url);
     const dbUrl = process.env.DATABASE_URL || '';
 

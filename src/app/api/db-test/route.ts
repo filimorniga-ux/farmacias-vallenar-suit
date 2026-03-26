@@ -1,4 +1,5 @@
 import { pool } from '@/lib/db';
+import { OPERATIONS_API_ROLES, requireApiRoles } from '@/lib/api-auth';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
@@ -7,6 +8,11 @@ export async function GET() {
     const startTime = Date.now();
     
     try {
+        const auth = await requireApiRoles(OPERATIONS_API_ROLES);
+        if (!auth.ok) {
+            return auth.response;
+        }
+
         // Test básico de conexión
         const result = await pool.query(`
             SELECT 

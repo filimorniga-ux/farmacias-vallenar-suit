@@ -1,8 +1,14 @@
 import { NextResponse } from 'next/server';
+import { OPERATIONS_API_ROLES, requireApiRoles } from '@/lib/api-auth';
 import { pool } from '@/lib/db';
 
 export async function POST(request: Request) {
     try {
+        const auth = await requireApiRoles(OPERATIONS_API_ROLES);
+        if (!auth.ok) {
+            return auth.response;
+        }
+
         const body = await request.json();
         const action = body.action || 'ANALYZE';
 

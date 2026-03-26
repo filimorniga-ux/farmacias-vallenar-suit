@@ -1,8 +1,14 @@
 import { NextResponse } from 'next/server';
 import { receiveProduct } from '@/lib/data/supply';
+import { INVENTORY_API_ROLES, requireApiRoles } from '@/lib/api-auth';
 
 export async function POST(request: Request) {
     try {
+        const auth = await requireApiRoles(INVENTORY_API_ROLES);
+        if (!auth.ok) {
+            return auth.response;
+        }
+
         const body = await request.json();
         const { producto_id, numero_lote, fecha_vencimiento, cantidad, proveedor_id } = body;
 

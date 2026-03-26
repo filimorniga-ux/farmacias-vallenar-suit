@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { OPERATIONS_API_ROLES, requireApiRoles } from '@/lib/api-auth';
 import { Pool } from 'pg';
 
 const pool = new Pool({
@@ -8,6 +9,11 @@ const pool = new Pool({
 
 export async function POST(request: Request) {
     try {
+        const auth = await requireApiRoles(OPERATIONS_API_ROLES);
+        if (!auth.ok) {
+            return auth.response;
+        }
+
         const body = await request.json();
 
         // 1. Security Check

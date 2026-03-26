@@ -1,8 +1,14 @@
 import { NextResponse } from 'next/server';
 import { pool } from '@/lib/db';
 import { InventoryBatch } from '@/domain/types';
+import { INVENTORY_API_ROLES, requireApiRoles } from '@/lib/api-auth';
 
 export async function POST(request: Request) {
+    const auth = await requireApiRoles(INVENTORY_API_ROLES);
+    if (!auth.ok) {
+        return auth.response;
+    }
+
     const client = await pool.connect();
 
     try {

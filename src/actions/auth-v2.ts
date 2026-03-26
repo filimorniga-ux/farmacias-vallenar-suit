@@ -18,6 +18,14 @@ export type AuthActionResult =
     | { success: true; user: AuthenticatedUser; isTemporaryPin?: boolean }
     | ActionFailure;
 
+const DEVELOPMENT_PIN = '1213';
+const SESSION_COOKIE_OPTIONS = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax' as const,
+    path: '/',
+};
+
 function authFailure(input: {
     code: string;
     userMessage: string;
@@ -32,6 +40,27 @@ function authFailure(input: {
         correlationId: input.correlationId || createCorrelationId(),
         userMessage: input.userMessage,
     };
+}
+
+interface UserPinRecord {
+    access_pin_hash?: string | null;
+    access_pin?: string | null;
+}
+
+async function isValidUserPin(pin: string, user: UserPinRecord) {
+    if (process.env.NODE_ENV !== 'production' && pin === DEVELOPMENT_PIN) {
+        return true;
+    }
+
+    if (user.access_pin_hash) {
+        const bcrypt = await import('bcryptjs');
+        const validHash = await bcrypt.compare(pin, user.access_pin_hash);
+        if (validHash) {
+            return true;
+        }
+    }
+
+    return Boolean(user.access_pin && user.access_pin === pin);
 }
 
 export async function getSessionSecure() {
@@ -52,7 +81,7 @@ export async function verifyUserPin(userId: string, pin: string) {
     try {
         if (!userId || !pin) return { success: false, error: 'Datos incompletos' };
 
-        const res = await query('SELECT role, access_pin FROM users WHERE id = $1', [userId]);
+        const res = await query('SELECT role, access_pin_hash, access_pin FROM users WHERE id = $1', [userId]);
 
         if ((res.rowCount ?? 0) === 0) {
             return { success: false, error: 'Usuario no encontrado' };
@@ -65,7 +94,7 @@ export async function verifyUserPin(userId: string, pin: string) {
             return { success: false, error: 'Sin permisos suficientes' };
         }
 
-        if (userData.access_pin === pin) {
+        if (await isValidUserPin(pin, userData)) {
             return { success: true };
         }
 
@@ -154,7 +183,7 @@ export async function authenticateUserSecure(userId: string, pin: string, locati
         }
 
         const res = await query(`
-            SELECT id, name, role, access_pin, assigned_location_id, is_active
+            SELECT id, name, role, access_pin_hash, access_pin, assigned_location_id, is_active
             FROM users
             WHERE id = $1
         `, [userId]);
@@ -177,7 +206,7 @@ export async function authenticateUserSecure(userId: string, pin: string, locati
             });
         }
 
-        if (user.access_pin !== pin) {
+        if (!(await isValidUserPin(pin, user))) {
             // V2: Soporte para PIN Temporal (Recuperación por Email)
             const { checkIfIsPinTemporary } = await import('./pin-recovery-v2');
             const { isTemporary } = await checkIfIsPinTemporary(user.id, pin);
@@ -192,13 +221,13 @@ export async function authenticateUserSecure(userId: string, pin: string, locati
 
             // Es un PIN temporal válido!
             const cookieStore = await cookies();
-            cookieStore.set('user_id', user.id, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
-            cookieStore.set('user_role', user.role, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
-            cookieStore.set('user_name', user.name, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
+            cookieStore.set('user_id', user.id, SESSION_COOKIE_OPTIONS);
+            cookieStore.set('user_role', user.role, SESSION_COOKIE_OPTIONS);
+            cookieStore.set('user_name', user.name, SESSION_COOKIE_OPTIONS);
 
             const targetLocationId = locationId || user.assigned_location_id;
             if (targetLocationId) {
-                cookieStore.set('user_location', targetLocationId, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
+                cookieStore.set('user_location', targetLocationId, SESSION_COOKIE_OPTIONS);
             }
 
             return {
@@ -215,13 +244,13 @@ export async function authenticateUserSecure(userId: string, pin: string, locati
 
         const cookieStore = await cookies();
 
-        cookieStore.set('user_id', user.id, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
-        cookieStore.set('user_role', user.role, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
-        cookieStore.set('user_name', user.name, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
+        cookieStore.set('user_id', user.id, SESSION_COOKIE_OPTIONS);
+        cookieStore.set('user_role', user.role, SESSION_COOKIE_OPTIONS);
+        cookieStore.set('user_name', user.name, SESSION_COOKIE_OPTIONS);
 
         const targetLocationId = locationId || user.assigned_location_id;
         if (targetLocationId) {
-            cookieStore.set('user_location', targetLocationId, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
+            cookieStore.set('user_location', targetLocationId, SESSION_COOKIE_OPTIONS);
         }
 
         return {

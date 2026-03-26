@@ -90,6 +90,56 @@ describe('Auth V2 - Typed error mapping', () => {
         expect(mockCookieStore.set).toHaveBeenCalled();
     });
 
+    it('returns success when user only has access_pin_hash', async () => {
+        vi.mocked(dbModule.query).mockResolvedValueOnce({
+            rows: [{
+                id: 'user-hash',
+                name: 'Gerente Hash',
+                role: 'MANAGER',
+                access_pin_hash: 'hashed_4321',
+                access_pin: null,
+                assigned_location_id: 'loc-2',
+                is_active: true,
+            }],
+            rowCount: 1,
+            command: '',
+            oid: 0,
+            fields: []
+        });
+
+        const result = await authV2.authenticateUserSecure('user-hash', '4321');
+
+        expect(result.success).toBe(true);
+        if (!result.success) return;
+        expect(result.user.id).toBe('user-hash');
+        expect(vi.mocked(bcrypt.compare)).toHaveBeenCalledWith('4321', 'hashed_4321');
+    });
+
+    it('accepts dev pin 1213 in non-production to preserve sandbox access', async () => {
+        vi.mocked(dbModule.query).mockResolvedValueOnce({
+            rows: [{
+                id: 'user-dev',
+                name: 'Usuario Dev',
+                role: 'CASHIER',
+                access_pin_hash: 'hashed_9999',
+                access_pin: '9999',
+                assigned_location_id: 'loc-dev',
+                is_active: true,
+            }],
+            rowCount: 1,
+            command: '',
+            oid: 0,
+            fields: []
+        });
+
+        const result = await authV2.authenticateUserSecure('user-dev', '1213');
+
+        expect(result.success).toBe(true);
+        if (!result.success) return;
+        expect(result.user.id).toBe('user-dev');
+        expect(mockCookieStore.set).toHaveBeenCalled();
+    });
+
     it('validateSupervisorPin acepta PIN hash', async () => {
         vi.mocked(dbModule.query).mockResolvedValueOnce({
             rows: [{
@@ -155,5 +205,24 @@ describe('Auth V2 - Typed error mapping', () => {
         expect(result.success).toBe(false);
         if (result.success) return;
         expect(result.error).toContain('PIN inválido');
+    });
+
+    it('verifyUserPin acepta hash para roles autorizados', async () => {
+        vi.mocked(dbModule.query).mockResolvedValueOnce({
+            rows: [{
+                role: 'ADMIN',
+                access_pin_hash: 'hashed_4321',
+                access_pin: null,
+            }],
+            rowCount: 1,
+            command: '',
+            oid: 0,
+            fields: []
+        });
+
+        const result = await authV2.verifyUserPin('admin-1', '4321');
+
+        expect(result.success).toBe(true);
+        expect(vi.mocked(bcrypt.compare)).toHaveBeenCalledWith('4321', 'hashed_4321');
     });
 });
