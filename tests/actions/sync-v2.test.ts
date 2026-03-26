@@ -1,25 +1,44 @@
-/**
- * Tests - Sync V2 Module
- */
-
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as syncV2 from '@/actions/sync-v2';
+import { query } from '@/lib/db';
+import { getValidatedSession } from '@/lib/server-session';
 
 vi.mock('@/lib/db', () => ({ query: vi.fn(), pool: { connect: vi.fn() } }));
-vi.mock('next/headers', () => ({
-    headers: vi.fn(async () => new Map([['x-user-id', 'user-1'], ['x-user-role', 'CASHIER']]))
+vi.mock('@/lib/server-session', () => ({
+    getValidatedSession: vi.fn(),
 }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-describe('Sync V2 - Security', () => {
-    it('should NEVER return access_pin in fetchEmployeesSecure', async () => {
-        const mockDb = await import('@/lib/db');
-        vi.mocked(mockDb.query).mockResolvedValueOnce({
-            rows: [
-                { id: '1', rut: '12345678-9', name: 'Test', role: 'CASHIER', access_pin: '1234', access_pin_hash: 'hash' }
-            ],
-            rowCount: 1
-        } as any).mockResolvedValueOnce({ rows: [], rowCount: 0 } as any);
+describe('Sync V2 - server-side session', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it('nunca retorna access_pin ni access_pin_hash en fetchEmployeesSecure', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'user-1',
+            role: 'CASHIER',
+            locationId: 'loc-1',
+            userName: 'Caja',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+
+        vi.mocked(query)
+            .mockResolvedValueOnce({
+                rows: [
+                    {
+                        id: '1',
+                        rut: '12345678-9',
+                        name: 'Test',
+                        role: 'CASHIER',
+                        access_pin: '1234',
+                        access_pin_hash: 'hash',
+                    },
+                ],
+                rowCount: 1,
+            } as never)
+            .mockResolvedValueOnce({ rows: [], rowCount: 0 } as never);
 
         const result = await syncV2.fetchEmployeesSecure();
 
@@ -28,9 +47,8 @@ describe('Sync V2 - Security', () => {
         expect(result.data?.[0]).not.toHaveProperty('access_pin_hash');
     });
 
-    it('should require authentication for fetchEmployeesSecure', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map() as any);
+    it('rechaza fetchEmployeesSecure sin sesión válida', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce(null);
 
         const result = await syncV2.fetchEmployeesSecure();
 
@@ -38,40 +56,59 @@ describe('Sync V2 - Security', () => {
         expect(result.error).toContain('autenticado');
     });
 
-    it('should audit data access', async () => {
-        const mockDb = await import('@/lib/db');
-        vi.mocked(mockDb.query)
-            .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any) // Employees query
-            .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any); // Audit query
+    it('audita acceso a datos usando el userId de sesión validada', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'user-1',
+            role: 'CASHIER',
+            locationId: 'loc-1',
+            userName: 'Caja',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+
+        vi.mocked(query)
+            .mockResolvedValueOnce({ rows: [], rowCount: 0 } as never)
+            .mockResolvedValueOnce({ rows: [], rowCount: 0 } as never);
 
         await syncV2.fetchEmployeesSecure();
 
-        expect(mockDb.query).toHaveBeenCalledWith(
+        expect(query).toHaveBeenCalledWith(
             expect.stringContaining('audit_log'),
-            expect.anything()
+            expect.arrayContaining(['user-1'])
         );
     });
-});
 
-describe('Sync V2 - Locations RBAC', () => {
-    it('should filter locations for non-admin users', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map([
-            ['x-user-id', 'user-1'],
-            ['x-user-role', 'CASHIER'],
-            ['x-user-location', 'loc-1']
-        ]) as any);
+    it('filtra ubicaciones para usuarios no admin con la locationId de sesión', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'user-1',
+            role: 'CASHIER',
+            locationId: 'loc-1',
+            userName: 'Caja',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
 
-        const mockDb = await import('@/lib/db');
-        vi.mocked(mockDb.query)
-            .mockResolvedValueOnce({ rows: [{ id: 'loc-1', name: 'Store 1' }], rowCount: 1 } as any)
-            .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any);
+        vi.mocked(query)
+            .mockResolvedValueOnce({ rows: [{ id: 'loc-1', name: 'Store 1' }], rowCount: 1 } as never)
+            .mockResolvedValueOnce({ rows: [], rowCount: 0 } as never);
 
         await syncV2.fetchLocationsSecure();
 
-        expect(mockDb.query).toHaveBeenCalledWith(
+        expect(query).toHaveBeenCalledWith(
             expect.stringContaining('id = $1'),
             expect.arrayContaining(['loc-1'])
         );
+    });
+
+    it('mantiene getUsersForLoginSecure como flujo público', async () => {
+        vi.mocked(query).mockResolvedValueOnce({
+            rows: [{ id: '1', rut: '12345678-9', name: 'Usuario', role: 'CASHIER', is_active: true }],
+            rowCount: 1,
+        } as never);
+
+        const result = await syncV2.getUsersForLoginSecure();
+
+        expect(result.success).toBe(true);
+        expect(getValidatedSession).not.toHaveBeenCalled();
     });
 });

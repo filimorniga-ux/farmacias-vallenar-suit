@@ -18,6 +18,7 @@ import { query } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
+import { getValidatedSession } from '@/lib/server-session';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DBRow = any;
@@ -1003,17 +1004,14 @@ export async function updateTerminalSecure(
     }
 
     try {
-        const { headers } = await import('next/headers');
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const userRole = headersList.get('x-user-role');
+        const session = await getValidatedSession();
 
-        if (!userId) {
+        if (!session) {
             return { success: false, error: 'No autenticado' };
         }
 
         const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
-        if (!ADMIN_ROLES.includes(userRole || '')) {
+        if (!ADMIN_ROLES.includes(session.role)) {
             return { success: false, error: 'Acceso denegado: requiere rol de administrador' };
         }
 
@@ -1060,9 +1058,9 @@ export async function updateTerminalSecure(
         await query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, new_values, timestamp)
             VALUES ($1, 'TERMINAL_UPDATE', 'TERMINAL', $2, $3, $4, NOW())
-        `, [userId, terminalId, JSON.stringify(current.rows[0]), JSON.stringify(data)]);
+        `, [session.userId, terminalId, JSON.stringify(current.rows[0]), JSON.stringify(data)]);
 
-        logger.info({ terminalId, userId }, '✅ Terminal actualizado');
+        logger.info({ terminalId, userId: session.userId }, '✅ Terminal actualizado');
         revalidatePath('/settings');
         revalidatePath('/settings/organization');
 
@@ -1090,17 +1088,14 @@ export async function deleteTerminalSecure(
     }
 
     try {
-        const { headers } = await import('next/headers');
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const userRole = headersList.get('x-user-role');
+        const session = await getValidatedSession();
 
-        if (!userId) {
+        if (!session) {
             return { success: false, error: 'No autenticado' };
         }
 
         const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
-        if (!ADMIN_ROLES.includes(userRole || '')) {
+        if (!ADMIN_ROLES.includes(session.role)) {
             return { success: false, error: 'Acceso denegado: requiere rol de administrador' };
         }
 
@@ -1128,9 +1123,9 @@ export async function deleteTerminalSecure(
         await query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, timestamp)
             VALUES ($1, 'TERMINAL_DELETE', 'TERMINAL', $2, $3, NOW())
-        `, [userId, terminalId, JSON.stringify(terminal.rows[0])]);
+        `, [session.userId, terminalId, JSON.stringify(terminal.rows[0])]);
 
-        logger.info({ terminalId, userId }, '🗑️ Terminal eliminado (soft delete)');
+        logger.info({ terminalId, userId: session.userId }, '🗑️ Terminal eliminado (soft delete)');
         revalidatePath('/settings');
         revalidatePath('/settings/organization');
 

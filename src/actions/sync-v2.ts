@@ -16,12 +16,12 @@
 
 import { query } from '@/lib/db';
 import * as Sentry from '@sentry/nextjs';
-import { headers } from 'next/headers';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { classifyPgError } from '@/lib/db-errors';
 import { createCorrelationId, type ActionFailure } from '@/lib/action-response';
 import { InventoryBatch, Location } from '@/domain/types';
+import { getValidatedSession } from '@/lib/server-session';
 
 // ============================================================================
 // SCHEMAS
@@ -40,17 +40,14 @@ const FetchInventorySchema = z.object({
 // ============================================================================
 
 async function getSession(): Promise<{ userId: string; role: string; locationId?: string } | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const userRole = headersList.get('x-user-role');
-        const locationId = headersList.get('x-user-location');
+    const session = await getValidatedSession();
+    if (!session) return null;
 
-        if (!userId || !userRole) return null;
-        return { userId, role: userRole, locationId: locationId || undefined };
-    } catch {
-        return null;
-    }
+    return {
+        userId: session.userId,
+        role: session.role,
+        locationId: session.locationId,
+    };
 }
 
 async function auditDataAccess(userId: string, action: string, details: Record<string, any>): Promise<void> {

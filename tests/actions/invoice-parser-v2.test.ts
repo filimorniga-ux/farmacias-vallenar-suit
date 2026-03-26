@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getPendingParsingsSecure, parseInvoiceDocumentSecure, searchProductsForMappingSecure } from '@/actions/invoice-parser-v2';
 import { query } from '@/lib/db';
 import { getAIConfigSecure, getSystemConfigSecure } from '@/actions/config-v2';
+import { getValidatedSession } from '@/lib/server-session';
 
 vi.mock('@/lib/db', () => ({
   pool: { connect: vi.fn() },
@@ -13,17 +14,34 @@ vi.mock('@/actions/config-v2', () => ({
   getSystemConfigSecure: vi.fn(),
 }));
 
-vi.mock('next/headers', () => ({
-  headers: vi.fn(async () => new Map([
-    ['x-user-id', '550e8400-e29b-41d4-a716-446655440111'],
-    ['x-user-role', 'ADMIN'],
-    ['x-user-location', '550e8400-e29b-41d4-a716-446655440222'],
-  ])),
+vi.mock('@/lib/server-session', () => ({
+  getValidatedSession: vi.fn(),
 }));
 
 describe('invoice-parser-v2', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getValidatedSession).mockResolvedValue({
+      userId: '550e8400-e29b-41d4-a716-446655440111',
+      role: 'ADMIN',
+      locationId: '550e8400-e29b-41d4-a716-446655440222',
+      userName: 'Admin',
+      tokenVersion: 1,
+      sessionToken: 'token',
+    });
+  });
+
+  it('rechaza consultas sin sesión válida', async () => {
+    vi.mocked(getValidatedSession).mockResolvedValueOnce(null);
+
+    const result = await getPendingParsingsSecure({
+      page: 1,
+      pageSize: 20,
+      status: 'ALL',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('autenticado');
   });
 
   it('aplica búsqueda con wildcard correcto y pagina con límite seguro', async () => {

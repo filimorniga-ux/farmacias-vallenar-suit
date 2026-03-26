@@ -21,11 +21,11 @@
 
 import { pool, query } from '@/lib/db';
 import { z } from 'zod';
-import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
 import { randomUUID } from 'crypto';
 import { getAIConfigSecure, getSystemConfigSecure } from './config-v2';
+import { getValidatedSession } from '@/lib/server-session';
 import {
     getInternalDeepSeekTokenHeader,
     isInternalDeepSeekRoute,
@@ -270,23 +270,15 @@ const ApproveRequestSchema = z.object({
 // ============================================================================
 
 async function getSession(): Promise<{ userId: string; role: string; locationId?: string; userName?: string } | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        const locationId = headersList.get('x-user-location');
-        const userName = headersList.get('x-user-name'); // 👈 Add this
+    const session = await getValidatedSession();
+    if (!session) return null;
 
-        if (!userId || !role) return null;
-        return {
-            userId,
-            role,
-            locationId: locationId || undefined,
-            userName: userName || undefined
-        };
-    } catch {
-        return null;
-    }
+    return {
+        userId: session.userId,
+        role: session.role,
+        locationId: session.locationId,
+        userName: session.userName,
+    };
 }
 
 /**

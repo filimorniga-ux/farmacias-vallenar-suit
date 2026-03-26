@@ -4,7 +4,7 @@ import { getClient, type PoolClient } from '../lib/db';
 import { logger } from '@/lib/logger';
 import * as Sentry from '@sentry/nextjs';
 import { randomUUID } from 'crypto';
-import { headers } from 'next/headers';
+import { getValidatedSession } from '@/lib/server-session';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -36,12 +36,9 @@ export interface CreateNotificationDTO {
 // ─── Internal session helper ─────────────────────────────────────────────────
 
 async function getSession() {
-    const headersList = await headers();
-    const userId = headersList.get('x-user-id');
-    const userRole = headersList.get('x-user-role');
-    const userLocation = headersList.get('x-user-location');
-    if (!userId) return null;
-    return { userId, role: userRole || 'GUEST', locationId: userLocation };
+    const session = await getValidatedSession();
+    if (!session) return null;
+    return { userId: session.userId, role: session.role, locationId: session.locationId };
 }
 
 // ─── Create ──────────────────────────────────────────────────────────────────
@@ -165,17 +162,17 @@ export async function getNotificationsSecure(locationId?: string, limit = 60) {
 /** Conteo rápido de no leídas (sin traer todo el payload) */
 export async function getUnreadCountSecure(locationId?: string): Promise<number> {
     const session = await getSession();
+    if (!session) {
+        return 0;
+    }
+
     let client: PoolClient | null = null;
     try {
         client = await getClient();
         const params: unknown[] = [locationId ?? null];
         let where = `WHERE is_read = FALSE AND (location_id = $1 OR location_id IS NULL)`;
-        if (session?.userId) {
-            where += ` AND (user_id = $2 OR user_id IS NULL)`;
-            params.push(session.userId);
-        } else {
-            where += ` AND user_id IS NULL`;
-        }
+        where += ` AND (user_id = $2 OR user_id IS NULL)`;
+        params.push(session.userId);
         const res = await client.query(`SELECT COUNT(*) FROM notifications ${where}`, params);
         return parseInt(res.rows[0]?.count ?? '0', 10);
     } catch {
@@ -197,7 +194,8 @@ export async function markAsReadSecure(notificationIds: string[]) {
         await client.query(`
             UPDATE notifications SET is_read = TRUE
             WHERE id = ANY($1::uuid[])
-        `, [notificationIds]);
+              AND (user_id = $2 OR user_id IS NULL)
+        `, [notificationIds, session.userId]);
         return { success: true };
     } catch (error) {
         logger.error({ error }, '[Notifications] markAsReadSecure failed');
