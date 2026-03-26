@@ -2806,7 +2806,20 @@ export const usePharmaStore = create<PharmaState>()(
                 lastQueueActionTimestamp: state.lastQueueActionTimestamp,
                 // Configuraciones
                 printerConfig: state.printerConfig,
-                siiConfiguration: state.siiConfiguration,
+                siiConfiguration: state.siiConfiguration
+                    ? {
+                        id: state.siiConfiguration.id,
+                        rut_emisor: state.siiConfiguration.rut_emisor,
+                        razon_social: state.siiConfiguration.razon_social,
+                        giro: state.siiConfiguration.giro,
+                        acteco: state.siiConfiguration.acteco,
+                        ambiente: state.siiConfiguration.ambiente,
+                        hasCertificate: state.siiConfiguration.hasCertificate,
+                        certificateCommonName: state.siiConfiguration.certificateCommonName,
+                        certificateExpiresAt: state.siiConfiguration.certificateExpiresAt,
+                        lastUploadedAt: state.siiConfiguration.lastUploadedAt,
+                    }
+                    : null,
                 loyaltyConfig: state.loyaltyConfig,
                 // Contexto de ubicación
                 currentLocationId: state.currentLocationId,

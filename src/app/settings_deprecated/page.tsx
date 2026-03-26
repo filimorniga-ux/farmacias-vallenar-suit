@@ -163,21 +163,10 @@ export default function SettingsPage() {
 
                                     <div className="border-t border-gray-200 pt-6">
                                         <h3 className="text-lg font-medium text-gray-900 mb-4">Certificado Digital</h3>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1">Archivo .pfx</label>
-                                                <div className="flex items-center gap-2">
-                                                    <label className="flex-1 cursor-pointer bg-white border-2 border-gray-400 border-dashed rounded-lg p-4 text-center hover:bg-gray-50 transition-colors">
-                                                        <Upload className="mx-auto h-6 w-6 text-gray-400" />
-                                                        <span className="mt-2 block text-sm font-medium text-gray-600">Subir certificado</span>
-                                                        <input type="file" className="hidden" accept=".pfx" />
-                                                    </label>
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1">Contraseña del Certificado</label>
-                                                <input type="password" placeholder="••••••••" className="w-full" autoComplete="new-password" />
-                                            </div>
+                                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                                            La gestión del certificado SII ya no se realiza en esta pantalla.
+                                            El archivo y su contraseña se administran exclusivamente en el backend
+                                            desde la configuración SII vigente, sin persistir secretos en el navegador.
                                         </div>
                                     </div>
 

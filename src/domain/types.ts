@@ -758,12 +758,11 @@ export interface SiiConfiguration {
     giro: string;
     acteco: number;
 
-    // Security (Encrypted/Base64)
-    certificado_pfx_base64: string;
-    certificado_password: string; // Should be encrypted
-    fecha_vencimiento_firma: number; // Timestamp
-
     ambiente: SiiAmbiente;
+    hasCertificate: boolean;
+    certificateCommonName?: string;
+    certificateExpiresAt?: number;
+    lastUploadedAt?: number;
 
     created_at?: number;
     updated_at?: number;

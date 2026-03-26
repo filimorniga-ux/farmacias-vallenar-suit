@@ -15,6 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { buildDteXML, calculateIVA, calculateNetoFromTotal, DteData, DteItem } from '@/domain/logic/sii/dteBuilder';
 import { signXML } from '@/domain/logic/sii/crypto';
+import { getSiiEmissionConfig } from '@/lib/sii-config';
 // In production, import DB client:
 // import { db } from '@/domain/db/client';
 
@@ -35,25 +36,14 @@ interface EmitirRequest {
     metodoPago: 'CASH' | 'DEBIT' | 'CREDIT' | 'TRANSFER';
 }
 
+export const runtime = 'nodejs';
+
 export async function POST(request: NextRequest) {
     try {
         const body: EmitirRequest = await request.json();
 
-        // STEP 1: Load SII Configuration (MOCK for demo)
-        // In production: const config = await db.query('SELECT * FROM sii_configuration LIMIT 1');
-        const mockConfig = {
-            id: '1',
-            rut_emisor: '76.123.456-7',
-            razon_social: 'FARMACIAS VALLENAR LTDA',
-            giro: 'VENTA AL POR MENOR DE PRODUCTOS FARMACEUTICOS',
-            acteco: 477310,
-            certificado_pfx_base64: 'MOCK_CERT',
-            certificado_password: 'MOCK_PASS',
-            fecha_vencimiento_firma: Date.now() + 365 * 24 * 60 * 60 * 1000,
-            ambiente: 'CERTIFICACION' as const,
-            direccionEmisor: 'Calle Principal 123',
-            comunaEmisor: 'Vallenar'
-        };
+        // STEP 1: Load SII Configuration (server-side only)
+        const siiConfig = await getSiiEmissionConfig();
 
         // STEP 2: Get next folio (MOCK)
         // In production: const caf = await db.query('SELECT * FROM sii_cafs WHERE tipo_dte = $1 AND active = true AND folios_usados < (rango_hasta - rango_desde) ORDER BY fecha_carga LIMIT 1', [body.tipo]);
@@ -97,12 +87,12 @@ export async function POST(request: NextRequest) {
             folio: nextFolio,
             fechaEmision: new Date().toISOString().split('T')[0],
 
-            rutEmisor: mockConfig.rut_emisor,
-            razonSocialEmisor: mockConfig.razon_social,
-            giroEmisor: mockConfig.giro,
-            acteco: mockConfig.acteco,
-            direccionEmisor: mockConfig.direccionEmisor,
-            comunaEmisor: mockConfig.comunaEmisor,
+            rutEmisor: siiConfig.rutEmisor,
+            razonSocialEmisor: siiConfig.razonSocial,
+            giroEmisor: siiConfig.giro,
+            acteco: siiConfig.acteco,
+            direccionEmisor: 'Calle Principal 123',
+            comunaEmisor: 'Vallenar',
 
             rutReceptor: body.cliente?.rut,
             razonSocialReceptor: body.cliente?.razonSocial,
@@ -122,8 +112,8 @@ export async function POST(request: NextRequest) {
         // STEP 4: Sign XML
         const signResult = await signXML(
             dteXml,
-            mockConfig.certificado_pfx_base64,
-            mockConfig.certificado_password
+            siiConfig.certificatePfxBase64,
+            siiConfig.certificatePassword
         );
 
         if (!signResult.success) {
@@ -135,7 +125,7 @@ export async function POST(request: NextRequest) {
         }
 
         // STEP 5: Send to SII (MOCK)
-        // In production: const siiResponse = await sendToSII(signResult.signedXml, mockConfig. ambiente);
+        // In production: const siiResponse = await sendToSII(signResult.signedXml, siiConfig.ambiente);
         const mockTrackId = `TRACK_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
         console.log('📤 DTE enviado al SII (MOCK):', {
