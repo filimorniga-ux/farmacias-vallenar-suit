@@ -8,35 +8,23 @@
  */
 
 import { query } from '@/lib/db';
-import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
 import { ExcelService } from '@/lib/excel-generator';
+import { getValidatedSession } from '@/lib/server-session';
 
 const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
 const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'];
 
 async function getSession(): Promise<{ userId: string; role: string; locationId?: string; userName?: string } | null> {
-    try {
-        const headersList = await headers();
-        const { cookies } = await import('next/headers');
+    const session = await getValidatedSession();
+    if (!session) return null;
 
-        let userId = headersList.get('x-user-id');
-        let role = headersList.get('x-user-role');
-        const locationId = headersList.get('x-user-location');
-        const userName = headersList.get('x-user-name');
-
-        if (!userId || !role) {
-            const cookieStore = await cookies();
-            userId = cookieStore.get('user_id')?.value || null;
-            role = cookieStore.get('user_role')?.value || null;
-
-            // Location might be in local storage but cookies might have it too if properly set
-            // For now we rely on headers or if userId is present we can assume auth is valid mostly.
-        }
-
-        if (!userId || !role) return null;
-        return { userId, role, locationId: locationId || undefined, userName: userName || undefined };
-    } catch { return null; }
+    return {
+        userId: session.userId,
+        role: session.role,
+        locationId: session.locationId,
+        userName: session.userName,
+    };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

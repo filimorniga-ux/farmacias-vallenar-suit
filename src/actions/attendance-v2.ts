@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { headers } from 'next/headers';
 import { randomUUID } from 'crypto';
 import { logger } from '@/lib/logger';
+import { getValidatedSession } from '@/lib/server-session';
 
 // ============================================================================
 // SCHEMAS
@@ -70,26 +71,10 @@ const VALID_SEQUENCE: Record<string, string[]> = {
 // ============================================================================
 
 async function getSession(): Promise<{ userId: string; role: string } | null> {
-    try {
-        const headersList = await headers();
-        const { cookies } = await import('next/headers');
+    const session = await getValidatedSession();
+    if (!session) return null;
 
-        // 1. Try Headers (Middleware injection)
-        let userId = headersList.get('x-user-id');
-        let role = headersList.get('x-user-role');
-
-        // 2. Fallback to Cookies (Direct usage)
-        if (!userId || !role) {
-            const cookieStore = await cookies();
-            userId = cookieStore.get('user_id')?.value || null;
-            role = cookieStore.get('user_role')?.value || null;
-        }
-
-        if (!userId || !role) return null;
-        return { userId, role };
-    } catch {
-        return null;
-    }
+    return { userId: session.userId, role: session.role };
 }
 
 async function validateManagerPin(

@@ -1,38 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as scheduler from '@/actions/scheduler-v2';
+import { getValidatedSession } from '@/lib/server-session';
 
 vi.mock('@/lib/db', () => ({ query: vi.fn() }));
 vi.mock('@/lib/logger', () => ({
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
-
-const { mockHeaders, mockCookies } = vi.hoisted(() => ({
-    mockHeaders: vi.fn(),
-    mockCookies: vi.fn(),
-}));
-
-vi.mock('next/headers', () => ({
-    headers: mockHeaders,
-    cookies: mockCookies,
+vi.mock('@/lib/server-session', () => ({
+    getValidatedSession: vi.fn(),
 }));
 
 describe('scheduler-v2', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mockHeaders.mockResolvedValue(new Map([
-            ['x-user-id', 'user-1'],
-            ['x-user-role', 'MANAGER'],
-            ['x-user-location', '550e8400-e29b-41d4-a716-446655440000'],
-        ]) as any);
-        mockCookies.mockResolvedValue({
-            get: vi.fn(() => undefined),
-        } as any);
+        vi.mocked(getValidatedSession).mockResolvedValue({
+            userId: 'user-1',
+            role: 'MANAGER',
+            userName: 'Manager 1',
+            locationId: '550e8400-e29b-41d4-a716-446655440000',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
     });
 
     it('rechaza cuando no hay sesión autenticada', async () => {
-        mockHeaders.mockResolvedValue(new Map() as any);
-        mockCookies.mockResolvedValue({ get: vi.fn(() => undefined) } as any);
+        vi.mocked(getValidatedSession).mockResolvedValueOnce(null);
 
         const result = await scheduler.generateDraftScheduleV2({
             locationId: '550e8400-e29b-41d4-a716-446655440000',

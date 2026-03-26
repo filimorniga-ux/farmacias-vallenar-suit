@@ -22,10 +22,10 @@
 import { pool } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
-import { headers } from 'next/headers';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '@/lib/logger';
 import { Location } from '@/domain/types';
+import { getValidatedSession } from '@/lib/server-session';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -97,29 +97,12 @@ const ERROR_CODES = {
  * Get session from headers
  */
 async function getSession(): Promise<{ user?: { id: string; role: string } } | null> {
-    try {
-        const headersList = await headers();
-        const { cookies } = await import('next/headers');
-
-        // 1. Try Headers
-        let userId = headersList.get('x-user-id');
-        let userRole = headersList.get('x-user-role');
-
-        // 2. Try Cookies (Fallback)
-        if (!userId || !userRole) {
-            const cookieStore = await cookies();
-            userId = cookieStore.get('user_id')?.value || null;
-            userRole = cookieStore.get('user_role')?.value || null;
-        }
-
-        if (!userId || !userRole) {
-            return null;
-        }
-
-        return { user: { id: userId, role: userRole } };
-    } catch {
+    const session = await getValidatedSession();
+    if (!session) {
         return null;
     }
+
+    return { user: { id: session.userId, role: session.role } };
 }
 
 /**

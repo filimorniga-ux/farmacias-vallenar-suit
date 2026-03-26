@@ -2,22 +2,43 @@
  * Tests - Network V2 Module
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import * as networkV2 from '@/actions/network-v2';
+import { getValidatedSession } from '@/lib/server-session';
 
 vi.mock('@/lib/db', () => ({ query: vi.fn(), pool: { connect: vi.fn() } }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
-vi.mock('next/headers', () => ({
-    headers: vi.fn(async () => new Map([['x-user-id', 'user-1'], ['x-user-role', 'ADMIN']]))
+vi.mock('@/lib/server-session', () => ({
+    getValidatedSession: vi.fn(),
 }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
+beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getValidatedSession).mockResolvedValue({
+        userId: 'user-1',
+        role: 'ADMIN',
+        locationId: 'loc-1',
+        userName: 'Admin',
+        tokenVersion: 1,
+        sessionToken: 'token',
+    });
+});
+
 describe('Network V2 - Authentication', () => {
     it('should require authentication for getOrganizationStructure', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map() as any);
+        vi.mocked(getValidatedSession).mockResolvedValueOnce(null);
 
         const result = await networkV2.getOrganizationStructureSecure();
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('autenticado');
+    });
+
+    it('should ignore explicitUserId without validated session', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce(null);
+
+        const result = await networkV2.getOrganizationStructureSecure('550e8400-e29b-41d4-a716-446655440001');
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('autenticado');

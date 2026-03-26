@@ -15,8 +15,8 @@
 import { query } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
-import { cookies, headers } from 'next/headers';
 import { logger } from '@/lib/logger';
+import { getValidatedSession } from '@/lib/server-session';
 
 const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'] as const;
 const SCHEDULER_ROLES = ['ADMIN', 'GERENTE_GENERAL', 'MANAGER', 'RRHH'] as const;
@@ -100,28 +100,16 @@ function isSchedulerRole(role: string): role is SchedulerRole {
 }
 
 async function getSession(): Promise<{ userId: string; role: string; locationId?: string } | null> {
-    try {
-        const headersList = await headers();
-
-        let userId = headersList.get('x-user-id');
-        let role = headersList.get('x-user-role');
-        let locationId = headersList.get('x-user-location') || undefined;
-
-        if (!userId || !role) {
-            const cookieStore = await cookies();
-            userId = cookieStore.get('user_id')?.value || null;
-            role = cookieStore.get('user_role')?.value || null;
-            locationId = locationId || cookieStore.get('user_location')?.value || undefined;
-        }
-
-        if (!userId || !role) {
-            return null;
-        }
-
-        return { userId, role: role.toUpperCase(), locationId };
-    } catch {
+    const session = await getValidatedSession();
+    if (!session) {
         return null;
     }
+
+    return {
+        userId: session.userId,
+        role: session.role.toUpperCase(),
+        locationId: session.locationId,
+    };
 }
 
 async function authorizeScheduler(locationId?: string): Promise<{ ok: true; user: SchedulerUser } | { ok: false; error: string }> {

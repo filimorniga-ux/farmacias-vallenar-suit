@@ -17,9 +17,9 @@ import { pool, query } from '@/lib/db';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { revalidatePath } from 'next/cache';
-import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
 import bcrypt from 'bcryptjs';
+import { getValidatedSession } from '@/lib/server-session';
 
 // ============================================================================
 // SCHEMAS
@@ -73,25 +73,14 @@ const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
 // ============================================================================
 
 async function getSession(): Promise<{ userId: string; role: string; locationId?: string } | null> {
-    try {
-        const headersList = await headers();
-        const { cookies } = await import('next/headers');
+    const session = await getValidatedSession();
+    if (!session) return null;
 
-        let userId = headersList.get('x-user-id');
-        let role = headersList.get('x-user-role');
-        const locationId = headersList.get('x-user-location');
-
-        if (!userId || !role) {
-            const cookieStore = await cookies();
-            userId = cookieStore.get('user_id')?.value || null;
-            role = cookieStore.get('user_role')?.value || null;
-        }
-
-        if (!userId || !role) return null;
-        return { userId, role, locationId: locationId || undefined };
-    } catch {
-        return null;
-    }
+    return {
+        userId: session.userId,
+        role: session.role,
+        locationId: session.locationId,
+    };
 }
 
 async function validateAdminPin(
@@ -141,21 +130,8 @@ export async function getOrganizationStructureSecure(explicitUserId?: string): P
     error?: string;
 }> {
     console.time('⏱️ [Network] getOrganizationStructureSecure');
-    let session = await getSession();
-
-
-    // Fallback: If no session headers, but explicit user ID provided (e.g. from client store)
-    if (!session && explicitUserId && UUIDSchema.safeParse(explicitUserId).success) {
-        try {
-            const userRes = await query('SELECT id, role, assigned_location_id FROM users WHERE id = $1 AND is_active = true', [explicitUserId]);
-            if (userRes.rows.length > 0) {
-                const u = userRes.rows[0];
-                session = { userId: u.id, role: u.role, locationId: u.assigned_location_id };
-            }
-        } catch (e) {
-            console.error('Error recovering session from explicit ID', e);
-        }
-    }
+    const session = await getSession();
+    void explicitUserId; // Legacy compatibility: retained in signature but no longer trusted as identity source.
 
     if (!session) {
         return { success: false, error: 'No autenticado' };

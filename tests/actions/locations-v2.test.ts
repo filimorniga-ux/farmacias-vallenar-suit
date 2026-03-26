@@ -3,9 +3,10 @@
  * Tests for secure location management, stock transfers, and user assignment
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import * as locationsV2 from '@/actions/locations-v2';
 import * as dbModule from '@/lib/db';
+import { getValidatedSession } from '@/lib/server-session';
 // Fixtures are imported but not all used; cleaning up unused ones to pass lint
 import { } from '../fixtures';
 
@@ -23,6 +24,9 @@ vi.mock('@/lib/db', () => ({
         connect: vi.fn()
     },
     query: vi.fn()
+}));
+vi.mock('@/lib/server-session', () => ({
+    getValidatedSession: vi.fn(),
 }));
 
 vi.mock('next/cache', () => ({
@@ -95,6 +99,18 @@ const mockLocation = {
     is_active: true
 };
 
+beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getValidatedSession).mockResolvedValue({
+        userId: VALID_UUID_ADMIN,
+        role: 'ADMIN',
+        locationId: VALID_UUID_LOC_1,
+        userName: 'Admin User',
+        tokenVersion: 1,
+        sessionToken: 'token',
+    });
+});
+
 
 // RBAC tests - re-enabled
 describe('Locations V2 - RBAC Enforcement', () => {
@@ -116,6 +132,14 @@ describe('Locations V2 - RBAC Enforcement', () => {
     });
 
     it('should reject non-ADMIN creating location', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: VALID_UUID_ADMIN,
+            role: 'CASHIER',
+            locationId: VALID_UUID_LOC_1,
+            userName: 'Caja',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
         const cashier = { ...mockAdmin, role: 'CASHIER' };
         createMockClient([
             { rows: [cashier], rowCount: 1 }

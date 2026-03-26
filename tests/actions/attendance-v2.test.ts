@@ -2,8 +2,9 @@
  * Tests - Attendance V2 Module
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import * as attendanceV2 from '@/actions/attendance-v2';
+import { getValidatedSession } from '@/lib/server-session';
 
 vi.mock('@/lib/db', () => ({
     query: vi.fn(),
@@ -14,20 +15,27 @@ vi.mock('@/lib/db', () => ({
         }))
     }
 }));
+vi.mock('@/lib/server-session', () => ({
+    getValidatedSession: vi.fn(),
+}));
 vi.mock('next/headers', () => ({
-    headers: vi.fn(async () => new Map([['x-user-id', 'user-1'], ['x-user-role', 'CASHIER']])),
-    cookies: vi.fn(async () => ({
-        get: (name: string) => {
-            const cookies = new Map([
-                ['user_id', { value: 'user-1' }],
-                ['user_role', { value: 'CASHIER' }]
-            ]);
-            return cookies.get(name);
-        }
-    }))
+    headers: vi.fn(async () => new Map([['x-forwarded-for', '127.0.0.1']])),
+    cookies: vi.fn(async () => ({ get: vi.fn(() => undefined) }))
 }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('crypto', () => ({ randomUUID: vi.fn(() => 'new-uuid') }));
+
+beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getValidatedSession).mockResolvedValue({
+        userId: 'user-1',
+        role: 'CASHIER',
+        userName: 'Caja',
+        locationId: 'loc-1',
+        tokenVersion: 1,
+        sessionToken: 'token',
+    });
+});
 
 describe('Attendance V2 - Sequence Validation', () => {
 
@@ -63,11 +71,7 @@ describe('Attendance V2 - Sequence Validation', () => {
 
 describe('Attendance V2 - RBAC', () => {
     it('should require authentication for getMyAttendanceHistory', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map() as any);
-        vi.mocked(mockHeaders.cookies).mockResolvedValueOnce({
-            get: vi.fn(() => undefined)
-        } as any);
+        vi.mocked(getValidatedSession).mockResolvedValueOnce(null);
 
         const result = await attendanceV2.getMyAttendanceHistory();
 
@@ -76,18 +80,14 @@ describe('Attendance V2 - RBAC', () => {
     });
 
     it('should require MANAGER role for getTeamAttendanceHistory', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map([
-            ['x-user-id', 'user-1'],
-            ['x-user-role', 'CASHIER'] // Not a manager
-        ]) as any);
-        vi.mocked(mockHeaders.cookies).mockResolvedValueOnce({
-            get: vi.fn((name) => {
-                if (name === 'user_role') return { value: 'CASHIER' };
-                if (name === 'user_id') return { value: 'user-1' };
-                return undefined;
-            })
-        } as any);
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'user-1',
+            role: 'CASHIER',
+            userName: 'Caja',
+            locationId: 'loc-1',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
 
         const result = await attendanceV2.getTeamAttendanceHistory();
 
@@ -144,16 +144,13 @@ describe('Attendance V2 - Overtime Logic', () => {
 describe('Attendance V2 - History & Pagination', () => {
     it('should support pagination in history', async () => {
         const mockDb = await import('@/lib/db');
-        const { headers, cookies } = await import('next/headers'); // Import headers mock
-
-        // Mock MANAGER session
-        (headers as any).mockResolvedValue(new Map([['x-user-id', 'manager-1'], ['x-user-role', 'MANAGER']]));
-        (cookies as any).mockResolvedValue({
-            get: (name: string) => {
-                if (name === 'user_role') return { value: 'MANAGER' };
-                if (name === 'user_id') return { value: 'manager-1' };
-                return undefined;
-            }
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'manager-1',
+            role: 'MANAGER',
+            userName: 'Manager',
+            locationId: '550e8400-e29b-41d4-a716-446655440000',
+            tokenVersion: 1,
+            sessionToken: 'token',
         });
 
         // getApprovedAttendanceHistory uses 'query', NOT 'pool'.
