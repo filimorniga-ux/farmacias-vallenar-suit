@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { Client } from 'pg';
 import { OPERATIONS_API_ROLES, requireApiRoles } from '@/lib/api-auth';
+import { logger } from '@/lib/logger';
 
 export async function GET(req: Request) {
     const auth = await requireApiRoles(OPERATIONS_API_ROLES);
@@ -42,8 +43,12 @@ export async function GET(req: Request) {
 
     const start = Date.now();
     const result: any = {
-        config_used: { ...config, connectionString: config.connectionString ? 'REDACTED' : undefined, password: 'REDACTED' },
-        time: 0,
+        requestedConfig: {
+            mode,
+            ssl: useSsl,
+            rejectUnauthorized,
+            timeoutMs: timeout,
+        },
         success: false,
     };
 
@@ -60,9 +65,11 @@ export async function GET(req: Request) {
         await client.end();
         result.success = true;
     } catch (error: any) {
-        result.error = error.message;
-        result.code = error.code;
-        result.stack = error.stack;
+        logger.error(
+            { error, mode, useSsl, rejectUnauthorized, timeout },
+            '[DiagnosticRoute] DB diagnostic failed'
+        );
+        result.error = 'No fue posible completar el diagnóstico de base de datos';
     } finally {
         result.totalTime = Date.now() - start;
     }
@@ -72,9 +79,14 @@ export async function GET(req: Request) {
         const dns = require('dns').promises;
         const url = new URL(dbUrl);
         const lookup = await dns.lookup(url.hostname, { all: true });
-        result.dns = lookup;
+        result.network = {
+            dnsResolved: true,
+            addressCount: lookup.length,
+        };
     } catch (e: any) {
-        result.dnsError = e.message;
+        result.network = {
+            dnsResolved: false,
+        };
     }
 
     return NextResponse.json(result);

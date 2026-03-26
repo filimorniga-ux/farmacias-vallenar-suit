@@ -1,5 +1,6 @@
 import { pool } from '@/lib/db';
 import { OPERATIONS_API_ROLES, requireApiRoles } from '@/lib/api-auth';
+import { logger } from '@/lib/logger';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
@@ -26,30 +27,22 @@ export async function GET() {
         
         return NextResponse.json({ 
             success: true, 
-            data: result.rows[0],
-            connection: {
-                elapsed_ms: elapsed,
-                pool_total: pool.totalCount,
-                pool_idle: pool.idleCount,
-                pool_waiting: pool.waitingCount
+            data: {
+                server_time: result.rows[0]?.server_time,
+                active_users: Number(result.rows[0]?.active_users || 0),
             },
-            env: {
-                DATABASE_URL: process.env.DATABASE_URL ? 'CONFIGURED' : 'MISSING',
-                NODE_ENV: process.env.NODE_ENV
-            }
+            diagnostics: {
+                elapsed_ms: elapsed,
+            },
         });
     } catch (error: any) {
         const elapsed = Date.now() - startTime;
+        logger.error({ error, elapsed }, '[DBTestRoute] Diagnostic failed');
         
         return NextResponse.json({ 
             success: false, 
-            error: error.message,
-            code: error.code,
+            error: 'No fue posible ejecutar el diagnóstico de base de datos',
             elapsed_ms: elapsed,
-            env: {
-                DATABASE_URL: process.env.DATABASE_URL ? 'CONFIGURED' : 'MISSING',
-                NODE_ENV: process.env.NODE_ENV
-            }
         }, { status: 500 });
     }
 }

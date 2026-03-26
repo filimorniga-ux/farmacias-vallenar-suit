@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { pool } from '@/lib/db';
 import { InventoryBatch } from '@/domain/types';
 import { INVENTORY_API_ROLES, requireApiRoles } from '@/lib/api-auth';
+import { logger } from '@/lib/logger';
 
 export async function POST(request: Request) {
     const auth = await requireApiRoles(INVENTORY_API_ROLES);
@@ -10,6 +11,7 @@ export async function POST(request: Request) {
     }
 
     const client = await pool.connect();
+    let productCount = 0;
 
     try {
         const body = await request.json();
@@ -18,20 +20,8 @@ export async function POST(request: Request) {
         if (!products || !Array.isArray(products) || products.length === 0) {
             return NextResponse.json({ error: 'No products provided' }, { status: 400 });
         }
-
-        console.log(`📦 [API v4 DEBUG] Starting bulk import of ${products.length} items...`);
-
-        // DEBUG: Check actual columns in the DB the app is connected to
-        const columnCheck = await client.query(`
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = 'products'
-        `);
-        console.log('🔍 [DEBUG] Actual columns in "products" table:', columnCheck.rows.map(r => r.column_name).join(', '));
-
-        // DEBUG: Check DB Host (masked)
-        const dbHost = process.env.DATABASE_URL?.split('@')[1]?.split(':')[0] || 'UNKNOWN';
-        console.log('🌍 [DEBUG] Connected to DB Host:', dbHost);
+        productCount = products.length;
+        logger.info({ productCount }, '[InventoryBatchRoute] Starting bulk import');
 
         // Start Transaction
         await client.query('BEGIN');
@@ -92,11 +82,6 @@ export async function POST(request: Request) {
             // Location ID (Tiger Cloud V8.0 required)
             const locationId = product.location_id || 'BODEGA_CENTRAL';
 
-            // Debug Log for Price Issues
-            if (products.length <= 50) { // Only log if batch is small or sample
-                console.log(`💾 Saving Item: ${product.sku} | Price: ${priceToSave} | Location: ${locationId}`);
-            }
-
             await client.query(queryText, [
                 product.id,
                 product.sku,
@@ -123,23 +108,18 @@ export async function POST(request: Request) {
 
         // Commit Transaction
         await client.query('COMMIT');
-        console.log(`✅ [API] Bulk import committed successfully.`);
+        logger.info({ productCount }, '[InventoryBatchRoute] Bulk import committed successfully');
 
         return NextResponse.json({ success: true, count: products.length });
 
     } catch (error) {
         // Rollback Transaction on Error
         await client.query('ROLLBACK');
-        console.error('❌ [API] Bulk import failed:', error);
+        logger.error({ error, productCount }, '[InventoryBatchRoute] Bulk import failed');
         return NextResponse.json(
             {
                 error: 'Failed to import batch',
-                details: (error as Error).message,
-                code: (error as any).code, // PostgreSQL error code
-                debug: {
-                    host: process.env.DATABASE_URL?.split('@')[1]?.split(':')[0] || 'UNKNOWN',
-                    columns: (await client.query("SELECT column_name FROM information_schema.columns WHERE table_name = 'products'")).rows.map(r => r.column_name)
-                }
+                code: 'BATCH_IMPORT_FAILED',
             },
             { status: 500 }
         );
