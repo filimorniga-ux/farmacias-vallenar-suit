@@ -546,6 +546,8 @@ export async function rotateSessionSecure(
 
 /**
  * 🚫 Force Logout (ADMIN/MANAGER with PIN)
+ * NOTE: Uses simple sequential operations instead of SERIALIZABLE transaction
+ * to avoid FOR UPDATE NOWAIT failures caused by concurrent session validation reads.
  */
 export async function forceLogoutSecure(
     targetUserId: string,
@@ -558,41 +560,44 @@ export async function forceLogoutSecure(
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const client = await pool.connect();
-
     try {
-        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+        const { query } = await import('@/lib/db');
 
-        // Validate ADMIN/MANAGER PIN
-        const authResult = await validateAdminPin(client, adminPin, MANAGER_ROLES);
+        // Step 1: Validate ADMIN/MANAGER PIN (using a fresh simple query, no transaction)
+        // We use a temporary client only for PIN validation to avoid nested transaction issues
+        const client = await pool.connect();
+        let authResult: { valid: boolean; admin?: { id: string; name: string; role: string }; error?: string };
+        try {
+            authResult = await validateAdminPin(client, adminPin, MANAGER_ROLES);
+        } finally {
+            client.release();
+        }
+
         if (!authResult.valid) {
-            await client.query('ROLLBACK');
             return { success: false, error: authResult.error || 'PIN inválido' };
         }
 
         // Cannot force logout yourself
         if (authResult.admin!.id === targetUserId) {
-            await client.query('ROLLBACK');
             return { success: false, error: 'No puedes cerrar tu propia sesión de esta manera' };
         }
 
-        // Get target user
-        const userRes = await client.query(`
+        // Step 2: Get target user (simple SELECT, no lock needed)
+        const userRes = await query(`
             SELECT id, name, token_version 
             FROM users 
             WHERE id = $1
-            FOR UPDATE NOWAIT
+            AND is_active = true
         `, [targetUserId]);
 
         if (userRes.rows.length === 0) {
-            await client.query('ROLLBACK');
             return { success: false, error: 'Usuario no encontrado' };
         }
 
         const targetUser = userRes.rows[0];
 
-        // Increment token version to invalidate all sessions
-        await client.query(`
+        // Step 3: Atomic UPDATE - PostgreSQL UPDATE is inherently atomic, no explicit lock needed
+        await query(`
             UPDATE users 
             SET token_version = COALESCE(token_version, 1) + 1,
                 session_token = NULL,
@@ -600,31 +605,32 @@ export async function forceLogoutSecure(
             WHERE id = $1
         `, [targetUserId]);
 
-        // Audit
-        await insertSecurityAudit(client, {
-            userId: authResult.admin!.id,
-            actionCode: 'FORCE_LOGOUT',
-            targetUserId,
-            details: {
-                reason,
-                forced_by: authResult.admin!.name,
-                target_name: targetUser.name,
-            }
-        });
-
-        await client.query('COMMIT');
+        // Step 4: Audit log (best-effort, failure does not affect the logout)
+        const auditClient = await pool.connect();
+        try {
+            await insertSecurityAudit(auditClient, {
+                userId: authResult.admin!.id,
+                actionCode: 'FORCE_LOGOUT',
+                targetUserId,
+                details: {
+                    reason,
+                    forced_by: authResult.admin!.name,
+                    target_name: targetUser.name,
+                }
+            });
+        } catch (auditError) {
+            logger.warn({ auditError }, '[Security] Audit log failed for force logout, but operation succeeded');
+        } finally {
+            auditClient.release();
+        }
 
         logger.info({ targetUserId, forcedBy: authResult.admin!.id }, '🚫 [Security] Forced logout');
         revalidatePath('/settings');
         return { success: true };
 
     } catch (error: any) {
-        await client.query('ROLLBACK');
-        logger.error({ error }, '[Security] Force logout error');
-        return { success: false, error: 'Error cerrando sesión' };
-
-    } finally {
-        client.release();
+        logger.error({ error, message: error?.message, code: error?.code }, '[Security] Force logout error');
+        return { success: false, error: error?.message || 'Error cerrando sesión' };
     }
 }
 

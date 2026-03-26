@@ -17,6 +17,7 @@ import NotificationCenter from '../components/notifications/NotificationCenter';
 import { useNotificationStore } from '../store/useNotificationStore';
 import FloatingCalculator from '../components/util/FloatingCalculator';
 import { useCalculatorStore } from '../hooks/useCalculator';
+import { brand } from '@/config/brand.config';
 
 const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
     const { user, logout } = usePharmaStore();
@@ -101,8 +102,8 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                             {/* <h1 className="text-xl font-extrabold tracking-tight text-slate-900">
                                 Farmacias <span className="text-sky-600">Vallenar</span>
                             </h1> */}
-                            <img src="/logo-horizontal.png" alt="Farmacia Vallenar" className="h-12 w-auto object-contain mb-1" />
-                            <p className="text-[10px] uppercase font-bold text-slate-400 mt-1 tracking-wider">Suit Enterprise v2.1</p>
+                            <img src={brand.logoHorizontal} alt={brand.appName} className="h-12 w-auto object-contain mb-1" />
+                            <p className="text-[10px] uppercase font-bold text-slate-400 mt-1 tracking-wider">{brand.appSubtitle}</p>
                         </div>
                     )}
                     {isCollapsed && (
@@ -227,7 +228,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
                         </button>
 
                         <div className="flex-1 flex justify-center">
-                            <img src="/logo-horizontal.png" alt="Farmacia Vallenar" className="h-7 w-auto object-contain" />
+                            <img src={brand.logoHorizontal} alt={brand.appName} className="h-7 w-auto object-contain" />
                         </div>
 
                         <div className="flex items-center gap-1.5 -mr-1">

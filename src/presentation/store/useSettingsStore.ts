@@ -3,6 +3,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { HardwareConfig } from '../../domain/types';
 import { safeLocalStorageStateStorage } from './indexedDBStorage';
+import { brand } from '@/config/brand.config';
 
 interface SettingsState {
     enable_sii_integration: boolean;
@@ -45,7 +46,7 @@ export const useSettingsStore = create<SettingsState>()(
                 label_printer_name: undefined,
                 document_printer_name: undefined,
                 // Company Info
-                ticket_company_name: 'Farmacia Vallenar',
+                ticket_company_name: brand.companyShortName,
                 ticket_company_rut: '76.123.456-7',
                 ticket_company_address: 'Av. Matta 123, Vallenar',
                 ticket_company_phone: '+56 9 1234 5678',

@@ -6,7 +6,7 @@ const nextConfig = {
 
     // Variables de entorno expuestas al cliente
     env: {
-        NEXT_PUBLIC_APP_NAME: 'Farmacias Vallenar Suit',
+        NEXT_PUBLIC_APP_NAME: process.env.NEXT_PUBLIC_BRAND_NAME || 'Farmacias Vallenar Suit',
     },
 
     // Optimizaciones de build
