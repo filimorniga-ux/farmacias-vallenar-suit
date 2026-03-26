@@ -2,15 +2,28 @@
  * Tests - Settings V2 Module
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import * as settingsV2 from '@/actions/settings-v2';
+import { getValidatedSession } from '@/lib/server-session';
 
 vi.mock('@/lib/db', () => ({ query: vi.fn(), pool: { connect: vi.fn() } }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
-vi.mock('next/headers', () => ({
-    headers: vi.fn(async () => new Map([['x-user-id', 'user-1'], ['x-user-role', 'MANAGER']]))
+vi.mock('@/lib/server-session', () => ({
+    getValidatedSession: vi.fn(),
 }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+
+beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getValidatedSession).mockResolvedValue({
+        userId: 'user-1',
+        role: 'MANAGER',
+        locationId: 'loc-1',
+        userName: 'Manager',
+        tokenVersion: 1,
+        sessionToken: 'token',
+    });
+});
 
 describe('Settings V2 - Public Settings', () => {
     it('should allow public settings without auth', async () => {
@@ -36,11 +49,14 @@ describe('Settings V2 - Public Settings', () => {
 
 describe('Settings V2 - RBAC', () => {
     it('should require admin role for all settings list', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map([
-            ['x-user-id', 'user-1'],
-            ['x-user-role', 'MANAGER'] // Not admin
-        ]) as any);
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'user-1',
+            role: 'MANAGER',
+            locationId: 'loc-1',
+            userName: 'Manager',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
 
         const result = await settingsV2.getAllSettingsSecure();
 
@@ -51,11 +67,14 @@ describe('Settings V2 - RBAC', () => {
 
 describe('Settings V2 - Critical Settings', () => {
     it('should require PIN for critical settings update', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map([
-            ['x-user-id', 'admin-1'],
-            ['x-user-role', 'ADMIN']
-        ]) as any);
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'admin-1',
+            role: 'ADMIN',
+            locationId: 'loc-1',
+            userName: 'Admin',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
 
         const result = await settingsV2.updateSettingSecure(
             'SII_CERT_PASSWORD',

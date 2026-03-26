@@ -5,11 +5,11 @@ import { getLocationsSecure } from '@/actions/locations-v2';
 import AnalyticsDashboard from '@/presentation/components/analytics/AnalyticsDashboard';
 
 import { SyncStatusBadge } from '@/presentation/components/ui/SyncStatusBadge';
+import { getValidatedSession } from '@/lib/server-session';
 
 export default async function AnalyticsPage() {
-    const { headers } = await import('next/headers');
-    const headerList = await headers();
-    const userRole = headerList.get('x-user-role') || 'CASHIER';
+    const session = await getValidatedSession();
+    const userRole = session?.role || 'CASHIER';
 
     const locationsRes = await getLocationsSecure();
     const locations = locationsRes.success && locationsRes.data ? locationsRes.data.filter((l: any) => l.type === 'STORE' || l.type === 'HQ') : [];

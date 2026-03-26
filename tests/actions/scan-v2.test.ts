@@ -2,24 +2,32 @@
  * Tests - Scan V2 Module
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import * as scanV2 from '@/actions/scan-v2';
 import { query } from '@/lib/db';
+import { getValidatedSession } from '@/lib/server-session';
 
 vi.mock('@/lib/db', () => ({ query: vi.fn() }));
-vi.mock('next/headers', () => ({
-    headers: vi.fn(async () => new Map([
-        ['x-user-id', 'user-1'],
-        ['x-user-role', 'CASHIER'],
-        ['x-user-location', 'loc-1']
-    ]))
+vi.mock('@/lib/server-session', () => ({
+    getValidatedSession: vi.fn(),
 }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
+beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getValidatedSession).mockResolvedValue({
+        userId: 'user-1',
+        role: 'CASHIER',
+        locationId: 'loc-1',
+        userName: 'Caja',
+        tokenVersion: 1,
+        sessionToken: 'token',
+    });
+});
+
 describe('Scan V2 - Authentication', () => {
     it('should require authentication', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map() as any);
+        vi.mocked(getValidatedSession).mockResolvedValueOnce(null);
 
         const result = await scanV2.scanProductSecure('SKU001', '550e8400-e29b-41d4-a716-446655440000');
 
@@ -43,12 +51,14 @@ describe('Scan V2 - Validation', () => {
 
 describe('Scan V2 - Location Check', () => {
     it('should restrict to user location', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map([
-            ['x-user-id', 'user-1'],
-            ['x-user-role', 'CASHIER'],
-            ['x-user-location', 'loc-1']
-        ]) as any);
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'user-1',
+            role: 'CASHIER',
+            locationId: 'loc-1',
+            userName: 'Caja',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
 
         const result = await scanV2.scanProductSecure(
             'SKU001',
@@ -72,12 +82,14 @@ describe('Scan V2 - Batch', () => {
 
 describe('Scan V2 - Prioridad de lotes', () => {
     it('debe priorizar lote con stock y no retail en el SQL', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map([
-            ['x-user-id', 'user-1'],
-            ['x-user-role', 'CASHIER'],
-            ['x-user-location', '550e8400-e29b-41d4-a716-446655440000']
-        ]) as any);
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'user-1',
+            role: 'CASHIER',
+            locationId: '550e8400-e29b-41d4-a716-446655440000',
+            userName: 'Caja',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
 
         const mockedQuery = vi.mocked(query as any);
         mockedQuery.mockResolvedValueOnce({

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as dashboardV2 from '@/actions/dashboard-v2';
 import * as dbModule from '@/lib/db';
+import { getValidatedSession } from '@/lib/server-session';
 
 const { mockHeaders } = vi.hoisted(() => ({
     mockHeaders: {
@@ -9,6 +10,9 @@ const { mockHeaders } = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/db', () => ({ query: vi.fn(), pool: { connect: vi.fn() } }));
+vi.mock('@/lib/server-session', () => ({
+    getValidatedSession: vi.fn(),
+}));
 vi.mock('next/headers', () => ({
     headers: vi.fn(async () => mockHeaders)
 }));
@@ -16,17 +20,23 @@ vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: 
 
 beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getValidatedSession).mockResolvedValue({
+        userId: 'user-1',
+        role: 'ADMIN',
+        locationId: 'loc-1',
+        userName: 'Admin',
+        tokenVersion: 1,
+        sessionToken: 'token',
+    });
     mockHeaders.get.mockImplementation((key) => {
-        if (key === 'x-user-id') return 'user-1';
-        if (key === 'x-user-role') return 'ADMIN';
+        if (key === 'x-terminal-id') return 'term-1';
         return null;
     });
 });
 
 describe('Dashboard V2 - Authentication', () => {
     it('should require authentication', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map() as any);
+        vi.mocked(getValidatedSession).mockResolvedValueOnce(null);
 
         const result = await dashboardV2.getFinancialMetricsSecure({
             dateRange: { from: new Date('2024-03-01T00:00:00Z'), to: new Date('2024-03-02T00:00:00Z') }
@@ -39,11 +49,15 @@ describe('Dashboard V2 - Authentication', () => {
 
 describe('Dashboard V2 - RBAC', () => {
     it('should restrict CASHIER to their terminal only', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map([
-            ['x-user-id', 'user-1'],
-            ['x-user-role', 'CAJERO']
-        ]) as any);
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'user-1',
+            role: 'CAJERO',
+            locationId: 'loc-1',
+            userName: 'Caja',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+        mockHeaders.get.mockImplementation((key) => (key === 'x-terminal-id' ? null : null));
 
         const result = await dashboardV2.getFinancialMetricsSecure({
             dateRange: { from: new Date('2024-04-01T00:00:00Z'), to: new Date('2024-04-02T00:00:00Z') }

@@ -2,22 +2,38 @@
  * Tests - Inventory Diagnostics V2 Module
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import * as diagnosticsV2 from '@/actions/inventory-diagnostics-v2';
+import { getValidatedSession } from '@/lib/server-session';
 
 vi.mock('@/lib/db', () => ({ query: vi.fn() }));
-vi.mock('next/headers', () => ({
-    headers: vi.fn(async () => new Map([['x-user-id', 'user-1'], ['x-user-role', 'MANAGER']]))
+vi.mock('@/lib/server-session', () => ({
+    getValidatedSession: vi.fn(),
 }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
+beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getValidatedSession).mockResolvedValue({
+        userId: 'user-1',
+        role: 'MANAGER',
+        locationId: 'loc-1',
+        userName: 'Manager',
+        tokenVersion: 1,
+        sessionToken: 'token',
+    });
+});
+
 describe('Inventory Diagnostics V2 - RBAC', () => {
     it('should require MANAGER role for duplicates', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map([
-            ['x-user-id', 'user-1'],
-            ['x-user-role', 'CASHIER'] // Not manager
-        ]) as any);
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'user-1',
+            role: 'CASHIER',
+            locationId: 'loc-1',
+            userName: 'Caja',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
 
         const result = await diagnosticsV2.findDuplicateBatchesSecure({
             sku: true, lot: false, expiry: false, price: false
@@ -28,11 +44,14 @@ describe('Inventory Diagnostics V2 - RBAC', () => {
     });
 
     it('should require MANAGER role for expired batches', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map([
-            ['x-user-id', 'user-1'],
-            ['x-user-role', 'CASHIER']
-        ]) as any);
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'user-1',
+            role: 'CASHIER',
+            locationId: 'loc-1',
+            userName: 'Caja',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
 
         const result = await diagnosticsV2.findExpiredBatchesSecure();
 
@@ -41,11 +60,14 @@ describe('Inventory Diagnostics V2 - RBAC', () => {
     });
 
     it('should require MANAGER role for health report', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map([
-            ['x-user-id', 'user-1'],
-            ['x-user-role', 'CASHIER']
-        ]) as any);
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'user-1',
+            role: 'CASHIER',
+            locationId: 'loc-1',
+            userName: 'Caja',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
 
         const result = await diagnosticsV2.getInventoryHealthReportSecure();
 

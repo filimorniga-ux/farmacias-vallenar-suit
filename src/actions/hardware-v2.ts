@@ -16,9 +16,9 @@
 import { pool, query } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
-import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
 import bcrypt from 'bcryptjs';
+import { getValidatedSession } from '@/lib/server-session';
 
 // ============================================================================
 // SCHEMAS
@@ -45,16 +45,9 @@ const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
 // ============================================================================
 
 async function getSession(): Promise<{ userId: string; role: string; locationId?: string } | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        const locationId = headersList.get('x-user-location');
-        if (!userId || !role) return null;
-        return { userId, role, locationId: locationId || undefined };
-    } catch {
-        return null;
-    }
+    const session = await getValidatedSession();
+    if (!session) return null;
+    return { userId: session.userId, role: session.role, locationId: session.locationId };
 }
 
 async function validateManagerPin(

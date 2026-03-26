@@ -16,9 +16,9 @@
 import { pool, query } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
-import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
 import bcrypt from 'bcryptjs';
+import { getValidatedSession } from '@/lib/server-session';
 
 // ============================================================================
 // CONSTANTS
@@ -64,15 +64,9 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
 // ============================================================================
 
 async function getSession(): Promise<{ userId: string; role: string } | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        if (!userId || !role) return null;
-        return { userId, role };
-    } catch {
-        return null;
-    }
+    const session = await getValidatedSession();
+    if (!session) return null;
+    return { userId: session.userId, role: session.role };
 }
 
 function getSettingCategory(key: string): 'PUBLIC' | 'PRIVATE' | 'CRITICAL' | null {

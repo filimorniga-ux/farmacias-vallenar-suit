@@ -17,6 +17,7 @@ import { query } from '@/lib/db';
 import { z } from 'zod';
 import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
+import { getValidatedSession } from '@/lib/server-session';
 
 // ============================================================================
 // SCHEMAS
@@ -75,13 +76,17 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
 
 async function getSession(): Promise<{ userId: string; role: string; locationId?: string; terminalId?: string } | null> {
     try {
+        const session = await getValidatedSession();
+        if (!session) return null;
+
         const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        const locationId = headersList.get('x-user-location');
         const terminalId = headersList.get('x-terminal-id');
-        if (!userId || !role) return null;
-        return { userId, role, locationId: locationId || undefined, terminalId: terminalId || undefined };
+        return {
+            userId: session.userId,
+            role: session.role,
+            locationId: session.locationId,
+            terminalId: terminalId || undefined,
+        };
     } catch (error: unknown) {
         console.error('[Dashboard] getSession error:', error instanceof Error ? error.message : error);
         return null;

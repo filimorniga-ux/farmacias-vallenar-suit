@@ -3,8 +3,8 @@
 import { query } from '@/lib/db';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
-import { headers } from 'next/headers';
 import * as Sentry from "@sentry/nextjs";
+import { getValidatedSession } from '@/lib/server-session';
 
 // ==========================================
 // TYPES
@@ -78,10 +78,12 @@ export interface ManagerDashboardData {
 // ==========================================
 
 async function getSession() {
-    const headersList = await headers();
-    const userId = headersList.get('x-user-id');
-    const role = headersList.get('x-user-role');
-    return { userId, role };
+    const session = await getValidatedSession();
+    if (!session) {
+        return { userId: null, role: null };
+    }
+
+    return { userId: session.userId, role: session.role };
 }
 
 const AUTHORIZED_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];

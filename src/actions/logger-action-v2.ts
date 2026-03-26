@@ -9,15 +9,12 @@
 
 import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
-import { headers } from 'next/headers';
+import { getValidatedSession } from '@/lib/server-session';
 
 async function getSession(): Promise<{ userId: string } | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        if (!userId) return null;
-        return { userId };
-    } catch { return null; }
+    const session = await getValidatedSession();
+    if (!session) return null;
+    return { userId: session.userId };
 }
 
 /**

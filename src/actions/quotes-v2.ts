@@ -24,9 +24,9 @@ import { debugLog } from '@/lib/debug-logger';
 import { pool } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
-import { headers } from 'next/headers';
 import { randomUUID } from 'crypto';
 import { logger } from '@/lib/logger';
+import { getValidatedSession } from '@/lib/server-session';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -122,49 +122,9 @@ const DISCOUNT_THRESHOLDS = {
  */
 async function getSession(): Promise<{ user?: { id: string; role: string } } | null> {
     try {
-        const headersList = await headers();
-        const cookieStore = await import('next/headers').then(mod => mod.cookies()); // Dynamic import to avoid build issues
-
-        // 1. Try Headers (Client-side explicit)
-        const headerUserId = headersList.get('x-user-id');
-        const headerUserRole = headersList.get('x-user-role');
-
-        if (headerUserId && headerUserRole) {
-            return { user: { id: headerUserId, role: headerUserRole } };
-        }
-
-        // 2. Try Secure Session Token (Best Practice)
-        const sessionToken = cookieStore.get('session_token')?.value;
-        if (sessionToken) {
-            const res = await pool.query(
-                `SELECT u.id as "userId", u.role
-                 FROM sessions s
-                 JOIN users u ON s.user_id = u.id
-                 WHERE s.token = $1 AND s.expires_at > NOW()`,
-                [sessionToken]
-            );
-
-            if ((res.rowCount || 0) > 0) {
-                const row = res.rows[0];
-                return { user: { id: row.userId, role: row.role } };
-            }
-        }
-
-        // 3. Fallback: Auth-V2 Cookies
-        const cookieUserId = cookieStore.get('user_id')?.value;
-        if (cookieUserId) {
-            const res = await pool.query(
-                `SELECT id, role FROM users WHERE id = $1 AND is_active = true`,
-                [cookieUserId]
-            );
-
-            if ((res.rowCount || 0) > 0) {
-                const user = res.rows[0];
-                return { user: { id: user.id, role: user.role } };
-            }
-        }
-
-        return null;
+        const session = await getValidatedSession();
+        if (!session) return null;
+        return { user: { id: session.userId, role: session.role } };
     } catch {
         return null;
     }

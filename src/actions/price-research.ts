@@ -14,8 +14,8 @@ import { pool, query, type PoolClient } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { calculateSmartPrice, type ProductResearchResult } from '@/lib/web-price-search';
 import { v4 as uuidv4 } from 'uuid';
-import { headers } from 'next/headers';
 import bcrypt from 'bcryptjs';
+import { getValidatedSession } from '@/lib/server-session';
 
 // ============================================================================
 // CONSTANTS
@@ -48,16 +48,9 @@ interface ResearchSession {
  * Obtiene sesión del usuario desde headers (middleware)
  */
 async function getSession(): Promise<{ userId: string; role: string; userName: string } | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        const userName = headersList.get('x-user-name');
-        if (!userId || !role) return null;
-        return { userId, role, userName: userName || 'Desconocido' };
-    } catch {
-        return null;
-    }
+    const session = await getValidatedSession();
+    if (!session) return null;
+    return { userId: session.userId, role: session.role, userName: session.userName || 'Desconocido' };
 }
 
 /**

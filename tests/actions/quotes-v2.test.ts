@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as quotesV2 from '@/actions/quotes-v2';
+import { getValidatedSession } from '@/lib/server-session';
 
 // Valid UUIDs
 const VALID_UUID_QUOTE = '550e8400-e29b-41d4-a716-446655440050';
@@ -30,14 +31,8 @@ vi.mock('@/lib/db', () => ({
 }));
 
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
-vi.mock('next/headers', () => ({
-    headers: vi.fn(async () => new Map([
-        ['x-user-id', VALID_UUID_USER],
-        ['x-user-role', 'CASHIER']
-    ])),
-    cookies: vi.fn(() => ({
-        get: vi.fn(() => null)
-    }))
+vi.mock('@/lib/server-session', () => ({
+    getValidatedSession: vi.fn(),
 }));
 vi.mock('bcryptjs', () => ({
     default: { compare: vi.fn(async (p: string, h: string) => h === `hashed_${p}`) },
@@ -74,6 +69,14 @@ const mockItem = {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getValidatedSession).mockResolvedValue({
+        userId: VALID_UUID_USER,
+        role: 'CASHIER',
+        locationId: VALID_UUID_LOCATION,
+        userName: 'Caja',
+        tokenVersion: 1,
+        sessionToken: 'token',
+    });
 });
 
 // Helper to setup mock query responses

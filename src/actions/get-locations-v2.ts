@@ -8,16 +8,12 @@
  */
 
 import { query } from '@/lib/db';
-import { headers } from 'next/headers';
+import { getValidatedSession } from '@/lib/server-session';
 
 async function getSession(): Promise<{ userId: string; role: string } | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        if (!userId || !role) return null;
-        return { userId, role };
-    } catch { return null; }
+    const session = await getValidatedSession();
+    if (!session) return null;
+    return { userId: session.userId, role: session.role };
 }
 
 /**
