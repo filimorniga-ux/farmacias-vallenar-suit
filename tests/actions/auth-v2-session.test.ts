@@ -76,6 +76,55 @@ describe('Auth V2 - session issuance and logout', () => {
         );
     });
 
+    it('autocorrige el esquema de sesión en desarrollo si faltan columnas y reintenta el login', async () => {
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'user-1',
+                    name: 'Gerente',
+                    role: 'MANAGER',
+                    access_pin: '1234',
+                    assigned_location_id: 'loc-1',
+                    is_active: true,
+                }],
+                rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: [],
+            })
+            .mockRejectedValueOnce({
+                code: '42703',
+                message: 'column "session_token" of relation "users" does not exist',
+            })
+            .mockResolvedValueOnce({
+                rows: [],
+                rowCount: 0,
+                command: '',
+                oid: 0,
+                fields: [],
+            })
+            .mockResolvedValueOnce({
+                rows: [{ token_version: 9 }],
+                rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: [],
+            });
+
+        const result = await authV2.authenticateUserSecure('user-1', '1234');
+
+        expect(result.success).toBe(true);
+        expect(dbModule.query).toHaveBeenNthCalledWith(
+            3,
+            expect.stringContaining('ADD COLUMN IF NOT EXISTS session_token TEXT')
+        );
+        expect(mockCookieStore.set).toHaveBeenCalledWith(
+            'user_token_version',
+            '9',
+            expect.objectContaining({ httpOnly: true, sameSite: 'lax' })
+        );
+    });
+
     it('logout invalida sesión real y limpia cookies sensibles', async () => {
         setCookieValues({
             user_id: 'user-1',

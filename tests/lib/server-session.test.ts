@@ -107,4 +107,57 @@ describe('server-session', () => {
 
         expect(result).toBeNull();
     });
+
+    it('autocorrige el esquema en desarrollo si falta session_token y reintenta la validación', async () => {
+        setCookieValues({
+            user_id: 'user-1',
+            user_name: 'Nombre Cookie',
+            user_location: 'loc-cookie',
+            session_token: 'token-valido',
+            user_token_version: '4',
+        });
+
+        vi.mocked(query)
+            .mockRejectedValueOnce({
+                code: '42703',
+                message: 'column "session_token" of relation "users" does not exist',
+            })
+            .mockResolvedValueOnce({
+                rows: [],
+                rowCount: 0,
+                command: '',
+                oid: 0,
+                fields: [],
+            })
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'user-1',
+                    name: 'Usuario DB',
+                    role: 'MANAGER',
+                    assigned_location_id: 'loc-db',
+                    token_version: 4,
+                    session_token: 'token-valido',
+                    is_active: true,
+                }],
+                rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: [],
+            });
+
+        const result = await getValidatedSession();
+
+        expect(query).toHaveBeenNthCalledWith(
+            2,
+            expect.stringContaining('ADD COLUMN IF NOT EXISTS session_token TEXT')
+        );
+        expect(result).toEqual({
+            userId: 'user-1',
+            role: 'MANAGER',
+            locationId: 'loc-cookie',
+            userName: 'Usuario DB',
+            tokenVersion: 4,
+            sessionToken: 'token-valido',
+        });
+    });
 });

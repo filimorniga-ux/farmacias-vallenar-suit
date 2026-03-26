@@ -29,6 +29,16 @@ export const SESSION_COOKIE_OPTIONS = {
     path: '/',
 };
 
+const SESSION_SCHEMA_SQL = `
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS session_token TEXT,
+    ADD COLUMN IF NOT EXISTS token_version INT DEFAULT 1,
+    ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP DEFAULT NOW(),
+    ADD COLUMN IF NOT EXISTS current_context_data JSONB DEFAULT '{}'::jsonb;
+`;
+
+let ensureSessionSchemaPromise: Promise<void> | null = null;
+
 type SessionCookieName = (typeof SESSION_COOKIE_NAMES)[number];
 
 interface SessionCookieStore {
@@ -60,6 +70,45 @@ function parseTokenVersion(rawValue?: string) {
     return parsed;
 }
 
+function isMissingSessionSchemaError(error: unknown) {
+    if (!error || typeof error !== 'object') {
+        return false;
+    }
+
+    const candidate = error as { code?: string; message?: string };
+    return candidate.code === '42703'
+        && /(session_token|token_version|last_active_at|current_context_data)/i.test(String(candidate.message || ''));
+}
+
+async function ensureSessionSchema() {
+    if (process.env.NODE_ENV === 'production') {
+        throw new Error('La base de datos no tiene el esquema de sesión requerido. Ejecuta la migración 037_add_server_session_columns.sql antes de continuar.');
+    }
+
+    if (!ensureSessionSchemaPromise) {
+        ensureSessionSchemaPromise = query(SESSION_SCHEMA_SQL)
+            .then(() => undefined)
+            .finally(() => {
+                ensureSessionSchemaPromise = null;
+            });
+    }
+
+    await ensureSessionSchemaPromise;
+}
+
+async function withSessionSchemaRetry<T>(operation: () => Promise<T>) {
+    try {
+        return await operation();
+    } catch (error) {
+        if (!isMissingSessionSchemaError(error)) {
+            throw error;
+        }
+
+        await ensureSessionSchema();
+        return operation();
+    }
+}
+
 export async function createServerSession(input: {
     userId: string;
     userName: string;
@@ -68,16 +117,18 @@ export async function createServerSession(input: {
 }) {
     const sessionToken = randomBytes(32).toString('hex');
 
-    const result = await query(
-        `
-            UPDATE users
-            SET session_token = $2,
-                token_version = COALESCE(token_version, 1),
-                updated_at = NOW()
-            WHERE id = $1
-            RETURNING token_version
-        `,
-        [input.userId, sessionToken]
+    const result = await withSessionSchemaRetry(() =>
+        query(
+            `
+                UPDATE users
+                SET session_token = $2,
+                    token_version = COALESCE(token_version, 1),
+                    updated_at = NOW()
+                WHERE id = $1
+                RETURNING token_version
+            `,
+            [input.userId, sessionToken]
+        )
     );
 
     if ((result.rowCount ?? 0) === 0) {
@@ -115,13 +166,15 @@ export async function getValidatedSession(): Promise<ValidatedSession | null> {
             return null;
         }
 
-        const result = await query(
-            `
-                SELECT id, name, role, assigned_location_id, token_version, session_token, is_active
-                FROM users
-                WHERE id = $1
-            `,
-            [userId]
+        const result = await withSessionSchemaRetry(() =>
+            query(
+                `
+                    SELECT id, name, role, assigned_location_id, token_version, session_token, is_active
+                    FROM users
+                    WHERE id = $1
+                `,
+                [userId]
+            )
         );
 
         if ((result.rowCount ?? 0) === 0) {
@@ -163,15 +216,17 @@ export async function invalidateCurrentSession() {
 
     if (userId && sessionToken) {
         try {
-            await query(
-                `
-                    UPDATE users
-                    SET session_token = NULL,
-                        updated_at = NOW()
-                    WHERE id = $1
-                    AND session_token = $2
-                `,
-                [userId, sessionToken]
+            await withSessionSchemaRetry(() =>
+                query(
+                    `
+                        UPDATE users
+                        SET session_token = NULL,
+                            updated_at = NOW()
+                        WHERE id = $1
+                        AND session_token = $2
+                    `,
+                    [userId, sessionToken]
+                )
             );
         } catch {
             // Best-effort invalidation: local cookie cleanup still happens below.
