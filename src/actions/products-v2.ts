@@ -25,26 +25,24 @@ import { pool } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { v4 as uuidv4 } from 'uuid';
-import { getValidatedSession } from '@/lib/server-session';
-
-async function getSession() {
-    const session = await getValidatedSession();
-    if (!session) return null;
-
-    return {
-        userId: session.userId,
-        role: session.role,
-        locationId: session.locationId
-    };
-}
+import {
+    getActorOrFail,
+    PinRbacError,
+    ROLE_GROUPS,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
 async function requireSession() {
-    const session = await getSession();
-    if (!session) {
-        return { success: false as const, error: 'No autenticado' };
-    }
+    try {
+        const actor = await getActorOrFail();
+        return { success: true as const, session: actor };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { success: false as const, error: 'No autenticado' };
+        }
 
-    return { success: true as const, session };
+        throw error;
+    }
 }
 
 // ============================================================================
@@ -242,8 +240,6 @@ export async function createProductExpressSecure(data: z.infer<typeof CreateExpr
 }
 
 
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'];
-const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
 const PRICE_CHANGE_THRESHOLD = 0.20; // 20% change requires PIN
 
 const UpdateProductMasterSchema = z.object({
@@ -280,80 +276,16 @@ const UpdateProductMasterSchema = z.object({
 // HELPER FUNCTIONS
 // ============================================================================
 
-async function validateManagerPin(client: any, pin: string): Promise<{
-    valid: boolean;
-    user?: { id: string; name: string; role: string };
-    error?: string;
-}> {
-    try {
-        const bcrypt = await import('bcryptjs');
+async function validateProductPinForRoles(client: any, pin: string, roles: readonly string[]) {
+    const result = await validatePinForRoles(client, pin, roles, {
+        allowLegacyPlaintext: true,
+    });
 
-        const usersRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE role = ANY($1::text[])
-            AND is_active = true
-        `, [MANAGER_ROLES]);
-
-        for (const user of usersRes.rows) {
-            let pinValid = false;
-
-            if (user.access_pin_hash) {
-                pinValid = await bcrypt.compare(pin, user.access_pin_hash);
-            } else if (user.access_pin) {
-                // Simple string comparison for legacy PINs to avoid crypto dependency issues
-                if (pin === user.access_pin) {
-                    pinValid = true;
-                }
-            }
-
-            if (pinValid) {
-                return { valid: true, user: { id: user.id, name: user.name, role: user.role } };
-            }
-        }
-
-        return { valid: false, error: 'PIN inválido' };
-    } catch (error) {
-        return { valid: false, error: 'Error validando PIN' };
+    if (!result.valid) {
+        return { valid: false, error: result.error || 'PIN inválido' } as const;
     }
-}
 
-async function validateAdminPin(client: any, pin: string): Promise<{
-    valid: boolean;
-    admin?: { id: string; name: string; role: string };
-    error?: string;
-}> {
-    try {
-        const bcrypt = await import('bcryptjs');
-
-        const adminsRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE role = ANY($1::text[])
-            AND is_active = true
-        `, [ADMIN_ROLES]);
-
-        for (const admin of adminsRes.rows) {
-            let pinValid = false;
-
-            if (admin.access_pin_hash) {
-                pinValid = await bcrypt.compare(pin, admin.access_pin_hash);
-            } else if (admin.access_pin) {
-                // Simple string comparison for legacy PINs
-                if (pin === admin.access_pin) {
-                    pinValid = true;
-                }
-            }
-
-            if (pinValid) {
-                return { valid: true, admin: { id: admin.id, name: admin.name, role: admin.role } };
-            }
-        }
-
-        return { valid: false, error: 'PIN de administrador inválido' };
-    } catch (error) {
-        return { valid: false, error: 'Error validando PIN' };
-    }
+    return { valid: true, user: result.authorizedBy } as const;
 }
 
 async function insertProductAudit(client: any, params: {
@@ -713,7 +645,7 @@ export async function updatePriceSecure(data: z.infer<typeof UpdatePriceSchema>)
             }
 
             // Validate PIN
-            const pinCheck = await validateManagerPin(client, validated.data.approverPin);
+            const pinCheck = await validateProductPinForRoles(client, validated.data.approverPin, ROLE_GROUPS.MANAGER_OR_HR);
             if (!pinCheck.valid) {
                 await client.query('ROLLBACK');
                 return { success: false, error: pinCheck.error };
@@ -797,7 +729,7 @@ export async function deactivateProductSecure(data: z.infer<typeof DeactivatePro
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // Validate ADMIN PIN
-        const pinCheck = await validateAdminPin(client, validated.data.adminPin);
+        const pinCheck = await validateProductPinForRoles(client, validated.data.adminPin, ROLE_GROUPS.ADMIN);
         if (!pinCheck.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: pinCheck.error };
@@ -823,14 +755,14 @@ export async function deactivateProductSecure(data: z.infer<typeof DeactivatePro
                 deactivation_reason = $2,
                 updated_at = NOW()
             WHERE id = $3
-        `, [pinCheck.admin!.id, validated.data.reason, validated.data.productId]);
+        `, [pinCheck.user!.id, validated.data.reason, validated.data.productId]);
 
         await insertProductAudit(client, {
             actionCode: 'PRODUCT_DEACTIVATED',
-            userId: pinCheck.admin!.id,
+            userId: pinCheck.user!.id,
             productId: validated.data.productId,
             newValues: {
-                deactivated_by_name: pinCheck.admin!.name,
+                deactivated_by_name: pinCheck.user!.name,
                 reason: validated.data.reason
             }
         });
@@ -999,7 +931,7 @@ export async function updateProductMasterSecure(data: z.infer<typeof UpdateProdu
 
             if (priceChangePercent > PRICE_CHANGE_THRESHOLD) {
                 // Check if user is Manager/Admin/Owner to bypass PIN
-                const isManager = MANAGER_ROLES.includes(auth.session.role);
+                const isManager = ROLE_GROUPS.MANAGER_OR_HR.includes(auth.session.role as typeof ROLE_GROUPS.MANAGER_OR_HR[number]);
 
                 if (!isManager) {
                     // Normal user needs PIN
@@ -1012,7 +944,7 @@ export async function updateProductMasterSecure(data: z.infer<typeof UpdateProdu
                         };
                     }
 
-                    const pinCheck = await validateManagerPin(client, approverPin);
+                    const pinCheck = await validateProductPinForRoles(client, approverPin, ROLE_GROUPS.MANAGER_OR_HR);
                     if (!pinCheck.valid) {
                         await client.query('ROLLBACK');
                         return { success: false, error: pinCheck.error };
@@ -1268,9 +1200,9 @@ export async function getProductByIdSecure(productId: string): Promise<{ success
         return { success: false, error: 'ID inválido' };
     }
 
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await requireSession();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
     try {

@@ -14,18 +14,19 @@
  */
 
 import { pool, query } from '@/lib/db';
-import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
-import bcrypt from 'bcryptjs';
-import { getValidatedSession } from '@/lib/server-session';
+import {
+    getActorOrFail,
+    PinRbacError,
+    ROLE_GROUPS,
+    requireRole,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
-
-const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
 
 // Categorización de settings
 const PUBLIC_SETTINGS = [
@@ -63,10 +64,17 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
 // HELPERS
 // ============================================================================
 
-async function getSession(): Promise<{ userId: string; role: string } | null> {
-    const session = await getValidatedSession();
-    if (!session) return null;
-    return { userId: session.userId, role: session.role };
+async function requireSettingsActor() {
+    try {
+        const actor = await getActorOrFail();
+        return { success: true as const, actor };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { success: false as const, error: 'No autenticado' };
+        }
+
+        throw error;
+    }
 }
 
 function getSettingCategory(key: string): 'PUBLIC' | 'PRIVATE' | 'CRITICAL' | null {
@@ -76,35 +84,44 @@ function getSettingCategory(key: string): 'PUBLIC' | 'PRIVATE' | 'CRITICAL' | nu
     return null;
 }
 
-async function validateAdminPin(
+function ensureSettingsRole(
+    actor: Awaited<ReturnType<typeof getActorOrFail>>,
+    allowedRoles: readonly string[],
+    errorMessage: string
+) {
+    try {
+        requireRole(actor, allowedRoles);
+        return { success: true as const };
+    } catch (error) {
+        if (error instanceof PinRbacError && error.code === 'AUTH_FORBIDDEN') {
+            return { success: false as const, error: errorMessage };
+        }
+
+        throw error;
+    }
+}
+
+async function validateSettingsAdminPin(
     client: any,
     pin: string
 ): Promise<{ valid: boolean; admin?: { id: string; name: string } }> {
     try {
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
+        const result = await validatePinForRoles(client, pin, ROLE_GROUPS.ADMIN, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        const adminsRes = await client.query(`
-            SELECT id, name, access_pin_hash, access_pin
-            FROM users WHERE role = ANY($1::text[]) AND is_active = true
-        `, [ADMIN_ROLES]);
-
-        for (const admin of adminsRes.rows) {
-            const rateCheck = checkRateLimit(admin.id);
-            if (!rateCheck.allowed) continue;
-
-            if (admin.access_pin_hash) {
-                const valid = await bcrypt.compare(pin, admin.access_pin_hash);
-                if (valid) {
-                    resetAttempts(admin.id);
-                    return { valid: true, admin: { id: admin.id, name: admin.name } };
-                }
-                recordFailedAttempt(admin.id);
-            } else if (admin.access_pin === pin) {
-                resetAttempts(admin.id);
-                return { valid: true, admin: { id: admin.id, name: admin.name } };
-            }
+        if (!result.valid) {
+            return { valid: false };
         }
-        return { valid: false };
+
+        return {
+            valid: true,
+            admin: {
+                id: result.authorizedBy.id,
+                name: result.authorizedBy.name,
+            },
+        };
     } catch {
         return { valid: false };
     }
@@ -157,24 +174,35 @@ export async function getPublicSettingSecure(
 export async function getPrivateSettingSecure(
     key: string
 ): Promise<{ success: boolean; value?: string | null; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
-    }
-
     const category = getSettingCategory(key);
-
-    // Verificar permisos
-    if (category === 'CRITICAL' && !ADMIN_ROLES.includes(session.role)) {
-        return { success: false, error: 'Solo administradores pueden ver este setting' };
-    }
-
-    if (category === 'PRIVATE' && !MANAGER_ROLES.includes(session.role)) {
-        return { success: false, error: 'Permisos insuficientes' };
-    }
-
     if (category === null) {
         return { success: false, error: 'Setting no reconocido' };
+    }
+
+    const auth = await requireSettingsActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
+    // Verificar permisos
+    if (category === 'CRITICAL') {
+        const authorization = ensureSettingsRole(
+            auth.actor,
+            ROLE_GROUPS.ADMIN,
+            'Solo administradores pueden ver este setting'
+        );
+        if (!authorization.success) {
+            return { success: false, error: authorization.error };
+        }
+    } else if (category === 'PRIVATE') {
+        const authorization = ensureSettingsRole(
+            auth.actor,
+            ROLE_GROUPS.MANAGER,
+            'Permisos insuficientes'
+        );
+        if (!authorization.success) {
+            return { success: false, error: authorization.error };
+        }
     }
 
     try {
@@ -199,31 +227,34 @@ export async function updateSettingSecure(
     value: string,
     adminPin?: string
 ): Promise<{ success: boolean; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
-    }
-
     const category = getSettingCategory(key);
     if (category === null) {
         return { success: false, error: 'Setting no reconocido' };
     }
 
+    const auth = await requireSettingsActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     // Verificar permisos por categoría
     if (category === 'CRITICAL') {
-        if (!ADMIN_ROLES.includes(session.role)) {
-            return { success: false, error: 'Solo administradores' };
+        const authorization = ensureSettingsRole(auth.actor, ROLE_GROUPS.ADMIN, 'Solo administradores');
+        if (!authorization.success) {
+            return { success: false, error: authorization.error };
         }
         if (!adminPin) {
             return { success: false, error: 'Se requiere PIN de administrador para settings críticos' };
         }
     } else if (category === 'PRIVATE') {
-        if (!MANAGER_ROLES.includes(session.role)) {
-            return { success: false, error: 'Permisos insuficientes' };
+        const authorization = ensureSettingsRole(auth.actor, ROLE_GROUPS.MANAGER, 'Permisos insuficientes');
+        if (!authorization.success) {
+            return { success: false, error: authorization.error };
         }
     } else {
-        if (!MANAGER_ROLES.includes(session.role)) {
-            return { success: false, error: 'Permisos insuficientes' };
+        const authorization = ensureSettingsRole(auth.actor, ROLE_GROUPS.MANAGER, 'Permisos insuficientes');
+        if (!authorization.success) {
+            return { success: false, error: authorization.error };
         }
     }
 
@@ -234,7 +265,7 @@ export async function updateSettingSecure(
 
         // Validar PIN si es CRITICAL
         if (category === 'CRITICAL' && adminPin) {
-            const authResult = await validateAdminPin(client, adminPin);
+            const authResult = await validateSettingsAdminPin(client, adminPin);
             if (!authResult.valid) {
                 await client.query('ROLLBACK');
                 return { success: false, error: 'PIN de administrador inválido' };
@@ -256,7 +287,7 @@ export async function updateSettingSecure(
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, new_values, created_at)
             VALUES ($1, 'SETTING_UPDATED', 'SETTING', $2, $3::jsonb, $4::jsonb, NOW())
-        `, [session.userId, key, JSON.stringify({ value: previousValue }), JSON.stringify({
+        `, [auth.actor.userId, key, JSON.stringify({ value: previousValue }), JSON.stringify({
             value,
             category,
         })]);
@@ -266,7 +297,7 @@ export async function updateSettingSecure(
 
         await client.query('COMMIT');
 
-        logger.info({ key, category, userId: session.userId }, '✏️ [Settings] Updated');
+        logger.info({ key, category, userId: auth.actor.userId }, '✏️ [Settings] Updated');
         revalidatePath('/settings');
         return { success: true };
 
@@ -291,13 +322,14 @@ export async function getAllSettingsSecure(): Promise<{
     data?: { key: string; value: string; category: string; updated_at: Date }[];
     error?: string;
 }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await requireSettingsActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
-    if (!ADMIN_ROLES.includes(session.role)) {
-        return { success: false, error: 'Solo administradores' };
+    const authorization = ensureSettingsRole(auth.actor, ROLE_GROUPS.ADMIN, 'Solo administradores');
+    if (!authorization.success) {
+        return { success: false, error: authorization.error };
     }
 
     try {
@@ -330,13 +362,14 @@ export async function getAllSettingsSecure(): Promise<{
 export async function getSettingHistorySecure(
     key: string
 ): Promise<{ success: boolean; data?: any[]; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await requireSettingsActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
-    if (!ADMIN_ROLES.includes(session.role)) {
-        return { success: false, error: 'Solo administradores' };
+    const authorization = ensureSettingsRole(auth.actor, ROLE_GROUPS.ADMIN, 'Solo administradores');
+    if (!authorization.success) {
+        return { success: false, error: authorization.error };
     }
 
     try {
