@@ -1104,4 +1104,97 @@ describe('Inventory V2 - Session contracts', () => {
         );
         expect(auditCall?.[1]?.[0]).toBe('session-user-inventory');
     });
+
+    it('should reject fractionateBatchSecure when validated session is missing', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce(null);
+
+        const result = await fractionateBatchSecure({
+            batchId: VALID_BATCH_ID,
+            userId: VALID_USER_ID,
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Sesión no válida');
+        expect(mockConnect).not.toHaveBeenCalled();
+    });
+
+    it('should reject fractionateBatchSecureDetailed when validated session is missing', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce(null);
+
+        const result = await fractionateBatchSecureDetailed({
+            batchId: VALID_BATCH_ID,
+            userId: VALID_USER_ID,
+            unitsInBox: 12,
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Sesión no válida');
+        expect(mockConnect).not.toHaveBeenCalled();
+    });
+
+    it('should use validated session user for fractionation movements and audit instead of payload userId', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce({
+            userId: 'session-user-fraction',
+            role: 'ADMIN',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Actor Fraccionamiento',
+            tokenVersion: 2,
+            sessionToken: 'inventory-session-token-2',
+        });
+
+        let callIndex = 0;
+        const responses = [
+            { rows: [] }, // BEGIN
+            {
+                rows: [{
+                    id: VALID_BATCH_ID,
+                    product_id: '123e4567-e89b-12d3-a456-426614174099',
+                    sku: 'MED-004',
+                    name: 'Omeprazol',
+                    location_id: VALID_LOCATION_ID,
+                    warehouse_id: VALID_WAREHOUSE_ID,
+                    quantity_real: 2,
+                    sale_price: 9000,
+                    cost_net: 3000,
+                    price_sell_box: 9000,
+                    price_sell_unit: 750,
+                    expiry_date: null,
+                    lot_number: 'LOT-004',
+                }],
+            }, // Source batch lock
+            { rows: [] }, // Update source
+            { rows: [] }, // Existing retail search
+            { rows: [] }, // Insert retail lot
+            { rows: [] }, // Source movement
+            { rows: [] }, // Retail movement
+            { rows: [] }, // SAVEPOINT audit_safe
+            { rows: [] }, // Audit insert
+            { rows: [] }, // RELEASE SAVEPOINT
+            { rows: [] }, // COMMIT
+        ];
+
+        mockQuery.mockImplementation(() => {
+            const response = responses[callIndex] || { rows: [] };
+            callIndex++;
+            return Promise.resolve(response);
+        });
+
+        const result = await fractionateBatchSecureDetailed({
+            batchId: VALID_BATCH_ID,
+            userId: 'payload-user-fraction',
+            unitsInBox: 12,
+        });
+
+        expect(result.success).toBe(true);
+
+        const movementCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO stock_movements')
+        );
+        expect(movementCall?.[1]?.[6]).toBe('session-user-fraction');
+
+        const auditCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO audit_log')
+        );
+        expect(auditCall?.[1]?.[0]).toBe('session-user-fraction');
+    });
 });

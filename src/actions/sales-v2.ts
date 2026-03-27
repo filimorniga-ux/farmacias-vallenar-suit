@@ -133,6 +133,26 @@ function toMoneyInt(value: unknown): number {
     return Math.round(parsed);
 }
 
+async function resolveValidatedSalesActor(requestedUserId?: string, action = 'sales-operation') {
+    const session = await getValidatedSession();
+    if (!session) {
+        return { success: false as const, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
+    }
+
+    if (requestedUserId && requestedUserId !== session.userId) {
+        logger.warn(
+            { requestedUserId, actorUserId: session.userId, action },
+            'Ignoring payload userId in sales operation; using validated session user'
+        );
+    }
+
+    return {
+        success: true as const,
+        actorUserId: session.userId,
+        session,
+    };
+}
+
 /**
  * Valida PIN de supervisor usando bcrypt
  */
@@ -739,10 +759,16 @@ export async function voidSaleSecure(params: {
     }
 
     const {
-        saleId, userId, reason, supervisorPin,
+        saleId, userId: requestedUserId, reason, supervisorPin,
         // @ts-ignore
         queueTicketId // Ignored here as voidSale doesn't use it, but keeping for symmetry if needed later
     } = params;
+
+    const actor = await resolveValidatedSalesActor(requestedUserId, 'voidSaleSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const actorUserId = actor.actorUserId;
 
     const { pool } = await import('@/lib/db');
     const client = await pool.connect();
@@ -804,11 +830,11 @@ export async function voidSaleSecure(params: {
                 void_reason = $2,
                 void_authorized_by = $3::uuid
             WHERE id = $4
-        `, [userId, reason, authResult.authorizedBy?.id, saleId]);
+        `, [actorUserId, reason, authResult.authorizedBy?.id, saleId]);
 
         // 7. Auditoría
         await insertSaleAudit(client, {
-            userId,
+            userId: actorUserId,
             authorizedById: authResult.authorizedBy?.id,
             sessionId: sale.session_id,
             terminalId: sale.terminal_id,
@@ -863,7 +889,13 @@ export async function refundSaleSecure(params: {
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    const { saleId, userId, items, reason, supervisorPin, refundMethod } = validation.data;
+    const { saleId, userId: requestedUserId, items, reason, supervisorPin, refundMethod } = validation.data;
+
+    const actor = await resolveValidatedSalesActor(requestedUserId, 'refundSaleSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const actorUserId = actor.actorUserId;
 
     const { pool } = await import('@/lib/db');
     const { v4: uuidv4 } = await import('uuid');
@@ -996,7 +1028,7 @@ export async function refundSaleSecure(params: {
             `, [
                 refundId,
                 saleId,
-                userId,
+                actorUserId,
                 authResult.authorizedBy?.id || null,
                 sale.session_id,
                 sale.terminal_id,
@@ -1054,7 +1086,7 @@ export async function refundSaleSecure(params: {
 
         // 7. Auditoría
         await insertSaleAudit(client, {
-            userId,
+            userId: actorUserId,
             authorizedById: authResult.authorizedBy?.id,
             sessionId: sale.session_id,
             terminalId: sale.terminal_id,
@@ -1573,7 +1605,13 @@ export async function editSaleSecure(params: {
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    const { saleId, userId, supervisorPin, reason, items } = validation.data;
+    const { saleId, userId: requestedUserId, supervisorPin, reason, items } = validation.data;
+
+    const actor = await resolveValidatedSalesActor(requestedUserId, 'editSaleSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const actorUserId = actor.actorUserId;
 
     const { pool } = await import('@/lib/db');
     const client = await pool.connect();
@@ -1706,7 +1744,7 @@ export async function editSaleSecure(params: {
         `, [
             newTotal,
             newTotal,
-            userId,
+            actorUserId,
             authResult.authorizedBy?.id || null,
             reason,
             saleId,
@@ -1714,7 +1752,7 @@ export async function editSaleSecure(params: {
 
         // 9. Auditoría inmutable
         await insertSaleAudit(client, {
-            userId,
+            userId: actorUserId,
             authorizedById: authResult.authorizedBy?.id,
             sessionId: sale.session_id,
             terminalId: sale.terminal_id,

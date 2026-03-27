@@ -75,6 +75,7 @@ import {
     createSaleSecure,
     voidSaleSecure,
     refundSaleSecure,
+    editSaleSecure,
     getSalesHistory,
     getSessionSalesSummary
 } from '@/actions/sales-v2';
@@ -344,6 +345,14 @@ describe('Sales V2 - voidSaleSecure', () => {
         vi.clearAllMocks();
         mockQuery.mockResolvedValue({ rows: [] });
         mockBcryptCompare.mockResolvedValue(true);
+        mockGetValidatedSession.mockResolvedValue({
+            userId: VALID_USER_ID,
+            role: 'ADMIN',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Admin de Sesion',
+            tokenVersion: 1,
+            sessionToken: 'session-token-void',
+        });
     });
 
     afterEach(() => {
@@ -437,6 +446,69 @@ describe('Sales V2 - voidSaleSecure', () => {
         expect(result.success).toBe(false);
         expect(result.error).toContain('no encontrada');
     });
+
+    it('should reject voidSaleSecure when validated session is missing', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce(null);
+
+        const result = await voidSaleSecure(validVoidParams);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Sesión no válida');
+        expect(mockConnect).not.toHaveBeenCalled();
+    });
+
+    it('should use validated session user for void persistence and audit instead of payload userId', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce({
+            userId: 'session-user-void',
+            role: 'ADMIN',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Actor Void',
+            tokenVersion: 2,
+            sessionToken: 'session-token-void-2',
+        });
+
+        mockQuery
+            .mockResolvedValueOnce({}) // BEGIN
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'supervisor-1',
+                    name: 'Admin',
+                    role: 'ADMIN',
+                    access_pin_hash: 'hashed',
+                }],
+            }) // Supervisor found
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: validVoidParams.saleId,
+                    status: 'COMPLETED',
+                    total_amount: 5980,
+                    location_id: VALID_LOCATION_ID,
+                    terminal_id: VALID_TERMINAL_ID,
+                    session_id: VALID_SESSION_ID,
+                }],
+            }) // Sale
+            .mockResolvedValueOnce({ rows: [] }) // Sale items
+            .mockResolvedValueOnce({ rows: [] }) // Update sale
+            .mockResolvedValueOnce({ rows: [] }) // Audit
+            .mockResolvedValueOnce({}); // COMMIT
+
+        const result = await voidSaleSecure({
+            ...validVoidParams,
+            userId: 'payload-user-void',
+        });
+
+        expect(result.success).toBe(true);
+
+        const updateSaleCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes("SET status = 'VOIDED'")
+        );
+        expect(updateSaleCall?.[1]?.[0]).toBe('session-user-void');
+
+        const auditCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO audit_log')
+        );
+        expect(auditCall?.[1]?.[0]).toBe('session-user-void');
+    });
 });
 
 // =====================================================
@@ -448,6 +520,14 @@ describe('Sales V2 - refundSaleSecure', () => {
         vi.clearAllMocks();
         mockQuery.mockResolvedValue({ rows: [] });
         mockBcryptCompare.mockResolvedValue(true);
+        mockGetValidatedSession.mockResolvedValue({
+            userId: VALID_USER_ID,
+            role: 'ADMIN',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Admin de Sesion',
+            tokenVersion: 1,
+            sessionToken: 'session-token-refund',
+        });
     });
 
     afterEach(() => {
@@ -573,6 +653,188 @@ describe('Sales V2 - refundSaleSecure', () => {
         expect(insertRefundCall).toBeDefined();
         if (!insertRefundCall) return;
         expect(insertRefundCall[1]).toEqual(expect.arrayContaining(['TRANSFER']));
+    });
+
+    it('should reject refundSaleSecure when validated session is missing', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce(null);
+
+        const result = await refundSaleSecure(validRefundParams);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Sesión no válida');
+        expect(mockConnect).not.toHaveBeenCalled();
+    });
+
+    it('should use validated session user for refund persistence and audit instead of payload userId', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce({
+            userId: 'session-user-refund',
+            role: 'ADMIN',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Actor Refund',
+            tokenVersion: 2,
+            sessionToken: 'session-token-refund-2',
+        });
+
+        mockQuery
+            .mockResolvedValueOnce({}) // BEGIN
+            .mockResolvedValueOnce({ rows: [{ has_refunds: true, has_refund_items: true }] }) // Table check
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'supervisor-1',
+                    name: 'Admin',
+                    role: 'ADMIN',
+                    access_pin_hash: 'hashed',
+                }],
+            }) // Supervisor found
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: validRefundParams.saleId,
+                    status: 'COMPLETED',
+                    location_id: VALID_LOCATION_ID,
+                    terminal_id: VALID_TERMINAL_ID,
+                    session_id: VALID_SESSION_ID,
+                    payment_method: 'CASH',
+                    total_amount: 3000,
+                }],
+            }) // Sale
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: VALID_SALE_ITEM_ID,
+                    sale_id: VALID_SALE_ID,
+                    batch_id: VALID_BATCH_ID,
+                    quantity: 2,
+                    refunded_quantity: 0,
+                    unit_price: 1500,
+                    product_name: 'Paracetamol',
+                }],
+            }) // Sale item
+            .mockResolvedValueOnce({ rows: [] }) // Update sale_items
+            .mockResolvedValueOnce({ rows: [] }) // Update inventory_batches
+            .mockResolvedValueOnce({ rows: [] }) // Insert refunds
+            .mockResolvedValueOnce({ rows: [] }) // Insert refund_items
+            .mockResolvedValueOnce({ rows: [{ remaining: '1' }] }) // Remaining qty
+            .mockResolvedValueOnce({ rows: [] }) // Update sale status
+            .mockResolvedValueOnce({ rows: [] }) // Audit
+            .mockResolvedValueOnce({}); // COMMIT
+
+        const result = await refundSaleSecure({
+            ...validRefundParams,
+            userId: 'payload-user-refund',
+            refundMethod: 'TRANSFER',
+        });
+
+        expect(result.success).toBe(true);
+
+        const insertRefundCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO refunds')
+        );
+        expect(insertRefundCall?.[1]?.[2]).toBe('session-user-refund');
+
+        const auditCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO audit_log')
+        );
+        expect(auditCall?.[1]?.[0]).toBe('session-user-refund');
+    });
+});
+
+describe('Sales V2 - editSaleSecure', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockQuery.mockResolvedValue({ rows: [] });
+        mockBcryptCompare.mockResolvedValue(true);
+        mockGetValidatedSession.mockResolvedValue({
+            userId: VALID_USER_ID,
+            role: 'ADMIN',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Admin de Sesion',
+            tokenVersion: 1,
+            sessionToken: 'session-token-edit',
+        });
+    });
+
+    afterEach(() => {
+        vi.resetAllMocks();
+    });
+
+    const validEditParams = {
+        saleId: VALID_SALE_ID,
+        userId: VALID_USER_ID,
+        supervisorPin: '1234',
+        reason: 'Corrección de ítems por error de digitación',
+        items: [
+            {
+                name: 'Producto manual',
+                quantity: 1,
+                price: 2500,
+            },
+        ],
+    };
+
+    it('should reject editSaleSecure when validated session is missing', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce(null);
+
+        const result = await editSaleSecure(validEditParams);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Sesión no válida');
+        expect(mockConnect).not.toHaveBeenCalled();
+    });
+
+    it('should use validated session user for sale edit persistence and audit instead of payload userId', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce({
+            userId: 'session-user-edit',
+            role: 'ADMIN',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Actor Edit',
+            tokenVersion: 2,
+            sessionToken: 'session-token-edit-2',
+        });
+
+        mockQuery
+            .mockResolvedValueOnce({}) // BEGIN
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'supervisor-1',
+                    name: 'Admin',
+                    role: 'ADMIN',
+                    access_pin_hash: 'hashed',
+                }],
+            }) // Supervisor found
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: validEditParams.saleId,
+                    status: 'COMPLETED',
+                    total_amount: 1800,
+                    location_id: VALID_LOCATION_ID,
+                    terminal_id: VALID_TERMINAL_ID,
+                    session_id: VALID_SESSION_ID,
+                    dte_folio: null,
+                }],
+            }) // Sale
+            .mockResolvedValueOnce({ rows: [] }) // Original items
+            .mockResolvedValueOnce({ rows: [] }) // Delete sale_items
+            .mockResolvedValueOnce({ rows: [] }) // Insert sale_item
+            .mockResolvedValueOnce({ rows: [] }) // Update sale
+            .mockResolvedValueOnce({ rows: [] }) // Audit
+            .mockResolvedValueOnce({}); // COMMIT
+
+        const result = await editSaleSecure({
+            ...validEditParams,
+            userId: 'payload-user-edit',
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.newTotal).toBe(2500);
+
+        const updateSaleCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('SET total_amount')
+        );
+        expect(updateSaleCall?.[1]?.[2]).toBe('session-user-edit');
+
+        const auditCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO audit_log')
+        );
+        expect(auditCall?.[1]?.[0]).toBe('session-user-edit');
     });
 });
 

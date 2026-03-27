@@ -850,7 +850,13 @@ export async function fractionateBatchSecure(params: {
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    const { batchId, userId } = validation.data;
+    const { batchId, userId: requestedUserId } = validation.data;
+
+    const actor = await resolveValidatedActor(requestedUserId, 'fractionateBatchSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const userId = actor.actorUserId;
 
     try {
         const batchRes = await query(`
@@ -894,7 +900,12 @@ export async function fractionateBatchSecureDetailed(params: {
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    const { batchId, userId, unitsInBox } = validation.data;
+    const { batchId, userId: requestedUserId, unitsInBox } = validation.data;
+    const actor = await resolveValidatedActor(requestedUserId, 'fractionateBatchSecureDetailed');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const userId = actor.actorUserId;
     const { getClient } = await import('@/lib/db');
     const { v4: uuidv4 } = await import('uuid');
     const client = await getClient();
