@@ -108,6 +108,62 @@ describe('server-session', () => {
         expect(result).toBeNull();
     });
 
+    it('rechaza la sesión si session_token no coincide con DB', async () => {
+        setCookieValues({
+            user_id: 'user-1',
+            session_token: 'token-cookie',
+            user_token_version: '3',
+        });
+
+        vi.mocked(query).mockResolvedValueOnce({
+            rows: [{
+                id: 'user-1',
+                name: 'Usuario DB',
+                role: 'MANAGER',
+                assigned_location_id: 'loc-db',
+                token_version: 3,
+                session_token: 'token-db',
+                is_active: true,
+            }],
+            rowCount: 1,
+            command: '',
+            oid: 0,
+            fields: [],
+        });
+
+        const result = await getValidatedSession();
+
+        expect(result).toBeNull();
+    });
+
+    it('rechaza la sesión si el usuario está inactivo aunque las cookies coincidan', async () => {
+        setCookieValues({
+            user_id: 'user-1',
+            session_token: 'token-valido',
+            user_token_version: '5',
+        });
+
+        vi.mocked(query).mockResolvedValueOnce({
+            rows: [{
+                id: 'user-1',
+                name: 'Usuario DB',
+                role: 'MANAGER',
+                assigned_location_id: 'loc-db',
+                token_version: 5,
+                session_token: 'token-valido',
+                is_active: false,
+            }],
+            rowCount: 1,
+            command: '',
+            oid: 0,
+            fields: [],
+        });
+
+        const result = await getValidatedSession();
+
+        expect(result).toBeNull();
+    });
+
     it('autocorrige el esquema en desarrollo si falta session_token y reintenta la validación', async () => {
         setCookieValues({
             user_id: 'user-1',

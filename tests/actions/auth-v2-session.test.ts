@@ -65,6 +65,16 @@ describe('Auth V2 - session issuance and logout', () => {
         if (!result.success) return;
         expect(result.user.token_version).toBe(7);
         expect(mockCookieStore.set).toHaveBeenCalledWith(
+            'user_id',
+            'user-1',
+            expect.objectContaining({ httpOnly: true, sameSite: 'lax' })
+        );
+        expect(mockCookieStore.set).toHaveBeenCalledWith(
+            'user_name',
+            'Gerente',
+            expect.objectContaining({ httpOnly: true, sameSite: 'lax' })
+        );
+        expect(mockCookieStore.set).toHaveBeenCalledWith(
             'session_token',
             expect.any(String),
             expect.objectContaining({ httpOnly: true, sameSite: 'lax' })

@@ -20,6 +20,7 @@ const mockQuery = vi.fn();
 const mockRelease = vi.fn();
 const mockConnect = vi.fn();
 const mockBcryptCompare = vi.fn();
+const mockGetValidatedSession = vi.fn();
 
 // Mock DB - factory function doesn't reference external variables
 vi.mock('@/lib/db', () => ({
@@ -65,6 +66,10 @@ vi.mock('bcryptjs', () => ({
     compare: (...args: any[]) => mockBcryptCompare(...args),
 }));
 
+vi.mock('@/lib/server-session', () => ({
+    getValidatedSession: (...args: unknown[]) => mockGetValidatedSession(...args),
+}));
+
 // Import after mocks
 import {
     createSaleSecure,
@@ -95,6 +100,14 @@ describe('Sales V2 - createSaleSecure', () => {
         vi.clearAllMocks();
         mockQuery.mockResolvedValue({ rows: [] });
         mockBcryptCompare.mockResolvedValue(true);
+        mockGetValidatedSession.mockResolvedValue({
+            userId: VALID_USER_ID,
+            role: 'ADMIN',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Admin de Sesion',
+            tokenVersion: 1,
+            sessionToken: 'session-token-1',
+        });
     });
 
     afterEach(() => {
@@ -128,6 +141,16 @@ describe('Sales V2 - createSaleSecure', () => {
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('ID inválido');
+    });
+
+    it('should reject sale creation when validated session is missing', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce(null);
+
+        const result = await createSaleSecure(validSaleParams);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Sesión no válida');
+        expect(mockConnect).not.toHaveBeenCalled();
     });
 
     it('should reject empty items array', async () => {
@@ -222,6 +245,51 @@ describe('Sales V2 - createSaleSecure', () => {
         // Expect SUCCESS (Negative stock allowed)
         expect(result.success).toBe(true);
         expect(result.stockErrors).toBeUndefined();
+    });
+
+    it('should use validated session user for sale persistence and audit instead of payload userId', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce({
+            userId: 'session-user-999',
+            role: 'ADMIN',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Actor Real',
+            tokenVersion: 2,
+            sessionToken: 'session-token-actor',
+        });
+
+        mockQuery
+            .mockResolvedValueOnce({}) // BEGIN
+            .mockResolvedValueOnce({ rows: [{ id: 'session-1' }] }) // Session check
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: validSaleParams.items[0].batch_id,
+                    quantity_real: 100,
+                    sku: 'PARA-500',
+                }]
+            }) // Stock check
+            .mockResolvedValueOnce({}) // Insert sale
+            .mockResolvedValueOnce({}) // Insert item
+            .mockResolvedValueOnce({}) // Update stock
+            .mockResolvedValueOnce({}) // Update customer points
+            .mockResolvedValueOnce({}) // Audit log
+            .mockResolvedValueOnce({}); // COMMIT
+
+        const result = await createSaleSecure({
+            ...validSaleParams,
+            userId: 'payload-user-legacy',
+        });
+
+        expect(result.success).toBe(true);
+
+        const saleInsertCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO sales')
+        );
+        expect(saleInsertCall?.[1]?.[4]).toBe('session-user-999');
+
+        const auditCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO audit_log')
+        );
+        expect(auditCall?.[1]?.[0]).toBe('session-user-999');
     });
 
     it('should handle lock errors gracefully', async () => {
@@ -515,6 +583,14 @@ describe('Sales V2 - refundSaleSecure', () => {
 describe('Sales V2 - getSalesHistory', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mockGetValidatedSession.mockResolvedValue({
+            userId: VALID_USER_ID,
+            role: 'ADMIN',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Admin Historial',
+            tokenVersion: 1,
+            sessionToken: 'session-token-history',
+        });
     });
 
     afterEach(() => {
@@ -624,6 +700,14 @@ describe('Sales V2 - Security Features', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockQuery.mockResolvedValue({ rows: [] });
+        mockGetValidatedSession.mockResolvedValue({
+            userId: VALID_USER_ID,
+            role: 'ADMIN',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Admin Seguridad',
+            tokenVersion: 1,
+            sessionToken: 'session-token-security',
+        });
     });
 
     afterEach(() => {

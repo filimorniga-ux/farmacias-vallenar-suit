@@ -20,6 +20,7 @@ import { query } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
+import { getValidatedSession } from '@/lib/server-session';
 
 // =====================================================
 // SCHEMAS DE VALIDACIÓN
@@ -278,18 +279,31 @@ export async function createSaleSecure(params: {
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
+    const session = await getValidatedSession();
+    if (!session) {
+        return { success: false, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
+    }
+
     const {
-        locationId, terminalId, sessionId, userId, items, paymentMethod,
+        locationId, terminalId, sessionId, userId: requestedUserId, items, paymentMethod,
         customerRut, customerName, dteFolio, dteType, pointsRedeemed = 0,
         pointsDiscount = 0, transferId, notes, queueTicketId
     } = params;
+    const actorUserId = session.userId;
+
+    if (requestedUserId && requestedUserId !== actorUserId) {
+        logger.warn(
+            { requestedUserId, actorUserId },
+            'Ignoring payload userId in createSaleSecure; using validated session user'
+        );
+    }
 
     const { pool } = await import('@/lib/db');
     const { v4: uuidv4 } = await import('uuid');
     const client = await pool.connect();
 
     try {
-        logger.info({ terminalId, sessionId, userId, itemCount: items.length }, '🛒 [Sales v2] Starting secure sale');
+        logger.info({ terminalId, sessionId, userId: actorUserId, itemCount: items.length }, '🛒 [Sales v2] Starting secure sale');
 
         // --- INICIO DE TRANSACCIÓN SERIALIZABLE ---
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
@@ -540,7 +554,7 @@ export async function createSaleSecure(params: {
                 $18
             )
         `, [
-            saleId, locationId, terminalId, sessionId, userId,
+            saleId, locationId, terminalId, sessionId, actorUserId,
             customerRut || null, customerName || null, totalAmount, totalAmount, subtotal,
             totalDiscount, pointsDiscount, paymentMethod,
             dteFolio || null, dteType || 'BOLETA', transferId || null, notes || null,
@@ -616,7 +630,7 @@ export async function createSaleSecure(params: {
 
         // 9. Registrar auditoría
         await insertSaleAudit(client, {
-            userId,
+            userId: actorUserId,
             sessionId,
             terminalId,
             locationId,
