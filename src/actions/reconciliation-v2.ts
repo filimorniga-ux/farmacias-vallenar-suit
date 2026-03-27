@@ -28,6 +28,13 @@ import { pool } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
+import {
+    getActorOrFail,
+    PinRbacError,
+    ROLE_GROUPS,
+    requireRole,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -61,10 +68,7 @@ const GetHistorySchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
-const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
 const LARGE_DISCREPANCY_THRESHOLD = 50000; // CLP - requires admin approval
-const BCRYPT_ROUNDS = 10;
 
 // ============================================================================
 // TYPES
@@ -100,52 +104,59 @@ async function getClientIP(): Promise<string> {
 /**
  * Validate manager PIN with bcrypt
  */
-async function validateManagerPin(client: any, pin: string, requiredRoles: readonly string[] = MANAGER_ROLES): Promise<{
+async function requireReconciliationActor(
+    allowedRoles?: readonly string[],
+    forbiddenMessage = 'Permisos insuficientes'
+): Promise<
+    | { success: true; actor: Awaited<ReturnType<typeof getActorOrFail>> }
+    | { success: false; error: string }
+> {
+    try {
+        const actor = await getActorOrFail();
+        if (allowedRoles) {
+            requireRole(actor, allowedRoles);
+        }
+
+        return { success: true, actor };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return {
+                success: false,
+                error: error.code === 'AUTH_FORBIDDEN' ? forbiddenMessage : 'No autenticado',
+            };
+        }
+
+        throw error;
+    }
+}
+
+async function validateReconciliationPin(
+    client: any,
+    pin: string,
+    requiredRoles: readonly string[]
+): Promise<{
     valid: boolean;
-    manager?: { id: string; name: string; role: string };
+    authorizer?: { id: string; name: string; role: string };
     error?: string;
 }> {
     try {
-        const bcrypt = await import('bcryptjs');
+        const result = await validatePinForRoles(client, pin, requiredRoles, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        const managersRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE role = ANY($1::text[])
-            AND is_active = true
-        `, [requiredRoles]);
-
-        if (managersRes.rows.length === 0) {
-            return { valid: false, error: 'No hay managers activos' };
+        if (!result.valid) {
+            return { valid: false, error: result.error || 'PIN inválido' };
         }
 
-        // Try to match PIN with any manager
-        for (const manager of managersRes.rows) {
-            let pinValid = false;
-
-            if (manager.access_pin_hash) {
-                // Secure: bcrypt comparison
-                pinValid = await bcrypt.compare(pin, manager.access_pin_hash);
-            } else if (manager.access_pin) {
-                // Legacy fallback
-                const crypto = await import('crypto');
-                const inputBuffer = Buffer.from(pin);
-                const storedBuffer = Buffer.from(manager.access_pin);
-
-                if (inputBuffer.length === storedBuffer.length) {
-                    pinValid = crypto.timingSafeEqual(inputBuffer, storedBuffer);
-                }
-            }
-
-            if (pinValid) {
-                return {
-                    valid: true,
-                    manager: { id: manager.id, name: manager.name, role: manager.role }
-                };
-            }
-        }
-
-        return { valid: false, error: 'PIN de manager inválido' };
+        return {
+            valid: true,
+            authorizer: {
+                id: result.authorizedBy.id,
+                name: result.authorizedBy.name,
+                role: result.authorizedBy.role,
+            },
+        };
     } catch (error) {
         console.error('[RECONCILIATION-V2] PIN validation error:', error);
         return { valid: false, error: 'Error validando PIN' };
@@ -193,6 +204,14 @@ export async function calculateDiscrepancySecure(sessionId: string): Promise<{
     data?: ReconciliationResult;
     error?: string;
 }> {
+    const auth = await requireReconciliationActor(
+        ROLE_GROUPS.MANAGER,
+        'Solo managers pueden consultar discrepancias'
+    );
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     // Validate input
     const validated = UUIDSchema.safeParse(sessionId);
     if (!validated.success) {
@@ -283,6 +302,14 @@ export async function performReconciliationSecure(data: z.infer<typeof PerformRe
     data?: ReconciliationResult;
     error?: string;
 }> {
+    const auth = await requireReconciliationActor(
+        ROLE_GROUPS.MANAGER,
+        'Solo managers pueden conciliar sesiones'
+    );
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     // 1. Validate input
     const validated = PerformReconciliationSchema.safeParse(data);
     if (!validated.success) {
@@ -298,7 +325,7 @@ export async function performReconciliationSecure(data: z.infer<typeof PerformRe
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // 2. Validate manager PIN
-        const pinCheck = await validateManagerPin(client, validated.data.managerPin);
+        const pinCheck = await validateReconciliationPin(client, validated.data.managerPin, ROLE_GROUPS.MANAGER);
         if (!pinCheck.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: pinCheck.error };
@@ -363,14 +390,14 @@ export async function performReconciliationSecure(data: z.infer<typeof PerformRe
             realAmount,
             difference,
             ` | [CONCILIADO ${new Date().toISOString()}]: ${validated.data.managerNotes}`,
-            pinCheck.manager!.id,
+            auth.actor.userId,
             validated.data.sessionId
         ]);
 
         // 6. Mandatory audit log (will throw if fails)
         await insertReconciliationAudit(client, {
             actionCode: 'SESSION_RECONCILED',
-            userId: pinCheck.manager!.id,
+            userId: auth.actor.userId,
             sessionId: validated.data.sessionId,
             oldValues: {
                 closing_amount: oldClosingAmount,
@@ -381,7 +408,8 @@ export async function performReconciliationSecure(data: z.infer<typeof PerformRe
                 closing_amount: realAmount,
                 difference,
                 expected_amount: expectedAmount,
-                reconciled_by: pinCheck.manager!.name,
+                reconciled_by: auth.actor.userName,
+                authorized_by: pinCheck.authorizer?.name,
                 requires_admin_approval: requiresApproval
             },
             notes: validated.data.managerNotes
@@ -427,6 +455,14 @@ export async function approveReconciliationSecure(data: z.infer<typeof ApproveRe
     success: boolean;
     error?: string;
 }> {
+    const auth = await requireReconciliationActor(
+        ROLE_GROUPS.ADMIN,
+        'Solo administradores pueden aprobar conciliaciones'
+    );
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     // 1. Validate input
     const validated = ApproveReconciliationSchema.safeParse(data);
     if (!validated.success) {
@@ -442,7 +478,7 @@ export async function approveReconciliationSecure(data: z.infer<typeof ApproveRe
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // 2. Validate ADMIN PIN (stricter than manager)
-        const pinCheck = await validateManagerPin(client, validated.data.adminPin, ADMIN_ROLES);
+        const pinCheck = await validateReconciliationPin(client, validated.data.adminPin, ROLE_GROUPS.ADMIN);
         if (!pinCheck.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: 'PIN de administrador inválido' };
@@ -480,19 +516,20 @@ export async function approveReconciliationSecure(data: z.infer<typeof ApproveRe
             WHERE id = $3
         `, [
             ` | [APROBADO ${new Date().toISOString()}]: ${validated.data.approvalNotes}`,
-            pinCheck.manager!.id,
+            auth.actor.userId,
             validated.data.sessionId
         ]);
 
         // 5. Audit
         await insertReconciliationAudit(client, {
             actionCode: 'RECONCILIATION_APPROVED',
-            userId: pinCheck.manager!.id,
+            userId: auth.actor.userId,
             sessionId: validated.data.sessionId,
             oldValues: { status: 'RECONCILED' },
             newValues: {
                 status: 'APPROVED',
-                approved_by: pinCheck.manager!.name,
+                approved_by: auth.actor.userName,
+                authorized_by: pinCheck.authorizer?.name,
                 discrepancy: session.difference
             },
             notes: validated.data.approvalNotes
@@ -531,6 +568,14 @@ export async function getReconciliationHistorySecure(filters?: z.infer<typeof Ge
     };
     error?: string;
 }> {
+    const auth = await requireReconciliationActor(
+        ROLE_GROUPS.MANAGER,
+        'Solo managers pueden ver el historial de conciliaciones'
+    );
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     // 1. Validate filters
     const validated = GetHistorySchema.safeParse(filters || {});
     if (!validated.success) {
