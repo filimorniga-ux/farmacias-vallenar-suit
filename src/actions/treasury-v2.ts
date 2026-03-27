@@ -20,6 +20,16 @@ import { query } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
+import {
+    getActorOrFail,
+    normalizeRole,
+    PinRbacError,
+    requireRole,
+    ROLE_GROUPS,
+    validatePinForRoles,
+    validatePinForUser,
+    type PinAuthorizedUser,
+} from '@/lib/pin-rbac';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DBRow = any;
@@ -149,12 +159,6 @@ const ERROR_MESSAGES = {
     SERIALIZATION_ERROR: 'Conflicto de concurrencia. Por favor reintente.',
 } as const;
 
-// Roles que pueden autorizar operaciones financieras sensibles
-const AUTHORIZED_ROLES = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'TESORERO'] as const;
-
-// Roles con acceso a todas las ubicaciones
-const MANAGER_ROLES = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'QF'] as const;
-
 // Montos que requieren autorización de gerente
 const AUTHORIZATION_THRESHOLDS = {
     TRANSFER: 500000,      // Transferencias > $500,000
@@ -166,114 +170,85 @@ const AUTHORIZATION_THRESHOLDS = {
 // HELPERS
 // =====================================================
 
-/**
- * Helper para obtener sesión del usuario actual
- * @returns Datos de sesión o null si no autenticado
- */
-async function getSession(): Promise<{ userId: string; role: string; locationId?: string } | null> {
-    try {
-        // Importación dinámica para evitar problemas de ciclos
-        const { cookies } = await import('next/headers');
-        const cookieStore = await cookies();
-        const sessionToken = cookieStore.get('session_token')?.value;
+type TreasuryActor = Awaited<ReturnType<typeof getActorOrFail>>;
 
-        if (!sessionToken) return null;
-
-        // Buscar sesión activa en DB
-        const res = await query(
-            `SELECT u.id as "userId", u.role, u.assigned_location_id as "locationId"
-             FROM sessions s
-             JOIN users u ON s.user_id = u.id
-             WHERE s.token = $1 AND s.expires_at > NOW()`,
-            [sessionToken]
-        );
-
-        if (res.rows.length === 0) return null;
-        return res.rows[0];
-    } catch (error) {
-        logger.error({ error }, '[Treasury] getSession error');
-        return null;
-    }
+function canAccessAllLocations(role: string | null | undefined) {
+    const normalizedRole = normalizeRole(role);
+    return ROLE_GROUPS.OVERRIDE.some((allowedRole) => allowedRole === normalizedRole);
 }
 
-/**
- * Helper para obtener sesión segura (reemplaza getSession interno)
- */
-async function getFullSessionSecure() {
-    const { getSessionSecure } = await import('@/actions/auth-v2');
-    return await getSessionSecure();
-}
-
-/**
- * Valida PIN de un usuario autorizado usando bcrypt
- */
-async function validateAuthorizationPin(
-    client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: DBRow[] }> },
-    pin: string,
-    requiredRoles: readonly string[] = AUTHORIZED_ROLES
-): Promise<{ valid: boolean; authorizedBy?: { id: string; name: string; role: string }; error?: string }> {
+async function resolveTreasuryActor(options?: {
+    allowedRoles?: readonly string[];
+    unauthorizedMessage?: string;
+    forbiddenMessage?: string;
+}): Promise<{ ok: true; actor: TreasuryActor } | { ok: false; error: string }> {
     try {
-        // Rate limiting import
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
-        const bcrypt = await import('bcryptjs');
+        const actor = await getActorOrFail();
 
-        // Buscar usuarios con roles autorizados
-        const usersRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE role = ANY($1::text[])
-            AND is_active = true
-        `, [requiredRoles]);
-
-        for (const user of usersRes.rows) {
-            // Verificar rate limit ANTES de comparar PIN
-            const rateCheck = checkRateLimit(user.id);
-            if (!rateCheck.allowed) {
-                logger.warn({
-                    userId: user.id,
-                    blockedUntil: rateCheck.blockedUntil
-                }, '🚫 [Treasury] Usuario bloqueado por rate limit');
-
-                return {
-                    valid: false,
-                    error: rateCheck.reason || 'Usuario temporalmente bloqueado'
-                };
-            }
-
-            // Primero intentar con bcrypt hash
-            if (user.access_pin_hash) {
-                const isValid = await bcrypt.compare(pin, user.access_pin_hash);
-                if (isValid) {
-                    // PIN correcto - resetear intentos
-                    resetAttempts(user.id);
-                    return {
-                        valid: true,
-                        authorizedBy: { id: user.id, name: user.name, role: user.role }
-                    };
-                } else {
-                    // PIN incorrecto - registrar intento fallido
-                    recordFailedAttempt(user.id);
-                }
-            }
-            // Fallback: PIN legacy (para usuarios no migrados)
-            else if (user.access_pin && user.access_pin === pin) {
-                logger.warn({ userId: user.id }, '⚠️ Treasury: Using legacy plaintext PIN - user should be migrated');
-                resetAttempts(user.id);
-                return {
-                    valid: true,
-                    authorizedBy: { id: user.id, name: user.name, role: user.role }
-                };
-            } else {
-                // PIN incorrecto - registrar intento fallido
-                recordFailedAttempt(user.id);
-            }
+        if (options?.allowedRoles) {
+            return {
+                ok: true,
+                actor: requireRole(actor, options.allowedRoles),
+            };
         }
 
-        return { valid: false, error: 'PIN de autorización inválido' };
-    } catch (error: unknown) {
-        logger.error({ error }, 'Error validating authorization PIN');
-        return { valid: false, error: 'Error validando PIN' };
+        return { ok: true, actor };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            if (error.code === 'AUTH_FORBIDDEN') {
+                return { ok: false, error: options?.forbiddenMessage || 'Acceso denegado' };
+            }
+
+            return { ok: false, error: options?.unauthorizedMessage || 'No autenticado' };
+        }
+
+        throw error;
     }
+}
+
+async function validateTreasuryPinForRoles(
+    client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: DBRow[] }> },
+    pin: string,
+    allowedRoles: readonly string[] = ROLE_GROUPS.TREASURY_AUTH
+): Promise<{ valid: boolean; authorizedBy?: PinAuthorizedUser; error?: string }> {
+    const result = await validatePinForRoles(client, pin, allowedRoles, {
+        allowLegacyPlaintext: true,
+        useRateLimiter: true,
+    });
+
+    if (result.valid) {
+        return { valid: true, authorizedBy: result.authorizedBy };
+    }
+
+    return {
+        valid: false,
+        error: result.code === 'PIN_RATE_LIMITED'
+            ? result.error
+            : ERROR_MESSAGES.INVALID_PIN,
+    };
+}
+
+async function validateTreasuryPinForUser(
+    client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: DBRow[] }> },
+    userId: string,
+    pin: string
+): Promise<{ valid: boolean; authorizedBy?: PinAuthorizedUser; error?: string }> {
+    const result = await validatePinForUser(client, userId, pin, {
+        allowLegacyPlaintext: true,
+        useRateLimiter: true,
+        requiredMatchUserId: userId,
+    });
+
+    if (result.valid) {
+        return { valid: true, authorizedBy: result.authorizedBy };
+    }
+
+    return {
+        valid: false,
+        error: result.code === 'PIN_RATE_LIMITED'
+            ? result.error
+            : ERROR_MESSAGES.INVALID_PIN,
+    };
 }
 
 /**
@@ -353,12 +328,11 @@ export async function transferFundsSecure(params: {
     authorizationPin?: string;
 }): Promise<{ success: boolean; transferId?: string; error?: string }> {
 
-    // 0. Obtener sesión segura
-    const session = await getFullSessionSecure();
-    if (!session || !session.userId) {
-        return { success: false, error: 'No autenticado' };
+    const actorResult = await resolveTreasuryActor({ unauthorizedMessage: 'No autenticado' });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
     }
-    const userId = session.userId;
+    const userId = actorResult.actor.userId;
 
     // 1. Validación de entrada
 
@@ -389,7 +363,7 @@ export async function transferFundsSecure(params: {
         // 3. Validar autorización si es necesario
         let authorizedBy: { id: string; name: string; role: string } | undefined;
         if (requiresAuthorization && authorizationPin) {
-            const authResult = await validateAuthorizationPin(client, authorizationPin);
+            const authResult = await validateTreasuryPinForRoles(client, authorizationPin);
             if (!authResult.valid) {
                 await client.query('ROLLBACK');
                 logger.warn({ userId, amount }, '🚫 Treasury transfer: PIN validation failed');
@@ -537,12 +511,11 @@ export async function depositToBankSecure(params: {
 
     const { safeId, amount, authorizationPin, bankAccountId } = params;
 
-    // 1b. Obtener sesión segura
-    const session = await getFullSessionSecure();
-    if (!session || !session.userId) {
-        return { success: false, error: 'No autenticado' };
+    const actorResult = await resolveTreasuryActor({ unauthorizedMessage: 'No autenticado' });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
     }
-    const userId = session.userId;
+    const userId = actorResult.actor.userId;
 
     const { pool } = await import('@/lib/db');
     const { v4: uuidv4 } = await import('uuid');
@@ -554,7 +527,7 @@ export async function depositToBankSecure(params: {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // 2. Validar autorización (siempre requerida para depósitos bancarios)
-        const authResult = await validateAuthorizationPin(client, authorizationPin);
+        const authResult = await validateTreasuryPinForRoles(client, authorizationPin);
         if (!authResult.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: ERROR_MESSAGES.INVALID_PIN };
@@ -685,11 +658,15 @@ export async function confirmRemittanceSecure(params: {
 
     const { remittanceId, managerPin } = params;
 
-    const session = await getFullSessionSecure();
-    if (!session || !session.userId) {
-        return { success: false, error: 'No autenticado' };
+    const actorResult = await resolveTreasuryActor({
+        allowedRoles: ROLE_GROUPS.MANAGER,
+        unauthorizedMessage: 'No autenticado',
+        forbiddenMessage: ERROR_MESSAGES.UNAUTHORIZED,
+    });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
     }
-    const managerId = session.userId;
+    const managerId = actorResult.actor.userId;
 
     const { pool } = await import('@/lib/db');
     const { v4: uuidv4 } = await import('uuid');
@@ -701,16 +678,10 @@ export async function confirmRemittanceSecure(params: {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // 2. Validar PIN de gerente
-        const authResult = await validateAuthorizationPin(client, managerPin, ['MANAGER', 'ADMIN', 'GERENTE_GENERAL']);
+        const authResult = await validateTreasuryPinForUser(client, managerId, managerPin);
         if (!authResult.valid) {
             await client.query('ROLLBACK');
-            return { success: false, error: ERROR_MESSAGES.INVALID_PIN };
-        }
-
-        // Verificar que el managerId coincide con el autorizado
-        if (authResult.authorizedBy?.id !== managerId) {
-            await client.query('ROLLBACK');
-            return { success: false, error: 'El PIN no corresponde al usuario' };
+            return { success: false, error: authResult.error || ERROR_MESSAGES.INVALID_PIN };
         }
 
         // 3. Bloquear y verificar remesa
@@ -820,12 +791,11 @@ export async function createCashMovementSecure(params: {
     authorizationPin?: string;
 }): Promise<{ success: boolean; movementId?: string; error?: string }> {
 
-    // 0. Obtener sesión segurate
-    const session = await getFullSessionSecure();
-    if (!session || !session.userId) {
-        return { success: false, error: 'No autenticado' };
+    const actorResult = await resolveTreasuryActor({ unauthorizedMessage: 'No autenticado' });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
     }
-    const userId = session.userId;
+    const userId = actorResult.actor.userId;
 
     // 1. Validación
     const validation = CashMovementSchema.safeParse(params);
@@ -856,7 +826,7 @@ export async function createCashMovementSecure(params: {
         // 3. Validar autorización si es necesario
         let authorizedBy: { id: string; name: string; role: string } | undefined;
         if (requiresAuthorization && authorizationPin) {
-            const authResult = await validateAuthorizationPin(client, authorizationPin);
+            const authResult = await validateTreasuryPinForRoles(client, authorizationPin);
             if (!authResult.valid) {
                 await client.query('ROLLBACK');
                 return { success: false, error: ERROR_MESSAGES.INVALID_PIN };
@@ -962,6 +932,11 @@ export async function getTransactionHistory(
 
     const { limit = 50, offset = 0, startDate, endDate } = options;
 
+    const actorResult = await resolveTreasuryActor({ unauthorizedMessage: 'No autorizado' });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
+    }
+
     try {
         let whereClause = 'WHERE account_id = $1';
         const params: QueryParam[] = [accountId];
@@ -1019,6 +994,11 @@ export async function getFinancialSummary(locationId: string): Promise<{
 }> {
     if (!z.string().uuid().safeParse(locationId).success) {
         return { success: false, error: 'ID de sucursal inválido' };
+    }
+
+    const actorResult = await resolveTreasuryActor({ unauthorizedMessage: 'No autorizado' });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
     }
 
     try {
@@ -1097,17 +1077,15 @@ export async function getRemittanceHistorySecure(
 ): Promise<{ success: boolean; data?: RemittanceHistoryItem[]; error?: string }> {
 
     // 1. Autenticación segura
-    const session = await getFullSessionSecure();
-    if (!session || !session.userId) {
-        return { success: false, error: 'No autenticado' };
+    const actorResult = await resolveTreasuryActor({
+        allowedRoles: ROLE_GROUPS.OVERRIDE,
+        unauthorizedMessage: 'No autenticado',
+        forbiddenMessage: 'Acceso denegado',
+    });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
     }
-    const { userId, role: userRole } = session;
-
-    // RBAC: MANAGER_ROLES
-    const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'];
-    if (!MANAGER_ROLES.includes(userRole || '')) {
-        return { success: false, error: 'Acceso denegado' };
-    }
+    const { userId } = actorResult.actor;
 
     try {
         let sql = `
@@ -1170,17 +1148,16 @@ export async function getFinancialAccountsSecure(
     locationId: string
 ): Promise<{ success: boolean; data?: FinancialAccount[]; error?: string }> {
     try {
-        // Validación de sesión
-        const session = await getSession();
-        if (!session) {
-            return { success: false, error: 'No autorizado' };
+        const actorResult = await resolveTreasuryActor({ unauthorizedMessage: 'No autorizado' });
+        if (!actorResult.ok) {
+            return { success: false, error: actorResult.error };
         }
 
         // RBAC: Solo gerentes pueden ver todas las ubicaciones
         // Cajeros/vendedores solo ven su ubicación
-        const effectiveLocationId = MANAGER_ROLES.includes(session.role as typeof MANAGER_ROLES[number])
+        const effectiveLocationId = canAccessAllLocations(actorResult.actor.role)
             ? locationId
-            : session.locationId || locationId;
+            : actorResult.actor.locationId || locationId;
 
         const res = await query(
             `SELECT id, location_id, name, type, balance, is_active 
@@ -1207,10 +1184,9 @@ export async function getTreasuryTransactionsSecure(
     limit: number = 50
 ): Promise<{ success: boolean; data?: TreasuryTransaction[]; error?: string }> {
     try {
-        // Validación de sesión
-        const session = await getSession();
-        if (!session) {
-            return { success: false, error: 'No autorizado' };
+        const actorResult = await resolveTreasuryActor({ unauthorizedMessage: 'No autorizado' });
+        if (!actorResult.ok) {
+            return { success: false, error: actorResult.error };
         }
 
         // Validar UUID
@@ -1247,16 +1223,15 @@ export async function getPendingRemittancesSecure(
     locationId: string
 ): Promise<{ success: boolean; data?: Remittance[]; error?: string }> {
     try {
-        // Validación de sesión
-        const session = await getSession();
-        if (!session) {
-            return { success: false, error: 'No autorizado' };
+        const actorResult = await resolveTreasuryActor({ unauthorizedMessage: 'No autorizado' });
+        if (!actorResult.ok) {
+            return { success: false, error: actorResult.error };
         }
 
         // RBAC: Solo gerentes pueden ver todas las ubicaciones
-        const effectiveLocationId = MANAGER_ROLES.includes(session.role as typeof MANAGER_ROLES[number])
+        const effectiveLocationId = canAccessAllLocations(actorResult.actor.role)
             ? locationId
-            : session.locationId || locationId;
+            : actorResult.actor.locationId || locationId;
 
         const res = await query(
             `SELECT id, location_id, source_terminal_id, amount, status, created_at, created_by
@@ -1275,7 +1250,7 @@ export async function getPendingRemittancesSecure(
     }
 }
 
-// NOTE: AUTHORIZATION_THRESHOLDS y AUTHORIZED_ROLES son constantes internas
+// NOTE: AUTHORIZATION_THRESHOLDS es constante interna
 // Next.js 16 "use server" solo permite exportar async functions
 
 // =====================================================
@@ -1358,11 +1333,22 @@ export async function createAccountPayableSecure(
         return { success: false, error: validated.error.issues[0]?.message || 'Datos inválidos' };
     }
 
+    const actorResult = await resolveTreasuryActor({
+        allowedRoles: ROLE_GROUPS.OVERRIDE,
+        unauthorizedMessage: 'No autorizado',
+        forbiddenMessage: 'Acceso denegado',
+    });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
+    }
+
     const {
         supplierId, invoiceNumber, invoiceType, issueDate, dueDate,
         netAmount, taxAmount, totalAmount, locationId, purchaseOrderId,
-        expenseCategory, notes, userId
+        expenseCategory, notes, userId: _legacyUserId
     } = validated.data;
+    void _legacyUserId;
+    const userId = actorResult.actor.userId;
 
     try {
         // Verificar que el proveedor existe
@@ -1438,10 +1424,21 @@ export async function registerAccountPayablePaymentSecure(
         return { success: false, error: validated.error.issues[0]?.message || 'Datos inválidos' };
     }
 
+    const actorResult = await resolveTreasuryActor({
+        allowedRoles: ROLE_GROUPS.OVERRIDE,
+        unauthorizedMessage: 'No autorizado',
+        forbiddenMessage: 'Acceso denegado',
+    });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
+    }
+
     const {
         accountPayableId, amount, paymentMethod, paymentDate,
-        referenceNumber, bankAccountId, notes, userId
+        referenceNumber, bankAccountId, notes, userId: _legacyUserId
     } = validated.data;
+    void _legacyUserId;
+    const userId = actorResult.actor.userId;
 
     try {
         // Obtener cuenta por pagar
@@ -1540,14 +1537,13 @@ export async function getAccountsPayableSecure(
 ): Promise<{ success: boolean; data?: AccountPayable[]; total?: number; error?: string }> {
 
     try {
-        const session = await getSession();
-        if (!session) {
-            return { success: false, error: 'No autorizado' };
-        }
-
-        // Solo gerentes pueden ver todas las cuentas
-        if (!MANAGER_ROLES.includes(session.role as typeof MANAGER_ROLES[number])) {
-            return { success: false, error: 'Acceso denegado' };
+        const actorResult = await resolveTreasuryActor({
+            allowedRoles: ROLE_GROUPS.OVERRIDE,
+            unauthorizedMessage: 'No autorizado',
+            forbiddenMessage: 'Acceso denegado',
+        });
+        if (!actorResult.ok) {
+            return { success: false, error: actorResult.error };
         }
 
         let whereClause = 'WHERE 1=1';
@@ -1649,9 +1645,13 @@ export async function getAccountsPayableSummarySecure(
     error?: string;
 }> {
     try {
-        const session = await getSession();
-        if (!session) {
-            return { success: false, error: 'No autorizado' };
+        const actorResult = await resolveTreasuryActor({
+            allowedRoles: ROLE_GROUPS.OVERRIDE,
+            unauthorizedMessage: 'No autorizado',
+            forbiddenMessage: 'Acceso denegado',
+        });
+        if (!actorResult.ok) {
+            return { success: false, error: actorResult.error };
         }
 
         const locationFilter = locationId ? 'AND location_id = $1' : '';
@@ -1744,6 +1744,18 @@ export async function cancelAccountPayableSecure(
         return { success: false, error: 'Motivo de anulación requerido (mínimo 10 caracteres)' };
     }
 
+    const actorResult = await resolveTreasuryActor({
+        allowedRoles: ROLE_GROUPS.OVERRIDE,
+        unauthorizedMessage: 'No autorizado',
+        forbiddenMessage: 'Acceso denegado',
+    });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
+    }
+
+    const actorUserId = actorResult.actor.userId;
+    void userId;
+
     try {
         // Verificar que existe y no tiene pagos
         const apRes = await query(
@@ -1776,7 +1788,7 @@ export async function cancelAccountPayableSecure(
         await query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, new_values)
             VALUES ($1, 'AP_CANCELLED', 'ACCOUNT_PAYABLE', $2, $3::jsonb, $4::jsonb)
-        `, [userId, accountPayableId, JSON.stringify(ap), JSON.stringify({ reason })]);
+        `, [actorUserId, accountPayableId, JSON.stringify(ap), JSON.stringify({ reason })]);
 
         logger.info({ accountPayableId, reason }, '✅ Cuenta por pagar anulada');
 
@@ -1800,6 +1812,15 @@ export async function getAccountPayablePaymentsSecure(
 
     if (!z.string().uuid().safeParse(accountPayableId).success) {
         return { success: false, error: 'ID inválido' };
+    }
+
+    const actorResult = await resolveTreasuryActor({
+        allowedRoles: ROLE_GROUPS.OVERRIDE,
+        unauthorizedMessage: 'No autorizado',
+        forbiddenMessage: 'Acceso denegado',
+    });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
     }
 
     try {
