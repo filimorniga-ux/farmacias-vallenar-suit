@@ -21,6 +21,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { createNotificationSecure } from '@/actions/notifications-v2';
+import { getValidatedSession } from '@/lib/server-session';
 
 // =====================================================
 // SCHEMAS DE VALIDACIÓN
@@ -116,6 +117,26 @@ const AUTHORIZATION_THRESHOLDS = {
 // =====================================================
 // HELPERS
 // =====================================================
+
+async function resolveValidatedActor(requestedUserId?: string, action = 'inventory-operation') {
+    const session = await getValidatedSession();
+    if (!session) {
+        return { success: false as const, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
+    }
+
+    if (requestedUserId && requestedUserId !== session.userId) {
+        logger.warn(
+            { requestedUserId, actorUserId: session.userId, action },
+            'Ignoring payload userId in inventory operation; using validated session user'
+        );
+    }
+
+    return {
+        success: true as const,
+        actorUserId: session.userId,
+        session,
+    };
+}
 
 /**
  * Valida PIN de un usuario autorizado usando bcrypt
@@ -255,8 +276,13 @@ export async function createBatchSecure(params: {
     const {
         productId, sku, name, locationId, warehouseId,
         quantity, expiryDate, lotNumber, unitCost, salePrice,
-        stockMin, stockMax, userId, supplierId, invoiceNumber, invoiceDate, updateMasterPrice
+        stockMin, stockMax, userId: requestedUserId, supplierId, invoiceNumber, invoiceDate, updateMasterPrice
     } = validation.data;
+    const actor = await resolveValidatedActor(requestedUserId, 'createBatchSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const userId = actor.actorUserId;
 
     const { pool } = await import('@/lib/db');
     const { v4: uuidv4 } = await import('uuid');
@@ -431,7 +457,12 @@ export async function adjustStockSecure(params: {
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    const { batchId, adjustment, reason, userId, supervisorPin } = validation.data;
+    const { batchId, adjustment, reason, userId: requestedUserId, supervisorPin } = validation.data;
+    const actor = await resolveValidatedActor(requestedUserId, 'adjustStockSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const userId = actor.actorUserId;
 
     // 2. Verificar si requiere autorización
     const requiresAuthorization = Math.abs(adjustment) > AUTHORIZATION_THRESHOLDS.STOCK_ADJUSTMENT;
@@ -607,7 +638,12 @@ export async function transferStockSecure(params: {
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    const { sourceBatchId, targetLocationId, quantity, userId, reason } = validation.data;
+    const { sourceBatchId, targetLocationId, quantity, userId: requestedUserId, reason } = validation.data;
+    const actor = await resolveValidatedActor(requestedUserId, 'transferStockSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const userId = actor.actorUserId;
 
     const { pool } = await import('@/lib/db');
     const { v4: uuidv4 } = await import('uuid');
@@ -1066,7 +1102,12 @@ export async function clearLocationInventorySecure(params: {
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    const { locationId, userId, adminPin, confirmationCode } = validation.data;
+    const { locationId, userId: requestedUserId, adminPin, confirmationCode } = validation.data;
+    const actor = await resolveValidatedActor(requestedUserId, 'clearLocationInventorySecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const userId = actor.actorUserId;
 
     // 2. Verificar código de confirmación (debe ser "ELIMINAR-TODO")
     if (confirmationCode !== 'ELIMINAR-TODO') {
@@ -1735,14 +1776,11 @@ export async function quickStockAdjustSecure(params: {
     pin: string;
 }): Promise<{ success: boolean; newQuantity?: number; productName?: string; error?: string }> {
 
-    // 1. Validar sesión desde cookies
-    const { cookies } = await import('next/headers');
-    const cookieStore = await cookies();
-    const userId = cookieStore.get('user_id')?.value;
-
-    if (!userId) {
-        return { success: false, error: 'No autenticado' };
+    const actor = await resolveValidatedActor(undefined, 'quickStockAdjustSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
     }
+    const userId = actor.actorUserId;
 
     // 2. Validar input básico
     const { batchId, adjustment, reason, pin } = params;
@@ -1918,12 +1956,18 @@ export async function updateBatchCostSecure(params: {
     pin: string;
 }): Promise<{ success: boolean; error?: string }> {
 
-    const { batchId, newCost, userId, pin } = params;
+    const { batchId, newCost, userId: requestedUserId, pin } = params;
 
     // Validación básica
-    if (!batchId || newCost < 0 || !userId) {
+    if (!batchId || newCost < 0 || !requestedUserId) {
         return { success: false, error: 'Datos inválidos' };
     }
+
+    const actor = await resolveValidatedActor(requestedUserId, 'updateBatchCostSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const userId = actor.actorUserId;
 
     if (!pin) {
         return { success: false, error: 'Se requiere PIN de autorización' };

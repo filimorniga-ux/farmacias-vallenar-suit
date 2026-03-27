@@ -5,6 +5,8 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import * as supplyV2 from '@/actions/supply-v2';
 
+const mockGetValidatedSession = vi.fn();
+
 vi.mock('@/lib/db', () => ({
     query: vi.fn(),
     pool: {
@@ -16,9 +18,20 @@ vi.mock('@/lib/db', () => ({
 }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock('@/lib/server-session', () => ({
+    getValidatedSession: (...args: unknown[]) => mockGetValidatedSession(...args),
+}));
 
 beforeEach(() => {
     vi.clearAllMocks();
+    mockGetValidatedSession.mockResolvedValue({
+        userId: '550e8400-e29b-41d4-a716-446655440002',
+        role: 'ADMIN',
+        locationId: '550e8400-e29b-41d4-a716-446655440099',
+        userName: 'Admin Supply',
+        tokenVersion: 1,
+        sessionToken: 'supply-session-token',
+    });
 });
 
 describe('Supply V2 - Input Validation', () => {
@@ -190,7 +203,7 @@ describe('Supply V2 - UUID/Proveedor interno normalization', () => {
         expect(updateCall).toBeDefined();
         expect(String(updateCall?.[0])).toContain('approved_by = CASE WHEN $6 THEN $7 ELSE approved_by END');
         expect(updateParams[5]).toBe(true);
-        expect(updateParams[6]).toBe(userId);
+        expect(updateParams[6]).toBe('550e8400-e29b-41d4-a716-446655440002');
     });
 });
 
@@ -552,5 +565,71 @@ describe('Supply V2 - Receive PO schema compatibility', () => {
         expect(sqlCalls.some((sql) => sql.includes("SET status = 'RECEIVED'"))).toBe(true);
         expect(sqlCalls.some((sql) => sql.includes('INSERT INTO stock_movements'))).toBe(true);
         expect(clientQuery).toHaveBeenCalledWith('COMMIT');
+    });
+});
+
+describe('Supply V2 - Session contracts', () => {
+    it('should reject createPurchaseOrderSecure when validated session is missing', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce(null);
+
+        const result = await supplyV2.createPurchaseOrderSecure({
+            supplierId: '550e8400-e29b-41d4-a716-446655440000',
+            targetWarehouseId: '550e8400-e29b-41d4-a716-446655440001',
+            items: [{ sku: 'SKU-SESSION', name: 'Test', quantity: 1, cost: 100, productId: null }]
+        }, '550e8400-e29b-41d4-a716-446655440002');
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Sesión no válida');
+    });
+
+    it('should use validated session user for supply audit instead of payload userId', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce({
+            userId: '550e8400-e29b-41d4-a716-446655440888',
+            role: 'ADMIN',
+            locationId: '550e8400-e29b-41d4-a716-446655440099',
+            userName: 'Actor Supply',
+            tokenVersion: 2,
+            sessionToken: 'supply-session-2',
+        });
+
+        const mockDb = await import('@/lib/db');
+        const clientQuery = vi.fn(async (sql: string) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+                return { rows: [], rowCount: 0 } as any;
+            }
+            if (sql.includes('SELECT id FROM suppliers WHERE id = $1')) {
+                return { rows: [{ id: '550e8400-e29b-41d4-a716-446655440000' }], rowCount: 1 } as any;
+            }
+            if (sql.includes('SELECT location_id FROM warehouses WHERE id = $1')) {
+                return { rows: [{ location_id: '550e8400-e29b-41d4-a716-446655440099' }], rowCount: 1 } as any;
+            }
+            if (
+                sql.includes('INSERT INTO purchase_orders') ||
+                sql.includes('INSERT INTO purchase_order_items') ||
+                sql.includes('INSERT INTO audit_log')
+            ) {
+                return { rows: [], rowCount: 1 } as any;
+            }
+            return { rows: [], rowCount: 0 } as any;
+        });
+
+        vi.mocked(mockDb.pool.connect).mockResolvedValue({
+            query: clientQuery,
+            release: vi.fn()
+        } as any);
+
+        const result = await supplyV2.createPurchaseOrderSecure({
+            supplierId: '550e8400-e29b-41d4-a716-446655440000',
+            targetWarehouseId: '550e8400-e29b-41d4-a716-446655440001',
+            items: [{ sku: 'SKU-AUDIT', name: 'Audit', quantity: 2, cost: 500, productId: null }]
+        }, '550e8400-e29b-41d4-a716-446655440002');
+
+        expect(result.success).toBe(true);
+
+        const auditCall = clientQuery.mock.calls.find(
+            ([sql]) => String(sql).includes('INSERT INTO audit_log')
+        ) as unknown[] | undefined;
+        const auditParams = (auditCall?.[1] as unknown[]) || [];
+        expect(auditParams[0]).toBe('550e8400-e29b-41d4-a716-446655440888');
     });
 });

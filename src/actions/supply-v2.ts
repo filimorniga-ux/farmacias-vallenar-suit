@@ -15,6 +15,7 @@ import { logger } from '@/lib/logger';
 import bcrypt from 'bcryptjs';
 import { ExcelService } from '@/lib/excel-generator';
 import { formatDateCL, formatDateTimeCL } from '@/lib/timezone';
+import { getValidatedSession } from '@/lib/server-session';
 
 // ============================================================================
 // SCHEMAS
@@ -118,6 +119,26 @@ const ExportSupplyHistorySchema = z.object({
 
 const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
 const PIN_THRESHOLD_CLP = 500000; // Requiere PIN para > $500,000
+
+async function resolveValidatedActor(requestedUserId?: string, action = 'supply-operation') {
+    const session = await getValidatedSession();
+    if (!session) {
+        return { success: false as const, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
+    }
+
+    if (requestedUserId && requestedUserId !== session.userId) {
+        logger.warn(
+            { requestedUserId, actorUserId: session.userId, action },
+            'Ignoring payload userId in supply operation; using validated session user'
+        );
+    }
+
+    return {
+        success: true as const,
+        actorUserId: session.userId,
+        session,
+    };
+}
 
 // ============================================================================
 // HELPERS
@@ -489,6 +510,12 @@ export async function createPurchaseOrderSecure(
         return { success: false, error: 'ID de usuario inválido' };
     }
 
+    const actor = await resolveValidatedActor(userId, 'createPurchaseOrderSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const actorUserId = actor.actorUserId;
+
     const validated = CreatePOSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
@@ -546,7 +573,7 @@ export async function createPurchaseOrderSecure(
         }
 
         await insertSupplyAuditSafe(client, {
-            userId,
+            userId: actorUserId,
             actionCode: 'PO_CREATED',
             entityType: 'PURCHASE_ORDER',
             entityId: poId,
@@ -554,7 +581,7 @@ export async function createPurchaseOrderSecure(
         });
 
         await client.query('COMMIT');
-        logger.info({ poId, userId }, '📦 [Supply] PO created');
+        logger.info({ poId, userId: actorUserId }, '📦 [Supply] PO created');
         revalidatePath('/supply-chain');
         revalidatePath('/warehouse');
         revalidatePath('/logistica'); // Fallback
@@ -585,6 +612,12 @@ export async function receivePurchaseOrderSecure(
     if (!purchaseOrderId || !userId || !UUIDSchema.safeParse(userId).success) {
         return { success: false, error: 'IDs inválidos' };
     }
+
+    const actor = await resolveValidatedActor(userId, 'receivePurchaseOrderSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const actorUserId = actor.actorUserId;
 
     const client = await pool.connect();
     try {
@@ -712,7 +745,7 @@ export async function receivePurchaseOrderSecure(
             purchaseOrderId,
             warehouseId,
             locationId,
-            userId,
+            userId: actorUserId,
             movementType,
             items: receivedItemsForInventory,
         });
@@ -727,10 +760,10 @@ export async function receivePurchaseOrderSecure(
             SET status = 'REVIEW',
                 received_by = $2::uuid
             WHERE id = $1
-        `, [purchaseOrderId, userId]);
+        `, [purchaseOrderId, actorUserId]);
 
         await insertSupplyAuditSafe(client, {
-            userId,
+            userId: actorUserId,
             actionCode: 'PURCHASE_ORDER_RECEIVED',
             entityType: 'PURCHASE_ORDER',
             entityId: purchaseOrderId,
@@ -763,6 +796,12 @@ export async function finalizePurchaseOrderReviewSecure(
     if (!UUIDSchema.safeParse(userId).success) {
         return { success: false, error: 'ID de usuario inválido' };
     }
+
+    const actor = await resolveValidatedActor(userId, 'finalizePurchaseOrderReviewSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const actorUserId = actor.actorUserId;
 
     const validated = FinalizePOReviewSchema.safeParse(data);
     if (!validated.success) {
@@ -903,7 +942,7 @@ export async function finalizePurchaseOrderReviewSecure(
                 purchaseOrderId,
                 warehouseId,
                 locationId,
-                userId,
+                userId: actorUserId,
                 movementType,
                 items: itemsToAdjust,
             });
@@ -916,8 +955,8 @@ export async function finalizePurchaseOrderReviewSecure(
 
         const trimmedReviewNotes = typeof reviewNotes === 'string' ? reviewNotes.trim() : '';
         const reviewNoteSuffix = trimmedReviewNotes
-            ? `${po.notes ? ' | ' : ''}[REVIEW_OK][USER:${userId}] ${trimmedReviewNotes}`
-            : `${po.notes ? ' | ' : ''}[REVIEW_OK][USER:${userId}]`;
+            ? `${po.notes ? ' | ' : ''}[REVIEW_OK][USER:${actorUserId}] ${trimmedReviewNotes}`
+            : `${po.notes ? ' | ' : ''}[REVIEW_OK][USER:${actorUserId}]`;
 
         await client.query(`
             UPDATE purchase_orders
@@ -927,7 +966,7 @@ export async function finalizePurchaseOrderReviewSecure(
         `, [purchaseOrderId, reviewNoteSuffix]);
 
         await insertSupplyAuditSafe(client, {
-            userId,
+            userId: actorUserId,
             actionCode: 'PURCHASE_ORDER_REVIEW_COMPLETED',
             entityType: 'PURCHASE_ORDER',
             entityId: purchaseOrderId,
@@ -962,6 +1001,11 @@ export async function cancelPurchaseOrderSecure(orderId: string, userId: string,
         return { success: false, error: 'El motivo debe tener al menos 10 caracteres' };
     }
 
+    const actor = await resolveValidatedActor(userId, 'cancelPurchaseOrderSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+
     const client = await pool.connect();
     try {
         await client.query('UPDATE purchase_orders SET status = \'CANCELLED\', cancelled_at = NOW(), cancellation_reason = $2 WHERE id = $1 AND status NOT IN (\'RECEIVED\', \'CANCELLED\')', [orderId, reason]);
@@ -978,6 +1022,11 @@ export async function cancelPurchaseOrderSecure(orderId: string, userId: string,
 }
 
 export async function deletePurchaseOrderSecure(data: { orderId: string; userId: string }): Promise<{ success: boolean; error?: string }> {
+    const actor = await resolveValidatedActor(data.userId, 'deletePurchaseOrderSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+
     const isTempId = data.orderId.startsWith('PO-AUTO-') || data.orderId.startsWith('ORD-');
     if (isTempId) {
         return { success: true };
@@ -1009,10 +1058,15 @@ export async function updatePurchaseOrderSecure(
     userId: string
 ): Promise<{ success: boolean; orderId?: string; error?: string }> {
     logger.info({ orderId, status: data.status }, '📝 [Supply] Updating PO');
+    const actor = await resolveValidatedActor(userId, 'updatePurchaseOrderSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const actorUserId = actor.actorUserId;
     const isTempId = orderId.startsWith('PO-AUTO-') || orderId.startsWith('ORD-') || !UUIDSchema.safeParse(orderId).success;
 
     if (isTempId) {
-        return createPurchaseOrderSecure(data, userId);
+        return createPurchaseOrderSecure(data, actorUserId);
     }
 
     const validated = CreatePOSchema.safeParse(data);
@@ -1084,7 +1138,7 @@ export async function updatePurchaseOrderSecure(
                 status = $5,
                 approved_by = CASE WHEN $6 THEN $7 ELSE approved_by END
             WHERE id = $1
-        `, [orderId, supplierId, actualWarehouseId, effectiveNotes, status, shouldSetApprovedBy, userId]);
+        `, [orderId, supplierId, actualWarehouseId, effectiveNotes, status, shouldSetApprovedBy, actorUserId]);
 
         await client.query('DELETE FROM purchase_order_items WHERE purchase_order_id = $1', [orderId]);
         for (const item of items) {

@@ -20,6 +20,7 @@ const mockDirectQuery = vi.fn();
 const mockRelease = vi.fn();
 const mockConnect = vi.fn();
 const mockBcryptCompare = vi.fn();
+const mockGetValidatedSession = vi.fn();
 
 // Mock DB
 vi.mock('@/lib/db', () => ({
@@ -66,6 +67,10 @@ vi.mock('bcryptjs', () => ({
     compare: (...args: any[]) => mockBcryptCompare(...args),
 }));
 
+vi.mock('@/lib/server-session', () => ({
+    getValidatedSession: (...args: unknown[]) => mockGetValidatedSession(...args),
+}));
+
 // Import after mocks
 import {
     createBatchSecure,
@@ -94,6 +99,17 @@ const VALID_USER_ID = 'user-123';
 const VALID_BATCH_ID = '123e4567-e89b-12d3-a456-426614174003';
 const VALID_TARGET_LOCATION = '123e4567-e89b-12d3-a456-426614174004';
 const VALID_PIN = '1234';
+
+beforeEach(() => {
+    mockGetValidatedSession.mockResolvedValue({
+        userId: VALID_USER_ID,
+        role: 'ADMIN',
+        locationId: VALID_LOCATION_ID,
+        userName: 'Admin Inventario',
+        tokenVersion: 1,
+        sessionToken: 'inventory-session-token',
+    });
+});
 
 // =====================================================
 // TESTS: createBatchSecure
@@ -1007,5 +1023,85 @@ describe('fractionateBatchSecureDetailed', () => {
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('cajas suficientes');
+    });
+});
+
+describe('Inventory V2 - Session contracts', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockQuery.mockResolvedValue({ rows: [] });
+        mockDirectQuery.mockResolvedValue({ rows: [] });
+        mockBcryptCompare.mockResolvedValue(true);
+        mockGetValidatedSession.mockResolvedValue({
+            userId: VALID_USER_ID,
+            role: 'ADMIN',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Admin Inventario',
+            tokenVersion: 1,
+            sessionToken: 'inventory-session-token',
+        });
+    });
+
+    it('should reject createBatchSecure when validated session is missing', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce(null);
+
+        const result = await createBatchSecure({
+            sku: 'MED-010',
+            name: 'Lote sin sesión',
+            locationId: VALID_LOCATION_ID,
+            quantity: 10,
+            userId: VALID_USER_ID,
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Sesión no válida');
+        expect(mockConnect).not.toHaveBeenCalled();
+    });
+
+    it('should use validated session user for stock movement and audit instead of payload userId', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce({
+            userId: 'session-user-inventory',
+            role: 'ADMIN',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Actor Inventario',
+            tokenVersion: 2,
+            sessionToken: 'inventory-session-2',
+        });
+
+        let callIndex = 0;
+        const responses = [
+            { rows: [] }, // BEGIN
+            { rows: [{ default_warehouse_id: VALID_WAREHOUSE_ID }] }, // warehouse lookup
+            { rows: [] }, // insert batch
+            { rows: [] }, // stock movement
+            { rows: [] }, // audit
+            { rows: [] }, // COMMIT
+        ];
+
+        mockQuery.mockImplementation(() => {
+            const response = responses[callIndex] || { rows: [] };
+            callIndex++;
+            return Promise.resolve(response);
+        });
+
+        const result = await createBatchSecure({
+            sku: 'MED-011',
+            name: 'Actor real',
+            locationId: VALID_LOCATION_ID,
+            quantity: 20,
+            userId: 'payload-user-inventory',
+        });
+
+        expect(result.success).toBe(true);
+
+        const stockMovementCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO stock_movements')
+        );
+        expect(stockMovementCall?.[1]?.[5]).toBe('session-user-inventory');
+
+        const auditCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO audit_log')
+        );
+        expect(auditCall?.[1]?.[0]).toBe('session-user-inventory');
     });
 });
