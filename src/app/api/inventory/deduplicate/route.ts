@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { OPERATIONS_API_ROLES, requireApiRoles } from '@/lib/api-auth';
 import { pool } from '@/lib/db';
+import { logger } from '@/lib/logger';
+
+const VALID_ACTIONS = new Set(['ANALYZE_DUPLICATES', 'MERGE_DUPLICATES']);
 
 export async function POST(request: Request) {
     try {
@@ -9,10 +12,15 @@ export async function POST(request: Request) {
             return auth.response;
         }
 
-        const body = await request.json();
-        const action = body.action || 'ANALYZE';
+        const body = await request.json().catch(() => ({}));
+        const action = body.action || 'ANALYZE_DUPLICATES';
+
+        if (!VALID_ACTIONS.has(action)) {
+            return NextResponse.json({ error: 'Acción no válida' }, { status: 400 });
+        }
 
         const client = await pool.connect();
+        let transactionStarted = false;
         try {
             const duplicatesQuery = `
                 SELECT sku, COUNT(*) as count, array_agg(id) as ids
@@ -37,6 +45,7 @@ export async function POST(request: Request) {
 
             if (action === 'MERGE_DUPLICATES') {
                 await client.query('BEGIN');
+                transactionStarted = true;
                 let mergedCount = 0;
 
                 for (const group of duplicateGroups) {
@@ -67,6 +76,16 @@ export async function POST(request: Request) {
                 }
 
                 await client.query('COMMIT');
+                transactionStarted = false;
+
+                logger.warn(
+                    {
+                        actorUserId: auth.session.userId,
+                        actorRole: auth.session.role,
+                        mergedCount,
+                    },
+                    '[InventoryDeduplicateRoute] Duplicates merged'
+                );
                 return NextResponse.json({
                     success: true,
                     mergedCount,
@@ -74,19 +93,21 @@ export async function POST(request: Request) {
                 });
             }
 
-            return NextResponse.json({ error: 'Acción no válida' }, { status: 400 });
-
         } catch (error) {
-            await client.query('ROLLBACK');
+            if (transactionStarted) {
+                await client.query('ROLLBACK');
+            }
             throw error;
         } finally {
             client.release();
         }
 
+        return NextResponse.json({ error: 'Acción no válida' }, { status: 400 });
+
     } catch (error) {
-        console.error('Deduplicate error:', error);
+        logger.error({ error }, '[InventoryDeduplicateRoute] Deduplicate failed');
         return NextResponse.json(
-            { error: 'Error al procesar duplicados', details: (error as Error).message },
+            { error: 'Error al procesar duplicados', code: 'DEDUPLICATE_FAILED' },
             { status: 500 }
         );
     }

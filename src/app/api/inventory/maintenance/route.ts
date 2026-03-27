@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { OPERATIONS_API_ROLES, requireApiRoles } from '@/lib/api-auth';
 import { pool } from '@/lib/db';
+import { logger } from '@/lib/logger';
+
+const VALID_ACTIONS = new Set(['TRUNCATE', 'UNDO_IMPORT', 'ANALYZE_DUPLICATES']);
 
 export async function POST(request: Request) {
     const auth = await requireApiRoles(OPERATIONS_API_ROLES);
@@ -9,16 +12,20 @@ export async function POST(request: Request) {
     }
 
     const client = await pool.connect();
+    let transactionStarted = false;
 
     try {
-        const body = await request.json();
+        const body = await request.json().catch(() => ({}));
         const { action, confirmation } = body;
 
-        if (!action) {
+        if (!action || !VALID_ACTIONS.has(action)) {
             return NextResponse.json({ error: 'Action is required' }, { status: 400 });
         }
 
-        console.log(`🔧 [MAINTENANCE] Executing action: ${action}`);
+        logger.info(
+            { action, actorUserId: auth.session.userId, actorRole: auth.session.role },
+            '[MaintenanceRoute] Executing maintenance action'
+        );
 
         // 1. TRUNCATE (Empty Inventory)
         if (action === 'TRUNCATE') {
@@ -27,18 +34,24 @@ export async function POST(request: Request) {
             }
 
             await client.query('BEGIN');
+            transactionStarted = true;
             // Truncate products and cascade to related tables (like lotes if FK exists)
             // Also resetting sequence if needed, but TRUNCATE handles data.
             await client.query('TRUNCATE TABLE products CASCADE');
             await client.query('COMMIT');
+            transactionStarted = false;
 
-            console.log('✅ [MAINTENANCE] Inventory truncated.');
+            logger.warn(
+                { actorUserId: auth.session.userId, actorRole: auth.session.role },
+                '[MaintenanceRoute] Inventory truncated'
+            );
             return NextResponse.json({ success: true, message: 'Inventario vaciado correctamente.' });
         }
 
         // 2. UNDO IMPORT (Delete recent items)
         if (action === 'UNDO_IMPORT') {
             await client.query('BEGIN');
+            transactionStarted = true;
             // Delete products created in the last 10 minutes
             // Assuming 'created_at' exists. If not, we might need another heuristic or just rely on IDs if sequential.
             // Let's check if created_at exists first or use a safe fallback? 
@@ -51,8 +64,12 @@ export async function POST(request: Request) {
             `);
 
             await client.query('COMMIT');
+            transactionStarted = false;
 
-            console.log(`✅ [MAINTENANCE] Undo import: ${res.rowCount} items deleted.`);
+            logger.warn(
+                { actorUserId: auth.session.userId, actorRole: auth.session.role, deletedCount: res.rowCount ?? 0 },
+                '[MaintenanceRoute] Undo import completed'
+            );
             return NextResponse.json({
                 success: true,
                 message: `Se eliminaron ${res.rowCount} productos creados en los últimos 10 minutos.`
@@ -80,10 +97,15 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
 
     } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('❌ [MAINTENANCE] Error:', error);
+        if (transactionStarted) {
+            await client.query('ROLLBACK');
+        }
+        logger.error(
+            { error, actorUserId: auth.session.userId, actorRole: auth.session.role },
+            '[MaintenanceRoute] Maintenance action failed'
+        );
         return NextResponse.json(
-            { error: 'Maintenance action failed', details: (error as Error).message },
+            { error: 'Maintenance action failed', code: 'MAINTENANCE_ACTION_FAILED' },
             { status: 500 }
         );
     } finally {

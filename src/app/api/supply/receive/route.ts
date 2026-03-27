@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { receiveProduct } from '@/lib/data/supply';
 import { INVENTORY_API_ROLES, requireApiRoles } from '@/lib/api-auth';
+import { logger } from '@/lib/logger';
 
 export async function POST(request: Request) {
     try {
@@ -12,25 +13,47 @@ export async function POST(request: Request) {
         const body = await request.json();
         const { producto_id, numero_lote, fecha_vencimiento, cantidad, proveedor_id } = body;
 
-        if (!producto_id || !numero_lote || !fecha_vencimiento || !cantidad) {
+        if (
+            !producto_id
+            || !numero_lote
+            || !fecha_vencimiento
+            || cantidad === undefined
+            || cantidad === null
+            || cantidad === ''
+        ) {
             return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
+        }
+
+        const parsedCantidad = Number(cantidad);
+        if (!Number.isFinite(parsedCantidad) || parsedCantidad <= 0) {
+            return NextResponse.json({ error: 'Invalid cantidad', code: 'INVALID_CANTIDAD' }, { status: 400 });
         }
 
         await receiveProduct({
             producto_id,
             numero_lote,
             fecha_vencimiento,
-            cantidad,
+            cantidad: parsedCantidad,
             ubicacion_fisica: 'Bodega Central' // Default
         });
 
-        // Optionally link to an order if we implemented full order management
-        // For now just logging the reception linked to supplier
-        console.log(`Received product ${producto_id} from supplier ${proveedor_id}`);
+        logger.info(
+            {
+                actorUserId: auth.session.userId,
+                actorRole: auth.session.role,
+                productoId: producto_id,
+                proveedorId: proveedor_id ?? null,
+                cantidad: parsedCantidad,
+            },
+            '[SupplyReceiveRoute] Product received'
+        );
 
         return NextResponse.json({ success: true });
     } catch (error: any) {
-        console.error('Error receiving product:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        logger.error({ error }, '[SupplyReceiveRoute] Receive failed');
+        return NextResponse.json(
+            { error: 'No fue posible registrar la recepción del producto', code: 'SUPPLY_RECEIVE_FAILED' },
+            { status: 500 }
+        );
     }
 }
