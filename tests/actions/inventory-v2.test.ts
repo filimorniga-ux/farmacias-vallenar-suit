@@ -62,14 +62,70 @@ vi.mock('@/lib/logger', () => ({
     },
 }));
 
-// Mock bcryptjs
-vi.mock('bcryptjs', () => ({
-    compare: (...args: any[]) => mockBcryptCompare(...args),
-}));
+vi.mock('@/lib/pin-rbac', () => {
+    class MockPinRbacError extends Error {
+        code: string;
 
-vi.mock('@/lib/server-session', () => ({
-    getValidatedSession: (...args: unknown[]) => mockGetValidatedSession(...args),
-}));
+        constructor(code: string, message: string) {
+            super(message);
+            this.name = 'PinRbacError';
+            this.code = code;
+        }
+    }
+
+    return {
+        PinRbacError: MockPinRbacError,
+        ROLE_GROUPS: {
+            ADMIN: ['ADMIN', 'GERENTE_GENERAL'],
+            MANAGER: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
+            MANAGER_OR_HR: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'],
+            OVERRIDE: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'],
+            TREASURY_AUTH: ['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'TESORERO'],
+        },
+        getActorOrFail: async () => {
+            const session = await mockGetValidatedSession();
+            if (!session) {
+                throw new MockPinRbacError('AUTH_UNAUTHORIZED', 'Sesión no válida. Vuelve a iniciar sesión.');
+            }
+            return {
+                ...session,
+                role: String(session.role || '').trim().toUpperCase(),
+            };
+        },
+        requireRole: (actor: { role: string }, allowedRoles: readonly string[]) => {
+            if (!allowedRoles.includes(actor.role)) {
+                throw new MockPinRbacError('AUTH_FORBIDDEN', 'Acceso denegado');
+            }
+            return actor;
+        },
+        validatePinForRoles: async (client: { query: (sql: string) => Promise<{ rows: Array<Record<string, unknown>> }> }, pin: string) => {
+            const usersRes = await client.query('SELECT mock_pin_validation');
+            const user = usersRes.rows[0];
+            if (!user) {
+                return { valid: false, error: 'PIN inválido' };
+            }
+
+            if (user.access_pin_hash) {
+                const valid = await mockBcryptCompare(pin, user.access_pin_hash);
+                if (!valid) {
+                    return { valid: false, error: 'PIN inválido' };
+                }
+            } else if (user.access_pin && user.access_pin !== pin) {
+                return { valid: false, error: 'PIN inválido' };
+            }
+
+            return {
+                valid: true,
+                authorizedBy: {
+                    id: String(user.id),
+                    name: String(user.name),
+                    role: String(user.role),
+                },
+                matchedBy: 'hash',
+            };
+        },
+    };
+});
 
 // Import after mocks
 import {
@@ -309,6 +365,56 @@ describe('adjustStockSecure', () => {
         expect(mockBcryptCompare).toHaveBeenCalled();
     });
 
+    it('should use validated session user for authorized stock adjustments instead of payload userId', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce({
+            userId: 'session-user-adjust',
+            role: 'ADMIN',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Actor Ajuste',
+            tokenVersion: 2,
+            sessionToken: 'inventory-session-adjust',
+        });
+
+        let callIndex = 0;
+        const responses = [
+            { rows: [] }, // BEGIN
+            { rows: [{ id: 'manager-1', name: 'Manager', role: 'MANAGER', access_pin_hash: 'hashed' }] }, // Auth
+            { rows: [{ id: VALID_BATCH_ID, sku: 'MED-001', name: 'Test', quantity_real: 1000, location_id: VALID_LOCATION_ID, warehouse_id: VALID_WAREHOUSE_ID }] }, // Batch
+            { rows: [], rowCount: 1 }, // Update
+            { rows: [] }, // Movement
+            { rows: [] }, // Audit
+            { rows: [] }, // COMMIT
+        ];
+
+        mockQuery.mockImplementation(() => {
+            const response = responses[callIndex] || { rows: [] };
+            callIndex++;
+            return Promise.resolve(response);
+        });
+
+        mockBcryptCompare.mockResolvedValue(true);
+
+        const result = await adjustStockSecure({
+            batchId: VALID_BATCH_ID,
+            adjustment: 200,
+            reason: 'Recepción autorizada',
+            userId: 'payload-user-adjust',
+            supervisorPin: VALID_PIN,
+        });
+
+        expect(result.success).toBe(true);
+
+        const movementCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO stock_movements')
+        );
+        expect(movementCall?.[1]?.[7]).toBe('session-user-adjust');
+
+        const auditCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO audit_log')
+        );
+        expect(auditCall?.[1]?.[0]).toBe('session-user-adjust');
+    });
+
     it('should fail if adjustment would result in negative stock', async () => {
         let callIndex = 0;
         const responses = [
@@ -542,7 +648,6 @@ describe('clearLocationInventorySecure', () => {
         const responses = [
             { rows: [] }, // BEGIN
             { rows: [{ id: VALID_USER_ID, name: 'Admin', role: 'ADMIN', access_pin_hash: 'hashed' }] }, // Auth
-            { rows: [{ role: 'ADMIN' }] }, // User role check
             { rows: [{ count: 50, total_units: 1000 }] }, // Snapshot
             { rows: [], rowCount: 50 }, // Delete
             { rows: [] }, // Audit
@@ -569,11 +674,19 @@ describe('clearLocationInventorySecure', () => {
     });
 
     it('should reject non-admin users', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce({
+            userId: VALID_USER_ID,
+            role: 'CASHIER',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Cajero',
+            tokenVersion: 1,
+            sessionToken: 'inventory-session-token-cashier',
+        });
+
         let callIndex = 0;
         const responses = [
             { rows: [] }, // BEGIN
             { rows: [{ id: VALID_USER_ID, name: 'Admin', role: 'ADMIN', access_pin_hash: 'hashed' }] }, // Auth
-            { rows: [{ role: 'CASHIER' }] }, // User is not admin
         ];
 
         mockQuery.mockImplementation((sql: string) => {

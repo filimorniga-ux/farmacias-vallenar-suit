@@ -20,7 +20,12 @@ import { query } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
-import { getValidatedSession } from '@/lib/server-session';
+import {
+    getActorOrFail,
+    PinRbacError,
+    ROLE_GROUPS,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
 // =====================================================
 // SCHEMAS DE VALIDACIÓN
@@ -120,9 +125,6 @@ const ERROR_MESSAGES = {
     CANNOT_EDIT_VOIDED: 'No se puede editar una venta anulada o devuelta',
 } as const;
 
-// Roles autorizados para anulaciones y devoluciones
-const VOID_AUTHORIZED_ROLES = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL'] as const;
-
 // =====================================================
 // HELPERS
 // =====================================================
@@ -134,62 +136,52 @@ function toMoneyInt(value: unknown): number {
 }
 
 async function resolveValidatedSalesActor(requestedUserId?: string, action = 'sales-operation') {
-    const session = await getValidatedSession();
-    if (!session) {
-        return { success: false as const, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
-    }
+    try {
+        const session = await getActorOrFail();
 
-    if (requestedUserId && requestedUserId !== session.userId) {
-        logger.warn(
-            { requestedUserId, actorUserId: session.userId, action },
-            'Ignoring payload userId in sales operation; using validated session user'
-        );
-    }
+        if (requestedUserId && requestedUserId !== session.userId) {
+            logger.warn(
+                { requestedUserId, actorUserId: session.userId, action },
+                'Ignoring payload userId in sales operation; using validated session user'
+            );
+        }
 
-    return {
-        success: true as const,
-        actorUserId: session.userId,
-        session,
-    };
+        return {
+            success: true as const,
+            actorUserId: session.userId,
+            session,
+        };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { success: false as const, error: error.message };
+        }
+
+        throw error;
+    }
 }
 
 /**
- * Valida PIN de supervisor usando bcrypt
+ * Valida PIN de supervisor usando el helper compartido
  */
 async function validateSupervisorPin(
     client: any,
     pin: string,
-    requiredRoles: readonly string[] = VOID_AUTHORIZED_ROLES
+    requiredRoles: readonly string[] = ROLE_GROUPS.MANAGER
 ): Promise<{ valid: boolean; authorizedBy?: { id: string; name: string; role: string } }> {
     try {
-        const bcrypt = await import('bcryptjs');
+        const result = await validatePinForRoles(client, pin, requiredRoles, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        const usersRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE role = ANY($1::text[])
-            AND is_active = true
-        `, [requiredRoles]);
-
-        for (const user of usersRes.rows) {
-            if (user.access_pin_hash) {
-                const isValid = await bcrypt.compare(pin, user.access_pin_hash);
-                if (isValid) {
-                    return {
-                        valid: true,
-                        authorizedBy: { id: user.id, name: user.name, role: user.role }
-                    };
-                }
-            } else if (user.access_pin && user.access_pin === pin) {
-                logger.warn({ userId: user.id }, '⚠️ Sales: Using legacy plaintext PIN');
-                return {
-                    valid: true,
-                    authorizedBy: { id: user.id, name: user.name, role: user.role }
-                };
-            }
+        if (!result.valid) {
+            return { valid: false };
         }
 
-        return { valid: false };
+        return {
+            valid: true,
+            authorizedBy: result.authorizedBy,
+        };
     } catch (error) {
         logger.error({ error }, 'Error validating supervisor PIN');
         return { valid: false };
@@ -299,9 +291,9 @@ export async function createSaleSecure(params: {
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    const session = await getValidatedSession();
-    if (!session) {
-        return { success: false, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
+    const actor = await resolveValidatedSalesActor(params.userId, 'createSaleSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
     }
 
     const {
@@ -309,7 +301,7 @@ export async function createSaleSecure(params: {
         customerRut, customerName, dteFolio, dteType, pointsRedeemed = 0,
         pointsDiscount = 0, transferId, notes, queueTicketId
     } = params;
-    const actorUserId = session.userId;
+    const actorUserId = actor.actorUserId;
 
     if (requestedUserId && requestedUserId !== actorUserId) {
         logger.warn(
@@ -740,7 +732,7 @@ export async function createSaleSecure(params: {
  * Anula una venta existente con autorización de supervisor
  * 
  * @description
- * - Requiere PIN de supervisor (bcrypt)
+ * - Requiere PIN de supervisor
  * - Revierte stock de todos los ítems
  * - Registra justificación obligatoria
  * - Auditoría completa
@@ -1157,11 +1149,17 @@ export async function getSalesHistorySecure(params: {
     const { startDate, endDate, searchTerm = '', paymentMethod, sessionId, limit = 50, offset = 0 } = filters;
     const { locationId, supervisorPin } = security;
 
-    const { getSessionSecure, validateSupervisorPin } = await import('./auth-v2');
+    let sessionActor: Awaited<ReturnType<typeof getActorOrFail>> | null = null;
+    try {
+        sessionActor = await getActorOrFail();
+    } catch (error) {
+        if (!(error instanceof PinRbacError)) {
+            throw error;
+        }
+    }
 
-    const session = await getSessionSecure();
-    const userId = session?.userId;
-    const userRole = session?.role;
+    const userId = sessionActor?.userId;
+    const userRole = sessionActor?.role;
 
     let authorizedUserId = userId;
     let isAuthorized = false;
@@ -1169,9 +1167,16 @@ export async function getSalesHistorySecure(params: {
     // 2. Validar autorización
     // A. Vía PIN (Elevación o Rol Manager/Admin)
     if (supervisorPin) {
-        // Usamos la función importada de auth-v2 que maneja su propia conexión/query
-        const auth = await validateSupervisorPin(supervisorPin);
-        if (auth.success && auth.authorizedBy) {
+        const auth = await validatePinForRoles(
+            { query: (sql: string, params?: unknown[]) => query(sql, params as never[] | undefined) },
+            supervisorPin,
+            ROLE_GROUPS.MANAGER,
+            {
+                allowLegacyPlaintext: true,
+                useRateLimiter: true,
+            }
+        );
+        if (auth.valid) {
             isAuthorized = true;
             authorizedUserId = auth.authorizedBy.id; // Auditoría a nombre del supervisor
         }

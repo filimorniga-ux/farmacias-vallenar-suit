@@ -62,13 +62,64 @@ vi.mock('uuid', () => ({
     v4: vi.fn(() => 'test-uuid-12345'),
 }));
 
-vi.mock('bcryptjs', () => ({
-    compare: (...args: any[]) => mockBcryptCompare(...args),
-}));
+vi.mock('@/lib/pin-rbac', () => {
+    class MockPinRbacError extends Error {
+        code: string;
 
-vi.mock('@/lib/server-session', () => ({
-    getValidatedSession: (...args: unknown[]) => mockGetValidatedSession(...args),
-}));
+        constructor(code: string, message: string) {
+            super(message);
+            this.name = 'PinRbacError';
+            this.code = code;
+        }
+    }
+
+    return {
+        PinRbacError: MockPinRbacError,
+        ROLE_GROUPS: {
+            ADMIN: ['ADMIN', 'GERENTE_GENERAL'],
+            MANAGER: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
+            MANAGER_OR_HR: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'],
+            OVERRIDE: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'],
+            TREASURY_AUTH: ['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'TESORERO'],
+        },
+        getActorOrFail: async () => {
+            const session = await mockGetValidatedSession();
+            if (!session) {
+                throw new MockPinRbacError('AUTH_UNAUTHORIZED', 'Sesión no válida. Vuelve a iniciar sesión.');
+            }
+            return {
+                ...session,
+                role: String(session.role || '').trim().toUpperCase(),
+            };
+        },
+        validatePinForRoles: async (client: { query: (sql: string) => Promise<{ rows: Array<Record<string, unknown>> }> }, pin: string) => {
+            const usersRes = await client.query('SELECT mock_pin_validation');
+            const user = usersRes.rows[0];
+            if (!user) {
+                return { valid: false, error: 'PIN inválido' };
+            }
+
+            if (user.access_pin_hash) {
+                const valid = await mockBcryptCompare(pin, user.access_pin_hash);
+                if (!valid) {
+                    return { valid: false, error: 'PIN inválido' };
+                }
+            } else if (user.access_pin && user.access_pin !== pin) {
+                return { valid: false, error: 'PIN inválido' };
+            }
+
+            return {
+                valid: true,
+                authorizedBy: {
+                    id: String(user.id),
+                    name: String(user.name),
+                    role: String(user.role),
+                },
+                matchedBy: 'hash',
+            };
+        },
+    };
+});
 
 // Import after mocks
 import {

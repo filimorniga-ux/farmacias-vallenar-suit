@@ -7,7 +7,7 @@
  * Este módulo implementa operaciones de inventario seguras con:
  * - Transacciones SERIALIZABLE para integridad
  * - Bloqueo pesimista (FOR UPDATE NOWAIT)
- * - Validación de PIN con bcrypt
+ * - Validación de PIN con helper compartido
  * - Control de acceso basado en roles (RBAC)
  * - Auditoría completa de operaciones
  * - Validación con Zod
@@ -21,7 +21,13 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { createNotificationSecure } from '@/actions/notifications-v2';
-import { getValidatedSession } from '@/lib/server-session';
+import {
+    getActorOrFail,
+    PinRbacError,
+    ROLE_GROUPS,
+    requireRole,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
 // =====================================================
 // SCHEMAS DE VALIDACIÓN
@@ -104,10 +110,6 @@ const ERROR_MESSAGES = {
     NEGATIVE_STOCK: 'El ajuste resultaría en stock negativo',
 } as const;
 
-// Roles autorizados para operaciones sensibles
-const AUTHORIZED_ROLES = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL'] as const;
-const ADMIN_ONLY_ROLES = ['ADMIN', 'GERENTE_GENERAL'] as const;
-
 // Umbrales que requieren autorización de supervisor
 const AUTHORIZATION_THRESHOLDS = {
     STOCK_ADJUSTMENT: 100,   // Ajustes > 100 unidades
@@ -119,65 +121,52 @@ const AUTHORIZATION_THRESHOLDS = {
 // =====================================================
 
 async function resolveValidatedActor(requestedUserId?: string, action = 'inventory-operation') {
-    const session = await getValidatedSession();
-    if (!session) {
-        return { success: false as const, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
-    }
+    try {
+        const session = await getActorOrFail();
 
-    if (requestedUserId && requestedUserId !== session.userId) {
-        logger.warn(
-            { requestedUserId, actorUserId: session.userId, action },
-            'Ignoring payload userId in inventory operation; using validated session user'
-        );
-    }
+        if (requestedUserId && requestedUserId !== session.userId) {
+            logger.warn(
+                { requestedUserId, actorUserId: session.userId, action },
+                'Ignoring payload userId in inventory operation; using validated session user'
+            );
+        }
 
-    return {
-        success: true as const,
-        actorUserId: session.userId,
-        session,
-    };
+        return {
+            success: true as const,
+            actorUserId: session.userId,
+            session,
+        };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { success: false as const, error: error.message };
+        }
+
+        throw error;
+    }
 }
 
 /**
- * Valida PIN de un usuario autorizado usando bcrypt
+ * Valida PIN de un usuario autorizado usando el helper compartido
  */
 async function validateSupervisorPin(
     client: any,
     pin: string,
-    requiredRoles: readonly string[] = AUTHORIZED_ROLES
+    requiredRoles: readonly string[] = ROLE_GROUPS.MANAGER
 ): Promise<{ valid: boolean; authorizedBy?: { id: string; name: string; role: string } }> {
     try {
-        const bcrypt = await import('bcryptjs');
+        const result = await validatePinForRoles(client, pin, requiredRoles, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        const usersRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE role = ANY($1::text[])
-            AND is_active = true
-        `, [requiredRoles]);
-
-        for (const user of usersRes.rows) {
-            // Primero intentar con bcrypt hash
-            if (user.access_pin_hash) {
-                const isValid = await bcrypt.compare(pin, user.access_pin_hash);
-                if (isValid) {
-                    return {
-                        valid: true,
-                        authorizedBy: { id: user.id, name: user.name, role: user.role }
-                    };
-                }
-            }
-            // Fallback: PIN legacy (para usuarios no migrados)
-            else if (user.access_pin && user.access_pin === pin) {
-                logger.warn({ userId: user.id }, '⚠️ Inventory: Using legacy plaintext PIN - user should be migrated');
-                return {
-                    valid: true,
-                    authorizedBy: { id: user.id, name: user.name, role: user.role }
-                };
-            }
+        if (!result.valid) {
+            return { valid: false };
         }
 
-        return { valid: false };
+        return {
+            valid: true,
+            authorizedBy: result.authorizedBy,
+        };
     } catch (error) {
         logger.error({ error }, 'Error validating supervisor PIN');
         return { valid: false };
@@ -1134,16 +1123,17 @@ export async function clearLocationInventorySecure(params: {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // 3. Validar PIN de administrador
-        const authResult = await validateSupervisorPin(client, adminPin, ADMIN_ONLY_ROLES);
+        const authResult = await validateSupervisorPin(client, adminPin, ROLE_GROUPS.ADMIN);
         if (!authResult.valid) {
             await client.query('ROLLBACK');
             logger.warn({ userId }, '🚫 Nuclear delete: PIN validation failed');
             return { success: false, error: ERROR_MESSAGES.INVALID_PIN };
         }
 
-        // 4. Verificar que el usuario tiene rol ADMIN
-        const userRes = await client.query('SELECT role FROM users WHERE id = $1', [userId]);
-        if (userRes.rows.length === 0 || !ADMIN_ONLY_ROLES.includes(userRes.rows[0].role)) {
+        // 4. Verificar que el actor de sesión tiene rol ADMIN/GERENTE
+        try {
+            requireRole(actor.session, ROLE_GROUPS.ADMIN);
+        } catch (error) {
             await client.query('ROLLBACK');
             return { success: false, error: ERROR_MESSAGES.UNAUTHORIZED };
         }
@@ -1824,11 +1814,8 @@ export async function quickStockAdjustSecure(params: {
 
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-        // 4. Validar PIN y Rol de Gerente
-        // Usamos validateSupervisorPin que ya verifica contra hash bcrypt o texto plano legacy
-        // y filtra por roles autorizados.
-        const MANAGER_ROLES = ['GERENTE_GENERAL', 'ADMIN', 'MANAGER'];
-        const authResult = await validateSupervisorPin(client, pin, MANAGER_ROLES);
+        // 4. Validar PIN y Rol de Gerente usando el helper compartido.
+        const authResult = await validateSupervisorPin(client, pin, ROLE_GROUPS.MANAGER);
 
         if (!authResult.valid || !authResult.authorizedBy) {
             await client.query('ROLLBACK');
@@ -1991,8 +1978,7 @@ export async function updateBatchCostSecure(params: {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // 1. Validar PIN (Manager/Admin/Gerente)
-        const MANAGER_ROLES = ['GERENTE_GENERAL', 'ADMIN', 'MANAGER'];
-        const authResult = await validateSupervisorPin(client, pin, MANAGER_ROLES);
+        const authResult = await validateSupervisorPin(client, pin, ROLE_GROUPS.MANAGER);
 
         if (!authResult.valid || !authResult.authorizedBy) {
             await client.query('ROLLBACK');
@@ -2073,7 +2059,7 @@ export async function updateBatchCostSecure(params: {
     }
 }
 
-// NOTE: AUTHORIZATION_THRESHOLDS y AUTHORIZED_ROLES no se exportan
+// NOTE: AUTHORIZATION_THRESHOLDS no se exporta
 // porque Next.js 16 "use server" solo permite exportar async functions
 
 // =====================================================
