@@ -4,8 +4,27 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+const { mockQuery, mockRelease, PinRbacError } = vi.hoisted(() => {
+    class MockPinRbacError extends Error {
+        code: string;
+
+        constructor(code: string, message: string) {
+            super(message);
+            this.name = 'PinRbacError';
+            this.code = code;
+        }
+    }
+
+    return {
+        mockQuery: vi.fn(),
+        mockRelease: vi.fn(),
+        PinRbacError: MockPinRbacError,
+    };
+});
+
 import * as quotesV2 from '@/actions/quotes-v2';
-import { getValidatedSession } from '@/lib/server-session';
+import { getActorOrFail, validatePinForRoles } from '@/lib/pin-rbac';
 
 // Valid UUIDs
 const VALID_UUID_QUOTE = '550e8400-e29b-41d4-a716-446655440050';
@@ -13,10 +32,6 @@ const VALID_UUID_USER = '550e8400-e29b-41d4-a716-446655440051';
 const VALID_UUID_PRODUCT = '550e8400-e29b-41d4-a716-446655440052';
 const VALID_UUID_LOCATION = '550e8400-e29b-41d4-a716-446655440053';
 const VALID_UUID_TERMINAL = '550e8400-e29b-41d4-a716-446655440054';
-
-// Mock functions at module level
-const mockQuery = vi.fn();
-const mockRelease = vi.fn();
 
 // Mock DB with proper pool.connect pattern
 vi.mock('@/lib/db', () => ({
@@ -31,17 +46,14 @@ vi.mock('@/lib/db', () => ({
 }));
 
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
-vi.mock('@/lib/server-session', () => ({
-    getValidatedSession: vi.fn(),
-}));
-vi.mock('bcryptjs', () => ({
-    default: { compare: vi.fn(async (p: string, h: string) => h === `hashed_${p}`) },
-    compare: vi.fn(async (p: string, h: string) => h === `hashed_${p}`)
-}));
-vi.mock('@/lib/rate-limiter', () => ({
-    checkRateLimit: vi.fn(() => ({ allowed: true })),
-    recordFailedAttempt: vi.fn(),
-    resetAttempts: vi.fn()
+vi.mock('@/lib/pin-rbac', () => ({
+    getActorOrFail: vi.fn(),
+    validatePinForRoles: vi.fn(),
+    ROLE_GROUPS: {
+        ADMIN: ['ADMIN', 'GERENTE_GENERAL'],
+        MANAGER: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
+    },
+    PinRbacError,
 }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/debug-logger', () => ({ debugLog: vi.fn() }));
@@ -69,13 +81,22 @@ const mockItem = {
 
 beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getValidatedSession).mockResolvedValue({
+    vi.mocked(getActorOrFail).mockResolvedValue({
         userId: VALID_UUID_USER,
         role: 'CASHIER',
         locationId: VALID_UUID_LOCATION,
         userName: 'Caja',
         tokenVersion: 1,
         sessionToken: 'token',
+    });
+    vi.mocked(validatePinForRoles).mockResolvedValue({
+        valid: true,
+        authorizedBy: {
+            id: '550e8400-e29b-41d4-a716-446655440070',
+            name: 'Supervisor',
+            role: 'MANAGER',
+        },
+        matchedBy: 'hash',
     });
 });
 
@@ -98,6 +119,21 @@ function setupMockQueries(responses: Array<{ rows: any[]; rowCount?: number }>) 
 
 // Discount Validation Tests (Validación pura, sin DB)
 describe('Quotes V2 - Discount Thresholds', () => {
+    it('rechaza sin sesión válida', async () => {
+        vi.mocked(getActorOrFail).mockRejectedValueOnce(
+            new PinRbacError('AUTH_UNAUTHORIZED', 'Sesión no válida. Vuelve a iniciar sesión.')
+        );
+
+        const result = await quotesV2.applyDiscountSecure({
+            quoteId: VALID_UUID_QUOTE,
+            discountPercent: 10,
+            reason: 'Cliente frecuente promoción'
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('No autenticado');
+    });
+
     it('should require PIN for 10-20% discount', async () => {
         const result = await quotesV2.applyDiscountSecure({
             quoteId: VALID_UUID_QUOTE,
@@ -145,6 +181,32 @@ describe('Quotes V2 - Discount Thresholds', () => {
         });
 
         expect(result.success).toBe(true);
+    });
+
+    it('usa el helper compartido para validar PIN de descuento por tramo', async () => {
+        setupMockQueries([
+            { rows: [mockQuote], rowCount: 1 }, // Quote fetch
+            { rows: [], rowCount: 1 }, // Update
+            { rows: [], rowCount: 1 }, // Audit
+        ]);
+
+        const result = await quotesV2.applyDiscountSecure({
+            quoteId: VALID_UUID_QUOTE,
+            discountPercent: 25,
+            authorizationPin: '1234',
+            reason: 'Descuento mayorista'
+        });
+
+        expect(result.success).toBe(true);
+        expect(validatePinForRoles).toHaveBeenCalledWith(
+            expect.objectContaining({ query: expect.any(Function) }),
+            '1234',
+            ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
+            expect.objectContaining({
+                allowLegacyPlaintext: true,
+                useRateLimiter: true,
+            })
+        );
     });
 });
 
@@ -224,5 +286,38 @@ describe('Quotes V2 - Conversion', () => {
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('procesada');
+    });
+
+    it('usa el actor de sesión y no el userId del payload al convertir a venta', async () => {
+        const spoofedUserId = '550e8400-e29b-41d4-a716-446655440088';
+
+        setupMockQueries([
+            { rows: [mockQuote], rowCount: 1 }, // quote lock
+            { rows: [{ sku: mockItem.sku, quantity: mockItem.quantity, product_id: mockItem.productId, name: mockItem.name, unit_price: mockItem.unitPrice, discount_percent: mockItem.discount, subtotal: 20000, total: 20000 }], rowCount: 1 }, // items
+            { rows: [{ id: 'batch-1', quantity_real: 10 }], rowCount: 1 }, // stock
+            { rows: [], rowCount: 1 }, // decrement stock
+            { rows: [], rowCount: 1 }, // insert sale
+            { rows: [], rowCount: 1 }, // insert sale item
+            { rows: [], rowCount: 1 }, // update quote
+            { rows: [], rowCount: 1 }, // audit
+        ]);
+
+        const result = await quotesV2.convertToSaleSecure({
+            quoteId: VALID_UUID_QUOTE,
+            paymentMethod: 'CASH',
+            cashReceived: 100000,
+            terminalId: VALID_UUID_TERMINAL,
+            userId: spoofedUserId
+        });
+
+        expect(result.success).toBe(true);
+        expect(mockQuery).toHaveBeenCalledWith(
+            expect.stringContaining('INSERT INTO sales'),
+            expect.arrayContaining([VALID_UUID_USER])
+        );
+        expect(mockQuery).not.toHaveBeenCalledWith(
+            expect.stringContaining('INSERT INTO sales'),
+            expect.arrayContaining([spoofedUserId])
+        );
     });
 });

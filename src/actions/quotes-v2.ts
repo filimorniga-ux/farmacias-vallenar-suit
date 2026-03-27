@@ -26,7 +26,12 @@ import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
 import { logger } from '@/lib/logger';
-import { getValidatedSession } from '@/lib/server-session';
+import {
+    getActorOrFail,
+    PinRbacError,
+    ROLE_GROUPS,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -93,9 +98,7 @@ const QuoteHistorySchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-const CASHIER_ROLES = ['CASHIER', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
-const GERENTE_ROLES = ['GERENTE_GENERAL', 'ADMIN'];
+const CASHIER_AUTH_ROLES = ['CASHIER', ...ROLE_GROUPS.MANAGER] as const;
 
 const ERROR_CODES = {
     LOCK_NOT_AVAILABLE: '55P03',
@@ -114,19 +117,16 @@ const DISCOUNT_THRESHOLDS = {
 // HELPER FUNCTIONS
 // ============================================================================
 
-/**
- * Get session from headers
- */
-/**
- * Get session from headers or cookies (Robust Fallback)
- */
-async function getSession(): Promise<{ user?: { id: string; role: string } } | null> {
+async function requireQuoteActor() {
     try {
-        const session = await getValidatedSession();
-        if (!session) return null;
-        return { user: { id: session.userId, role: session.role } };
-    } catch {
-        return null;
+        const actor = await getActorOrFail();
+        return { success: true as const, actor };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { success: false as const, error: 'No autenticado' };
+        }
+
+        throw error;
     }
 }
 
@@ -149,34 +149,23 @@ async function validateDiscountPin(
     requiredRoles: readonly string[]
 ): Promise<{ valid: boolean; authorizer?: { id: string; name: string; role: string }; error?: string }> {
     try {
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
-        const bcrypt = await import('bcryptjs');
+        const result = await validatePinForRoles(client, pin, requiredRoles, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        const usersRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE role = ANY($1::text[])
-            AND is_active = true
-        `, [requiredRoles]);
-
-        for (const user of usersRes.rows) {
-            const rateCheck = checkRateLimit(user.id);
-            if (!rateCheck.allowed) continue;
-
-            if (user.access_pin_hash) {
-                const isValid = await bcrypt.compare(pin, user.access_pin_hash);
-                if (isValid) {
-                    resetAttempts(user.id);
-                    return { valid: true, authorizer: { id: user.id, name: user.name, role: user.role } };
-                }
-                recordFailedAttempt(user.id);
-            } else if (user.access_pin && user.access_pin === pin) {
-                resetAttempts(user.id);
-                return { valid: true, authorizer: { id: user.id, name: user.name, role: user.role } };
-            }
+        if (!result.valid) {
+            return { valid: false, error: result.error || 'PIN no válido para el nivel de autorización requerido' };
         }
 
-        return { valid: false, error: 'PIN no válido para el nivel de autorización requerido' };
+        return {
+            valid: true,
+            authorizer: {
+                id: result.authorizedBy.id,
+                name: result.authorizedBy.name,
+                role: result.authorizedBy.role,
+            },
+        };
     } catch (error) {
         logger.error({ error }, '[Quotes] PIN validation error');
         return { valid: false, error: 'Error validando PIN' };
@@ -190,11 +179,11 @@ function getRequiredRoleForDiscount(percent: number): { roles: readonly string[]
     if (percent <= DISCOUNT_THRESHOLDS.NO_AUTH) {
         return null; // No authorization required
     } else if (percent <= DISCOUNT_THRESHOLDS.CASHIER_AUTH) {
-        return { roles: CASHIER_ROLES, label: 'CAJERO' };
+        return { roles: CASHIER_AUTH_ROLES, label: 'CAJERO' };
     } else if (percent <= DISCOUNT_THRESHOLDS.MANAGER_AUTH) {
-        return { roles: MANAGER_ROLES, label: 'MANAGER' };
+        return { roles: ROLE_GROUPS.MANAGER, label: 'MANAGER' };
     } else {
-        return { roles: GERENTE_ROLES, label: 'GERENTE_GENERAL' };
+        return { roles: ROLE_GROUPS.ADMIN, label: 'GERENTE_GENERAL' };
     }
 }
 
@@ -247,9 +236,9 @@ export async function createQuoteSecure(
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const session = await getSession();
-    if (!session?.user) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await requireQuoteActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
     const {
@@ -261,7 +250,7 @@ export async function createQuoteSecure(
 
     try {
         await client.query('BEGIN'); // Default Read Committed
-        debugLog(`[Quotes] Starting transaction for user ${session.user.id}`);
+        debugLog(`[Quotes] Starting transaction for user ${auth.actor.userId}`);
 
         // Calculate totals
         let subtotal = 0;
@@ -308,7 +297,7 @@ export async function createQuoteSecure(
             total,
             notes || null,
             expiresAt,
-            session.user.id,
+            auth.actor.userId,
             validated.data.locationId,
             validated.data.terminalId || null
         ]);
@@ -343,7 +332,7 @@ export async function createQuoteSecure(
         // Audit
         debugLog('📝 [Quotes] Auditing...');
         await insertQuoteAudit(client, {
-            userId: session.user.id,
+            userId: auth.actor.userId,
             quoteId,
             actionCode: 'QUOTE_CREATED',
             newValues: {
@@ -405,9 +394,9 @@ export async function updateQuoteSecure(
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const session = await getSession();
-    if (!session?.user) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await requireQuoteActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
     const { quoteId, items, notes, validDays } = validated.data;
@@ -497,7 +486,7 @@ export async function updateQuoteSecure(
 
         // Audit
         await insertQuoteAudit(client, {
-            userId: session.user.id,
+            userId: auth.actor.userId,
             quoteId,
             actionCode: 'QUOTE_UPDATED',
             oldValues,
@@ -538,9 +527,9 @@ export async function applyDiscountSecure(
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const session = await getSession();
-    if (!session?.user) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await requireQuoteActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
     const { quoteId, discountPercent, authorizationPin, reason } = validated.data;
@@ -605,7 +594,7 @@ export async function applyDiscountSecure(
 
         // Audit
         await insertQuoteAudit(client, {
-            userId: session.user.id,
+            userId: auth.actor.userId,
             authorizedById: authorizer?.id,
             quoteId,
             actionCode: 'QUOTE_DISCOUNT_APPLIED',
@@ -648,9 +637,14 @@ export async function convertToSaleSecure(
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
+    const auth = await requireQuoteActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     const {
         quoteId, paymentMethod, cashReceived, cardAmount, transferAmount,
-        terminalId, userId
+        terminalId
     } = validated.data;
 
     const client = await pool.connect();
@@ -746,7 +740,7 @@ export async function convertToSaleSecure(
             saleId,
             saleCode,
             terminalId,
-            userId,
+            auth.actor.userId,
             quote.customer_id,
             quote.subtotal,
             quote.discount,
@@ -790,7 +784,7 @@ export async function convertToSaleSecure(
 
         // Audit
         await insertQuoteAudit(client, {
-            userId,
+            userId: auth.actor.userId,
             quoteId,
             actionCode: 'QUOTE_CONVERTED_TO_SALE',
             newValues: {
@@ -870,9 +864,9 @@ export async function cancelQuoteSecure(
         return { success: false, error: 'Razón de cancelación requerida (mínimo 5 caracteres)' };
     }
 
-    const session = await getSession();
-    if (!session?.user) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await requireQuoteActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
     const client = await pool.connect();
@@ -903,7 +897,7 @@ export async function cancelQuoteSecure(
         `, [quoteId, reason]);
 
         await insertQuoteAudit(client, {
-            userId: session.user.id,
+            userId: auth.actor.userId,
             quoteId,
             actionCode: 'QUOTE_CANCELLED',
             oldValues: { status: 'PENDING' },
@@ -1183,9 +1177,9 @@ export async function retrieveQuoteSecure(
 export async function getQuotesSecure(
     filters: z.infer<typeof QuoteHistorySchema>
 ): Promise<{ success: boolean; data?: any[]; total?: number; error?: string }> {
-    const session = await getSession();
-    if (!session?.user) return { success: false, error: 'No autenticado' };
-    console.log('[QuotesHistory] Fetching for User:', session.user.id);
+    const auth = await requireQuoteActor();
+    if (!auth.success) return { success: false, error: auth.error };
+    console.log('[QuotesHistory] Fetching for User:', auth.actor.userId);
 
     const { page, pageSize, startDate, endDate, customerId, status, searchCode } = filters;
     const offset = (page - 1) * pageSize;
@@ -1207,9 +1201,9 @@ export async function getQuotesSecure(
         }
 
         // Filter by current user
-        if (session?.user?.id) {
+        if (auth.actor.userId) {
             conditions.push(`q.user_id = $${idx++}::text `);
-            params.push(session.user.id);
+            params.push(auth.actor.userId);
         }
 
         if (customerId) {
