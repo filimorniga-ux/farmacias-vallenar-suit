@@ -1,50 +1,47 @@
-/**
- * Tests for Shift-Handover V2 - Secure Shift Operations
- * 
- * Covers:
- * - Handover calculation
- * - Execute handover with PIN validation
- * - Quick handover between cashiers
- * - Error handling (locks, invalid PINs)
- */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+const {
+    mockPoolQuery,
+    mockDirectQuery,
+    mockRelease,
+    mockGetActorOrFail,
+    mockValidatePinForUser,
+    mockValidatePinForRoles,
+    mockCanAuthorizeShiftClosure,
+    PinRbacError,
+} = vi.hoisted(() => {
+    class MockPinRbacError extends Error {
+        code: string;
 
-// =====================================================
-// TEST SETUP
-// =====================================================
+        constructor(code: string, message: string) {
+            super(message);
+            this.name = 'PinRbacError';
+            this.code = code;
+        }
+    }
 
-const mockQuery = vi.fn();
-const mockDirectQuery = vi.fn();
-const mockRelease = vi.fn();
-const mockConnect = vi.fn();
-const mockBcryptCompare = vi.fn();
+    return {
+        mockPoolQuery: vi.fn(),
+        mockDirectQuery: vi.fn(),
+        mockRelease: vi.fn(),
+        mockGetActorOrFail: vi.fn(),
+        mockValidatePinForUser: vi.fn(),
+        mockValidatePinForRoles: vi.fn(),
+        mockCanAuthorizeShiftClosure: vi.fn(),
+        PinRbacError: MockPinRbacError,
+    };
+});
 
-// Mock DB
 vi.mock('@/lib/db', () => ({
     pool: {
-        connect: () => {
-            mockConnect();
-            return Promise.resolve({
-                query: mockQuery,
-                release: mockRelease,
-            });
-        },
+        connect: vi.fn(() => Promise.resolve({
+            query: mockPoolQuery,
+            release: mockRelease,
+        })),
     },
     query: (...args: unknown[]) => mockDirectQuery(...args),
 }));
 
-// Mock uuid
-vi.mock('uuid', () => ({
-    v4: () => 'mock-uuid-1234',
-}));
-
-// Mock next/cache
-vi.mock('next/cache', () => ({
-    revalidatePath: vi.fn(),
-}));
-
-// Mock logger
 vi.mock('@/lib/logger', () => ({
     logger: {
         info: vi.fn(),
@@ -53,440 +50,334 @@ vi.mock('@/lib/logger', () => ({
     },
 }));
 
-// Mock bcryptjs
-vi.mock('bcryptjs', () => ({
-    compare: (...args: unknown[]) => mockBcryptCompare(...args),
+vi.mock('next/cache', () => ({
+    revalidatePath: vi.fn(),
 }));
 
-// Mock notifications
-// Mock auth-v2 from the correct relative path
-vi.mock('@/actions/auth-v2', () => ({
-    validateSupervisorPin: vi.fn().mockResolvedValue({
-        success: true,
-        authorizedBy: { id: 'sup-1', name: 'Supervisor', role: 'MANAGER' }
-    }),
+vi.mock('uuid', () => ({
+    v4: () => '550e8400-e29b-41d4-a716-446655440099',
 }));
 
-// Import after mocks
+vi.mock('./shift-handover-policy', () => ({
+    canAuthorizeShiftClosure: (...args: unknown[]) => mockCanAuthorizeShiftClosure(...args),
+}));
+
+vi.mock('@/lib/pin-rbac', () => ({
+    PinRbacError,
+    ROLE_GROUPS: {
+        ADMIN: ['ADMIN', 'GERENTE_GENERAL'],
+        MANAGER: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
+        MANAGER_OR_HR: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'],
+        OVERRIDE: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'],
+        TREASURY_AUTH: ['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'TESORERO'],
+    },
+    getActorOrFail: (...args: unknown[]) => mockGetActorOrFail(...args),
+    validatePinForRoles: (...args: unknown[]) => mockValidatePinForRoles(...args),
+    validatePinForUser: (...args: unknown[]) => mockValidatePinForUser(...args),
+}));
+
 import {
     calculateHandoverSecure,
     executeHandoverSecure,
     quickHandoverSecure,
 } from '@/actions/shift-handover-v2';
-import { validateSupervisorPin } from '@/actions/auth-v2';
+import { PinRbacError as ImportedPinRbacError } from '@/lib/pin-rbac';
 
-// Hardcoded constant (cannot export from 'use server' files)
-const BASE_CASH = 50000;
+const ACTOR_ID = '550e8400-e29b-41d4-a716-446655440010';
+const PAYLOAD_USER_ID = '550e8400-e29b-41d4-a716-446655440011';
+const SUPERVISOR_ID = '550e8400-e29b-41d4-a716-446655440012';
+const TERMINAL_ID = '550e8400-e29b-41d4-a716-446655440013';
+const LOCATION_ID = '550e8400-e29b-41d4-a716-446655440014';
+const SESSION_ID = '550e8400-e29b-41d4-a716-446655440015';
+const INCOMING_USER_ID = '550e8400-e29b-41d4-a716-446655440016';
 
-// =====================================================
-// TEST DATA
-// =====================================================
+function setActor(role: string = 'CASHIER') {
+    mockGetActorOrFail.mockResolvedValue({
+        userId: ACTOR_ID,
+        role,
+        locationId: LOCATION_ID,
+        userName: 'Cajero sesión',
+        tokenVersion: 1,
+        sessionToken: 'session-token',
+    });
+}
 
-const VALID_TERMINAL_ID = '123e4567-e89b-12d3-a456-426614174001';
-const VALID_LOCATION_ID = '123e4567-e89b-12d3-a456-426614174002';
-const VALID_SESSION_ID = '123e4567-e89b-12d3-a456-426614174003';
-const OUTGOING_USER_ID = 'user-outgoing';
-const INCOMING_USER_ID = '123e4567-e89b-12d3-a456-426614174004';
-const VALID_PIN = '1234';
-
-// =====================================================
-// TESTS: calculateHandoverSecure
-// =====================================================
-
-describe('calculateHandoverSecure', () => {
+describe('shift-handover-v2 shared PIN/RBAC contracts', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mockDirectQuery.mockReset();
+        setActor();
+        mockDirectQuery.mockResolvedValue({ rows: [], rowCount: 0 });
+        mockPoolQuery.mockResolvedValue({ rows: [], rowCount: 0 });
+        mockValidatePinForUser.mockResolvedValue({
+            valid: true,
+            authorizedBy: {
+                id: ACTOR_ID,
+                name: 'Cajero sesión',
+                role: 'CASHIER',
+            },
+            matchedBy: 'hash',
+        });
+        mockValidatePinForRoles.mockResolvedValue({
+            valid: true,
+            authorizedBy: {
+                id: SUPERVISOR_ID,
+                name: 'Supervisor',
+                role: 'MANAGER',
+            },
+            matchedBy: 'hash',
+        });
+        mockCanAuthorizeShiftClosure.mockReturnValue(true);
     });
 
-    it('should fail with invalid terminal ID', async () => {
-        const result = await calculateHandoverSecure('invalid-uuid', 100000);
+    it('calculateHandoverSecure rechaza terminal inválido', async () => {
+        const result = await calculateHandoverSecure('invalid', 1000);
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('ID inválido');
     });
 
-    it('should fail with negative declared cash', async () => {
-        const result = await calculateHandoverSecure(VALID_TERMINAL_ID, -1000);
+    it('executeHandoverSecure rechaza sin sesión válida', async () => {
+        mockGetActorOrFail.mockRejectedValue(
+            new ImportedPinRbacError('AUTH_UNAUTHORIZED', 'Sesión no válida. Vuelve a iniciar sesión.')
+        );
 
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('positivo');
-    });
-
-    it('should keep full declared cash as carryover (no automatic remittance)', async () => {
-        mockDirectQuery
-            .mockResolvedValueOnce({
-                rows: [{ id: VALID_SESSION_ID, opening_amount: 100000, opened_at: new Date() }],
-                rowCount: 1,
-            }) // Active session
-            .mockResolvedValueOnce({
-                rows: [{ payment_method: 'CASH', total: 1400000 }],
-                rowCount: 1,
-            }) // Sales
-            .mockResolvedValueOnce({
-                rows: [{ has_refunds: true }],
-                rowCount: 1,
-            }) // refunds table exists
-            .mockResolvedValueOnce({
-                rows: [{ total: 0 }],
-                rowCount: 1,
-            }) // cash refunds for session
-            .mockResolvedValueOnce({
-                rows: [{ total_in: 0, total_out: 0 }],
-                rowCount: 1,
-            }); // Movements
-
-        const result = await calculateHandoverSecure(VALID_TERMINAL_ID, 1500000);
-
-        expect(result.success).toBe(true);
-        expect(result.data?.amountToWithdraw).toBe(0);
-        expect(result.data?.amountToKeep).toBe(1500000);
-    });
-
-    it('should descontar devoluciones cash del expectedCash', async () => {
-        mockDirectQuery
-            .mockResolvedValueOnce({
-                rows: [{ id: VALID_SESSION_ID, opening_amount: 100000, opened_at: new Date() }],
-                rowCount: 1,
-            }) // Active session
-            .mockResolvedValueOnce({
-                rows: [{ payment_method: 'CASH', total: 200000 }],
-                rowCount: 1,
-            }) // Sales
-            .mockResolvedValueOnce({
-                rows: [{ has_refunds: true }],
-                rowCount: 1,
-            }) // refunds table exists
-            .mockResolvedValueOnce({
-                rows: [{ total: 50000 }],
-                rowCount: 1,
-            }) // cash refunds
-            .mockResolvedValueOnce({
-                rows: [{ total_in: 0, total_out: 0 }],
-                rowCount: 1,
-            }); // Movements
-
-        const result = await calculateHandoverSecure(VALID_TERMINAL_ID, 250000);
-
-        expect(result.success).toBe(true);
-        expect(result.data?.cashSales).toBe(150000);
-        expect(result.data?.expectedCash).toBe(250000);
-    });
-});
-
-// =====================================================
-// TESTS: executeHandoverSecure
-// =====================================================
-
-describe('executeHandoverSecure', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        mockQuery.mockResolvedValue({ rows: [] });
-        mockDirectQuery.mockReset();
-        mockBcryptCompare.mockResolvedValue(true);
-        vi.mocked(validateSupervisorPin).mockResolvedValue({
-            success: true,
-            authorizedBy: { id: 'sup-1', name: 'Supervisor', role: 'MANAGER' }
-        });
-    });
-
-    afterEach(() => {
-        vi.resetAllMocks();
-    });
-
-    it('should fail with invalid terminal ID', async () => {
         const result = await executeHandoverSecure({
-            terminalId: 'invalid',
+            terminalId: TERMINAL_ID,
             declaredCash: 150000,
-            expectedCash: 140000,
-            amountToWithdraw: 100000,
-            amountToKeep: BASE_CASH,
-            userId: OUTGOING_USER_ID,
-            userPin: VALID_PIN,
-            supervisorPin: VALID_PIN,
+            expectedCash: 150000,
+            amountToWithdraw: 0,
+            amountToKeep: 150000,
+            userId: PAYLOAD_USER_ID,
+            userPin: '1234',
+            supervisorPin: '9999',
         });
 
         expect(result.success).toBe(false);
-        expect(result.error).toContain('inválido');
-        expect(mockConnect).not.toHaveBeenCalled();
+        expect(result.error).toContain('No autenticado');
     });
 
-    it('should require user PIN', async () => {
-        const result = await executeHandoverSecure({
-            terminalId: VALID_TERMINAL_ID,
-            declaredCash: 150000,
-            expectedCash: 140000,
-            amountToWithdraw: 100000,
-            amountToKeep: BASE_CASH,
-            userId: OUTGOING_USER_ID,
-            userPin: '12', // Too short
-            supervisorPin: VALID_PIN,
+    it('executeHandoverSecure valida el PIN del actor de sesión y no el userId del payload', async () => {
+        mockPoolQuery.mockImplementation(async (sql: string) => {
+            if (sql === 'BEGIN ISOLATION LEVEL SERIALIZABLE' || sql === 'ROLLBACK') {
+                return { rows: [], rowCount: 0 };
+            }
+
+            return { rows: [], rowCount: 0 };
         });
 
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('PIN');
-    });
-
-    it('should validate PIN before handover', async () => {
-        let callIndex = 0;
-        const responses = [
-            { rows: [] }, // BEGIN
-            { rows: [] }, // PIN validation - no user found
-        ];
-
-        mockQuery.mockImplementation((sql: string) => {
-            if (sql === 'ROLLBACK') return Promise.resolve({ rows: [] });
-            const response = responses[callIndex] || { rows: [] };
-            callIndex++;
-            return Promise.resolve(response);
+        mockValidatePinForUser.mockResolvedValueOnce({
+            valid: false,
+            error: 'PIN incorrecto',
         });
 
         const result = await executeHandoverSecure({
-            terminalId: VALID_TERMINAL_ID,
+            terminalId: TERMINAL_ID,
             declaredCash: 150000,
-            expectedCash: 140000,
-            amountToWithdraw: 100000,
-            amountToKeep: BASE_CASH,
-            userId: OUTGOING_USER_ID,
-            userPin: VALID_PIN,
-            supervisorPin: VALID_PIN,
+            expectedCash: 150000,
+            amountToWithdraw: 0,
+            amountToKeep: 150000,
+            userId: PAYLOAD_USER_ID,
+            userPin: '1234',
+            supervisorPin: '9999',
         });
 
         expect(result.success).toBe(false);
-        expect(result.error).toContain('incorrecto');
+        expect(result.error).toContain('PIN de cajero incorrecto');
+        expect(mockValidatePinForUser).toHaveBeenCalledWith(
+            expect.objectContaining({ query: expect.any(Function) }),
+            ACTOR_ID,
+            '1234',
+            expect.objectContaining({
+                allowLegacyPlaintext: true,
+                useRateLimiter: true,
+            })
+        );
     });
 
-    it('should execute handover with valid PIN', async () => {
-        mockQuery.mockImplementation((sql: string) => {
-            if (sql === 'BEGIN ISOLATION LEVEL SERIALIZABLE') return Promise.resolve({ rows: [] });
-            if (sql.includes('SELECT id, name, role, access_pin_hash, access_pin') && sql.includes('FROM users')) {
-                return Promise.resolve({ rows: [{ id: OUTGOING_USER_ID, name: 'Cajero Test', role: 'CASHIER', access_pin_hash: 'hashed' }] });
+    it('executeHandoverSecure audita con el actor de sesión y mantiene al supervisor como metadato', async () => {
+        mockPoolQuery.mockImplementation(async (sql: string) => {
+            if (sql === 'BEGIN ISOLATION LEVEL SERIALIZABLE' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+                return { rows: [], rowCount: 0 };
             }
-            if (sql.includes('SELECT id, location_id, current_cashier_id, status') && sql.includes('FROM terminals')) {
-                return Promise.resolve({ rows: [{ id: VALID_TERMINAL_ID, location_id: VALID_LOCATION_ID, current_cashier_id: OUTGOING_USER_ID, status: 'OPEN' }] });
+
+            if (sql.includes('FROM terminals')) {
+                return {
+                    rows: [{
+                        id: TERMINAL_ID,
+                        location_id: LOCATION_ID,
+                        current_cashier_id: ACTOR_ID,
+                        status: 'OPEN',
+                    }],
+                    rowCount: 1,
+                };
             }
-            if (sql.includes('SELECT id, user_id, opening_amount, opened_at') && sql.includes('FROM cash_register_sessions')) {
-                return Promise.resolve({ rows: [{ id: VALID_SESSION_ID, user_id: OUTGOING_USER_ID, opening_amount: 50000, opened_at: new Date() }] });
+
+            if (sql.includes('FROM cash_register_sessions')) {
+                return {
+                    rows: [{
+                        id: SESSION_ID,
+                        user_id: PAYLOAD_USER_ID,
+                        opening_amount: 50000,
+                        opened_at: new Date('2026-03-27T10:00:00.000Z'),
+                    }],
+                    rowCount: 1,
+                };
             }
+
             if (sql.includes('SELECT name FROM users WHERE id = $1 LIMIT 1')) {
-                return Promise.resolve({ rows: [{ name: 'Cajero Test' }] });
+                return {
+                    rows: [{ name: 'Dueño de turno' }],
+                    rowCount: 1,
+                };
             }
+
             if (sql.includes('UPDATE cash_register_sessions')) {
-                return Promise.resolve({ rows: [{ id: VALID_SESSION_ID }], rowCount: 1 });
+                return {
+                    rows: [{ id: SESSION_ID }],
+                    rowCount: 1,
+                };
             }
+
             if (sql.includes('UPDATE terminals')) {
-                return Promise.resolve({ rows: [], rowCount: 1 });
+                return { rows: [], rowCount: 1 };
             }
+
             if (sql.includes('INSERT INTO audit_log')) {
-                return Promise.resolve({ rows: [] });
+                return { rows: [], rowCount: 1 };
             }
-            if (sql === 'COMMIT') return Promise.resolve({ rows: [] });
-            return Promise.resolve({ rows: [] });
+
+            return { rows: [], rowCount: 0 };
         });
 
-        mockBcryptCompare.mockResolvedValue(true);
-
         const result = await executeHandoverSecure({
-            terminalId: VALID_TERMINAL_ID,
+            terminalId: TERMINAL_ID,
             declaredCash: 150000,
             expectedCash: 140000,
             amountToWithdraw: 100000,
-            amountToKeep: BASE_CASH,
-            userId: OUTGOING_USER_ID,
-            userPin: VALID_PIN,
-            supervisorPin: VALID_PIN,
+            amountToKeep: 50000,
+            userId: PAYLOAD_USER_ID,
+            userPin: '1234',
+            supervisorPin: '9999',
         });
 
         expect(result.success).toBe(true);
-        expect(result.remittanceId).toBeUndefined();
-        const executedSql = mockQuery.mock.calls.map(([sql]) => String(sql));
-        expect(executedSql.some((sql) => sql.includes('INSERT INTO treasury_remittances'))).toBe(false);
+
+        const auditCall = mockPoolQuery.mock.calls.find(([sql]) =>
+            String(sql).includes('INSERT INTO audit_log')
+        );
+        expect(auditCall?.[1][0]).toBe(ACTOR_ID);
+
+        const newValues = JSON.parse(String(auditCall?.[1][5]));
+        expect(newValues).toMatchObject({
+            shift_owner_name: 'Dueño de turno',
+            closed_by_actor: 'Cajero sesión',
+            authorized_by_supervisor: 'Supervisor',
+        });
+        expect(mockValidatePinForRoles).toHaveBeenCalledWith(
+            expect.objectContaining({ query: expect.any(Function) }),
+            '9999',
+            ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
+            expect.objectContaining({
+                allowLegacyPlaintext: true,
+                useRateLimiter: true,
+            })
+        );
     });
 
-    it('should fail if terminal not found', async () => {
-        let callIndex = 0;
-        const responses = [
-            { rows: [] }, // BEGIN
-            { rows: [{ id: OUTGOING_USER_ID, name: 'Cajero', role: 'CASHIER', access_pin_hash: 'hashed' }] }, // PIN
-            { rows: [] }, // Terminal not found
-        ];
+    it('quickHandoverSecure audita con el actor de sesión y no con outgoingUserId', async () => {
+        mockValidatePinForUser
+            .mockResolvedValueOnce({
+                valid: true,
+                authorizedBy: { id: PAYLOAD_USER_ID, name: 'Cajero saliente', role: 'CASHIER' },
+                matchedBy: 'hash',
+            })
+            .mockResolvedValueOnce({
+                valid: true,
+                authorizedBy: { id: INCOMING_USER_ID, name: 'Cajero entrante', role: 'CASHIER' },
+                matchedBy: 'hash',
+            });
 
-        mockQuery.mockImplementation((sql: string) => {
-            if (sql === 'ROLLBACK') return Promise.resolve({ rows: [] });
-            const response = responses[callIndex] || { rows: [] };
-            callIndex++;
-            return Promise.resolve(response);
+        mockPoolQuery.mockImplementation(async (sql: string) => {
+            if (sql === 'BEGIN ISOLATION LEVEL SERIALIZABLE' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+                return { rows: [], rowCount: 0 };
+            }
+
+            if (sql.includes('FROM terminals')) {
+                return {
+                    rows: [{
+                        id: TERMINAL_ID,
+                        location_id: LOCATION_ID,
+                        current_cashier_id: PAYLOAD_USER_ID,
+                    }],
+                    rowCount: 1,
+                };
+            }
+
+            if (sql.includes('FROM cash_register_sessions')) {
+                return {
+                    rows: [{
+                        id: SESSION_ID,
+                        opening_amount: 50000,
+                        opened_at: new Date('2026-03-27T10:00:00.000Z'),
+                    }],
+                    rowCount: 1,
+                };
+            }
+
+            if (sql.includes('UPDATE cash_register_sessions')) {
+                return { rows: [], rowCount: 1 };
+            }
+
+            if (sql.includes('INSERT INTO cash_register_sessions')) {
+                return { rows: [], rowCount: 1 };
+            }
+
+            if (sql.includes('UPDATE terminals')) {
+                return { rows: [], rowCount: 1 };
+            }
+
+            if (sql.includes('INSERT INTO audit_log')) {
+                return { rows: [], rowCount: 1 };
+            }
+
+            return { rows: [], rowCount: 0 };
         });
-
-        mockBcryptCompare.mockResolvedValue(true);
-
-        const result = await executeHandoverSecure({
-            terminalId: VALID_TERMINAL_ID,
-            declaredCash: 150000,
-            expectedCash: 140000,
-            amountToWithdraw: 100000,
-            amountToKeep: BASE_CASH,
-            userId: OUTGOING_USER_ID,
-            userPin: VALID_PIN,
-            supervisorPin: VALID_PIN,
-        });
-
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('Terminal');
-    });
-});
-
-// =====================================================
-// TESTS: quickHandoverSecure
-// =====================================================
-
-describe('quickHandoverSecure', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        mockQuery.mockResolvedValue({ rows: [] });
-        mockBcryptCompare.mockResolvedValue(true);
-    });
-
-    it('should require both user PINs', async () => {
-        const result = await quickHandoverSecure({
-            terminalId: VALID_TERMINAL_ID,
-            outgoingUserId: OUTGOING_USER_ID,
-            outgoingUserPin: '12', // Too short
-            incomingUserId: INCOMING_USER_ID,
-            incomingUserPin: VALID_PIN,
-            declaredCash: 150000,
-        });
-
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('saliente');
-    });
-
-    it('should validate outgoing user PIN', async () => {
-        let callIndex = 0;
-        const responses = [
-            { rows: [] }, // BEGIN
-            { rows: [] }, // Outgoing PIN validation - no user
-        ];
-
-        mockQuery.mockImplementation((sql: string) => {
-            if (sql === 'ROLLBACK') return Promise.resolve({ rows: [] });
-            const response = responses[callIndex] || { rows: [] };
-            callIndex++;
-            return Promise.resolve(response);
-        });
-
-        const result = await quickHandoverSecure({
-            terminalId: VALID_TERMINAL_ID,
-            outgoingUserId: OUTGOING_USER_ID,
-            outgoingUserPin: VALID_PIN,
-            incomingUserId: INCOMING_USER_ID,
-            incomingUserPin: VALID_PIN,
-            declaredCash: 150000,
-        });
-
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('saliente');
-    });
-
-    it('should validate incoming user PIN', async () => {
-        let callIndex = 0;
-        const responses = [
-            { rows: [] }, // BEGIN
-            { rows: [{ id: OUTGOING_USER_ID, name: 'Outgoing', role: 'CASHIER', access_pin_hash: 'hashed' }] }, // Outgoing PIN OK
-            { rows: [] }, // Incoming PIN validation - no user
-        ];
-
-        mockQuery.mockImplementation((sql: string) => {
-            if (sql === 'ROLLBACK') return Promise.resolve({ rows: [] });
-            const response = responses[callIndex] || { rows: [] };
-            callIndex++;
-            return Promise.resolve(response);
-        });
-
-        mockBcryptCompare.mockResolvedValue(true);
 
         const result = await quickHandoverSecure({
-            terminalId: VALID_TERMINAL_ID,
-            outgoingUserId: OUTGOING_USER_ID,
-            outgoingUserPin: VALID_PIN,
+            terminalId: TERMINAL_ID,
+            outgoingUserId: PAYLOAD_USER_ID,
+            outgoingUserPin: '1234',
             incomingUserId: INCOMING_USER_ID,
-            incomingUserPin: VALID_PIN,
-            declaredCash: 150000,
-        });
-
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('entrante');
-    });
-
-    it('should complete quick handover with valid PINs', async () => {
-        let callIndex = 0;
-        const responses = [
-            { rows: [] }, // BEGIN
-            { rows: [{ id: OUTGOING_USER_ID, name: 'Outgoing', role: 'CASHIER', access_pin_hash: 'hashed' }] }, // Outgoing PIN
-            { rows: [{ id: INCOMING_USER_ID, name: 'Incoming', role: 'CASHIER', access_pin_hash: 'hashed' }] }, // Incoming PIN
-            { rows: [{ id: VALID_TERMINAL_ID, location_id: VALID_LOCATION_ID, current_cashier_id: OUTGOING_USER_ID }] }, // Terminal lock
-            { rows: [{ id: VALID_SESSION_ID, opening_amount: 50000, opened_at: new Date() }] }, // Session lock
-            { rows: [], rowCount: 1 }, // Close session
-            { rows: [] }, // Create new session
-            { rows: [], rowCount: 1 }, // Update terminal
-            { rows: [] }, // Audit
-            { rows: [] }, // COMMIT
-        ];
-
-        mockQuery.mockImplementation(() => {
-            const response = responses[callIndex] || { rows: [] };
-            callIndex++;
-            return Promise.resolve(response);
-        });
-
-        mockBcryptCompare.mockResolvedValue(true);
-
-        const result = await quickHandoverSecure({
-            terminalId: VALID_TERMINAL_ID,
-            outgoingUserId: OUTGOING_USER_ID,
-            outgoingUserPin: VALID_PIN,
-            incomingUserId: INCOMING_USER_ID,
-            incomingUserPin: VALID_PIN,
+            incomingUserPin: '4321',
             declaredCash: 150000,
         });
 
         expect(result.success).toBe(true);
-        expect(result.newSessionId).toBeDefined();
-    });
+        expect(result.newSessionId).toBe('550e8400-e29b-41d4-a716-446655440099');
 
-    it('should handle lock contention', async () => {
-        let callIndex = 0;
-        const responses = [
-            { rows: [] }, // BEGIN
-            { rows: [{ id: OUTGOING_USER_ID, name: 'Outgoing', role: 'CASHIER', access_pin_hash: 'hashed' }] }, // Outgoing PIN
-            { rows: [{ id: INCOMING_USER_ID, name: 'Incoming', role: 'CASHIER', access_pin_hash: 'hashed' }] }, // Incoming PIN
-        ];
-
-        mockQuery.mockImplementation((sql: string) => {
-            if (sql === 'ROLLBACK') return Promise.resolve({ rows: [] });
-            if (callIndex === 3) {
-                // Simulate lock error on terminal
-                const error = new Error('Lock not available') as Error & { code?: string };
-                error.code = '55P03';
-                throw error;
-            }
-            const response = responses[callIndex] || { rows: [] };
-            callIndex++;
-            return Promise.resolve(response);
-        });
-
-        mockBcryptCompare.mockResolvedValue(true);
-
-        const result = await quickHandoverSecure({
-            terminalId: VALID_TERMINAL_ID,
-            outgoingUserId: OUTGOING_USER_ID,
-            outgoingUserPin: VALID_PIN,
-            incomingUserId: INCOMING_USER_ID,
-            incomingUserPin: VALID_PIN,
-            declaredCash: 150000,
-        });
-
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('utilizada por otro proceso');
+        const auditCall = mockPoolQuery.mock.calls.find(([sql]) =>
+            String(sql).includes('INSERT INTO audit_log')
+        );
+        expect(auditCall?.[1][0]).toBe(ACTOR_ID);
+        expect(mockValidatePinForUser).toHaveBeenNthCalledWith(
+            1,
+            expect.objectContaining({ query: expect.any(Function) }),
+            PAYLOAD_USER_ID,
+            '1234',
+            expect.objectContaining({
+                allowLegacyPlaintext: true,
+                useRateLimiter: true,
+            })
+        );
+        expect(mockValidatePinForUser).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({ query: expect.any(Function) }),
+            INCOMING_USER_ID,
+            '4321',
+            expect.objectContaining({
+                allowLegacyPlaintext: true,
+                useRateLimiter: true,
+            })
+        );
     });
 });

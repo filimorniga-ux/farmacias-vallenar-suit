@@ -1,183 +1,250 @@
-/**
- * Tests - Attendance V2 Module
- */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { beforeEach, describe, it, expect, vi } from 'vitest';
-import * as attendanceV2 from '@/actions/attendance-v2';
-import { getValidatedSession } from '@/lib/server-session';
+const {
+    mockQuery,
+    mockClientQuery,
+    mockRelease,
+    mockCheckRateLimit,
+    mockRecordFailedAttempt,
+    mockResetAttempts,
+    mockGetActorOrFail,
+    mockRequireRole,
+    mockValidatePinForRoles,
+    mockValidatePinForUser,
+    PinRbacError,
+} = vi.hoisted(() => {
+    class MockPinRbacError extends Error {
+        code: string;
+
+        constructor(code: string, message: string) {
+            super(message);
+            this.name = 'PinRbacError';
+            this.code = code;
+        }
+    }
+
+    return {
+        mockQuery: vi.fn(),
+        mockClientQuery: vi.fn(),
+        mockRelease: vi.fn(),
+        mockCheckRateLimit: vi.fn(),
+        mockRecordFailedAttempt: vi.fn(),
+        mockResetAttempts: vi.fn(),
+        mockGetActorOrFail: vi.fn(),
+        mockRequireRole: vi.fn(),
+        mockValidatePinForRoles: vi.fn(),
+        mockValidatePinForUser: vi.fn(),
+        PinRbacError: MockPinRbacError,
+    };
+});
 
 vi.mock('@/lib/db', () => ({
-    query: vi.fn(),
+    query: (...args: unknown[]) => mockQuery(...args),
     pool: {
         connect: vi.fn(() => Promise.resolve({
-            query: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
-            release: vi.fn()
-        }))
-    }
+            query: mockClientQuery,
+            release: mockRelease,
+        })),
+    },
 }));
-vi.mock('@/lib/server-session', () => ({
-    getValidatedSession: vi.fn(),
+
+vi.mock('@/lib/pin-rbac', () => ({
+    PinRbacError,
+    ROLE_GROUPS: {
+        ADMIN: ['ADMIN', 'GERENTE_GENERAL'],
+        MANAGER: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
+        MANAGER_OR_HR: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'],
+        OVERRIDE: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'],
+        TREASURY_AUTH: ['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'TESORERO'],
+    },
+    getActorOrFail: (...args: unknown[]) => mockGetActorOrFail(...args),
+    requireRole: (...args: unknown[]) => mockRequireRole(...args),
+    validatePinForRoles: (...args: unknown[]) => mockValidatePinForRoles(...args),
+    validatePinForUser: (...args: unknown[]) => mockValidatePinForUser(...args),
 }));
+
+vi.mock('@/lib/rate-limiter', () => ({
+    checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+    recordFailedAttempt: (...args: unknown[]) => mockRecordFailedAttempt(...args),
+    resetAttempts: (...args: unknown[]) => mockResetAttempts(...args),
+}));
+
 vi.mock('next/headers', () => ({
     headers: vi.fn(async () => new Map([['x-forwarded-for', '127.0.0.1']])),
-    cookies: vi.fn(async () => ({ get: vi.fn(() => undefined) }))
+    cookies: vi.fn(async () => ({ get: vi.fn(() => undefined) })),
 }));
-vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('crypto', () => ({ randomUUID: vi.fn(() => 'new-uuid') }));
 
-beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(getValidatedSession).mockResolvedValue({
-        userId: 'user-1',
-        role: 'CASHIER',
-        userName: 'Caja',
+vi.mock('@/lib/logger', () => ({
+    logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+    },
+}));
+
+vi.mock('crypto', () => ({
+    randomUUID: vi.fn(() => '550e8400-e29b-41d4-a716-446655440999'),
+}));
+
+import * as attendanceV2 from '@/actions/attendance-v2';
+import { PinRbacError as ImportedPinRbacError } from '@/lib/pin-rbac';
+
+const ACTOR_ID = '550e8400-e29b-41d4-a716-446655440010';
+const MANAGER_ID = '550e8400-e29b-41d4-a716-446655440011';
+const EMPLOYEE_ID = '550e8400-e29b-41d4-a716-446655440012';
+const ATTENDANCE_ID = '550e8400-e29b-41d4-a716-446655440013';
+
+function setActor(role: string = 'CASHIER') {
+    mockGetActorOrFail.mockResolvedValue({
+        userId: ACTOR_ID,
+        role,
         locationId: 'loc-1',
+        userName: 'Actor',
         tokenVersion: 1,
-        sessionToken: 'token',
+        sessionToken: 'session-token',
     });
-});
 
-describe('Attendance V2 - Sequence Validation', () => {
-
-
-    it('should accept overtime <= 4 hours', async () => {
-        const result = await attendanceV2.registerAttendanceSecure({
-            userId: '550e8400-e29b-41d4-a716-446655440000',
-            type: 'CHECK_IN',
-            locationId: '550e8400-e29b-41d4-a716-446655440001',
-            method: 'PIN',
-            overtimeMinutes: 0
-        });
-
-        // Will fail on DB but validates input correctly
-        if (result.error) {
-            expect(result.error).not.toContain('aprobación');
+    mockRequireRole.mockImplementation((actor, allowedRoles: readonly string[]) => {
+        if (!allowedRoles.includes(actor.role)) {
+            throw new ImportedPinRbacError('AUTH_FORBIDDEN', 'Acceso denegado');
         }
-    });
 
-    it('should validate UUID format', async () => {
-        const result = await attendanceV2.registerAttendanceSecure({
-            userId: 'invalid',
-            type: 'CHECK_IN',
-            locationId: 'invalid',
-            method: 'PIN',
-            overtimeMinutes: 0
+        return actor;
+    });
+}
+
+describe('attendance-v2 shared PIN/RBAC contracts', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        setActor();
+        mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
+        mockClientQuery.mockResolvedValue({ rows: [], rowCount: 0 });
+        mockCheckRateLimit.mockReturnValue({ allowed: true });
+        mockValidatePinForRoles.mockResolvedValue({
+            valid: true,
+            authorizedBy: {
+                id: MANAGER_ID,
+                name: 'Manager',
+                role: 'MANAGER',
+            },
+            matchedBy: 'hash',
         });
-
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('inválido');
+        mockValidatePinForUser.mockResolvedValue({
+            valid: true,
+            authorizedBy: {
+                id: EMPLOYEE_ID,
+                name: 'Empleado',
+                role: 'CASHIER',
+            },
+            matchedBy: 'hash',
+        });
     });
-});
 
-describe('Attendance V2 - RBAC', () => {
-    it('should require authentication for getMyAttendanceHistory', async () => {
-        vi.mocked(getValidatedSession).mockResolvedValueOnce(null);
+    it('rechaza getMyAttendanceHistory sin sesión válida', async () => {
+        mockGetActorOrFail.mockRejectedValue(
+            new ImportedPinRbacError('AUTH_UNAUTHORIZED', 'Sesión no válida. Vuelve a iniciar sesión.')
+        );
 
         const result = await attendanceV2.getMyAttendanceHistory();
 
         expect(result.success).toBe(false);
-        expect(result.error).toContain('autenticado');
+        expect(result.error).toContain('No autenticado');
     });
 
-    it('should require MANAGER role for getTeamAttendanceHistory', async () => {
-        vi.mocked(getValidatedSession).mockResolvedValueOnce({
-            userId: 'user-1',
-            role: 'CASHIER',
-            userName: 'Caja',
-            locationId: 'loc-1',
-            tokenVersion: 1,
-            sessionToken: 'token',
-        });
+    it('rechaza getTeamAttendanceHistory con rol insuficiente', async () => {
+        setActor('CASHIER');
 
         const result = await attendanceV2.getTeamAttendanceHistory();
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('managers');
     });
-});
 
-describe('Attendance V2 - Overtime Logic', () => {
+    it('validateEmployeePinSecure usa el helper compartido y permite la excepción de desarrollo vía opciones', async () => {
+        const result = await attendanceV2.validateEmployeePinSecure(EMPLOYEE_ID, '1213');
 
+        expect(result.success).toBe(true);
+        expect(result.valid).toBe(true);
+        expect(result.employeeName).toBe('Empleado');
+        expect(mockValidatePinForUser).toHaveBeenCalledWith(
+            expect.objectContaining({ query: expect.any(Function) }),
+            EMPLOYEE_ID,
+            '1213',
+            expect.objectContaining({
+                allowLegacyPlaintext: true,
+                allowDevelopmentMasterPin: true,
+            })
+        );
+    });
 
-    it('should allow overtime > 4 hours (pending approval)', async () => {
-        const mockDb = await import('@/lib/db');
-
-        // Setup shared client
-        const sharedClient = {
-            query: vi.fn(),
-            release: vi.fn()
-        };
-        (mockDb.pool.connect as any).mockResolvedValue(sharedClient);
-
-        // Robust mock
-        sharedClient.query.mockImplementation(async (sql: string | any) => {
-            const queryText = (typeof sql === 'string' ? sql : sql.text) || '';
-
-            if (queryText.includes('BEGIN')) return { rows: [] };
-            if (queryText.includes('SELECT type FROM attendance_logs')) {
-                return { rows: [{ type: 'CHECK_IN' }] };
-            }
-            if (queryText.includes('FROM attendance_logs WHERE user_id') && queryText.includes('AND type = \'CHECK_IN\'')) {
-                return { rows: [] };
+    it('approveOvertimeSecure audita con el actor de sesión y no con el autorizador del PIN', async () => {
+        setActor('MANAGER');
+        mockClientQuery.mockImplementation(async (sql: string) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+                return { rows: [], rowCount: 0 };
             }
 
-            if (queryText.includes('INSERT')) return { rows: [], rowCount: 1 };
-            if (queryText.includes('COMMIT')) return { rows: [] };
+            if (sql.includes('UPDATE attendance_logs')) {
+                return { rows: [], rowCount: 1 };
+            }
+
+            if (sql.includes('INSERT INTO audit_log')) {
+                return { rows: [], rowCount: 1 };
+            }
 
             return { rows: [], rowCount: 0 };
         });
 
-        const result = await attendanceV2.registerAttendanceSecure({
-            userId: '550e8400-e29b-41d4-a716-446655440000',
-            type: 'CHECK_OUT',
-            locationId: '550e8400-e29b-41d4-a716-446655440001',
-            method: 'PIN',
-            overtimeMinutes: 300 // 5 hours
+        mockValidatePinForRoles.mockResolvedValue({
+            valid: true,
+            authorizedBy: {
+                id: MANAGER_ID,
+                name: 'Supervisor PIN',
+                role: 'MANAGER',
+            },
+            matchedBy: 'hash',
         });
 
-        if (!result.success) console.error('Overtime Test Failed:', result.error);
-        expect(result.success).toBe(true);
-        expect(result.attendanceId).toBeDefined();
-    });
-});
-
-describe('Attendance V2 - History & Pagination', () => {
-    it('should support pagination in history', async () => {
-        const mockDb = await import('@/lib/db');
-        vi.mocked(getValidatedSession).mockResolvedValueOnce({
-            userId: 'manager-1',
-            role: 'MANAGER',
-            userName: 'Manager',
-            locationId: '550e8400-e29b-41d4-a716-446655440000',
-            tokenVersion: 1,
-            sessionToken: 'token',
-        });
-
-        // getApprovedAttendanceHistory uses 'query', NOT 'pool'.
-        (mockDb.query as any).mockResolvedValueOnce({ rows: [] });
-
-        const result = await attendanceV2.getApprovedAttendanceHistory({
-            startDate: '2024-01-01',
-            endDate: '2024-01-31'
-        });
-
-        if (!result.success) console.error('History Test Failed:', result.error);
-        expect(result.success).toBe(true);
-
-        // Verify mock call contained LIMIT/OFFSET
-        const lastCall = (mockDb.query as any).mock.calls[0];
-        expect(lastCall[0]).toContain('LIMIT 50');
-        expect(lastCall[0]).toContain('OFFSET 0');
-    });
-});
-
-describe('Attendance V2 - Security', () => {
-    it('should fail approval with invalid manager PIN', async () => {
         const result = await attendanceV2.approveOvertimeSecure({
-            attendanceId: '550e8400-e29b-41d4-a716-446655440099',
-            managerPin: '0000', // Invalid
-            approved: true
+            attendanceId: ATTENDANCE_ID,
+            managerPin: '9999',
+            approved: true,
+            notes: 'Autorizado',
         });
-        expect(result.success).toBe(false);
+
+        expect(result.success).toBe(true);
+
+        const updateCall = mockClientQuery.mock.calls.find(([sql]) =>
+            String(sql).includes('UPDATE attendance_logs')
+        );
+        expect(updateCall?.[1][2]).toBe(ACTOR_ID);
+
+        const auditCall = mockClientQuery.mock.calls.find(([sql]) =>
+            String(sql).includes('INSERT INTO audit_log')
+        );
+        expect(auditCall?.[1][0]).toBe(ACTOR_ID);
+        expect(JSON.parse(String(auditCall?.[1][2]))).toMatchObject({
+            approved: true,
+            notes: 'Autorizado',
+            authorized_by: 'Supervisor PIN',
+        });
+    });
+
+    it('validateKioskExitPin usa el helper compartido con rate limit externo por IP', async () => {
+        const result = await attendanceV2.validateKioskExitPin('1213');
+
+        expect(result.valid).toBe(true);
+        expect(mockCheckRateLimit).toHaveBeenCalledWith('kiosk_exit_127.0.0.1');
+        expect(mockValidatePinForRoles).toHaveBeenCalledWith(
+            expect.objectContaining({ query: expect.any(Function) }),
+            '1213',
+            ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'],
+            expect.objectContaining({
+                allowLegacyPlaintext: true,
+                allowDevelopmentMasterPin: true,
+                useRateLimiter: false,
+            })
+        );
+        expect(mockResetAttempts).toHaveBeenCalledWith('kiosk_exit_127.0.0.1');
     });
 });

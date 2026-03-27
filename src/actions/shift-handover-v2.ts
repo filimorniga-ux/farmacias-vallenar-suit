@@ -7,7 +7,7 @@
  * Este módulo implementa operaciones de cambio de turno seguras con:
  * - Transacciones SERIALIZABLE para integridad
  * - Bloqueo pesimista (FOR UPDATE NOWAIT)
- * - Validación de PIN con bcrypt
+ * - Validación de PIN con helper compartido
  * - Control de acceso basado en roles (RBAC)
  * - Auditoría completa de operaciones
  * - Validación con Zod
@@ -24,6 +24,13 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { canAuthorizeShiftClosure } from './shift-handover-policy';
+import {
+    getActorOrFail,
+    PinRbacError,
+    ROLE_GROUPS,
+    validatePinForRoles,
+    validatePinForUser,
+} from '@/lib/pin-rbac';
 
 // =====================================================
 // SCHEMAS DE VALIDACIÓN
@@ -78,9 +85,6 @@ const ERROR_MESSAGES = {
     SERIALIZATION_ERROR: 'Conflicto de concurrencia. Por favor reintente.',
 } as const;
 
-// Roles que pueden realizar handover
-const HANDOVER_ROLES = ['CASHIER', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL'] as const;
-
 // =====================================================
 // HELPERS
 // =====================================================
@@ -110,7 +114,7 @@ async function getCashRefundsForSession(terminalId: string, sessionId: string): 
 }
 
 /**
- * Valida PIN de un usuario específico usando bcrypt
+ * Valida PIN de un usuario específico usando el helper compartido
  */
 async function validateUserPin(
     client: any,
@@ -118,69 +122,60 @@ async function validateUserPin(
     pin: string
 ): Promise<{ valid: boolean; user?: { id: string; name: string; role: string }; error?: string }> {
     try {
-        // Rate limiting import
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
-        const bcrypt = await import('bcryptjs');
+        const result = await validatePinForUser(client, userId, pin, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        // Verificar rate limit ANTES de consultar usuario
-        const rateCheck = checkRateLimit(userId);
-        if (!rateCheck.allowed) {
-            logger.warn({
-                userId,
-                blockedUntil: rateCheck.blockedUntil
-            }, '🚫 [Handover] Usuario bloqueado por rate limit');
-
-            return {
-                valid: false,
-                error: rateCheck.reason || 'Usuario temporalmente bloqueado'
-            };
+        if (!result.valid) {
+            return { valid: false, error: result.error || 'PIN incorrecto' };
         }
 
-        const userRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE id = $1 AND is_active = true
-        `, [userId]);
-
-        if (userRes.rows.length === 0) {
-            return { valid: false, error: 'Usuario no encontrado' };
-        }
-
-        const user = userRes.rows[0];
-
-        // Primero intentar con bcrypt hash
-        if (user.access_pin_hash) {
-            const isValid = await bcrypt.compare(pin, user.access_pin_hash);
-            if (isValid) {
-                // PIN correcto - resetear intentos
-                resetAttempts(userId);
-                return {
-                    valid: true,
-                    user: { id: user.id, name: user.name, role: user.role }
-                };
-            } else {
-                // PIN incorrecto - registrar intento fallido
-                recordFailedAttempt(userId);
-                return { valid: false, error: 'PIN incorrecto' };
+        return {
+            valid: true,
+            user: {
+                id: result.authorizedBy.id,
+                name: result.authorizedBy.name,
+                role: result.authorizedBy.role,
             }
-        }
-        // Fallback: PIN legacy
-        else if (user.access_pin && user.access_pin === pin) {
-            logger.warn({ userId: user.id }, '⚠️ Handover: Using legacy plaintext PIN - user should be migrated');
-            resetAttempts(userId);
-            return {
-                valid: true,
-                user: { id: user.id, name: user.name, role: user.role }
-            };
-        }
-
-        // PIN incorrecto - registrar intento fallido
-        recordFailedAttempt(userId);
-        return { valid: false, error: 'PIN incorrecto' };
+        };
     } catch (error) {
         logger.error({ error }, 'Error validating user PIN');
         return { valid: false, error: 'Error validando PIN' };
     }
+}
+
+async function requireHandoverActor() {
+    try {
+        const actor = await getActorOrFail();
+        return { success: true as const, actor };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { success: false as const, error: 'No autenticado' };
+        }
+
+        throw error;
+    }
+}
+
+async function validateSupervisorAuthorizationPin(client: any, pin: string) {
+    const result = await validatePinForRoles(client, pin, ROLE_GROUPS.MANAGER, {
+        allowLegacyPlaintext: true,
+        useRateLimiter: true,
+    });
+
+    if (!result.valid) {
+        return { success: false as const, error: result.error || 'Autorización de Supervisor denegada' };
+    }
+
+    return {
+        success: true as const,
+        authorizedBy: {
+            id: result.authorizedBy.id,
+            name: result.authorizedBy.name,
+            role: result.authorizedBy.role,
+        },
+    };
 }
 
 /**
@@ -385,6 +380,10 @@ export async function executeHandoverSecure(params: {
     nextUserId?: string;
     notes?: string;
 }): Promise<{ success: boolean; remittanceId?: string; error?: string }> {
+    const auth = await requireHandoverActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
 
     // 1. Validación
     const validation = ExecuteHandoverSchema.safeParse(params);
@@ -396,17 +395,16 @@ export async function executeHandoverSecure(params: {
     const {
         terminalId, declaredCash, expectedCash,
         amountToWithdraw, amountToKeep,
-        userId, userPin, supervisorPin, nextUserId, notes
+        userId: _legacyUserId, userPin, supervisorPin, nextUserId, notes
     } = validation.data;
 
     const { pool } = await import('@/lib/db');
     const { v4: uuidv4 } = await import('uuid');
-    const { validateSupervisorPin } = await import('./auth-v2'); // Import Auth Action
 
     const client = await pool.connect();
 
     try {
-        logger.info({ terminalId, userId }, '🔄 [Handover v2] Starting secure handover');
+        logger.info({ terminalId, userId: auth.actor.userId }, '🔄 [Handover v2] Starting secure handover');
 
         // --- INICIO DE TRANSACCIÓN ---
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
@@ -419,34 +417,27 @@ export async function executeHandoverSecure(params: {
                 return { success: false, error: 'PIN de usuario inválido (muy corto)' };
             }
 
-            const pinResult = await validateUserPin(client, userId, userPin);
+            const pinResult = await validateUserPin(client, auth.actor.userId, userPin);
             if (!pinResult.valid) {
                 await client.query('ROLLBACK');
-                logger.warn({ userId }, '🚫 Handover: Cashier PIN validation failed');
+                logger.warn({ userId: auth.actor.userId }, '🚫 Handover: Cashier PIN validation failed');
                 return { success: false, error: 'PIN de cajero incorrecto' };
             }
             actorName = pinResult.user?.name || actorName;
         } else {
             // Si no hay PIN, confiamos en el ID pero buscamos el nombre para logs
-            const userCheck = await client.query('SELECT name FROM users WHERE id = $1', [userId]);
+            const userCheck = await client.query('SELECT name FROM users WHERE id = $1', [auth.actor.userId]);
             if (userCheck.rows.length > 0) {
                 actorName = userCheck.rows[0].name;
             }
         }
 
         // 2b. Validar PIN del Supervisor (Gerente/Admin)
-        // Note: validateSupervisorPin uses its own DB connection usually, but we are inside a transaction.
-        // Option A: Use the same client? validateSupervisorPin is an action, it creates its own.
-        // Ideally we should pass client, but validateSupervisorPin might not support it.
-        // Given it's a read-only check on `users` table which rarely changes rapidly, calling it standalone is acceptable
-        // provided it doesn't lock rows we need.
-        // HOWEVER, to be safe and consistent with transaction isolation, we should query manually here OR trust the helper.
-        // Let's use the helper for consistency with other modules, accepting slight overhead.
-        const supervisorAuth = await validateSupervisorPin(supervisorPin);
+        const supervisorAuth = await validateSupervisorAuthorizationPin(client, supervisorPin);
 
         if (!supervisorAuth.success || !supervisorAuth.authorizedBy) {
             await client.query('ROLLBACK');
-            logger.warn({ userId }, '🚫 Handover: Supervisor PIN validation failed');
+            logger.warn({ userId: auth.actor.userId }, '🚫 Handover: Supervisor PIN validation failed');
             return { success: false, error: supervisorAuth.error || 'Autorización de Supervisor denegada' };
         }
 
@@ -492,7 +483,7 @@ export async function executeHandoverSecure(params: {
         // Permitir override de supervisor cuando el actor no es el dueño del turno.
         const isAuthorizedForClosure = canAuthorizeShiftClosure({
             shiftOwnerUserId: shiftOwnerId,
-            actorUserId: userId,
+            actorUserId: auth.actor.userId,
             supervisorRole: supervisorAuth.authorizedBy.role
         });
 
@@ -500,11 +491,11 @@ export async function executeHandoverSecure(params: {
             throw new Error(ERROR_MESSAGES.USER_MISMATCH);
         }
 
-        if (shiftOwnerId && shiftOwnerId !== userId) {
+        if (shiftOwnerId && shiftOwnerId !== auth.actor.userId) {
             logger.info({
                 terminalId,
                 shiftOwnerId,
-                actorUserId: userId,
+                actorUserId: auth.actor.userId,
                 supervisorId: supervisorAuth.authorizedBy.id
             }, '🔐 [Handover v2] Supervisor override accepted for cross-user shift closure');
         }
@@ -540,7 +531,7 @@ export async function executeHandoverSecure(params: {
                 terminal.location_id,
                 terminalId,
                 carryoverPlan.amountToWithdraw,
-                userId,
+                auth.actor.userId,
                 currentShift.opened_at,
                 declaredCash - expectedCash,
                 notes || `Arqueo: Declarado $${declaredCash} vs Sistema $${expectedCash}. Traspaso íntegro al siguiente turno`
@@ -587,7 +578,7 @@ export async function executeHandoverSecure(params: {
 
         // 8. Auditoría
         await insertHandoverAudit(client, {
-            userId,
+            userId: auth.actor.userId,
             incomingUserId: nextUserId,
             locationId: terminal.location_id,
             terminalId,
@@ -681,6 +672,10 @@ export async function quickHandoverSecure(params: {
     declaredCash: number;
     notes?: string;
 }): Promise<{ success: boolean; newSessionId?: string; error?: string }> {
+    const auth = await requireHandoverActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
 
     // 1. Validación
     const validation = QuickHandoverSchema.safeParse(params);
@@ -777,7 +772,7 @@ export async function quickHandoverSecure(params: {
 
         // 9. Auditoría
         await insertHandoverAudit(client, {
-            userId: outgoingUserId,
+            userId: auth.actor.userId,
             incomingUserId,
             locationId: terminal.location_id,
             terminalId,

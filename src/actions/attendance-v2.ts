@@ -19,7 +19,14 @@ import { z } from 'zod';
 import { headers } from 'next/headers';
 import { randomUUID } from 'crypto';
 import { logger } from '@/lib/logger';
-import { getValidatedSession } from '@/lib/server-session';
+import {
+    getActorOrFail,
+    PinRbacError,
+    ROLE_GROUPS,
+    requireRole,
+    validatePinForRoles,
+    validatePinForUser,
+} from '@/lib/pin-rbac';
 
 // ============================================================================
 // SCHEMAS
@@ -50,7 +57,6 @@ const OvertimeApprovalSchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'];
 // const OVERTIME_THRESHOLD_MINUTES = 240; // 4 horas sin aprobación
 
 // Secuencia válida de marcajes
@@ -70,43 +76,57 @@ const VALID_SEQUENCE: Record<string, string[]> = {
 // HELPERS
 // ============================================================================
 
-async function getSession(): Promise<{ userId: string; role: string } | null> {
-    const session = await getValidatedSession();
-    if (!session) return null;
+const attendanceQueryClient = {
+    query: (sql: string, params?: unknown[]) => query(sql, params as never[] | undefined),
+};
 
-    return { userId: session.userId, role: session.role };
+async function requireAttendanceActor() {
+    try {
+        const actor = await getActorOrFail();
+        return { success: true as const, actor };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { success: false as const, error: 'No autenticado' };
+        }
+
+        throw error;
+    }
 }
 
-async function validateManagerPin(
+function ensureAttendanceManager(
+    actor: Awaited<ReturnType<typeof getActorOrFail>>,
+    errorMessage: string
+) {
+    try {
+        requireRole(actor, ROLE_GROUPS.MANAGER_OR_HR);
+        return { success: true as const };
+    } catch (error) {
+        if (error instanceof PinRbacError && error.code === 'AUTH_FORBIDDEN') {
+            return { success: false as const, error: errorMessage };
+        }
+
+        throw error;
+    }
+}
+
+async function validateAttendanceManagerPin(
     client: PoolClient,
     pin: string
 ): Promise<{ valid: boolean; manager?: { id: string; name: string }; error?: string }> {
     try {
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
-        const bcrypt = await import('bcryptjs');
+        const result = await validatePinForRoles(client, pin, ROLE_GROUPS.MANAGER_OR_HR, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        const usersRes = await client.query(`
-            SELECT id, name, access_pin_hash, access_pin
-            FROM users WHERE role = ANY($1::text[]) AND is_active = true
-        `, [MANAGER_ROLES]);
-
-        for (const user of usersRes.rows) {
-            const rateCheck = checkRateLimit(user.id);
-            if (!rateCheck.allowed) continue;
-
-            if (user.access_pin_hash) {
-                const valid = await bcrypt.compare(pin, user.access_pin_hash);
-                if (valid) {
-                    resetAttempts(user.id);
-                    return { valid: true, manager: { id: user.id, name: user.name } };
-                }
-                recordFailedAttempt(user.id);
-            } else if (user.access_pin === pin) {
-                resetAttempts(user.id);
-                return { valid: true, manager: { id: user.id, name: user.name } };
-            }
+        if (!result.valid) {
+            return { valid: false, error: result.error || 'PIN de manager inválido' };
         }
-        return { valid: false, error: 'PIN de manager inválido' };
+
+        return {
+            valid: true,
+            manager: { id: result.authorizedBy.id, name: result.authorizedBy.name },
+        };
     } catch {
         return { valid: false, error: 'Error validando PIN' };
     }
@@ -116,11 +136,9 @@ async function validateManagerPin(
 // VALIDACIÓN PIN PARA KIOSKO
 // ============================================================================
 
-const MASTER_PIN = '1213'; // PIN maestro para desarrollo/administración
-
 /**
  * 🔐 Validar PIN de Empleado para Kiosko de Asistencia
- * - Valida PIN contra hash en DB (bcrypt)
+ * - Valida PIN contra el helper compartido
  * - Acepta PIN maestro como fallback para desarrollo
  * - Sin sesión requerida (es público para kiosko)
  */
@@ -139,38 +157,17 @@ export async function validateEmployeePinSecure(
             return { success: false, valid: false, error: 'PIN inválido' };
         }
 
-        // PIN maestro bypass para desarrollo
-        if (pin === MASTER_PIN) {
-            // Obtener nombre del empleado para confirmación
-            const nameRes = await query(`SELECT name FROM users WHERE id = $1`, [employeeId]);
-            const employeeName = nameRes.rows[0]?.name || 'Usuario';
-            return { success: true, valid: true, employeeName };
-        }
+        const validation = await validatePinForUser(attendanceQueryClient, employeeIdParsed.data, pin, {
+            allowLegacyPlaintext: true,
+            allowDevelopmentMasterPin: true,
+        });
 
-        // Validación real con bcrypt
-        const bcrypt = await import('bcryptjs');
-
-        const userRes = await query(`
-            SELECT id, name, access_pin_hash, access_pin 
-            FROM users 
-            WHERE id = $1 AND is_active = true
-        `, [employeeId]);
-
-        if (userRes.rows.length === 0) {
-            return { success: false, valid: false, error: 'Empleado no encontrado' };
-        }
-
-        const user = userRes.rows[0];
-
-        // Validar PIN con hash (bcrypt) o plaintext fallback
-        if (user.access_pin_hash) {
-            const isValid = await bcrypt.compare(pin, user.access_pin_hash);
-            if (isValid) {
-                return { success: true, valid: true, employeeName: user.name };
-            }
-        } else if (user.access_pin === pin) {
-            // Fallback para PINs no hasheados (legacy)
-            return { success: true, valid: true, employeeName: user.name };
+        if (validation.valid) {
+            return {
+                success: true,
+                valid: true,
+                employeeName: validation.authorizedBy.name,
+            };
         }
 
         return { success: true, valid: false, error: 'PIN incorrecto' };
@@ -401,9 +398,9 @@ export async function getMyAttendanceHistory(
     startDate?: Date,
     endDate?: Date
 ): Promise<{ success: boolean; data?: Record<string, unknown>[]; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await requireAttendanceActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
     try {
@@ -412,7 +409,7 @@ export async function getMyAttendanceHistory(
             FROM attendance_logs
             WHERE user_id = $1
         `;
-        const params: (string | Date)[] = [session.userId];
+        const params: (string | Date)[] = [auth.actor.userId];
         let paramIndex = 2;
 
         if (startDate) {
@@ -441,13 +438,14 @@ export async function getMyAttendanceHistory(
 export async function getTeamAttendanceHistory(
     filters?: { locationId?: string; startDate?: Date; endDate?: Date }
 ): Promise<{ success: boolean; data?: Record<string, unknown>[]; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await requireAttendanceActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
-    if (!MANAGER_ROLES.includes(session.role)) {
-        return { success: false, error: 'Solo managers pueden ver historial del equipo' };
+    const authorization = ensureAttendanceManager(auth.actor, 'Solo managers pueden ver historial del equipo');
+    if (!authorization.success) {
+        return { success: false, error: authorization.error };
     }
 
     try {
@@ -500,14 +498,17 @@ export async function calculateOvertimeSecure(
     month: number,
     year: number
 ): Promise<{ success: boolean; data?: { totalMinutes: number; pendingApproval: number }; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await requireAttendanceActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
     // Solo puede ver su propio overtime o si es manager
-    if (session.userId !== userId && !MANAGER_ROLES.includes(session.role)) {
-        return { success: false, error: 'No autorizado' };
+    if (auth.actor.userId !== userId) {
+        const authorization = ensureAttendanceManager(auth.actor, 'No autorizado');
+        if (!authorization.success) {
+            return { success: false, error: authorization.error };
+        }
     }
 
     if (!UUIDSchema.safeParse(userId).success) {
@@ -547,6 +548,16 @@ export async function calculateOvertimeSecure(
 export async function approveOvertimeSecure(
     data: z.infer<typeof OvertimeApprovalSchema>
 ): Promise<{ success: boolean; error?: string }> {
+    const auth = await requireAttendanceActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
+    const authorization = ensureAttendanceManager(auth.actor, 'Solo managers pueden aprobar overtime');
+    if (!authorization.success) {
+        return { success: false, error: authorization.error };
+    }
+
     const validated = OvertimeApprovalSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
@@ -559,10 +570,10 @@ export async function approveOvertimeSecure(
         await client.query('BEGIN');
 
         // Validar PIN
-        const authResult = await validateManagerPin(client, managerPin);
-        if (!authResult.valid) {
+        const pinResult = await validateAttendanceManagerPin(client, managerPin);
+        if (!pinResult.valid) {
             await client.query('ROLLBACK');
-            return { success: false, error: authResult.error };
+            return { success: false, error: pinResult.error };
         }
 
         // Actualizar
@@ -570,7 +581,7 @@ export async function approveOvertimeSecure(
             UPDATE attendance_logs
             SET overtime_approved = $2, overtime_approved_by = $3, overtime_approval_notes = $4
             WHERE id = $1 AND overtime_minutes > 0
-        `, [attendanceId, approved, authResult.manager!.id, notes]);
+        `, [attendanceId, approved, auth.actor.userId, notes]);
 
         if (res.rowCount === 0) {
             await client.query('ROLLBACK');
@@ -581,7 +592,11 @@ export async function approveOvertimeSecure(
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at)
             VALUES ($1, 'OVERTIME_APPROVED', 'ATTENDANCE', $2, $3::jsonb, NOW())
-        `, [authResult.manager!.id, attendanceId, JSON.stringify({ approved, notes })]);
+        `, [auth.actor.userId, attendanceId, JSON.stringify({
+            approved,
+            notes,
+            authorized_by: pinResult.manager?.name,
+        })]);
 
         await client.query('COMMIT');
 
@@ -615,13 +630,16 @@ export async function getAttendanceSummary(
     };
     error?: string;
 }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await requireAttendanceActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
-    if (session.userId !== userId && !MANAGER_ROLES.includes(session.role)) {
-        return { success: false, error: 'No autorizado' };
+    if (auth.actor.userId !== userId) {
+        const authorization = ensureAttendanceManager(auth.actor, 'No autorizado');
+        if (!authorization.success) {
+            return { success: false, error: authorization.error };
+        }
     }
 
     try {
@@ -692,14 +710,15 @@ export async function getAttendanceSummary(
 export async function getTodayAttendanceSecure(
     locationId?: string
 ): Promise<{ success: boolean; data?: Record<string, unknown>[]; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await requireAttendanceActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
     // Validar permisos (Solo roles de gestión)
-    if (!MANAGER_ROLES.includes(session.role) && session.role !== 'RRHH') {
-        return { success: false, error: 'No autorizado para ver monitor en vivo' };
+    const authorization = ensureAttendanceManager(auth.actor, 'No autorizado para ver monitor en vivo');
+    if (!authorization.success) {
+        return { success: false, error: authorization.error };
     }
 
     const client = await pool.connect();
@@ -775,13 +794,14 @@ export async function getApprovedAttendanceHistory(
         userId?: string;
     }
 ): Promise<{ success: boolean; data?: Record<string, unknown>[]; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await requireAttendanceActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
-    if (!MANAGER_ROLES.includes(session.role) && session.role !== 'RRHH') {
-        return { success: false, error: 'No autorizado' };
+    const authorization = ensureAttendanceManager(auth.actor, 'No autorizado');
+    if (!authorization.success) {
+        return { success: false, error: authorization.error };
     }
 
     try {
@@ -920,12 +940,7 @@ export async function ensureCheckInSecure(
  */
 export async function validateKioskExitPin(pin: string): Promise<{ valid: boolean; error?: string }> {
     try {
-        // 1. Validar PIN Maestro (hardcoded por ahora, idealmente en ENV)
-        if (pin === '1213') return { valid: true };
-
         const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
-        const bcrypt = await import('bcryptjs');
-        const { query } = await import('@/lib/db');
 
         // 2. Rate Limiting por IP (o global si se prefiere)
         const ip = (await headers()).get('x-forwarded-for') || 'unknown';
@@ -935,33 +950,21 @@ export async function validateKioskExitPin(pin: string): Promise<{ valid: boolea
             return { valid: false, error: isAllowedResult.reason || 'Demasiados intentos.' };
         }
 
-        // 3. Buscar usuarios con rol MANAGER o superior
-        // NOTA: MANAGER_ROLES DEBE estar accesible en este scope, si no, lo redefinimos aquí o lo importamos
-        const ADMIN_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH']; // Redefinido por seguridad scope
-
-        const result = await query(`
-            SELECT id, name, access_pin_hash, access_pin, role
-            FROM users 
-            WHERE role = ANY($1::text[]) 
-            AND is_active = true
-        `, [ADMIN_ROLES]);
-
-        for (const user of result.rows) {
-            let isValid = false;
-            // Verificar hash primero
-            if (user.access_pin_hash) {
-                isValid = await bcrypt.compare(pin, user.access_pin_hash);
+        const result = await validatePinForRoles(
+            attendanceQueryClient,
+            pin,
+            ROLE_GROUPS.MANAGER_OR_HR,
+            {
+                allowLegacyPlaintext: true,
+                allowDevelopmentMasterPin: true,
+                useRateLimiter: false,
             }
-            // Fallback a PIN plano (legacy)
-            else if (user.access_pin === pin) {
-                isValid = true;
-            }
+        );
 
-            if (isValid) {
-                await resetAttempts(`kiosk_exit_${ip}`);
-                logger.info({ userId: user.id, role: user.role }, '[Kiosk] Exit authorized by admin');
-                return { valid: true };
-            }
+        if (result.valid) {
+            await resetAttempts(`kiosk_exit_${ip}`);
+            logger.info({ userId: result.authorizedBy.id, role: result.authorizedBy.role }, '[Kiosk] Exit authorized by admin');
+            return { valid: true };
         }
 
         await recordFailedAttempt(`kiosk_exit_${ip}`);
