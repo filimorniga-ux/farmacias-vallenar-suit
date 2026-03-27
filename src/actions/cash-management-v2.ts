@@ -27,6 +27,13 @@ import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
 import { logger } from '@/lib/logger';
 import { createNotificationSecure } from '@/actions/notifications-v2';
+import {
+    getActorOrFail,
+    PinRbacError,
+    ROLE_GROUPS,
+    validatePinForRoles,
+    validatePinForUser,
+} from '@/lib/pin-rbac';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -90,9 +97,7 @@ const CashHistorySchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const CASHIER_ROLES = ['CASHIER', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
+const CASHIER_ALLOWED_ROLES = ['CASHIER', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL'] as const;
 
 const ERROR_CODES = {
     LOCK_NOT_AVAILABLE: '55P03',
@@ -190,96 +195,60 @@ async function getCashRefundsForSession(
     return Number(res.rows[0]?.total || 0);
 }
 
-/**
- * Validate user PIN
- */
-async function validateUserPin(
+async function getCashManagementActor(options?: {
+    allowedRoles?: readonly string[];
+    unauthorizedMessage?: string;
+    forbiddenMessage?: string;
+}) {
+    try {
+        const actor = await getActorOrFail();
+
+        if (options?.allowedRoles && !options.allowedRoles.includes(actor.role as typeof options.allowedRoles[number])) {
+            return { ok: false as const, error: options.forbiddenMessage || 'Acceso denegado' };
+        }
+
+        return { ok: true as const, actor };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { ok: false as const, error: options?.unauthorizedMessage || 'No autenticado' };
+        }
+
+        throw error;
+    }
+}
+
+async function validateCashierPin(
     client: PoolClient,
     userId: string,
     pin: string
 ): Promise<{ valid: boolean; user?: { id: string; name: string; role: string }; error?: string }> {
-    try {
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
-        const bcrypt = await import('bcryptjs');
+    const result = await validatePinForUser(client, userId, pin, {
+        allowLegacyPlaintext: true,
+        useRateLimiter: true,
+        requiredMatchUserId: userId,
+    });
 
-        const rateCheck = checkRateLimit(userId);
-        if (!rateCheck.allowed) {
-            return { valid: false, error: rateCheck.reason || 'Usuario bloqueado temporalmente' };
-        }
-
-        const userRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE id = $1::uuid AND is_active = true
-        `, [userId]);
-
-        if (userRes.rows.length === 0) {
-            return { valid: false, error: 'Usuario no encontrado' };
-        }
-
-        const user = userRes.rows[0];
-
-        if (user.access_pin_hash) {
-            const isValid = await bcrypt.compare(pin, user.access_pin_hash);
-            if (isValid) {
-                resetAttempts(userId);
-                return { valid: true, user: { id: user.id, name: user.name, role: user.role } };
-            }
-            recordFailedAttempt(userId);
-            return { valid: false, error: 'PIN incorrecto' };
-        } else if (user.access_pin && user.access_pin === pin) {
-            resetAttempts(userId);
-            return { valid: true, user: { id: user.id, name: user.name, role: user.role } };
-        }
-
-        recordFailedAttempt(userId);
-        return { valid: false, error: 'PIN incorrecto' };
-    } catch (error) {
-        logger.error({ error }, '[Cash] PIN validation error');
-        return { valid: false, error: 'Error validando PIN' };
+    if (!result.valid) {
+        return { valid: false, error: result.error || 'PIN incorrecto' };
     }
+
+    return { valid: true, user: result.authorizedBy };
 }
 
-/**
- * Validate manager PIN for large adjustments
- */
-async function validateManagerPin(
+async function validateManagerAuthorizationPin(
     client: PoolClient,
     pin: string
 ): Promise<{ valid: boolean; manager?: { id: string; name: string; role: string }; error?: string }> {
-    try {
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
-        const bcrypt = await import('bcryptjs');
+    const result = await validatePinForRoles(client, pin, ROLE_GROUPS.MANAGER, {
+        allowLegacyPlaintext: true,
+        useRateLimiter: true,
+    });
 
-        const usersRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE role = ANY($1::text[])
-            AND is_active = true
-        `, [MANAGER_ROLES]);
-
-        for (const user of usersRes.rows) {
-            const rateCheck = checkRateLimit(user.id);
-            if (!rateCheck.allowed) continue;
-
-            if (user.access_pin_hash) {
-                const isValid = await bcrypt.compare(pin, user.access_pin_hash);
-                if (isValid) {
-                    resetAttempts(user.id);
-                    return { valid: true, manager: { id: user.id, name: user.name, role: user.role } };
-                }
-                recordFailedAttempt(user.id);
-            } else if (user.access_pin && user.access_pin === pin) {
-                resetAttempts(user.id);
-                return { valid: true, manager: { id: user.id, name: user.name, role: user.role } };
-            }
-        }
-
-        return { valid: false, error: 'PIN de manager inválido' };
-    } catch (error) {
-        logger.error({ error }, '[Cash] Manager PIN validation error');
-        return { valid: false, error: 'Error validando PIN' };
+    if (!result.valid) {
+        return { valid: false, error: result.error || 'PIN de manager inválido' };
     }
+
+    return { valid: true, manager: result.authorizedBy };
 }
 
 /**
@@ -333,13 +302,24 @@ async function insertCashAudit(
 export async function openCashDrawerSecure(
     data: z.infer<typeof OpenCashDrawerSchema>
 ): Promise<{ success: boolean; sessionId?: string; error?: string }> {
+    const actorResult = await getCashManagementActor({
+        allowedRoles: CASHIER_ALLOWED_ROLES,
+        unauthorizedMessage: 'No autenticado',
+        forbiddenMessage: 'Acceso denegado',
+    });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
+    }
+
     // Validate input
     const validated = OpenCashDrawerSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { terminalId, userId, openingAmount, notes } = validated.data;
+    const { terminalId, userId: _legacyUserId, openingAmount, notes } = validated.data;
+    void _legacyUserId;
+    const userId = actorResult.actor.userId;
     const client = await pool.connect();
 
     try {
@@ -482,29 +462,41 @@ export async function closeCashDrawerSecure(
     };
     error?: string;
 }> {
+    const actorResult = await getCashManagementActor({
+        allowedRoles: CASHIER_ALLOWED_ROLES,
+        unauthorizedMessage: 'No autenticado',
+        forbiddenMessage: 'Acceso denegado',
+    });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
+    }
+
     // Validate input
     const validated = CloseCashDrawerSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { terminalId, userId, userPin, managerPin, declaredCash, notes } = validated.data;
+    const { terminalId, userId: _legacyUserId, userPin, managerPin, declaredCash, notes } = validated.data;
+    void _legacyUserId;
     const client = await pool.connect();
-    let closedBy = userId;
+    const actor = actorResult.actor;
+    let closedBy = actor.userId;
+    let authorizedById: string | undefined;
 
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // Validation Logic: User PIN OR Manager PIN
         if (managerPin) {
-            const managerAuth = await validateManagerPin(client, managerPin);
+            const managerAuth = await validateManagerAuthorizationPin(client, managerPin);
             if (!managerAuth.valid) {
                 await client.query('ROLLBACK');
                 return { success: false, error: managerAuth.error || 'PIN de gerente inválido' };
             }
-            closedBy = managerAuth.manager?.id || userId;
+            authorizedById = managerAuth.manager?.id;
         } else if (userPin) {
-            const pinResult = await validateUserPin(client, userId, userPin);
+            const pinResult = await validateCashierPin(client, actor.userId, userPin);
             if (!pinResult.valid) {
                 await client.query('ROLLBACK');
                 return { success: false, error: pinResult.error };
@@ -602,6 +594,7 @@ export async function closeCashDrawerSecure(
         // Audit
         await insertCashAudit(client, {
             userId: closedBy,
+            authorizedById,
             sessionId: session.id,
             terminalId,
             actionCode: 'CASH_DRAWER_CLOSED',
@@ -675,12 +668,23 @@ export async function closeCashDrawerSecure(
 export async function closeCashDrawerSystem(
     data: z.infer<typeof CloseSystemSchema>
 ): Promise<{ success: boolean; error?: string }> {
+    const actorResult = await getCashManagementActor({
+        allowedRoles: CASHIER_ALLOWED_ROLES,
+        unauthorizedMessage: 'No autenticado',
+        forbiddenMessage: 'Acceso denegado',
+    });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
+    }
+
     const validated = CloseSystemSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { terminalId, userId, reason } = validated.data;
+    const { terminalId, userId: _legacyUserId, reason } = validated.data;
+    void _legacyUserId;
+    const userId = actorResult.actor.userId;
     const client = await pool.connect();
 
     try {
@@ -789,13 +793,24 @@ export async function closeCashDrawerSystem(
 export async function registerCashCountSecure(
     data: z.infer<typeof RegisterCashCountSchema>
 ): Promise<{ success: boolean; difference?: number; error?: string }> {
+    const actorResult = await getCashManagementActor({
+        allowedRoles: CASHIER_ALLOWED_ROLES,
+        unauthorizedMessage: 'No autenticado',
+        forbiddenMessage: 'Acceso denegado',
+    });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
+    }
+
     // Validate input
     const validated = RegisterCashCountSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { sessionId, userId, countedAmount, notes } = validated.data;
+    const { sessionId, userId: _legacyUserId, countedAmount, notes } = validated.data;
+    void _legacyUserId;
+    const userId = actorResult.actor.userId;
     const client = await pool.connect();
 
     try {
@@ -891,13 +906,24 @@ export async function registerCashCountSecure(
 export async function adjustCashSecure(
     data: z.infer<typeof AdjustCashSchema>
 ): Promise<{ success: boolean; movementId?: string; error?: string }> {
+    const actorResult = await getCashManagementActor({
+        allowedRoles: CASHIER_ALLOWED_ROLES,
+        unauthorizedMessage: 'No autenticado',
+        forbiddenMessage: 'Acceso denegado',
+    });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
+    }
+
     // Validate input
     const validated = AdjustCashSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { sessionId, userId, adjustment, reason, authorizationPin } = validated.data;
+    const { sessionId, userId: _legacyUserId, adjustment, reason, authorizationPin } = validated.data;
+    void _legacyUserId;
+    const actor = actorResult.actor;
     const absAdjustment = Math.abs(adjustment);
 
     // Determine required authorization level
@@ -930,14 +956,14 @@ export async function adjustCashSecure(
         let authorizedBy: { id: string; name: string; role: string } | undefined;
 
         if (requiresManagerPin && authorizationPin) {
-            const authResult = await validateManagerPin(client, authorizationPin);
+            const authResult = await validateManagerAuthorizationPin(client, authorizationPin);
             if (!authResult.valid) {
                 await client.query('ROLLBACK');
                 return { success: false, error: authResult.error || 'PIN inválido' };
             }
             authorizedBy = authResult.manager;
         } else if (requiresCashierPin && authorizationPin) {
-            const authResult = await validateUserPin(client, userId, authorizationPin);
+            const authResult = await validateCashierPin(client, actor.userId, authorizationPin);
             if (!authResult.valid) {
                 await client.query('ROLLBACK');
                 return { success: false, error: authResult.error || 'PIN inválido' };
@@ -976,7 +1002,7 @@ export async function adjustCashSecure(
             session.location_id,
             session.terminal_id,
             sessionId,
-            userId,
+            actor.userId,
             movementType,
             absAdjustment,
             reason
@@ -984,7 +1010,7 @@ export async function adjustCashSecure(
 
         // Audit
         await insertCashAudit(client, {
-            userId,
+            userId: actor.userId,
             authorizedById: authorizedBy?.id,
             sessionId,
             terminalId: session.terminal_id,

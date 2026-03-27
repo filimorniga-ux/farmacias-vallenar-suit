@@ -17,8 +17,13 @@ import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
-import bcrypt from 'bcryptjs';
-import { getValidatedSession } from '@/lib/server-session';
+import {
+    getActorOrFail,
+    PinRbacError,
+    ROLE_GROUPS,
+    validatePinForRoles,
+    validatePinForUser,
+} from '@/lib/pin-rbac';
 
 // ============================================================================
 // SCHEMAS
@@ -46,7 +51,6 @@ const CreateExpenseSchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
 const CASHIER_PIN_THRESHOLD = 20000;  // > $20,000 requiere PIN CAJERO
 const MANAGER_PIN_THRESHOLD = 100000; // > $100,000 requiere PIN MANAGER
 
@@ -54,48 +58,42 @@ const MANAGER_PIN_THRESHOLD = 100000; // > $100,000 requiere PIN MANAGER
 // HELPERS
 // ============================================================================
 
-async function getSession(): Promise<{ userId: string; role: string } | null> {
-    const session = await getValidatedSession();
-    if (!session) {
-        return null;
+async function getCashActor() {
+    try {
+        return await getActorOrFail();
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return null;
+        }
+        throw error;
     }
-
-    return { userId: session.userId, role: session.role };
 }
 
-async function validatePinByRole(
-    client: PoolClient,
-    pin: string,
-    roles: string[]
-): Promise<{ valid: boolean; user?: { id: string; name: string } }> {
-    try {
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
+async function validateManagerAuthorizationPin(client: PoolClient, pin: string) {
+    const result = await validatePinForRoles(client, pin, ROLE_GROUPS.MANAGER, {
+        allowLegacyPlaintext: true,
+        useRateLimiter: true,
+    });
 
-        const usersRes = await client.query(`
-            SELECT id, name, access_pin_hash, access_pin, role
-            FROM users WHERE role = ANY($1::text[]) AND is_active = true
-        `, [roles]);
-
-        for (const user of usersRes.rows) {
-            const rateCheck = checkRateLimit(user.id);
-            if (!rateCheck.allowed) continue;
-
-            if (user.access_pin_hash) {
-                const valid = await bcrypt.compare(pin, user.access_pin_hash);
-                if (valid) {
-                    resetAttempts(user.id);
-                    return { valid: true, user: { id: user.id, name: user.name } };
-                }
-                recordFailedAttempt(user.id);
-            } else if (user.access_pin === pin) {
-                resetAttempts(user.id);
-                return { valid: true, user: { id: user.id, name: user.name } };
-            }
-        }
-        return { valid: false };
-    } catch {
-        return { valid: false };
+    if (!result.valid) {
+        return { valid: false, error: 'PIN de manager inválido' } as const;
     }
+
+    return { valid: true, authorizedBy: result.authorizedBy } as const;
+}
+
+async function validateActorPin(client: PoolClient, userId: string, pin: string) {
+    const result = await validatePinForUser(client, userId, pin, {
+        allowLegacyPlaintext: true,
+        useRateLimiter: true,
+        requiredMatchUserId: userId,
+    });
+
+    if (!result.valid) {
+        return { valid: false, error: 'PIN inválido' } as const;
+    }
+
+    return { valid: true, authorizedBy: result.authorizedBy } as const;
 }
 
 // ============================================================================
@@ -109,8 +107,8 @@ export async function createCashMovementSecure(
     data: z.infer<typeof CreateMovementSchema>,
     pin?: string
 ): Promise<{ success: boolean; movementId?: string; error?: string }> {
-    const session = await getSession();
-    if (!session) {
+    const actor = await getCashActor();
+    if (!actor) {
         return { success: false, error: 'No autenticado' };
     }
 
@@ -132,9 +130,9 @@ export async function createCashMovementSecure(
             }
             const client = await pool.connect();
             try {
-                const authResult = await validatePinByRole(client, pin, MANAGER_ROLES);
+                const authResult = await validateManagerAuthorizationPin(client, pin);
                 if (!authResult.valid) {
-                    return { success: false, error: 'PIN de manager inválido' };
+                    return { success: false, error: authResult.error };
                 }
             } finally {
                 client.release();
@@ -146,7 +144,15 @@ export async function createCashMovementSecure(
                     error: `Retiros > $${CASHIER_PIN_THRESHOLD.toLocaleString()} requieren PIN`,
                 };
             }
-            // Para cajero, aceptamos cualquier PIN válido
+            const client = await pool.connect();
+            try {
+                const authResult = await validateActorPin(client, actor.userId, pin);
+                if (!authResult.valid) {
+                    return { success: false, error: authResult.error };
+                }
+            } finally {
+                client.release();
+            }
         }
     }
 
@@ -156,13 +162,13 @@ export async function createCashMovementSecure(
         await query(`
             INSERT INTO cash_movements (id, terminal_id, user_id, type, amount, reason, timestamp)
             VALUES ($1, $2, $3, $4, $5, $6, NOW())
-        `, [movementId, terminalId, session.userId, type, amount, reason]);
+        `, [movementId, terminalId, actor.userId, type, amount, reason]);
 
         // Auditar
         await query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at)
             VALUES ($1, 'CASH_MOVEMENT', 'CASH', $2, $3::jsonb, NOW())
-        `, [session.userId, movementId, JSON.stringify({
+        `, [actor.userId, movementId, JSON.stringify({
             type,
             amount,
             reason,
@@ -191,8 +197,8 @@ export async function createExpenseSecure(
     data: z.infer<typeof CreateExpenseSchema>,
     pin: string
 ): Promise<{ success: boolean; expenseId?: string; error?: string }> {
-    const session = await getSession();
-    if (!session) {
+    const actor = await getCashActor();
+    if (!actor) {
         return { success: false, error: 'No autenticado' };
     }
 
@@ -208,7 +214,7 @@ export async function createExpenseSecure(
         await client.query('BEGIN');
 
         // Gastos siempre requieren PIN
-        const authResult = await validatePinByRole(client, pin, MANAGER_ROLES);
+        const authResult = await validateManagerAuthorizationPin(client, pin);
         if (!authResult.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: 'PIN de manager inválido para gastos' };
@@ -220,17 +226,18 @@ export async function createExpenseSecure(
         await client.query(`
             INSERT INTO cash_movements (id, terminal_id, user_id, type, amount, reason, timestamp)
             VALUES ($1, $2, $3, 'EXPENSE', $4, $5, NOW())
-        `, [expenseId, terminalId, session.userId, amount, reason]);
+        `, [expenseId, terminalId, actor.userId, amount, reason]);
 
         // Auditar
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at)
             VALUES ($1, 'EXPENSE_CREATED', 'CASH', $2, $3::jsonb, NOW())
-        `, [authResult.user!.id, expenseId, JSON.stringify({
+        `, [actor.userId, expenseId, JSON.stringify({
             category,
             amount,
             description,
-            approved_by: authResult.user!.name,
+            approved_by: authResult.authorizedBy.name,
+            authorized_by_id: authResult.authorizedBy.id,
         })]);
 
         await client.query('COMMIT');
@@ -259,8 +266,8 @@ export async function getCashMovementsSecure(
     terminalId?: string,
     limit: number = 50
 ): Promise<{ success: boolean; data?: Record<string, unknown>[]; error?: string }> {
-    const session = await getSession();
-    if (!session) {
+    const actor = await getCashActor();
+    if (!actor) {
         return { success: false, error: 'No autenticado' };
     }
 
@@ -306,8 +313,8 @@ export async function getCashBalanceSecure(
         return { success: false, error: 'ID de terminal inválido' };
     }
 
-    const session = await getSession();
-    if (!session) {
+    const actor = await getCashActor();
+    if (!actor) {
         return { success: false, error: 'No autenticado' };
     }
 

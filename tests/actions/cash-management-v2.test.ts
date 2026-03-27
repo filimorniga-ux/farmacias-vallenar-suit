@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as cashV2 from '@/actions/cash-management-v2';
+import { PinRbacError } from '@/lib/pin-rbac';
 
 // Valid UUIDs
 const VALID_UUID_CASHIER = '550e8400-e29b-41d4-a716-446655440010';
@@ -15,6 +16,7 @@ const VALID_UUID_TERMINAL = '550e8400-e29b-41d4-a716-446655440030';
 // Mock functions at module level (pattern from wms-v2.test.ts)
 const mockQuery = vi.fn();
 const mockRelease = vi.fn();
+const mockGetActorOrFail = vi.fn();
 
 // Mock DB with proper pool.connect pattern
 vi.mock('@/lib/db', () => ({
@@ -29,23 +31,53 @@ vi.mock('@/lib/db', () => ({
 }));
 
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
-vi.mock('next/headers', () => ({
-    headers: vi.fn(async () => new Map([
-        ['x-user-id', VALID_UUID_CASHIER],
-        ['x-user-role', 'CASHIER']
-    ]))
-}));
-vi.mock('bcryptjs', () => ({
-    default: { compare: vi.fn(async (p: string, h: string) => h === `hashed_${p}`) },
-    compare: vi.fn(async (p: string, h: string) => h === `hashed_${p}`)
-}));
-vi.mock('@/lib/rate-limiter', () => ({
-    checkRateLimit: vi.fn(() => ({ allowed: true })),
-    recordFailedAttempt: vi.fn(),
-    resetAttempts: vi.fn()
-}));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('crypto', () => ({ randomUUID: vi.fn(() => '550e8400-e29b-41d4-a716-446655440999') }));
+vi.mock('@/lib/pin-rbac', () => {
+    class MockPinRbacError extends Error {
+        code: string;
+
+        constructor(code: string, message: string) {
+            super(message);
+            this.name = 'PinRbacError';
+            this.code = code;
+        }
+    }
+
+    return {
+        PinRbacError: MockPinRbacError,
+        ROLE_GROUPS: {
+            ADMIN: ['ADMIN', 'GERENTE_GENERAL'],
+            MANAGER: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
+            MANAGER_OR_HR: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'],
+            OVERRIDE: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'],
+            TREASURY_AUTH: ['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'TESORERO'],
+        },
+        getActorOrFail: (...args: unknown[]) => mockGetActorOrFail(...args),
+        validatePinForRoles: vi.fn(async (client, pin: string) => {
+            const res = await client.query('SELECT mock_manager_pin_validation');
+            const user = res.rows[0];
+            if (user && pin === '9999') {
+                return {
+                    valid: true,
+                    authorizedBy: { id: user.id, name: user.name, role: user.role },
+                };
+            }
+            return { valid: false, error: 'PIN de manager inválido' };
+        }),
+        validatePinForUser: vi.fn(async (client, userId: string, pin: string) => {
+            const res = await client.query('SELECT mock_user_pin_validation');
+            const user = res.rows[0];
+            if (user && user.id === userId && pin === '1234') {
+                return {
+                    valid: true,
+                    authorizedBy: { id: user.id, name: user.name, role: user.role },
+                };
+            }
+            return { valid: false, error: 'PIN incorrecto' };
+        }),
+    };
+});
 
 // Data with valid UUIDs
 const mockCashier = {
@@ -74,6 +106,14 @@ const mockSession = {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    mockGetActorOrFail.mockResolvedValue({
+        userId: VALID_UUID_CASHIER,
+        role: 'CASHIER',
+        locationId: 'loc-1',
+        userName: 'Cajero',
+        tokenVersion: 1,
+        sessionToken: 'token',
+    });
 });
 
 // Helper to setup mock query responses
@@ -292,6 +332,28 @@ describe('Cash Management V2 - Drawer Operations', () => {
         expect(res.summary?.difference).toBe(0);
     });
 
+    it('should ignore payload userId and use actor session when opening drawer', async () => {
+        setupMockQueries([
+            { rows: [{ id: VALID_UUID_TERMINAL, location_id: 'loc-1', current_cashier_id: null, status: 'CLOSED' }], rowCount: 1 },
+            { rows: [], rowCount: 0 },
+            { rows: [{ id: VALID_UUID_CASHIER, name: 'Cajero', role: 'CASHIER' }], rowCount: 1 },
+            { rows: [], rowCount: 1 },
+            { rows: [], rowCount: 1 },
+            { rows: [], rowCount: 1 },
+            { rows: [], rowCount: 1 }
+        ]);
+
+        const result = await cashV2.openCashDrawerSecure({
+            terminalId: VALID_UUID_TERMINAL,
+            userId: VALID_UUID_MANAGER,
+            openingAmount: 50000,
+        });
+
+        expect(result.success).toBe(true);
+        const insertSessionCall = mockQuery.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO cash_register_sessions'));
+        expect(insertSessionCall?.[1][2]).toBe(VALID_UUID_CASHIER);
+    });
+
     it('should handle lock not available on close', async () => {
         setupMockQueries([ // Valid user pin
             { rows: [mockCashier] },
@@ -446,5 +508,40 @@ describe('Cash Management V2 - Refund Integration', () => {
 
         const historySql = mockDbQuery.mock.calls[2]?.[0];
         expect(String(historySql)).toContain('r.refund_method =');
+    });
+});
+
+describe('Cash Management V2 - Session actor contracts', () => {
+    it('should require authenticated actor for adjustments', async () => {
+        mockGetActorOrFail.mockRejectedValueOnce(new PinRbacError('AUTH_UNAUTHORIZED', 'Sesión no válida'));
+
+        const result = await cashV2.adjustCashSecure({
+            sessionId: VALID_UUID_SESSION,
+            userId: VALID_UUID_CASHIER,
+            adjustment: 5000,
+            reason: 'Ajuste menor',
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('autenticado');
+    });
+
+    it('should use actor session for cash adjustment audit instead of payload userId', async () => {
+        setupMockQueries([
+            { rows: [{ id: VALID_UUID_SESSION, terminal_id: VALID_UUID_TERMINAL, user_id: VALID_UUID_CASHIER, location_id: 'loc-1' }] },
+            { rows: [], rowCount: 1 },
+            { rows: [], rowCount: 1 },
+        ]);
+
+        const result = await cashV2.adjustCashSecure({
+            sessionId: VALID_UUID_SESSION,
+            userId: VALID_UUID_MANAGER,
+            adjustment: -5000,
+            reason: 'Retiro chico',
+        });
+
+        expect(result.success).toBe(true);
+        const movementInsert = mockQuery.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO cash_movements'));
+        expect(movementInsert?.[1][4]).toBe(VALID_UUID_CASHIER);
     });
 });
