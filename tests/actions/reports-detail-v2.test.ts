@@ -1,19 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as reportsV2 from '@/actions/reports-detail-v2';
 import * as dbModule from '@/lib/db';
+import { getActorOrFail, validatePinForRoles } from '@/lib/pin-rbac';
+import { getSessionSecure } from '@/actions/auth-v2';
 
-const { mockCookies, mockHeaders } = vi.hoisted(() => ({
-    mockCookies: {
-        get: vi.fn(),
-    },
-    mockHeaders: {
-        get: vi.fn(),
+const { PinRbacError } = vi.hoisted(() => {
+    class MockPinRbacError extends Error {
+        code: string;
+
+        constructor(code: string, message: string) {
+            super(message);
+            this.name = 'PinRbacError';
+            this.code = code;
+        }
     }
-}));
 
-vi.mock('next/headers', () => ({
-    headers: vi.fn(async () => mockHeaders),
-    cookies: vi.fn(async () => mockCookies)
+    return {
+        PinRbacError: MockPinRbacError,
+    };
+});
+
+vi.mock('@/actions/auth-v2', () => ({
+    getSessionSecure: vi.fn(),
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -27,16 +35,48 @@ vi.mock('@/lib/db', () => ({
 }));
 
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('bcryptjs', () => ({ default: { compare: vi.fn() } }));
+vi.mock('@/lib/pin-rbac', () => ({
+    getActorOrFail: vi.fn(),
+    requireRole: vi.fn((actor, allowedRoles: readonly string[]) => {
+        if (!allowedRoles.includes(actor.role)) {
+            throw new PinRbacError('AUTH_FORBIDDEN', 'Acceso denegado');
+        }
+
+        return actor;
+    }),
+    validatePinForRoles: vi.fn(),
+    ROLE_GROUPS: {
+        ADMIN: ['ADMIN', 'GERENTE_GENERAL'],
+    },
+    PinRbacError,
+}));
 
 beforeEach(() => {
     vi.clearAllMocks();
-    // Default success mock: MANAGER from Location-1
-    mockCookies.get.mockImplementation((key) => {
-        if (key === 'user_id') return { value: 'user-1' };
-        if (key === 'user_role') return { value: 'MANAGER' };
-        if (key === 'user_location') return { value: 'loc-1' };
-        return undefined;
+    vi.mocked(getSessionSecure).mockResolvedValue({
+        userId: 'user-1',
+        role: 'MANAGER',
+        locationId: 'loc-1',
+        userName: 'Manager Uno',
+        tokenVersion: 1,
+        sessionToken: 'token',
+    });
+    vi.mocked(getActorOrFail).mockResolvedValue({
+        userId: 'user-1',
+        role: 'MANAGER',
+        locationId: 'loc-1',
+        userName: 'Manager Uno',
+        tokenVersion: 1,
+        sessionToken: 'token',
+    });
+    vi.mocked(validatePinForRoles).mockResolvedValue({
+        valid: true,
+        authorizedBy: {
+            id: 'admin-pin-1',
+            name: 'Admin Pin',
+            role: 'ADMIN',
+        },
+        matchedBy: 'hash',
     });
 });
 
@@ -87,9 +127,13 @@ describe('Reports V2 - Cash Flow', () => {
     });
 
     it('should require MANAGER role for cash flow access', async () => {
-        mockCookies.get.mockImplementation((name) => {
-            if (name === 'user_role') return { value: 'CASHIER' };
-            return { value: 'user-1' };
+        vi.mocked(getSessionSecure).mockResolvedValueOnce({
+            userId: 'user-1',
+            role: 'CASHIER',
+            locationId: 'loc-1',
+            userName: 'Caja Uno',
+            tokenVersion: 1,
+            sessionToken: 'token',
         });
 
         const result = await reportsV2.getCashFlowLedgerSecure({});
@@ -110,9 +154,13 @@ describe('Reports V2 - Tax Summary', () => {
             rows: [{ total: 59500 }], rowCount: 1, command: '', oid: 0, fields: []
         }); // Purchases
 
-        mockCookies.get.mockImplementation((key) => {
-            if (key === 'user_role') return { value: 'CONTADOR' };
-            return { value: 'user-c' };
+        vi.mocked(getSessionSecure).mockResolvedValueOnce({
+            userId: 'user-c',
+            role: 'CONTADOR',
+            locationId: 'loc-1',
+            userName: 'Contador Uno',
+            tokenVersion: 1,
+            sessionToken: 'token',
         });
 
         const result = await reportsV2.getTaxSummarySecure('2024-01');
@@ -140,17 +188,28 @@ describe('Reports V2 - Inventory Valuation', () => {
 
 describe('Reports V2 - Payroll', () => {
     it('should require ADMIN role for payroll', async () => {
-        // Default is MANAGER
+        vi.mocked(getActorOrFail).mockResolvedValueOnce({
+            userId: 'manager-1',
+            role: 'MANAGER',
+            locationId: 'loc-1',
+            userName: 'Manager Uno',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+
         const result = await reportsV2.getPayrollPreviewSecure(1, 2024, '1234');
         expect(result.success).toBe(false);
         expect(result.error).toContain('administradores');
     });
 
     it('should require PIN for payroll access even if ADMIN', async () => {
-        mockCookies.get.mockImplementation((key) => {
-            if (key === 'user_role') return { value: 'ADMIN' };
-            if (key === 'user_id') return { value: 'admin-1' };
-            return undefined;
+        vi.mocked(getActorOrFail).mockResolvedValueOnce({
+            userId: 'admin-session',
+            role: 'ADMIN',
+            locationId: 'loc-1',
+            userName: 'Admin Real',
+            tokenVersion: 1,
+            sessionToken: 'token',
         });
 
         const result = await reportsV2.getPayrollPreviewSecure(1, 2024, '');
@@ -159,10 +218,13 @@ describe('Reports V2 - Payroll', () => {
     });
 
     it('should allow access with correct PIN', async () => {
-        mockCookies.get.mockImplementation((key) => {
-            if (key === 'user_role') return { value: 'ADMIN' };
-            if (key === 'user_id') return { value: 'admin-1' };
-            return undefined;
+        vi.mocked(getActorOrFail).mockResolvedValueOnce({
+            userId: 'admin-session',
+            role: 'ADMIN',
+            locationId: 'loc-1',
+            userName: 'Admin Real',
+            tokenVersion: 1,
+            sessionToken: 'token',
         });
 
         const mockClient = {
@@ -171,13 +233,8 @@ describe('Reports V2 - Payroll', () => {
         };
         vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
 
-        // Security check: mock validateAdminPin logic inside query
         mockClient.query
             .mockResolvedValueOnce({ rows: [], command: 'BEGIN', rowCount: 0 }) // BEGIN
-            .mockResolvedValueOnce({ // pin check
-                rows: [{ id: 'admin-1', name: 'Admin', access_pin: '1234' }],
-                rowCount: 1
-            })
             .mockResolvedValueOnce({ // users data
                 rows: [{ id: 'emp-1', rut: '1-1', name: 'Emp 1', base_salary: 500000 }],
                 rowCount: 1
@@ -188,5 +245,18 @@ describe('Reports V2 - Payroll', () => {
         const result = await reportsV2.getPayrollPreviewSecure(1, 2024, '1234');
         expect(result.success).toBe(true);
         expect(result.data?.[0].base_salary).toBe(500000);
+        expect(validatePinForRoles).toHaveBeenCalledWith(
+            mockClient,
+            '1234',
+            ['ADMIN', 'GERENTE_GENERAL'],
+            expect.objectContaining({
+                allowLegacyPlaintext: true,
+                useRateLimiter: true,
+            })
+        );
+        expect(mockClient.query).toHaveBeenCalledWith(
+            expect.stringContaining('INSERT INTO audit_log'),
+            expect.arrayContaining(['admin-session'])
+        );
     });
 });

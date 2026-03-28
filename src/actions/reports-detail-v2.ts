@@ -16,8 +16,14 @@
 import { pool, query } from '@/lib/db';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
-import bcrypt from 'bcryptjs';
 import { getSessionSecure } from './auth-v2';
+import {
+    getActorOrFail,
+    PinRbacError,
+    requireRole,
+    ROLE_GROUPS,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
 // ============================================================================
 // SCHEMAS
@@ -113,40 +119,6 @@ function getFromCache(key: string): any | null {
 
 function setCache(key: string, data: any): void {
     reportCache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
-}
-
-async function validateAdminPin(
-    client: any,
-    pin: string
-): Promise<{ valid: boolean; admin?: { id: string; name: string } }> {
-    try {
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
-
-        const adminsRes = await client.query(`
-            SELECT id, name, access_pin_hash, access_pin
-            FROM users WHERE role = ANY($1::text[]) AND is_active = true
-        `, [ADMIN_ROLES]);
-
-        for (const admin of adminsRes.rows) {
-            const rateCheck = checkRateLimit(admin.id);
-            if (!rateCheck.allowed) continue;
-
-            if (admin.access_pin_hash) {
-                const valid = await bcrypt.compare(pin, admin.access_pin_hash);
-                if (valid) {
-                    resetAttempts(admin.id);
-                    return { valid: true, admin: { id: admin.id, name: admin.name } };
-                }
-                recordFailedAttempt(admin.id);
-            } else if (admin.access_pin === pin) {
-                resetAttempts(admin.id);
-                return { valid: true, admin: { id: admin.id, name: admin.name } };
-            }
-        }
-        return { valid: false };
-    } catch {
-        return { valid: false };
-    }
 }
 
 async function auditReportAccess(userId: string, reportType: string, params: any): Promise<void> {
@@ -444,13 +416,20 @@ export async function getPayrollPreviewSecure(
     year: number,
     adminPin: string
 ): Promise<{ success: boolean; data?: any[]; error?: string }> {
-    const session = await getSessionSecure();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
-    }
+    let actor: Awaited<ReturnType<typeof getActorOrFail>>;
 
-    if (!ADMIN_ROLES.includes(session.role)) {
-        return { success: false, error: 'Solo administradores pueden ver nómina' };
+    try {
+        actor = requireRole(await getActorOrFail(), ROLE_GROUPS.ADMIN);
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            if (error.code === 'AUTH_FORBIDDEN') {
+                return { success: false, error: 'Solo administradores pueden ver nómina' };
+            }
+
+            return { success: false, error: 'No autenticado' };
+        }
+
+        throw error;
     }
 
     if (!adminPin) {
@@ -463,7 +442,10 @@ export async function getPayrollPreviewSecure(
         await client.query('BEGIN');
 
         // Validar PIN
-        const authResult = await validateAdminPin(client, adminPin);
+        const authResult = await validatePinForRoles(client, adminPin, ROLE_GROUPS.ADMIN, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
         if (!authResult.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: 'PIN de administrador inválido' };
@@ -499,16 +481,23 @@ export async function getPayrollPreviewSecure(
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, new_values, created_at)
             VALUES ($1, 'PAYROLL_ACCESS', 'PAYROLL', $2::jsonb, NOW())
-        `, [authResult.admin!.id, JSON.stringify({
+        `, [actor.userId, JSON.stringify({
             month,
             year,
             employees_count: data.length,
-            accessed_by: authResult.admin!.name,
+            accessed_by: actor.userName || actor.userId,
+            authorized_by_id: authResult.authorizedBy.id,
+            authorized_by_name: authResult.authorizedBy.name,
         })]);
 
         await client.query('COMMIT');
 
-        logger.info({ adminId: authResult.admin!.id, month, year }, '👥 [Reports] Payroll accessed');
+        logger.info({
+            actorUserId: actor.userId,
+            authorizedById: authResult.authorizedBy.id,
+            month,
+            year,
+        }, '👥 [Reports] Payroll accessed');
         return { success: true, data };
 
     } catch (error: any) {
@@ -789,4 +778,3 @@ export async function getStockMovementsDetailSecure(
         return { success: false, error: 'Error obteniendo movimientos de stock' };
     }
 }
-
