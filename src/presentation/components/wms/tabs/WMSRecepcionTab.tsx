@@ -22,6 +22,7 @@ import * as Sentry from '@sentry/nextjs';
 import CameraScanner from '../../ui/CameraScanner';
 import { useBarcodeScanner } from '@/presentation/hooks/useBarcodeScanner';
 import ProductFormModal from '../../inventory/ProductFormModal';
+import { InventoryBatch } from '@/domain/types';
 
 interface PendingShipment {
     id: string;
@@ -59,6 +60,7 @@ interface ReceivedItem {
 }
 
 interface WMSRecepcionTabProps {
+    inventory?: InventoryBatch[];
     preselectedShipmentId?: string | null;
     onPreselectionHandled?: () => void;
 }
@@ -70,6 +72,7 @@ interface ReportFilters {
 }
 
 export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
+    inventory = [],
     preselectedShipmentId,
     onPreselectionHandled
 }) => {
@@ -382,8 +385,6 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                 });
                 setScanCount(prev => prev + 1);
             } else {
-                // Search in store inventory by SKU
-                const { inventory } = usePharmaStore.getState();
                 const product = inventory.find(
                     (p) => p.sku?.toUpperCase() === normalizedCode
                 );

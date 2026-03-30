@@ -19,12 +19,12 @@ interface ReturnItem {
 }
 
 interface DispatchWizardProps {
+    inventory: InventoryBatch[];
     onClose: () => void;
 }
 
-export const DispatchWizard: React.FC<DispatchWizardProps> = ({ onClose }) => {
+export const DispatchWizard: React.FC<DispatchWizardProps> = ({ inventory, onClose }) => {
     const queryClient = useQueryClient();
-    const inventory = usePharmaStore(s => s.inventory);
     const currentLocationId = usePharmaStore(s => s.currentLocationId);
     const locationStoreCurrent = useLocationStore(s => s.currentLocation);
     const effectiveLocationId = currentLocationId || locationStoreCurrent?.id || '';

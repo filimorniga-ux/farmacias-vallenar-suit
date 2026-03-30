@@ -19,6 +19,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { usePlatform } from '@/hooks/usePlatform';
 import { useInventoryQuery } from '@/presentation/hooks/useInventoryQuery';
 import { useBootstrapWms } from '@/presentation/hooks/useBootstrapWms';
+import { InventoryBatch } from '@/domain/types';
 import { WMSDespachoTab } from '@/presentation/components/wms/tabs/WMSDespachoTab';
 import { WMSRecepcionTab } from '@/presentation/components/wms/tabs/WMSRecepcionTab';
 import { WMSTransferenciaTab } from '@/presentation/components/wms/tabs/WMSTransferenciaTab';
@@ -76,7 +77,6 @@ export const WMSPage: React.FC = () => {
     const user = usePharmaStore((state) => state.user);
     const receivePurchaseOrder = usePharmaStore((state) => state.receivePurchaseOrder);
     const finalizePurchaseOrderReview = usePharmaStore((state) => state.finalizePurchaseOrderReview);
-    const setInventory = usePharmaStore((state) => state.setInventory);
     const locationStoreCurrent = useLocationStore(s => s.currentLocation);
     const locationStoreLocations = useLocationStore(s => s.locations);
 
@@ -135,19 +135,12 @@ export const WMSPage: React.FC = () => {
     // 🚀 Load inventory via React Query (Same pattern as POSMainScreen for consistency)
     const activeLocationId = currentLocationId || locationStoreCurrent?.id;
     const { bootstrapWms, isBootstrappingWms } = useBootstrapWms({ activeLocationId });
-    const shouldLoadInventory = activeTab === 'despacho' || activeTab === 'transferencia';
+    const shouldLoadInventory = ['despacho', 'transferencia', 'recepcion', 'pedidos', 'crear-pedido'].includes(activeTab);
     const { data: inventoryData, isLoading: isLoadingInventory } = useInventoryQuery(activeLocationId, {
         mode: 'wms-lite',
         enabled: shouldLoadInventory && !!activeLocationId,
     });
-
-    // Sync React Query data to Zustand Store for compatibility with WMS Tabs
-    useEffect(() => {
-        if (inventoryData) {
-            console.log('🔄 [WMS] Syncing Inventory Query -> Zustand');
-            setInventory(inventoryData);
-        }
-    }, [inventoryData, setInventory]);
+    const inventory = inventoryData ?? ([] as InventoryBatch[]);
 
     const handleRefresh = async () => {
         if (activeLocationId) {
@@ -164,16 +157,17 @@ export const WMSPage: React.FC = () => {
     const renderTabContent = () => {
         switch (activeTab) {
             case 'despacho':
-                return <WMSDespachoTab isLoading={isLoadingInventory} />;
+                return <WMSDespachoTab inventory={inventory} isLoading={isLoadingInventory} />;
             case 'recepcion':
                 return (
                     <WMSRecepcionTab
+                        inventory={inventory}
                         preselectedShipmentId={preselectedReceptionShipmentId}
                         onPreselectionHandled={() => setPreselectedReceptionShipmentId(null)}
                     />
                 );
             case 'transferencia':
-                return <WMSTransferenciaTab isLoading={isLoadingInventory} />;
+                return <WMSTransferenciaTab inventory={inventory} isLoading={isLoadingInventory} />;
             case 'transito':
                 return (
                     <WMSTransitoTab
@@ -190,9 +184,9 @@ export const WMSPage: React.FC = () => {
                     />
                 );
             case 'pedidos':
-                return <WMSPedidosTab />;
+                return <WMSPedidosTab inventory={inventory} />;
             case 'crear-pedido':
-                return <WMSCrearPedidoTab />;
+                return <WMSCrearPedidoTab inventory={inventory} />;
             case 'historial':
                 return <SupplyChainHistoryTab />;
             case 'suministros':

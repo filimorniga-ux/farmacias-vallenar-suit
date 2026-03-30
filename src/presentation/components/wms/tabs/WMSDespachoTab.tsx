@@ -20,9 +20,13 @@ import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
 
-export const WMSDespachoTab: React.FC<{ isLoading?: boolean }> = ({ isLoading = false }) => {
+interface WMSDespachoTabProps {
+    inventory: InventoryBatch[];
+    isLoading?: boolean;
+}
+
+export const WMSDespachoTab: React.FC<WMSDespachoTabProps> = ({ inventory, isLoading = false }) => {
     const queryClient = useQueryClient();
-    const inventory = usePharmaStore((state) => state.inventory);
     const currentLocationId = usePharmaStore((state) => state.currentLocationId);
     const locationStoreCurrent = useLocationStore(s => s.currentLocation);
     const locationStoreLocations = useLocationStore(s => s.locations);
@@ -312,7 +316,7 @@ export const WMSDespachoTab: React.FC<{ isLoading?: boolean }> = ({ isLoading = 
                         </div>
 
                         <div className="flex-1 overflow-y-auto p-0">
-                            <DispatchWizard onClose={() => setWizardOpen(false)} />
+                            <DispatchWizard inventory={inventory} onClose={() => setWizardOpen(false)} />
                         </div>
                     </div>
                 </div>

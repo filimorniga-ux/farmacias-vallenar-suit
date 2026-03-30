@@ -32,9 +32,14 @@ interface ReportFilters {
     movementType?: string;
 }
 
-export const WMSPedidosTab: React.FC = () => {
+interface WMSPedidosTabProps {
+    inventory: InventoryBatch[];
+}
+
+export const WMSPedidosTab: React.FC<WMSPedidosTabProps> = ({ inventory }) => {
     const qc = useQueryClient();
-    const { inventory, currentLocationId, currentWarehouseId } = usePharmaStore();
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const currentWarehouseId = usePharmaStore((state) => state.currentWarehouseId);
 
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
     const [loadingSuppliers, setLoadingSuppliers] = useState(true);

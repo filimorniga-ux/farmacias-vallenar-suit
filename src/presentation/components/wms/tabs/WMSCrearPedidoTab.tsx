@@ -55,9 +55,17 @@ const fmtCLP = (n: number) =>
     n.toLocaleString('es-CL', { maximumFractionDigits: 0 });
 
 /* ─── Componente ─────────────────────────────────────────────────── */
-export const WMSCrearPedidoTab: React.FC = () => {
+interface WMSCrearPedidoTabProps {
+    inventory: InventoryBatch[];
+}
+
+export const WMSCrearPedidoTab: React.FC<WMSCrearPedidoTabProps> = ({ inventory }) => {
     const qc = useQueryClient();
-    const { suppliers, inventory, user, currentWarehouseId, currentLocationId, addPurchaseOrder } = usePharmaStore();
+    const suppliers = usePharmaStore((state) => state.suppliers);
+    const user = usePharmaStore((state) => state.user);
+    const currentWarehouseId = usePharmaStore((state) => state.currentWarehouseId);
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const addPurchaseOrder = usePharmaStore((state) => state.addPurchaseOrder);
 
     /* Paso actual */
     const [step, setStep] = useState<Step>(1);

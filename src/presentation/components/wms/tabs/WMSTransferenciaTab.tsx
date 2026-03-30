@@ -19,9 +19,13 @@ import * as Sentry from '@sentry/nextjs';
 
 const PIN_THRESHOLD = 100;
 
-export const WMSTransferenciaTab: React.FC<{ isLoading?: boolean }> = ({ isLoading = false }) => {
+interface WMSTransferenciaTabProps {
+    inventory: InventoryBatch[];
+    isLoading?: boolean;
+}
+
+export const WMSTransferenciaTab: React.FC<WMSTransferenciaTabProps> = ({ inventory, isLoading = false }) => {
     const qc = useQueryClient();
-    const inventory = usePharmaStore((state) => state.inventory);
     const currentLocationId = usePharmaStore((state) => state.currentLocationId);
     const currentWarehouseId = usePharmaStore((state) => state.currentWarehouseId);
     const user = usePharmaStore(s => s.user);
