@@ -21,7 +21,6 @@ import {
     getActorOrFail,
     PinRbacError,
     ROLE_GROUPS,
-    type PinQueryClient,
     validatePinForRoles,
 } from '@/lib/pin-rbac';
 
@@ -49,10 +48,6 @@ type HardwareActor = Awaited<ReturnType<typeof getActorOrFail>>;
 // HELPERS
 // ============================================================================
 
-function isManagerRole(role: string) {
-    return ROLE_GROUPS.MANAGER.includes(role as typeof ROLE_GROUPS.MANAGER[number]);
-}
-
 async function requireHardwareActor(): Promise<HardwareActor | null> {
     try {
         return await getActorOrFail();
@@ -63,29 +58,6 @@ async function requireHardwareActor(): Promise<HardwareActor | null> {
 
         throw error;
     }
-}
-
-async function validateHardwareManagerPin(
-    client: PinQueryClient,
-    pin: string
-): Promise<{ valid: boolean; authorizedBy?: { id: string; name: string; role: string } }> {
-    const result = await validatePinForRoles(client, pin, ROLE_GROUPS.MANAGER, {
-        allowLegacyPlaintext: true,
-        useRateLimiter: true,
-    });
-
-    if (!result.valid) {
-        return { valid: false };
-    }
-
-    return {
-        valid: true,
-        authorizedBy: {
-            id: result.authorizedBy.id,
-            name: result.authorizedBy.name,
-            role: result.authorizedBy.role,
-        },
-    };
 }
 
 // ============================================================================
@@ -122,7 +94,7 @@ export async function getTerminalHardwareConfigSecure(
         const terminal = termRes.rows[0];
 
         // RBAC: Usuario debe tener acceso a la ubicación
-        if (!isManagerRole(actor.role) && actor.locationId !== terminal.location_id) {
+        if (!ROLE_GROUPS.MANAGER.includes(actor.role as typeof ROLE_GROUPS.MANAGER[number]) && actor.locationId !== terminal.location_id) {
             return { success: false, error: 'No tienes acceso a este terminal' };
         }
 
@@ -166,7 +138,10 @@ export async function updateTerminalHardwareConfigSecure(
         await client.query('BEGIN');
 
         // Validar PIN MANAGER
-        const authResult = await validateHardwareManagerPin(client, managerPin);
+        const authResult = await validatePinForRoles(client, managerPin, ROLE_GROUPS.MANAGER, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
         if (!authResult.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: 'PIN de manager inválido' };
@@ -197,7 +172,7 @@ export async function updateTerminalHardwareConfigSecure(
         logger.info({
             terminalId,
             actorUserId: actor.userId,
-            authorizedById: authResult.authorizedBy?.id,
+            authorizedById: authResult.authorizedBy.id,
         }, '⚙️ [Hardware] Config updated');
         revalidatePath('/caja');
         return { success: true };

@@ -276,18 +276,6 @@ const UpdateProductMasterSchema = z.object({
 // HELPER FUNCTIONS
 // ============================================================================
 
-async function validateProductPinForRoles(client: any, pin: string, roles: readonly string[]) {
-    const result = await validatePinForRoles(client, pin, roles, {
-        allowLegacyPlaintext: true,
-    });
-
-    if (!result.valid) {
-        return { valid: false, error: result.error || 'PIN inválido' } as const;
-    }
-
-    return { valid: true, user: result.authorizedBy } as const;
-}
-
 async function insertProductAudit(client: any, params: {
     actionCode: string;
     userId: string;
@@ -645,10 +633,12 @@ export async function updatePriceSecure(data: z.infer<typeof UpdatePriceSchema>)
             }
 
             // Validate PIN
-            const pinCheck = await validateProductPinForRoles(client, validated.data.approverPin, ROLE_GROUPS.MANAGER_OR_HR);
+            const pinCheck = await validatePinForRoles(client, validated.data.approverPin, ROLE_GROUPS.MANAGER_OR_HR, {
+                allowLegacyPlaintext: true,
+            });
             if (!pinCheck.valid) {
                 await client.query('ROLLBACK');
-                return { success: false, error: pinCheck.error };
+                return { success: false, error: pinCheck.error || 'PIN inválido' };
             }
         }
 
@@ -729,10 +719,12 @@ export async function deactivateProductSecure(data: z.infer<typeof DeactivatePro
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // Validate ADMIN PIN
-        const pinCheck = await validateProductPinForRoles(client, validated.data.adminPin, ROLE_GROUPS.ADMIN);
+        const pinCheck = await validatePinForRoles(client, validated.data.adminPin, ROLE_GROUPS.ADMIN, {
+            allowLegacyPlaintext: true,
+        });
         if (!pinCheck.valid) {
             await client.query('ROLLBACK');
-            return { success: false, error: pinCheck.error };
+            return { success: false, error: pinCheck.error || 'PIN inválido' };
         }
 
         // Get product
@@ -755,14 +747,14 @@ export async function deactivateProductSecure(data: z.infer<typeof DeactivatePro
                 deactivation_reason = $2,
                 updated_at = NOW()
             WHERE id = $3
-        `, [pinCheck.user!.id, validated.data.reason, validated.data.productId]);
+        `, [pinCheck.authorizedBy.id, validated.data.reason, validated.data.productId]);
 
         await insertProductAudit(client, {
             actionCode: 'PRODUCT_DEACTIVATED',
-            userId: pinCheck.user!.id,
+            userId: pinCheck.authorizedBy.id,
             productId: validated.data.productId,
             newValues: {
-                deactivated_by_name: pinCheck.user!.name,
+                deactivated_by_name: pinCheck.authorizedBy.name,
                 reason: validated.data.reason
             }
         });
@@ -944,10 +936,12 @@ export async function updateProductMasterSecure(data: z.infer<typeof UpdateProdu
                         };
                     }
 
-                    const pinCheck = await validateProductPinForRoles(client, approverPin, ROLE_GROUPS.MANAGER_OR_HR);
+                    const pinCheck = await validatePinForRoles(client, approverPin, ROLE_GROUPS.MANAGER_OR_HR, {
+                        allowLegacyPlaintext: true,
+                    });
                     if (!pinCheck.valid) {
                         await client.query('ROLLBACK');
-                        return { success: false, error: pinCheck.error };
+                        return { success: false, error: pinCheck.error || 'PIN inválido' };
                     }
                 }
             }

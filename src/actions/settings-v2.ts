@@ -101,32 +101,6 @@ function ensureSettingsRole(
     }
 }
 
-async function validateSettingsAdminPin(
-    client: any,
-    pin: string
-): Promise<{ valid: boolean; admin?: { id: string; name: string } }> {
-    try {
-        const result = await validatePinForRoles(client, pin, ROLE_GROUPS.ADMIN, {
-            allowLegacyPlaintext: true,
-            useRateLimiter: true,
-        });
-
-        if (!result.valid) {
-            return { valid: false };
-        }
-
-        return {
-            valid: true,
-            admin: {
-                id: result.authorizedBy.id,
-                name: result.authorizedBy.name,
-            },
-        };
-    } catch {
-        return { valid: false };
-    }
-}
-
 // ============================================================================
 // GET PUBLIC SETTING
 // ============================================================================
@@ -265,7 +239,10 @@ export async function updateSettingSecure(
 
         // Validar PIN si es CRITICAL
         if (category === 'CRITICAL' && adminPin) {
-            const authResult = await validateSettingsAdminPin(client, adminPin);
+            const authResult = await validatePinForRoles(client, adminPin, ROLE_GROUPS.ADMIN, {
+                allowLegacyPlaintext: true,
+                useRateLimiter: true,
+            });
             if (!authResult.valid) {
                 await client.query('ROLLBACK');
                 return { success: false, error: 'PIN de administrador inválido' };
