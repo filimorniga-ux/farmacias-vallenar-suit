@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { usePharmaStore } from '../store/useStore';
+import { usePurchaseOrdersQuery } from '@/presentation/hooks/usePurchaseOrdersQuery';
 import {
     ArrowLeft, Building2, Mail, Phone, Globe,
     FileText, CreditCard, History, Package, Bot, Eye
@@ -14,8 +15,10 @@ import { SupplierAccountDocument, SupplierCatalogFile } from '../../domain/types
 export const SupplierProfile = () => {
     const { id } = useParams();
     const suppliers = usePharmaStore((state) => state.suppliers);
-    const purchaseOrders = usePharmaStore((state) => state.purchaseOrders);
-    const refreshPurchaseOrders = usePharmaStore((state) => state.refreshPurchaseOrders);
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const { data: purchaseOrders = [] } = usePurchaseOrdersQuery(currentLocationId || undefined, {
+        enabled: !!id,
+    });
     const [activeTab, setActiveTab] = useState<'PROFILE' | 'HISTORY' | 'ACCOUNT' | 'ACCOUNT_AI' | 'PRODUCTS'>('PROFILE');
     const [accountDocs, setAccountDocs] = useState<SupplierAccountDocument[]>([]);
     const [invoiceParsings, setInvoiceParsings] = useState<any[]>([]);
@@ -80,11 +83,10 @@ export const SupplierProfile = () => {
 
     useEffect(() => {
         if (!id) return;
-        void refreshPurchaseOrders();
         fetchAccountDocs(id);
         fetchParsings(id);
         fetchCatalogs(id);
-    }, [id, refreshPurchaseOrders]);
+    }, [id]);
 
     const totalDebt = useMemo(() => {
         return accountDocs

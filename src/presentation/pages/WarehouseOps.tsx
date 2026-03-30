@@ -2,10 +2,13 @@ import React, { useState } from 'react';
 import { Package, Truck, ArrowRight, CheckCircle, Search, Filter, Calendar, Clock, ArrowDown, ArrowUp, X, MapPin, FileText, Camera, RotateCcw, ShoppingCart, Ban, Activity, FileSpreadsheet } from 'lucide-react';
 import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
+import { useQueryClient } from '@tanstack/react-query';
 import { Shipment, PurchaseOrder } from '../../domain/types';
 // V2: Funciones seguras
 import { getRecentMovementsSecure } from '../../actions/inventory-v2';
 import { exportStockMovementsSecure, exportPurchaseOrdersSecure } from '../../actions/inventory-export-v2';
+import { purchaseOrdersQueryKey, usePurchaseOrdersQuery } from '@/presentation/hooks/usePurchaseOrdersQuery';
+import { shipmentsQueryKey, useShipmentsQuery } from '@/presentation/hooks/useShipmentsQuery';
 import UnifiedReception from '../components/warehouse/UnifiedReception';
 import DocumentViewerModal from '../components/warehouse/DocumentViewerModal';
 import ScanReceptionModal from '../components/warehouse/ScanReceptionModal';
@@ -15,26 +18,30 @@ import MobileActionScroll from '../components/ui/MobileActionScroll';
 import { toast } from 'sonner';
 
 export const WarehouseOps = () => {
-    const { user, shipments, purchaseOrders, cancelShipment, refreshShipments, refreshPurchaseOrders, cancelPurchaseOrder, receivePurchaseOrder, inventory, createDispatch, addPurchaseOrder } = usePharmaStore();
+    const queryClient = useQueryClient();
+    const cancelShipment = usePharmaStore((state) => state.cancelShipment);
+    const cancelPurchaseOrder = usePharmaStore((state) => state.cancelPurchaseOrder);
+    const receivePurchaseOrder = usePharmaStore((state) => state.receivePurchaseOrder);
     const { currentLocation } = useLocationStore();
     const currentLocationId = currentLocation?.id || '';
 
     const [activeTab, setActiveTab] = useState<'INBOUND' | 'OUTBOUND' | 'TRANSIT' | 'REVERSE' | 'SUPPLIER_ORDERS' | 'MOVEMENTS'>('INBOUND');
     const [searchTerm, setSearchTerm] = useState('');
 
-    // Fetch shipments when location or tab changes
-    React.useEffect(() => {
-        if (!currentLocationId || activeTab === 'MOVEMENTS') {
-            return;
-        }
-
-        if (activeTab === 'SUPPLIER_ORDERS') {
-            void refreshPurchaseOrders(currentLocationId);
-            return;
-        }
-
-        void refreshShipments(currentLocationId);
-    }, [currentLocationId, activeTab, refreshPurchaseOrders, refreshShipments]);
+    const {
+        data: shipments = [],
+        isLoading: isLoadingShipments,
+        refetch: refetchShipments,
+    } = useShipmentsQuery(currentLocationId || undefined, {
+        enabled: !!currentLocationId && activeTab !== 'MOVEMENTS' && activeTab !== 'SUPPLIER_ORDERS',
+    });
+    const {
+        data: purchaseOrders = [],
+        isLoading: isLoadingPurchaseOrders,
+        refetch: refetchPurchaseOrders,
+    } = usePurchaseOrdersQuery(currentLocationId || undefined, {
+        enabled: !!currentLocationId && activeTab === 'SUPPLIER_ORDERS',
+    });
 
     // Modal States
     const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null);
@@ -58,6 +65,7 @@ export const WarehouseOps = () => {
     const [loadingMovements, setLoadingMovements] = useState(false);
 
     const isWarehouse = currentLocation?.type === 'WAREHOUSE' || currentLocation?.type === 'HQ';
+    const isLoadingTabData = activeTab === 'SUPPLIER_ORDERS' ? isLoadingPurchaseOrders : isLoadingShipments;
 
     // Fetch movements when tab changes to MOVEMENTS or location changes
     React.useEffect(() => {
@@ -90,9 +98,9 @@ export const WarehouseOps = () => {
 
         const refreshPromise = async () => {
             if (activeTab === 'SUPPLIER_ORDERS') {
-                await refreshPurchaseOrders(currentLocationId);
-            } else {
-                await refreshShipments(currentLocationId);
+                await refetchPurchaseOrders();
+            } else if (activeTab !== 'MOVEMENTS') {
+                await refetchShipments();
             }
             if (activeTab === 'MOVEMENTS') {
                 const res = await getRecentMovementsSecure(currentLocationId);
@@ -197,8 +205,9 @@ export const WarehouseOps = () => {
         setIsBlindReceptionOpen(true);
     };
 
-    const handleBlindReception = (order: PurchaseOrder, receivedItems: { sku: string; receivedQty: number }[]) => {
-        receivePurchaseOrder(order.id, receivedItems, currentLocationId);
+    const handleBlindReception = async (order: PurchaseOrder, receivedItems: { sku: string; receivedQty: number }[]) => {
+        await receivePurchaseOrder(order.id, receivedItems, currentLocationId);
+        await queryClient.invalidateQueries({ queryKey: purchaseOrdersQueryKey(currentLocationId || undefined) });
         setIsBlindReceptionOpen(false);
         setSelectedPO(null);
     };
@@ -206,12 +215,22 @@ export const WarehouseOps = () => {
     const handleCancelShipment = (id: string) => {
         if (confirm('¿Estás seguro de cancelar este envío? El stock volverá al origen.')) {
             cancelShipment(id);
+            queryClient.setQueryData<Shipment[]>(shipmentsQueryKey(currentLocationId || undefined), (current = []) =>
+                current.map((shipment) =>
+                    shipment.id === id ? { ...shipment, status: 'CANCELLED' as const } : shipment
+                )
+            );
         }
     };
 
     const handleCancelPO = (id: string) => {
         if (confirm('¿Cancelar este pedido a proveedor?')) {
             cancelPurchaseOrder(id);
+            queryClient.setQueryData<PurchaseOrder[]>(purchaseOrdersQueryKey(currentLocationId || undefined), (current = []) =>
+                current.map((purchaseOrder) =>
+                    purchaseOrder.id === id ? { ...purchaseOrder, status: 'CANCELLED' as any } : purchaseOrder
+                )
+            );
             toast.success('Pedido cancelado');
         }
     };
@@ -476,7 +495,7 @@ export const WarehouseOps = () => {
                         className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-2 font-bold text-sm transition-all"
                         title="Refrescar datos"
                     >
-                        <RotateCcw className={`w-4 h-4 ${loadingMovements ? 'animate-spin' : ''}`} />
+                        <RotateCcw className={`w-4 h-4 ${(loadingMovements || isLoadingTabData) ? 'animate-spin' : ''}`} />
                         Refrescar
                     </button>
                     <button

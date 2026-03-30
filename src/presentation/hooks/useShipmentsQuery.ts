@@ -11,10 +11,7 @@ export const shipmentsQueryKey = (locationId?: string) =>
 
 export const shipmentsQueryOptions = (locationId?: string) => queryOptions<Shipment[]>({
     queryKey: shipmentsQueryKey(locationId),
-    queryFn: async () => {
-        if (!locationId) return [];
-        return TigerDataService.fetchShipments(locationId);
-    },
+    queryFn: async () => TigerDataService.fetchShipments(locationId),
     staleTime: 1000 * 60 * 5,
     gcTime: 1000 * 60 * 60 * 24,
 });
@@ -24,7 +21,7 @@ export const useShipmentsQuery = (
     options: UseShipmentsQueryOptions = {}
 ) => {
     const queryClient = useQueryClient();
-    const enabled = options.enabled ?? !!locationId;
+    const enabled = options.enabled ?? true;
 
     const query = useQuery({
         ...shipmentsQueryOptions(locationId),
@@ -34,9 +31,7 @@ export const useShipmentsQuery = (
     });
 
     const invalidateShipments = () => {
-        if (locationId) {
-            queryClient.invalidateQueries({ queryKey: shipmentsQueryKey(locationId) });
-        }
+        return queryClient.invalidateQueries({ queryKey: shipmentsQueryKey(locationId) });
     };
 
     return {

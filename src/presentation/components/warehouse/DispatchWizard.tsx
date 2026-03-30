@@ -1,8 +1,11 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { X, Truck, MapPin, Package, CheckCircle, ArrowRight, Search, Barcode, ShoppingCart, RotateCcw, Camera, PlusCircle } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { usePharmaStore } from '../../store/useStore';
 import { useLocationStore } from '../../store/useLocationStore';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
+import { purchaseOrdersQueryKey } from '@/presentation/hooks/usePurchaseOrdersQuery';
+import { shipmentsQueryKey } from '@/presentation/hooks/useShipmentsQuery';
 import { toast } from 'sonner';
 import { Shipment, PurchaseOrder, InventoryBatch } from '../../../domain/types';
 import CameraScanner from '../ui/CameraScanner';
@@ -14,7 +17,8 @@ interface DispatchWizardProps {
 }
 
 const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode = 'DISPATCH' }) => {
-    const { inventory, createDispatch, addPurchaseOrder, refreshShipments, user, suppliers } = usePharmaStore();
+    const queryClient = useQueryClient();
+    const { inventory, addPurchaseOrder, user, suppliers } = usePharmaStore();
     const { currentLocation, locations } = useLocationStore();
 
     // Step 1: Route
@@ -252,6 +256,10 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
                 generation_reason: 'MANUAL'
             };
             addPurchaseOrder(newPO);
+            queryClient.setQueryData<PurchaseOrder[]>(purchaseOrdersQueryKey(destinationId || currentLocation?.id || undefined), (current = []) => {
+                const withoutDuplicate = current.filter((purchaseOrder) => purchaseOrder.id !== newPO.id);
+                return [newPO, ...withoutDuplicate];
+            });
             toast.success('Pedido a Proveedor creado exitosamente');
         } else {
             if (!transportData.tracking_number) {
@@ -283,9 +291,14 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
                 }),
                 {
                     loading: 'Procesando despacho...',
-                    success: (res) => {
+                    success: async (res) => {
                         if (!res.success) throw new Error(res.error);
-                        refreshShipments();
+                        await Promise.all([
+                            queryClient.invalidateQueries({ queryKey: shipmentsQueryKey(originId || undefined) }),
+                            destinationId && destinationId !== 'PROVEEDOR_EXTERNO'
+                                ? queryClient.invalidateQueries({ queryKey: shipmentsQueryKey(destinationId) })
+                                : Promise.resolve(),
+                        ]);
                         onClose();
                         return mode === 'RETURN' ? 'Devolución creada exitosamente' : 'Despacho creado exitosamente';
                     },

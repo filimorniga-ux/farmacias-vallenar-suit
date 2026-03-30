@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Sentry from '@sentry/nextjs';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { getSuppliersListSecure } from '@/actions/suppliers-v2';
-import { usePharmaStore } from '@/presentation/store/useStore';
 import { useLocationStore } from '@/presentation/store/useLocationStore';
+import { purchaseOrdersQueryOptions } from '@/presentation/hooks/usePurchaseOrdersQuery';
+import { shipmentsQueryOptions } from '@/presentation/hooks/useShipmentsQuery';
 
 interface UseBootstrapSupplyProcurementOptions {
     activeLocationId?: string | null;
@@ -29,8 +31,7 @@ export function useBootstrapSupplyProcurement({
     loadSuppliers = true,
     loadLocations = true,
 }: UseBootstrapSupplyProcurementOptions) {
-    const refreshShipments = usePharmaStore((state) => state.refreshShipments);
-    const refreshPurchaseOrders = usePharmaStore((state) => state.refreshPurchaseOrders);
+    const queryClient = useQueryClient();
     const locations = useLocationStore((state) => state.locations);
     const fetchLocations = useLocationStore((state) => state.fetchLocations);
     const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
@@ -83,8 +84,18 @@ export function useBootstrapSupplyProcurement({
 
             if (enableKanbanBootstrap && activeLocationId) {
                 await Promise.all([
-                    refreshShipments(activeLocationId),
-                    refreshPurchaseOrders(activeLocationId),
+                    force
+                        ? queryClient.fetchQuery({
+                            ...shipmentsQueryOptions(activeLocationId),
+                            staleTime: 0,
+                        })
+                        : queryClient.ensureQueryData(shipmentsQueryOptions(activeLocationId)),
+                    force
+                        ? queryClient.fetchQuery({
+                            ...purchaseOrdersQueryOptions(activeLocationId),
+                            staleTime: 0,
+                        })
+                        : queryClient.ensureQueryData(purchaseOrdersQueryOptions(activeLocationId)),
                 ]);
             }
 
@@ -121,8 +132,7 @@ export function useBootstrapSupplyProcurement({
         loadLocations,
         loadSuppliers,
         locations.length,
-        refreshPurchaseOrders,
-        refreshShipments,
+        queryClient,
     ]);
 
     useEffect(() => {

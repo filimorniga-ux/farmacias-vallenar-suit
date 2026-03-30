@@ -11,10 +11,7 @@ export const purchaseOrdersQueryKey = (locationId?: string) =>
 
 export const purchaseOrdersQueryOptions = (locationId?: string) => queryOptions<PurchaseOrder[]>({
     queryKey: purchaseOrdersQueryKey(locationId),
-    queryFn: async () => {
-        if (!locationId) return [];
-        return TigerDataService.fetchPurchaseOrders(locationId);
-    },
+    queryFn: async () => TigerDataService.fetchPurchaseOrders(locationId),
     staleTime: 1000 * 60 * 5,
     gcTime: 1000 * 60 * 60 * 24,
 });
@@ -24,7 +21,7 @@ export const usePurchaseOrdersQuery = (
     options: UsePurchaseOrdersQueryOptions = {}
 ) => {
     const queryClient = useQueryClient();
-    const enabled = options.enabled ?? !!locationId;
+    const enabled = options.enabled ?? true;
 
     const query = useQuery({
         ...purchaseOrdersQueryOptions(locationId),
@@ -34,9 +31,7 @@ export const usePurchaseOrdersQuery = (
     });
 
     const invalidatePurchaseOrders = () => {
-        if (locationId) {
-            queryClient.invalidateQueries({ queryKey: purchaseOrdersQueryKey(locationId) });
-        }
+        return queryClient.invalidateQueries({ queryKey: purchaseOrdersQueryKey(locationId) });
     };
 
     return {

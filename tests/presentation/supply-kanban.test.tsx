@@ -10,44 +10,36 @@ import SupplyKanban from '@/presentation/components/supply/SupplyKanban';
 type NullableLocation = { id: string } | null;
 type PharmaState = {
     currentLocationId?: string;
-    purchaseOrders: unknown[];
-    shipments: unknown[];
     suppliers: unknown[];
-    removePurchaseOrder: (id: string) => void;
-    updatePurchaseOrder: (id: string, data: unknown) => void;
-    refreshShipments: (locationId?: string) => Promise<void>;
-    refreshPurchaseOrders: (locationId?: string) => Promise<void>;
     user: { id: string };
 };
 
 type LocationSelector = (state: { currentLocation: NullableLocation }) => unknown;
 
 const mocks = vi.hoisted(() => {
-    const refreshShipmentsMock = vi.fn<(locationId?: string) => Promise<void>>();
-    const refreshPurchaseOrdersMock = vi.fn<(locationId?: string) => Promise<void>>();
-    const removePurchaseOrderMock = vi.fn<(id: string) => void>();
-    const updatePurchaseOrderMock = vi.fn<(id: string, data: unknown) => void>();
+    const refetchShipmentsMock = vi.fn<() => Promise<{ error: null }>>();
+    const refetchPurchaseOrdersMock = vi.fn<() => Promise<{ error: null }>>();
+    const invalidatePurchaseOrdersMock = vi.fn<() => Promise<void>>();
     const updatePurchaseOrderSecureMock = vi.fn();
     const getHistoryItemDetailsSecureMock = vi.fn();
+    const deletePurchaseOrderSecureMock = vi.fn();
     const toastErrorMock = vi.fn();
     const toastSuccessMock = vi.fn();
+    const useShipmentsQueryMock = vi.fn();
+    const usePurchaseOrdersQueryMock = vi.fn();
 
     const pharmaState: PharmaState = {
         currentLocationId: undefined,
-        purchaseOrders: [],
-        shipments: [],
         suppliers: [],
-        removePurchaseOrder: removePurchaseOrderMock,
-        updatePurchaseOrder: updatePurchaseOrderMock,
-        refreshShipments: refreshShipmentsMock,
-        refreshPurchaseOrders: refreshPurchaseOrdersMock,
         user: { id: '1719073d-9da1-40d7-9dce-28ac3a415a6b' },
     };
 
     let locationState: { currentLocation: NullableLocation } = { currentLocation: null };
 
     const usePharmaStoreMock = Object.assign(
-        () => pharmaState,
+        function <T>(selector?: (state: PharmaState) => T) {
+            return selector ? selector(pharmaState) : (pharmaState as T);
+        },
         {
             getState: () => pharmaState,
         }
@@ -57,12 +49,16 @@ const mocks = vi.hoisted(() => {
 
     return {
         pharmaState,
-        refreshShipmentsMock,
-        refreshPurchaseOrdersMock,
+        refetchShipmentsMock,
+        refetchPurchaseOrdersMock,
+        invalidatePurchaseOrdersMock,
         updatePurchaseOrderSecureMock,
         getHistoryItemDetailsSecureMock,
+        deletePurchaseOrderSecureMock,
         toastErrorMock,
         toastSuccessMock,
+        useShipmentsQueryMock,
+        usePurchaseOrdersQueryMock,
         usePharmaStoreMock,
         useLocationStoreMock,
         setLocationState: (next: { currentLocation: NullableLocation }) => {
@@ -73,12 +69,16 @@ const mocks = vi.hoisted(() => {
 
 const {
     pharmaState,
-    refreshShipmentsMock,
-    refreshPurchaseOrdersMock,
+    refetchShipmentsMock,
+    refetchPurchaseOrdersMock,
+    invalidatePurchaseOrdersMock,
     updatePurchaseOrderSecureMock,
     getHistoryItemDetailsSecureMock,
+    deletePurchaseOrderSecureMock,
     toastErrorMock,
     toastSuccessMock,
+    useShipmentsQueryMock,
+    usePurchaseOrdersQueryMock,
     setLocationState,
 } = mocks;
 
@@ -90,8 +90,16 @@ vi.mock('@/presentation/store/useLocationStore', () => ({
     useLocationStore: mocks.useLocationStoreMock,
 }));
 
+vi.mock('@/presentation/hooks/useShipmentsQuery', () => ({
+    useShipmentsQuery: mocks.useShipmentsQueryMock,
+}));
+
+vi.mock('@/presentation/hooks/usePurchaseOrdersQuery', () => ({
+    usePurchaseOrdersQuery: mocks.usePurchaseOrdersQueryMock,
+}));
+
 vi.mock('@/actions/supply-v2', () => ({
-    deletePurchaseOrderSecure: vi.fn(),
+    deletePurchaseOrderSecure: mocks.deletePurchaseOrderSecureMock,
     getHistoryItemDetailsSecure: mocks.getHistoryItemDetailsSecureMock,
     updatePurchaseOrderSecure: mocks.updatePurchaseOrderSecureMock,
 }));
@@ -112,17 +120,33 @@ describe('SupplyKanban fallback de ubicación', () => {
         }
 
         pharmaState.currentLocationId = undefined;
-        pharmaState.purchaseOrders = [];
-        pharmaState.shipments = [];
+        pharmaState.suppliers = [];
         setLocationState({ currentLocation: null });
 
-        refreshShipmentsMock.mockResolvedValue(undefined);
-        refreshPurchaseOrdersMock.mockResolvedValue(undefined);
+        refetchShipmentsMock.mockResolvedValue({ error: null });
+        refetchPurchaseOrdersMock.mockResolvedValue({ error: null });
+        invalidatePurchaseOrdersMock.mockResolvedValue(undefined);
         updatePurchaseOrderSecureMock.mockResolvedValue({ success: true });
+        deletePurchaseOrderSecureMock.mockResolvedValue({ success: true });
         getHistoryItemDetailsSecureMock.mockResolvedValue({ success: true, data: [] });
+
+        useShipmentsQueryMock.mockImplementation((locationId?: string, options?: { enabled?: boolean }) => ({
+            data: [],
+            refetch: refetchShipmentsMock,
+            locationId,
+            options,
+        }));
+
+        usePurchaseOrdersQueryMock.mockImplementation((locationId?: string, options?: { enabled?: boolean }) => ({
+            data: [],
+            refetch: refetchPurchaseOrdersMock,
+            invalidatePurchaseOrders: invalidatePurchaseOrdersMock,
+            locationId,
+            options,
+        }));
     });
 
-    it('usa scope corporativo cuando el locationId efectivo no es UUID válido', async () => {
+    it('usa scope corporativo cuando el locationId efectivo no es UUID válido', () => {
         pharmaState.currentLocationId = 'farmacia-prat-legacy';
 
         render(
@@ -132,16 +156,11 @@ describe('SupplyKanban fallback de ubicación', () => {
             />
         );
 
-        await waitFor(() => {
-            expect(refreshShipmentsMock).toHaveBeenCalledTimes(1);
-            expect(refreshPurchaseOrdersMock).toHaveBeenCalledTimes(1);
-        });
-
-        expect(refreshShipmentsMock).toHaveBeenCalledWith(undefined);
-        expect(refreshPurchaseOrdersMock).toHaveBeenCalledWith(undefined);
+        expect(useShipmentsQueryMock).toHaveBeenCalledWith(undefined, { enabled: true });
+        expect(usePurchaseOrdersQueryMock).toHaveBeenCalledWith(undefined, { enabled: true });
     });
 
-    it('usa solo el scope de la sucursal y delega el fallback al servicio', async () => {
+    it('usa solo el scope de la sucursal y delega el fallback al query layer', () => {
         pharmaState.currentLocationId = '550e8400-e29b-41d4-a716-446655440000';
 
         render(
@@ -151,16 +170,11 @@ describe('SupplyKanban fallback de ubicación', () => {
             />
         );
 
-        await waitFor(() => {
-            expect(refreshShipmentsMock).toHaveBeenCalledTimes(1);
-            expect(refreshPurchaseOrdersMock).toHaveBeenCalledTimes(1);
-        });
-
-        expect(refreshShipmentsMock.mock.calls[0]?.[0]).toBe('550e8400-e29b-41d4-a716-446655440000');
-        expect(refreshPurchaseOrdersMock.mock.calls[0]?.[0]).toBe('550e8400-e29b-41d4-a716-446655440000');
+        expect(useShipmentsQueryMock).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440000', { enabled: true });
+        expect(usePurchaseOrdersQueryMock).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440000', { enabled: true });
     });
 
-    it('permite desactivar el bootstrap automático cuando el dominio ya fue inicializado', async () => {
+    it('permite desactivar el bootstrap explícito cuando el dominio ya fue inicializado', async () => {
         pharmaState.currentLocationId = '550e8400-e29b-41d4-a716-446655440000';
 
         render(
@@ -175,36 +189,42 @@ describe('SupplyKanban fallback de ubicación', () => {
             expect(screen.getByText('Kanban unificado: Órdenes de Compra + Movimientos WMS')).toBeTruthy();
         });
 
-        expect(refreshShipmentsMock).not.toHaveBeenCalled();
-        expect(refreshPurchaseOrdersMock).not.toHaveBeenCalled();
+        expect(useShipmentsQueryMock).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440000', { enabled: true });
+        expect(usePurchaseOrdersQueryMock).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440000', { enabled: true });
+        expect(refetchShipmentsMock).not.toHaveBeenCalled();
+        expect(refetchPurchaseOrdersMock).not.toHaveBeenCalled();
 
         fireEvent.click(screen.getByRole('button', { name: 'Actualizar' }));
 
         await waitFor(() => {
-            expect(refreshShipmentsMock).toHaveBeenCalledTimes(1);
-            expect(refreshPurchaseOrdersMock).toHaveBeenCalledTimes(1);
+            expect(refetchShipmentsMock).toHaveBeenCalledTimes(1);
+            expect(refetchPurchaseOrdersMock).toHaveBeenCalledTimes(1);
         });
     });
 
     it('marca enviada usando warehouse_id legacy y line_items cuando falta target_warehouse_id/items', async () => {
-        pharmaState.purchaseOrders = [
-            {
-                id: '550e8400-e29b-41d4-a716-446655440100',
-                status: 'APPROVED',
-                supplier_name: 'Proveedor Legacy',
-                warehouse_id: '550e8400-e29b-41d4-a716-446655440200',
-                items_count: 1,
-                line_items: [
-                    {
-                        sku: 'SKU-001',
-                        name: 'Producto Test',
-                        quantity_ordered: 2,
-                        cost_price: 1000,
-                        product_id: '550e8400-e29b-41d4-a716-446655440300',
-                    },
-                ],
-            },
-        ];
+        usePurchaseOrdersQueryMock.mockReturnValue({
+            data: [
+                {
+                    id: '550e8400-e29b-41d4-a716-446655440100',
+                    status: 'APPROVED',
+                    supplier_name: 'Proveedor Legacy',
+                    warehouse_id: '550e8400-e29b-41d4-a716-446655440200',
+                    items_count: 1,
+                    line_items: [
+                        {
+                            sku: 'SKU-001',
+                            name: 'Producto Test',
+                            quantity_ordered: 2,
+                            cost_price: 1000,
+                            product_id: '550e8400-e29b-41d4-a716-446655440300',
+                        },
+                    ],
+                },
+            ],
+            refetch: refetchPurchaseOrdersMock,
+            invalidatePurchaseOrders: invalidatePurchaseOrdersMock,
+        });
 
         render(
             <SupplyKanban
@@ -219,6 +239,7 @@ describe('SupplyKanban fallback de ubicación', () => {
 
         await waitFor(() => {
             expect(updatePurchaseOrderSecureMock).toHaveBeenCalledTimes(1);
+            expect(invalidatePurchaseOrdersMock).toHaveBeenCalledTimes(1);
         });
 
         const payload = updatePurchaseOrderSecureMock.mock.calls[0]?.[1] as { targetWarehouseId?: string };
@@ -229,15 +250,19 @@ describe('SupplyKanban fallback de ubicación', () => {
     });
 
     it('recupera items desde backend cuando la tarjeta no trae detalle', async () => {
-        pharmaState.purchaseOrders = [
-            {
-                id: '550e8400-e29b-41d4-a716-446655440101',
-                status: 'APPROVED',
-                supplier_name: 'Proveedor Sin Detalle',
-                target_warehouse_id: '550e8400-e29b-41d4-a716-446655440201',
-                items_count: 2,
-            },
-        ];
+        usePurchaseOrdersQueryMock.mockReturnValue({
+            data: [
+                {
+                    id: '550e8400-e29b-41d4-a716-446655440101',
+                    status: 'APPROVED',
+                    supplier_name: 'Proveedor Sin Detalle',
+                    target_warehouse_id: '550e8400-e29b-41d4-a716-446655440201',
+                    items_count: 2,
+                },
+            ],
+            refetch: refetchPurchaseOrdersMock,
+            invalidatePurchaseOrders: invalidatePurchaseOrdersMock,
+        });
         getHistoryItemDetailsSecureMock.mockResolvedValue({
             success: true,
             data: [
@@ -264,6 +289,7 @@ describe('SupplyKanban fallback de ubicación', () => {
         await waitFor(() => {
             expect(getHistoryItemDetailsSecureMock).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440101', 'PO');
             expect(updatePurchaseOrderSecureMock).toHaveBeenCalledTimes(1);
+            expect(invalidatePurchaseOrdersMock).toHaveBeenCalledTimes(1);
         });
 
         expect(toastErrorMock).not.toHaveBeenCalledWith('La orden no tiene items para enviar');
@@ -271,24 +297,28 @@ describe('SupplyKanban fallback de ubicación', () => {
     });
 
     it('permite aprobar una solicitud en borradores antes de enviarla a tránsito', async () => {
-        pharmaState.purchaseOrders = [
-            {
-                id: '550e8400-e29b-41d4-a716-446655440102',
-                status: 'DRAFT',
-                supplier_name: 'Proveedor Solicitud',
-                target_warehouse_id: '550e8400-e29b-41d4-a716-446655440202',
-                items_count: 1,
-                line_items: [
-                    {
-                        sku: 'SKU-002',
-                        name: 'Producto Borrador',
-                        quantity_ordered: 4,
-                        cost_price: 0,
-                        product_id: '550e8400-e29b-41d4-a716-446655440302',
-                    },
-                ],
-            },
-        ];
+        usePurchaseOrdersQueryMock.mockReturnValue({
+            data: [
+                {
+                    id: '550e8400-e29b-41d4-a716-446655440102',
+                    status: 'DRAFT',
+                    supplier_name: 'Proveedor Solicitud',
+                    target_warehouse_id: '550e8400-e29b-41d4-a716-446655440202',
+                    items_count: 1,
+                    line_items: [
+                        {
+                            sku: 'SKU-002',
+                            name: 'Producto Borrador',
+                            quantity_ordered: 4,
+                            cost_price: 0,
+                            product_id: '550e8400-e29b-41d4-a716-446655440302',
+                        },
+                    ],
+                },
+            ],
+            refetch: refetchPurchaseOrdersMock,
+            invalidatePurchaseOrders: invalidatePurchaseOrdersMock,
+        });
 
         render(
             <SupplyKanban
@@ -301,6 +331,7 @@ describe('SupplyKanban fallback de ubicación', () => {
 
         await waitFor(() => {
             expect(updatePurchaseOrderSecureMock).toHaveBeenCalledTimes(1);
+            expect(invalidatePurchaseOrdersMock).toHaveBeenCalledTimes(1);
         });
 
         const payload = updatePurchaseOrderSecureMock.mock.calls[0]?.[1] as { status?: string };

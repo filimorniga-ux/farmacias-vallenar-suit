@@ -5,58 +5,45 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-type PharmaState = {
-    refreshShipments: (locationId?: string) => Promise<void>;
-    refreshPurchaseOrders: (locationId?: string) => Promise<void>;
-};
-
 type LocationState = {
     locations: Array<{ id: string; name: string }>;
     fetchLocations: () => Promise<void>;
 };
 
 const mocks = vi.hoisted(() => {
-    const pharmaState: PharmaState = {
-        refreshShipments: vi.fn(async () => {}),
-        refreshPurchaseOrders: vi.fn(async () => {}),
-    };
-
     const locationState: LocationState = {
         locations: [],
         fetchLocations: vi.fn(async () => {}),
     };
-
-    const usePharmaStoreMock = Object.assign(
-        function <T>(selector?: (state: PharmaState) => T) {
-            return selector ? selector(pharmaState) : (pharmaState as T);
-        },
-        {
-            getState: () => pharmaState,
-        }
-    );
 
     const useLocationStoreMock = function <T>(selector?: (state: LocationState) => T) {
         return selector ? selector(locationState) : (locationState as T);
     };
 
     return {
-        pharmaState,
         locationState,
-        usePharmaStoreMock,
         useLocationStoreMock,
+        queryClientMock: {
+            ensureQueryData: vi.fn(async () => []),
+            fetchQuery: vi.fn(async () => []),
+        },
         getSuppliersListSecureMock: vi.fn(),
         toastErrorMock: vi.fn(),
         sentryCaptureExceptionMock: vi.fn(),
     };
 });
 
-vi.mock('@/presentation/store/useStore', () => ({
-    usePharmaStore: mocks.usePharmaStoreMock,
-}));
-
 vi.mock('@/presentation/store/useLocationStore', () => ({
     useLocationStore: mocks.useLocationStoreMock,
 }));
+
+vi.mock('@tanstack/react-query', async () => {
+    const actual = await vi.importActual<typeof import('@tanstack/react-query')>('@tanstack/react-query');
+    return {
+        ...actual,
+        useQueryClient: () => mocks.queryClientMock,
+    };
+});
 
 vi.mock('@/actions/suppliers-v2', () => ({
     getSuppliersListSecure: mocks.getSuppliersListSecureMock,
@@ -81,15 +68,15 @@ describe('useBootstrapSupplyProcurement', () => {
         mocks.locationState.fetchLocations = vi.fn(async () => {
             mocks.locationState.locations = [{ id: 'loc-1', name: 'Sucursal Centro' }];
         });
-        mocks.pharmaState.refreshShipments = vi.fn(async () => {});
-        mocks.pharmaState.refreshPurchaseOrders = vi.fn(async () => {});
+        mocks.queryClientMock.ensureQueryData.mockResolvedValue([]);
+        mocks.queryClientMock.fetchQuery.mockResolvedValue([]);
         mocks.getSuppliersListSecureMock.mockResolvedValue({
             success: true,
             data: [{ id: 'sup-1', name: 'Proveedor Uno' }],
         });
     });
 
-    it('carga locations, suppliers y kanban del dominio cuando corresponde', async () => {
+    it('carga locations, suppliers y precalienta el kanban del dominio cuando corresponde', async () => {
         const { result } = renderHook(() =>
             useBootstrapSupplyProcurement({
                 activeLocationId: 'loc-1',
@@ -102,8 +89,7 @@ describe('useBootstrapSupplyProcurement', () => {
         await waitFor(() => {
             expect(mocks.locationState.fetchLocations).toHaveBeenCalledTimes(1);
             expect(mocks.getSuppliersListSecureMock).toHaveBeenCalledTimes(1);
-            expect(mocks.pharmaState.refreshShipments).toHaveBeenCalledWith('loc-1');
-            expect(mocks.pharmaState.refreshPurchaseOrders).toHaveBeenCalledWith('loc-1');
+            expect(mocks.queryClientMock.ensureQueryData).toHaveBeenCalledTimes(2);
         });
 
         expect(result.current.suppliers).toEqual([{
@@ -129,8 +115,8 @@ describe('useBootstrapSupplyProcurement', () => {
             expect(mocks.getSuppliersListSecureMock).toHaveBeenCalledTimes(1);
         });
 
-        expect(mocks.pharmaState.refreshShipments).not.toHaveBeenCalled();
-        expect(mocks.pharmaState.refreshPurchaseOrders).not.toHaveBeenCalled();
+        expect(mocks.queryClientMock.ensureQueryData).not.toHaveBeenCalled();
+        expect(mocks.queryClientMock.fetchQuery).not.toHaveBeenCalled();
         expect(result.current.suppliers).toEqual([{
             id: 'sup-1',
             name: 'Proveedor Uno',
@@ -151,6 +137,7 @@ describe('useBootstrapSupplyProcurement', () => {
 
         await waitFor(() => {
             expect(mocks.getSuppliersListSecureMock).toHaveBeenCalledTimes(1);
+            expect(mocks.queryClientMock.ensureQueryData).toHaveBeenCalledTimes(2);
         });
 
         await act(async () => {
@@ -158,7 +145,6 @@ describe('useBootstrapSupplyProcurement', () => {
         });
 
         expect(mocks.getSuppliersListSecureMock).toHaveBeenCalledTimes(2);
-        expect(mocks.pharmaState.refreshShipments).toHaveBeenCalledTimes(2);
-        expect(mocks.pharmaState.refreshPurchaseOrders).toHaveBeenCalledTimes(2);
+        expect(mocks.queryClientMock.fetchQuery).toHaveBeenCalledTimes(2);
     });
 });
