@@ -18,9 +18,10 @@ import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { useQueryClient } from '@tanstack/react-query';
 import { usePlatform } from '@/hooks/usePlatform';
 import { useInventoryQuery } from '@/presentation/hooks/useInventoryQuery';
+import { usePurchaseOrdersQuery } from '@/presentation/hooks/usePurchaseOrdersQuery';
 import { useShipmentsQuery } from '@/presentation/hooks/useShipmentsQuery';
 import { useBootstrapWms } from '@/presentation/hooks/useBootstrapWms';
-import { InventoryBatch, Shipment } from '@/domain/types';
+import { InventoryBatch, PurchaseOrder, Shipment } from '@/domain/types';
 import { WMSDespachoTab } from '@/presentation/components/wms/tabs/WMSDespachoTab';
 import { WMSRecepcionTab } from '@/presentation/components/wms/tabs/WMSRecepcionTab';
 import { WMSTransferenciaTab } from '@/presentation/components/wms/tabs/WMSTransferenciaTab';
@@ -147,6 +148,11 @@ export const WMSPage: React.FC = () => {
         enabled: shouldLoadShipments && !!activeLocationId,
     });
     const shipments = shipmentsData ?? ([] as Shipment[]);
+    const shouldLoadPurchaseOrders = activeTab === 'transito';
+    const { data: purchaseOrdersData, isLoading: isLoadingPurchaseOrders } = usePurchaseOrdersQuery(activeLocationId, {
+        enabled: shouldLoadPurchaseOrders && !!activeLocationId,
+    });
+    const purchaseOrders = purchaseOrdersData ?? ([] as PurchaseOrder[]);
 
     const handleRefresh = async () => {
         if (activeLocationId) {
@@ -177,8 +183,9 @@ export const WMSPage: React.FC = () => {
             case 'transito':
                 return (
                     <WMSTransitoTab
+                        purchaseOrders={purchaseOrders}
                         shipments={shipments}
-                        isLoading={isLoadingShipments}
+                        isLoading={isLoadingShipments || isLoadingPurchaseOrders}
                         bootstrapOnMount={false}
                         onRefresh={() => bootstrapWms({ force: true })}
                         onReceiveShipment={(shipmentId) => {
@@ -313,9 +320,19 @@ export const WMSPage: React.FC = () => {
                             orderId,
                             items,
                             selectedOrder?.target_warehouse_id || currentWarehouseId || currentLocationId
-                        );
+                        ).then(async (result) => {
+                            if (activeLocationId) {
+                                await bootstrapWms({ force: true });
+                            }
+                            return result;
+                        });
                     }}
-                    onFinalizeReview={(orderId, reviewNotes, items) => finalizePurchaseOrderReview(orderId, reviewNotes, items)}
+                    onFinalizeReview={async (orderId, reviewNotes, items) => {
+                        await finalizePurchaseOrderReview(orderId, reviewNotes, items);
+                        if (activeLocationId) {
+                            await bootstrapWms({ force: true });
+                        }
+                    }}
                 />
 
                 <ManualOrderModal
@@ -428,9 +445,19 @@ export const WMSPage: React.FC = () => {
                         orderId,
                         items,
                         selectedOrder?.target_warehouse_id || currentWarehouseId || currentLocationId
-                    );
+                    ).then(async (result) => {
+                        if (activeLocationId) {
+                            await bootstrapWms({ force: true });
+                        }
+                        return result;
+                    });
                 }}
-                onFinalizeReview={(orderId, reviewNotes, items) => finalizePurchaseOrderReview(orderId, reviewNotes, items)}
+                onFinalizeReview={async (orderId, reviewNotes, items) => {
+                    await finalizePurchaseOrderReview(orderId, reviewNotes, items);
+                    if (activeLocationId) {
+                        await bootstrapWms({ force: true });
+                    }
+                }}
             />
 
             <ManualOrderModal

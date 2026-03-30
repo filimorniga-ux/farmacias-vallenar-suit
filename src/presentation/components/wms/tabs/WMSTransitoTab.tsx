@@ -5,7 +5,7 @@ import {
 import { toast } from 'sonner';
 import * as Sentry from '@sentry/nextjs';
 import { usePharmaStore } from '@/presentation/store/useStore';
-import { Shipment } from '@/domain/types';
+import { PurchaseOrder, Shipment } from '@/domain/types';
 
 type DirectionFilter = 'BOTH' | 'INCOMING' | 'OUTGOING';
 
@@ -31,6 +31,7 @@ interface ShipmentCard {
 }
 
 interface WMSTransitoTabProps {
+    purchaseOrders: PurchaseOrder[];
     shipments: Shipment[];
     isLoading?: boolean;
     bootstrapOnMount?: boolean;
@@ -167,6 +168,7 @@ const formatDate = (value: number | null | undefined) => {
 };
 
 export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
+    purchaseOrders,
     shipments,
     isLoading = false,
     bootstrapOnMount = true,
@@ -174,10 +176,7 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
     onReceiveShipment,
     onReceivePurchaseOrder,
 }) => {
-    const {
-        currentLocationId,
-        purchaseOrders: storePurchaseOrders,
-    } = usePharmaStore();
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
     const [direction, setDirection] = useState<DirectionFilter>('BOTH');
     const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -248,14 +247,14 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
             .filter((row) => row.status === 'IN_TRANSIT');
 
         const purchaseOrderRows = toShipmentCardsFromPurchaseOrders(
-            Array.isArray(storePurchaseOrders) ? storePurchaseOrders : [],
+            Array.isArray(purchaseOrders) ? purchaseOrders : [],
             currentLocationId
         );
 
         return [...shipmentRows, ...purchaseOrderRows]
             .filter((row) => direction === 'BOTH' || row.direction === direction)
             .sort((a, b) => b.created_at - a.created_at);
-    }, [currentLocationId, direction, shipments, storePurchaseOrders]);
+    }, [currentLocationId, direction, purchaseOrders, shipments]);
 
     const summary = useMemo(() => {
         const incoming = transitRows.filter(s => s.direction === 'INCOMING').length;

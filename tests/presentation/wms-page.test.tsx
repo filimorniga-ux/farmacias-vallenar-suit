@@ -64,6 +64,16 @@ const mocks = vi.hoisted(() => {
                 items: [],
             },
         ],
+        purchaseOrdersData: [
+            {
+                id: 'po-1',
+                status: 'ORDERED',
+                created_at: 1710000000000,
+                target_warehouse_id: 'wh-1',
+                destination_location_id: 'loc-1',
+                items: [],
+            },
+        ],
         locationState,
         pharmaState,
         setInventoryMock,
@@ -108,6 +118,13 @@ vi.mock('@/presentation/hooks/useShipmentsQuery', () => ({
     }),
 }));
 
+vi.mock('@/presentation/hooks/usePurchaseOrdersQuery', () => ({
+    usePurchaseOrdersQuery: () => ({
+        data: mocks.purchaseOrdersData,
+        isLoading: false,
+    }),
+}));
+
 vi.mock('@/presentation/components/wms/tabs/WMSDespachoTab', () => ({
     WMSDespachoTab: ({ inventory }: { inventory: Array<{ id: string }> }) => (
         <div>Despacho inventory {inventory.length}</div>
@@ -127,8 +144,8 @@ vi.mock('@/presentation/components/wms/tabs/WMSTransferenciaTab', () => ({
 }));
 
 vi.mock('@/presentation/components/wms/tabs/WMSTransitoTab', () => ({
-    WMSTransitoTab: ({ shipments }: { shipments: Array<{ id: string }> }) => (
-        <div>Transit shipments {shipments.length}</div>
+    WMSTransitoTab: ({ shipments, purchaseOrders }: { shipments: Array<{ id: string }>; purchaseOrders: Array<{ id: string }> }) => (
+        <div>Transit shipments {shipments.length} purchase-orders {purchaseOrders.length}</div>
     ),
 }));
 
@@ -206,6 +223,6 @@ describe('WMSPage', () => {
         expect(screen.getByText('Crear pedido inventory 2')).toBeTruthy();
 
         fireEvent.click(screen.getByRole('button', { name: 'En Tránsito' }));
-        expect(screen.getByText('Transit shipments 1')).toBeTruthy();
+        expect(screen.getByText('Transit shipments 1 purchase-orders 1')).toBeTruthy();
     });
 });

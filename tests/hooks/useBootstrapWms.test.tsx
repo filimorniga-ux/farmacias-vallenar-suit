@@ -5,27 +5,8 @@
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-type PharmaState = {
-    refreshPurchaseOrders: (locationId?: string) => Promise<void>;
-};
-
 const mocks = vi.hoisted(() => {
-    const state: PharmaState = {
-        refreshPurchaseOrders: vi.fn(async () => {}),
-    };
-
-    const usePharmaStoreMock = Object.assign(
-        function <T>(selector?: (state: PharmaState) => T) {
-            return selector ? selector(state) : (state as T);
-        },
-        {
-            getState: () => state,
-        }
-    );
-
     return {
-        state,
-        usePharmaStoreMock,
         ensureQueryDataMock: vi.fn(async () => []),
         fetchQueryMock: vi.fn(async () => []),
         queryClientMock: {
@@ -36,10 +17,6 @@ const mocks = vi.hoisted(() => {
         sentryCaptureExceptionMock: vi.fn(),
     };
 });
-
-vi.mock('@/presentation/store/useStore', () => ({
-    usePharmaStore: mocks.usePharmaStoreMock,
-}));
 
 vi.mock('sonner', () => ({
     toast: {
@@ -64,7 +41,6 @@ import { useBootstrapWms } from '@/presentation/hooks/useBootstrapWms';
 describe('useBootstrapWms', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.state.refreshPurchaseOrders = vi.fn(async () => {});
         mocks.queryClientMock.ensureQueryData = mocks.ensureQueryDataMock.mockResolvedValue([]);
         mocks.queryClientMock.fetchQuery = mocks.fetchQueryMock.mockResolvedValue([]);
     });
@@ -78,7 +54,6 @@ describe('useBootstrapWms', () => {
 
         expect(mocks.ensureQueryDataMock).not.toHaveBeenCalled();
         expect(mocks.fetchQueryMock).not.toHaveBeenCalled();
-        expect(mocks.state.refreshPurchaseOrders).not.toHaveBeenCalled();
     });
 
     it('ejecuta bootstrap una sola vez por ubicación y permite forzar refresh', async () => {
@@ -90,21 +65,18 @@ describe('useBootstrapWms', () => {
         );
 
         await waitFor(() => {
-            expect(mocks.ensureQueryDataMock).toHaveBeenCalledTimes(1);
-            expect(mocks.state.refreshPurchaseOrders).toHaveBeenCalledTimes(1);
+            expect(mocks.ensureQueryDataMock).toHaveBeenCalledTimes(2);
         });
 
         rerender({ activeLocationId: 'loc-1' });
 
-        expect(mocks.ensureQueryDataMock).toHaveBeenCalledTimes(1);
-        expect(mocks.state.refreshPurchaseOrders).toHaveBeenCalledTimes(1);
+        expect(mocks.ensureQueryDataMock).toHaveBeenCalledTimes(2);
 
         await act(async () => {
             await result.current.bootstrapWms({ force: true });
         });
 
-        expect(mocks.fetchQueryMock).toHaveBeenCalledTimes(1);
-        expect(mocks.state.refreshPurchaseOrders).toHaveBeenCalledTimes(2);
+        expect(mocks.fetchQueryMock).toHaveBeenCalledTimes(2);
     });
 
     it('reporta error si falla el bootstrap', async () => {

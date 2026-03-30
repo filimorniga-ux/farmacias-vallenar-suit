@@ -9,13 +9,11 @@ import WMSTransitoTab from '@/presentation/components/wms/tabs/WMSTransitoTab';
 
 type PharmaState = {
     currentLocationId: string;
-    purchaseOrders: unknown[];
 };
 
 const mocks = vi.hoisted(() => {
     const state: PharmaState = {
         currentLocationId: 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6',
-        purchaseOrders: [],
     };
 
     const usePharmaStoreMock = Object.assign(
@@ -60,12 +58,11 @@ describe('WMSTransitoTab', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.state.currentLocationId = 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6';
-        mocks.state.purchaseOrders = [];
         mocks.refreshTransitMock.mockResolvedValue(undefined);
     });
 
     it('muestra en transito una OC del kanban (ORDERED/SENT)', async () => {
-        mocks.state.purchaseOrders = [
+        const purchaseOrders = [
             {
                 id: '63592c1c-abb9-4325-82f5-67cd1d8d535f',
                 status: 'ORDERED',
@@ -81,6 +78,7 @@ describe('WMSTransitoTab', () => {
 
         render(
             <WMSTransitoTab
+                purchaseOrders={purchaseOrders as never[]}
                 shipments={[]}
                 onRefresh={mocks.refreshTransitMock}
             />
@@ -92,7 +90,7 @@ describe('WMSTransitoTab', () => {
     });
 
     it('filtra direccion entrante/saliente para PO de traspaso', async () => {
-        mocks.state.purchaseOrders = [
+        const purchaseOrders = [
             {
                 id: '95e16cda-8f90-4d20-9bdb-ad0a3eea8f70',
                 status: 'SENT',
@@ -106,6 +104,7 @@ describe('WMSTransitoTab', () => {
 
         render(
             <WMSTransitoTab
+                purchaseOrders={purchaseOrders as never[]}
                 shipments={[]}
                 onRefresh={mocks.refreshTransitMock}
             />
@@ -129,6 +128,7 @@ describe('WMSTransitoTab', () => {
     it('permite desactivar el bootstrap automático cuando WMS ya inicializó el dominio', async () => {
         render(
             <WMSTransitoTab
+                purchaseOrders={[]}
                 shipments={[]}
                 bootstrapOnMount={false}
                 onRefresh={mocks.refreshTransitMock}
@@ -151,6 +151,7 @@ describe('WMSTransitoTab', () => {
     it('muestra envíos desde props en vez de depender del store global', async () => {
         render(
             <WMSTransitoTab
+                purchaseOrders={[]}
                 shipments={mocks.shipmentRows as never[]}
                 bootstrapOnMount={false}
                 onReceiveShipment={vi.fn()}

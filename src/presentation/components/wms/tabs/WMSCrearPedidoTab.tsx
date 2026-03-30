@@ -29,6 +29,7 @@ import { InventoryBatch } from '@/domain/types';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
+import { purchaseOrdersQueryKey } from '@/presentation/hooks/usePurchaseOrdersQuery';
 
 /* ─── Tipos ─────────────────────────────────────────────────────── */
 interface OrderLineItem {
@@ -65,7 +66,6 @@ export const WMSCrearPedidoTab: React.FC<WMSCrearPedidoTabProps> = ({ inventory 
     const user = usePharmaStore((state) => state.user);
     const currentWarehouseId = usePharmaStore((state) => state.currentWarehouseId);
     const currentLocationId = usePharmaStore((state) => state.currentLocationId);
-    const addPurchaseOrder = usePharmaStore((state) => state.addPurchaseOrder);
 
     /* Paso actual */
     const [step, setStep] = useState<Step>(1);
@@ -187,27 +187,7 @@ export const WMSCrearPedidoTab: React.FC<WMSCrearPedidoTabProps> = ({ inventory 
                 return;
             }
 
-            // Actualizar Zustand (Kanban inmediato)
-            addPurchaseOrder({
-                id: res.orderId || orderId,
-                supplier_id: payload.supplierId || '',
-                supplier_name: proveedorLabel,
-                target_warehouse_id: payload.targetWarehouseId || '',
-                destination_location_id: currentLocationId || '',
-                status: payload.status as any,
-                created_at: Date.now(),
-                is_auto_generated: false,
-                generation_reason: 'MANUAL',
-                items: lines.map(l => ({
-                    sku: l.sku,
-                    name: l.name,
-                    quantity_ordered: l.quantity,
-                    quantity_received: 0,
-                    cost_price: l.costPrice,
-                    quantity: l.quantity,
-                })),
-                total_estimated: totals.gross,
-            });
+            await qc.invalidateQueries({ queryKey: purchaseOrdersQueryKey(currentLocationId || undefined) });
 
             if (status === 'SENT') {
                 // Notificar a TODOS los gerentes/admin simultáneamente

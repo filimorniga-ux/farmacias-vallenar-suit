@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Sentry from '@sentry/nextjs';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { usePharmaStore } from '@/presentation/store/useStore';
+import { purchaseOrdersQueryOptions } from '@/presentation/hooks/usePurchaseOrdersQuery';
 import { shipmentsQueryOptions } from '@/presentation/hooks/useShipmentsQuery';
 
 interface UseBootstrapWmsOptions {
@@ -14,7 +14,6 @@ interface BootstrapWmsOptions {
 }
 
 export function useBootstrapWms({ activeLocationId }: UseBootstrapWmsOptions) {
-    const refreshPurchaseOrders = usePharmaStore((state) => state.refreshPurchaseOrders);
     const queryClient = useQueryClient();
     const bootstrappedLocationRef = useRef<string | null>(null);
     const inFlightLocationRef = useRef<string | null>(null);
@@ -48,7 +47,12 @@ export function useBootstrapWms({ activeLocationId }: UseBootstrapWmsOptions) {
                         staleTime: 0,
                     })
                     : queryClient.ensureQueryData(shipmentsQueryOptions(activeLocationId)),
-                refreshPurchaseOrders(activeLocationId),
+                force
+                    ? queryClient.fetchQuery({
+                        ...purchaseOrdersQueryOptions(activeLocationId),
+                        staleTime: 0,
+                    })
+                    : queryClient.ensureQueryData(purchaseOrdersQueryOptions(activeLocationId)),
             ]);
             bootstrappedLocationRef.current = activeLocationId;
             return true;
@@ -73,7 +77,7 @@ export function useBootstrapWms({ activeLocationId }: UseBootstrapWmsOptions) {
             }
             setIsBootstrappingWms(false);
         }
-    }, [activeLocationId, queryClient, refreshPurchaseOrders]);
+    }, [activeLocationId, queryClient]);
 
     useEffect(() => {
         void bootstrapWms();
