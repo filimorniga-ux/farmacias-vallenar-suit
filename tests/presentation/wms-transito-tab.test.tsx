@@ -107,5 +107,22 @@ describe('WMSTransitoTab', () => {
             expect(screen.getByText('Farmacia Vallenar santiago')).toBeTruthy();
         });
     });
-});
 
+    it('permite desactivar el bootstrap automático cuando WMS ya inicializó el dominio', async () => {
+        render(<WMSTransitoTab bootstrapOnMount={false} />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Sin movimientos en tránsito')).toBeTruthy();
+        });
+
+        expect(mocks.state.refreshShipments).not.toHaveBeenCalled();
+        expect(mocks.state.refreshPurchaseOrders).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Actualizar' }));
+
+        await waitFor(() => {
+            expect(mocks.state.refreshShipments).toHaveBeenCalledTimes(1);
+            expect(mocks.state.refreshPurchaseOrders).toHaveBeenCalledTimes(1);
+        });
+    });
+});

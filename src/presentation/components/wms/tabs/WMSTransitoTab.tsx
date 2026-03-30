@@ -30,6 +30,7 @@ interface ShipmentCard {
 }
 
 interface WMSTransitoTabProps {
+    bootstrapOnMount?: boolean;
     onReceiveShipment?: (shipmentId: string) => void;
     onReceivePurchaseOrder?: (order: Record<string, unknown>) => void;
 }
@@ -162,6 +163,7 @@ const formatDate = (value: number | null | undefined) => {
 };
 
 export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
+    bootstrapOnMount = true,
     onReceiveShipment,
     onReceivePurchaseOrder,
 }) => {
@@ -187,17 +189,6 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
                 refreshPurchaseOrders(currentLocationId),
             ]);
 
-            const scopedState = usePharmaStore.getState();
-            const hasScopedEntries =
-                scopedState.shipments.length > 0 || scopedState.purchaseOrders.length > 0;
-
-            if (!hasScopedEntries) {
-                await Promise.allSettled([
-                    refreshShipments(undefined),
-                    refreshPurchaseOrders(undefined),
-                ]);
-            }
-
             if (scopedShipments.status === 'rejected' && scopedPurchaseOrders.status === 'rejected') {
                 toast.error('No se pudieron cargar los movimientos en tránsito');
             }
@@ -213,8 +204,9 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
     }, [currentLocationId, direction, refreshPurchaseOrders, refreshShipments]);
 
     useEffect(() => {
+        if (!bootstrapOnMount) return;
         void fetchTransit();
-    }, [fetchTransit]);
+    }, [bootstrapOnMount, fetchTransit]);
 
     const transitRows = useMemo(() => {
         if (!currentLocationId) return [] as ShipmentCard[];

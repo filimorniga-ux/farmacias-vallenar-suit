@@ -13,7 +13,9 @@ import { SupplierAccountDocument, SupplierCatalogFile } from '../../domain/types
 
 export const SupplierProfile = () => {
     const { id } = useParams();
-    const { suppliers, purchaseOrders } = usePharmaStore();
+    const suppliers = usePharmaStore((state) => state.suppliers);
+    const purchaseOrders = usePharmaStore((state) => state.purchaseOrders);
+    const refreshPurchaseOrders = usePharmaStore((state) => state.refreshPurchaseOrders);
     const [activeTab, setActiveTab] = useState<'PROFILE' | 'HISTORY' | 'ACCOUNT' | 'ACCOUNT_AI' | 'PRODUCTS'>('PROFILE');
     const [accountDocs, setAccountDocs] = useState<SupplierAccountDocument[]>([]);
     const [invoiceParsings, setInvoiceParsings] = useState<any[]>([]);
@@ -78,10 +80,11 @@ export const SupplierProfile = () => {
 
     useEffect(() => {
         if (!id) return;
+        void refreshPurchaseOrders();
         fetchAccountDocs(id);
         fetchParsings(id);
         fetchCatalogs(id);
-    }, [id]);
+    }, [id, refreshPurchaseOrders]);
 
     const totalDebt = useMemo(() => {
         return accountDocs

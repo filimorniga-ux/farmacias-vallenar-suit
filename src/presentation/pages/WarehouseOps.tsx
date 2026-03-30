@@ -15,7 +15,7 @@ import MobileActionScroll from '../components/ui/MobileActionScroll';
 import { toast } from 'sonner';
 
 export const WarehouseOps = () => {
-    const { user, shipments, purchaseOrders, cancelShipment, refreshShipments, cancelPurchaseOrder, receivePurchaseOrder, inventory, createDispatch, addPurchaseOrder } = usePharmaStore();
+    const { user, shipments, purchaseOrders, cancelShipment, refreshShipments, refreshPurchaseOrders, cancelPurchaseOrder, receivePurchaseOrder, inventory, createDispatch, addPurchaseOrder } = usePharmaStore();
     const { currentLocation } = useLocationStore();
     const currentLocationId = currentLocation?.id || '';
 
@@ -24,10 +24,17 @@ export const WarehouseOps = () => {
 
     // Fetch shipments when location or tab changes
     React.useEffect(() => {
-        if (currentLocationId && activeTab !== 'MOVEMENTS') {
-            refreshShipments(currentLocationId);
+        if (!currentLocationId || activeTab === 'MOVEMENTS') {
+            return;
         }
-    }, [currentLocationId, activeTab]);
+
+        if (activeTab === 'SUPPLIER_ORDERS') {
+            void refreshPurchaseOrders(currentLocationId);
+            return;
+        }
+
+        void refreshShipments(currentLocationId);
+    }, [currentLocationId, activeTab, refreshPurchaseOrders, refreshShipments]);
 
     // Modal States
     const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null);
@@ -82,7 +89,11 @@ export const WarehouseOps = () => {
         }
 
         const refreshPromise = async () => {
-            await refreshShipments(currentLocationId);
+            if (activeTab === 'SUPPLIER_ORDERS') {
+                await refreshPurchaseOrders(currentLocationId);
+            } else {
+                await refreshShipments(currentLocationId);
+            }
             if (activeTab === 'MOVEMENTS') {
                 const res = await getRecentMovementsSecure(currentLocationId);
                 if (res.success && res.data) setMovements(res.data);

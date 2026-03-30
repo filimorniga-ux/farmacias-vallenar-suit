@@ -141,7 +141,7 @@ describe('SupplyKanban fallback de ubicación', () => {
         expect(refreshPurchaseOrdersMock).toHaveBeenCalledWith(undefined);
     });
 
-    it('aplica fallback corporativo cuando el scope por sucursal válida no tiene movimientos', async () => {
+    it('usa solo el scope de la sucursal y delega el fallback al servicio', async () => {
         pharmaState.currentLocationId = '550e8400-e29b-41d4-a716-446655440000';
 
         render(
@@ -152,14 +152,38 @@ describe('SupplyKanban fallback de ubicación', () => {
         );
 
         await waitFor(() => {
-            expect(refreshShipmentsMock).toHaveBeenCalledTimes(2);
-            expect(refreshPurchaseOrdersMock).toHaveBeenCalledTimes(2);
+            expect(refreshShipmentsMock).toHaveBeenCalledTimes(1);
+            expect(refreshPurchaseOrdersMock).toHaveBeenCalledTimes(1);
         });
 
         expect(refreshShipmentsMock.mock.calls[0]?.[0]).toBe('550e8400-e29b-41d4-a716-446655440000');
         expect(refreshPurchaseOrdersMock.mock.calls[0]?.[0]).toBe('550e8400-e29b-41d4-a716-446655440000');
-        expect(refreshShipmentsMock.mock.calls[1]?.[0]).toBeUndefined();
-        expect(refreshPurchaseOrdersMock.mock.calls[1]?.[0]).toBeUndefined();
+    });
+
+    it('permite desactivar el bootstrap automático cuando el dominio ya fue inicializado', async () => {
+        pharmaState.currentLocationId = '550e8400-e29b-41d4-a716-446655440000';
+
+        render(
+            <SupplyKanban
+                bootstrapOnMount={false}
+                onEditOrder={vi.fn()}
+                onReceiveOrder={vi.fn()}
+            />
+        );
+
+        await waitFor(() => {
+            expect(screen.getByText('Kanban unificado: Órdenes de Compra + Movimientos WMS')).toBeTruthy();
+        });
+
+        expect(refreshShipmentsMock).not.toHaveBeenCalled();
+        expect(refreshPurchaseOrdersMock).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Actualizar' }));
+
+        await waitFor(() => {
+            expect(refreshShipmentsMock).toHaveBeenCalledTimes(1);
+            expect(refreshPurchaseOrdersMock).toHaveBeenCalledTimes(1);
+        });
     });
 
     it('marca enviada usando warehouse_id legacy y line_items cuando falta target_warehouse_id/items', async () => {

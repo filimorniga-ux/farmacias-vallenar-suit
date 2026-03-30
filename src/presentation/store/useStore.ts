@@ -562,6 +562,67 @@ export const usePharmaStore = create<PharmaState>()(
 
                 try {
                     const currentStoreState = get();
+                    const syncCriticalReferenceData = async () => {
+                        const [employeesRes, suppliersRes, locationsRes, customers] = await Promise.all([
+                            import('../../actions/sync-v2').then(async m => {
+                                const res = await m.fetchEmployeesSecure();
+                                if (!res.success && res.error === 'No autenticado') return m.getUsersForLoginSecure();
+                                return res;
+                            }).catch(() => ({ success: false, data: [] })),
+                            import('../../actions/sync-v2').then(m => m.fetchSuppliersSecure()).catch(() => ({ success: false, data: [] })),
+                            import('../../actions/sync-v2').then(m => m.fetchLocationsSecure()).catch(() => ({ success: false, data: [] })),
+                            TigerDataService.fetchCustomers().catch(() => [])
+                        ]);
+
+                        return {
+                            employees: employeesRes.success ? (employeesRes.data || []) as unknown as EmployeeProfile[] : [],
+                            suppliers: suppliersRes.success ? suppliersRes.data || [] : [],
+                            locations: locationsRes.success ? locationsRes.data || [] : [],
+                            customers: customers || [],
+                        };
+                    };
+
+                    const syncBackgroundShellData = async (seed: {
+                        employees: EmployeeProfile[];
+                    }) => {
+                        const inventory = await (currentStoreState.currentLocationId
+                            ? TigerDataService.fetchInventory(currentStoreState.currentLocationId)
+                            : Promise.resolve([]));
+
+                        const sales = await TigerDataService.fetchSalesHistory(
+                            currentStoreState.currentLocationId,
+                            undefined,
+                            undefined,
+                            currentStoreState.currentShift?.id
+                        );
+
+                        const cashMovements = await TigerDataService.fetchCashMovements();
+
+                        set({
+                            inventory,
+                            cashMovements: (cashMovements || []) as unknown as CashMovement[],
+                            salesHistory: [
+                                ...sales,
+                                ...currentStoreState.salesHistory.filter(s => s.is_synced === false && !sales.some(cloud => cloud.id === s.id))
+                            ],
+                            expenses: ((cashMovements || []) as unknown as CashMovement[]).filter(m => m.type === 'OUT' && ['SUPPLIES', 'SERVICES', 'SALARY_ADVANCE', 'OTHER'].includes(m.reason)).map(m => ({
+                                id: String(m.id),
+                                description: m.description,
+                                amount: m.amount,
+                                category: (m.reason === 'SUPPLIES' ? 'INSUMOS' : m.reason === 'SERVICES' ? 'SERVICIOS' : 'OTROS') as Expense['category'],
+                                date: m.timestamp,
+                                is_deductible: false
+                            }))
+                        });
+
+                        TigerDataService.initializeStorage({
+                            employees: seed.employees,
+                            products: inventory,
+                            sales,
+                            cashMovements: (cashMovements || []) as unknown as CashMovement[],
+                            expenses: get().expenses
+                        });
+                    };
 
                     // 1. Sync Offline Sales
                     try {
@@ -619,21 +680,7 @@ export const usePharmaStore = create<PharmaState>()(
                     // 3. Fetch Data (PHASE 1: CRITICAL DATA)
                     // Immediate data needed for UI skeletons (Auth, Locations, Suppliers)
                     const { TigerDataService } = await import('../../domain/services/TigerDataService');
-
-                    const [employeesRes, suppliersRes, locationsRes, customers] = await Promise.all([
-                        import('../../actions/sync-v2').then(async m => {
-                            const res = await m.fetchEmployeesSecure();
-                            if (!res.success && res.error === 'No autenticado') return m.getUsersForLoginSecure();
-                            return res;
-                        }).catch(() => ({ success: false, data: [] })),
-                        import('../../actions/sync-v2').then(m => m.fetchSuppliersSecure()).catch(() => ({ success: false, data: [] })),
-                        import('../../actions/sync-v2').then(m => m.fetchLocationsSecure()).catch(() => ({ success: false, data: [] })),
-                        TigerDataService.fetchCustomers().catch(() => [])
-                    ]);
-
-                    const employees = employeesRes.success ? (employeesRes.data || []) as unknown as EmployeeProfile[] : [];
-                    const suppliers = suppliersRes.success ? suppliersRes.data || [] : [];
-                    const locations = locationsRes.success ? locationsRes.data || [] : [];
+                    const { employees, suppliers, locations, customers } = await syncCriticalReferenceData();
 
                     // Update Location Store
                     if (locations.length > 0) useLocationStore.getState().setLocations(locations);
@@ -647,57 +694,11 @@ export const usePharmaStore = create<PharmaState>()(
                     });
 
                     // 4. Fetch Data (PHASE 2: HEAVY DATA - BACKGROUND)
-                    // Fire-and-forget for Inventory, Sales, and Movements
+                    // Fire-and-forget for shared shell data.
+                    // WMS bootstraps (shipments / purchaseOrders) are loaded by route-level hooks.
                     (async () => {
                         try {
-                            // SERIALIZED EXECUTION TO PREVENT POOL EXHAUSTION
-
-                            // 1. Inventory (Heavy)
-                            const inventory = await (currentStoreState.currentLocationId
-                                ? TigerDataService.fetchInventory(currentStoreState.currentLocationId)
-                                : Promise.resolve([]));
-
-                            // 2. Sales History (Heavy)
-                            const sales = await TigerDataService.fetchSalesHistory(
-                                currentStoreState.currentLocationId,
-                                undefined,
-                                undefined,
-                                currentStoreState.currentShift?.id
-                            );
-
-                            // 3. Others (Lighter)
-                            const cashMovements = await TigerDataService.fetchCashMovements();
-                            const shipments = await TigerDataService.fetchShipments(currentStoreState.currentLocationId);
-                            const purchaseOrders = await TigerDataService.fetchPurchaseOrders(currentStoreState.currentLocationId);
-
-                            // Background Update
-                            set({
-                                inventory,
-                                shipments: shipments || [],
-                                purchaseOrders: purchaseOrders || [],
-                                cashMovements: (cashMovements || []) as unknown as CashMovement[],
-                                salesHistory: [
-                                    ...sales,
-                                    ...currentStoreState.salesHistory.filter(s => s.is_synced === false && !sales.some(cloud => cloud.id === s.id))
-                                ],
-                                expenses: ((cashMovements || []) as unknown as CashMovement[]).filter(m => m.type === 'OUT' && ['SUPPLIES', 'SERVICES', 'SALARY_ADVANCE', 'OTHER'].includes(m.reason)).map(m => ({
-                                    id: String(m.id),
-                                    description: m.description,
-                                    amount: m.amount,
-                                    category: (m.reason === 'SUPPLIES' ? 'INSUMOS' : m.reason === 'SERVICES' ? 'SERVICIOS' : 'OTROS') as Expense['category'],
-                                    date: m.timestamp,
-                                    is_deductible: false
-                                }))
-                            });
-
-                            // Initialize Tiger Service Storage for Offline Simulation
-                            TigerDataService.initializeStorage({
-                                employees,
-                                products: inventory,
-                                sales,
-                                cashMovements: (cashMovements || []) as unknown as CashMovement[],
-                                expenses: get().expenses
-                            });
+                            await syncBackgroundShellData({ employees });
 
                             set({ isInitialized: true });
                             console.log('✅ Background Sync Complete (Serialized)');
@@ -707,7 +708,7 @@ export const usePharmaStore = create<PharmaState>()(
                                 mirrorStoreToSQLite({
                                     employees,
                                     locations: useLocationStore.getState().locations,
-                                    inventory,
+                                    inventory: get().inventory,
                                     customers: get().customers,
                                     suppliers: get().suppliers,
                                     salesHistory: get().salesHistory,

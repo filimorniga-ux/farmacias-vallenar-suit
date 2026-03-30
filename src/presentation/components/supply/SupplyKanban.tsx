@@ -21,6 +21,7 @@ interface SupplyKanbanProps {
     onViewOrder?: (order: any) => void;
     onFinalizeReview?: (order: any) => void;
     direction?: 'row' | 'col';
+    bootstrapOnMount?: boolean;
 }
 
 interface KanbanColumnProps {
@@ -428,7 +429,8 @@ const SupplyKanban: React.FC<SupplyKanbanProps> = ({
     onReceiveOrder,
     onViewOrder,
     onFinalizeReview,
-    direction = 'col'
+    direction = 'col',
+    bootstrapOnMount = true,
 }) => {
     const {
         currentLocationId,
@@ -482,32 +484,6 @@ const SupplyKanban: React.FC<SupplyKanbanProps> = ({
                 const message = errors.join(' | ');
                 setLastError(message);
                 toast.error(message);
-                return;
-            }
-
-            const stateAfterScopedRefresh = usePharmaStore.getState();
-            const hasEntriesWithScope = stateAfterScopedRefresh.shipments.length > 0 || stateAfterScopedRefresh.purchaseOrders.length > 0;
-
-            if (scopedLocationId && !hasEntriesWithScope) {
-                const [globalShipmentsResult, globalPurchaseOrdersResult] = await Promise.allSettled([
-                    refreshShipments(undefined),
-                    refreshPurchaseOrders(undefined),
-                ]);
-                const globalErrors: string[] = [];
-
-                if (globalShipmentsResult.status === 'rejected') {
-                    globalErrors.push(globalShipmentsResult.reason instanceof Error ? globalShipmentsResult.reason.message : 'Error cargando envíos globales');
-                }
-                if (globalPurchaseOrdersResult.status === 'rejected') {
-                    globalErrors.push(globalPurchaseOrdersResult.reason instanceof Error ? globalPurchaseOrdersResult.reason.message : 'Error cargando órdenes globales');
-                }
-
-                if (globalErrors.length > 0) {
-                    const globalMessage = globalErrors.join(' | ');
-                    setLastError(globalMessage);
-                    toast.error(globalMessage);
-                    return;
-                }
             }
         } catch (error: any) {
             const message = error?.message || 'No se pudo actualizar el tablero';
@@ -519,8 +495,9 @@ const SupplyKanban: React.FC<SupplyKanbanProps> = ({
     }, [refreshPurchaseOrders, refreshShipments, scopedLocationId]);
 
     useEffect(() => {
+        if (!bootstrapOnMount) return;
         void refreshKanban();
-    }, [refreshKanban]);
+    }, [bootstrapOnMount, refreshKanban]);
 
     const entries = useMemo(() => buildSupplyKanbanEntries({
         purchaseOrders,

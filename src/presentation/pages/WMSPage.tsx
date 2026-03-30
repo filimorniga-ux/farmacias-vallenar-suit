@@ -18,6 +18,7 @@ import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { useQueryClient } from '@tanstack/react-query';
 import { usePlatform } from '@/hooks/usePlatform';
 import { useInventoryQuery } from '@/presentation/hooks/useInventoryQuery';
+import { useBootstrapWms } from '@/presentation/hooks/useBootstrapWms';
 import { WMSDespachoTab } from '@/presentation/components/wms/tabs/WMSDespachoTab';
 import { WMSRecepcionTab } from '@/presentation/components/wms/tabs/WMSRecepcionTab';
 import { WMSTransferenciaTab } from '@/presentation/components/wms/tabs/WMSTransferenciaTab';
@@ -76,8 +77,6 @@ export const WMSPage: React.FC = () => {
     const receivePurchaseOrder = usePharmaStore((state) => state.receivePurchaseOrder);
     const finalizePurchaseOrderReview = usePharmaStore((state) => state.finalizePurchaseOrderReview);
     const setInventory = usePharmaStore((state) => state.setInventory);
-    const refreshShipments = usePharmaStore((state) => state.refreshShipments);
-    const refreshPurchaseOrders = usePharmaStore((state) => state.refreshPurchaseOrders);
     const locationStoreCurrent = useLocationStore(s => s.currentLocation);
     const locationStoreLocations = useLocationStore(s => s.locations);
 
@@ -135,6 +134,7 @@ export const WMSPage: React.FC = () => {
 
     // 🚀 Load inventory via React Query (Same pattern as POSMainScreen for consistency)
     const activeLocationId = currentLocationId || locationStoreCurrent?.id;
+    const { bootstrapWms, isBootstrappingWms } = useBootstrapWms({ activeLocationId });
     const shouldLoadInventory = activeTab === 'despacho' || activeTab === 'transferencia';
     const { data: inventoryData, isLoading: isLoadingInventory } = useInventoryQuery(activeLocationId, {
         mode: 'wms-lite',
@@ -151,10 +151,7 @@ export const WMSPage: React.FC = () => {
 
     const handleRefresh = async () => {
         if (activeLocationId) {
-            await Promise.all([
-                refreshShipments(activeLocationId),
-                refreshPurchaseOrders(activeLocationId)
-            ]);
+            await bootstrapWms({ force: true });
         }
         queryClient.invalidateQueries({ queryKey: ['inventory'] });
         if ('vibrate' in navigator) navigator.vibrate(10);
@@ -180,6 +177,7 @@ export const WMSPage: React.FC = () => {
             case 'transito':
                 return (
                     <WMSTransitoTab
+                        bootstrapOnMount={false}
                         onReceiveShipment={(shipmentId) => {
                             setPreselectedReceptionShipmentId(shipmentId);
                             setActiveTab('recepcion');
@@ -211,6 +209,7 @@ export const WMSPage: React.FC = () => {
                                 {useMobileLayout ? "Órdenes de compra sincronizadas." : "Visualización en tiempo real de órdenes de compra pendientes y recibidas."}
                             </p>
                             <SupplyKanban
+                                bootstrapOnMount={false}
                                 direction={useMobileLayout ? 'col' : 'row'}
                                 onEditOrder={(po: any) => {
                                     setSelectedOrder(po);
@@ -270,12 +269,13 @@ export const WMSPage: React.FC = () => {
 
                             <button
                                 onClick={handleRefresh}
+                                disabled={isBootstrappingWms}
                                 className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 
                                          text-slate-600 transition-colors flex items-center justify-center
-                                         active:scale-95"
+                                         active:scale-95 disabled:opacity-60"
                                 title="Actualizar"
                             >
-                                <RefreshCw size={16} />
+                                <RefreshCw size={16} className={isBootstrappingWms ? 'animate-spin' : ''} />
                             </button>
                         </div>
                     </div>
@@ -360,9 +360,10 @@ export const WMSPage: React.FC = () => {
                         </div>
 
                         <button onClick={handleRefresh}
-                            className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+                            disabled={isBootstrappingWms}
+                            className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors disabled:opacity-60"
                             title="Actualizar inventario">
-                            <RefreshCw size={18} />
+                            <RefreshCw size={18} className={isBootstrappingWms ? 'animate-spin' : ''} />
                         </button>
                     </div>
 
