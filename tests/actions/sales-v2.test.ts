@@ -48,16 +48,6 @@ vi.mock('next/cache', () => ({
     revalidatePath: vi.fn(),
 }));
 
-vi.mock('next/headers', () => ({
-    cookies: () => ({
-        get: (key: string) => {
-            if (key === 'user_id') return { value: 'test-user-id' };
-            if (key === 'user_role') return { value: 'ADMIN' };
-            return undefined;
-        },
-    }),
-}));
-
 vi.mock('uuid', () => ({
     v4: vi.fn(() => 'test-uuid-12345'),
 }));
@@ -559,6 +549,9 @@ describe('Sales V2 - voidSaleSecure', () => {
             ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO audit_log')
         );
         expect(auditCall?.[1]?.[0]).toBe('session-user-void');
+        expect(JSON.parse(String(auditCall?.[1]?.[7]))).toMatchObject({
+            authorized_by: 'supervisor-1',
+        });
     });
 });
 

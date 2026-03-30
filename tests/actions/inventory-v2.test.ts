@@ -413,6 +413,9 @@ describe('adjustStockSecure', () => {
             ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO audit_log')
         );
         expect(auditCall?.[1]?.[0]).toBe('session-user-adjust');
+        expect(JSON.parse(String(auditCall?.[1]?.[6]))).toMatchObject({
+            authorized_by: 'manager-1',
+        });
     });
 
     it('should fail if adjustment would result in negative stock', async () => {
