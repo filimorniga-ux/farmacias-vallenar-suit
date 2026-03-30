@@ -26,6 +26,14 @@ import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
 import { randomBytes } from 'crypto';
 import { logger } from '@/lib/logger';
+import {
+    getActorOrFail,
+    PinAuthorizedUser,
+    PinRbacError,
+    requireRole,
+    ROLE_GROUPS,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -71,8 +79,8 @@ const AuditLogFilterSchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
-const MANAGER_ROLES = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL'];
+const ADMIN_ROLES = ROLE_GROUPS.ADMIN;
+const MANAGER_ROLES = ROLE_GROUPS.MANAGER;
 
 const ERROR_CODES = {
     LOCK_NOT_AVAILABLE: '55P03',
@@ -124,59 +132,46 @@ async function getClientIP(): Promise<string> {
 }
 
 /**
- * Validate ADMIN PIN with bcrypt
+ * Resolve actor from validated session and enforce roles when required.
+ */
+async function resolveSecurityActor(requiredRoles?: readonly string[]) {
+    try {
+        let actor = await getActorOrFail();
+        if (requiredRoles) {
+            actor = requireRole(actor, requiredRoles);
+        }
+
+        return { success: true as const, actor };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { success: false as const, error: error.message };
+        }
+        throw error;
+    }
+}
+
+/**
+ * Validate ADMIN PIN through shared pin-rbac helper.
  */
 async function validateAdminPin(
     client: any,
     pin: string,
     requiredRoles: readonly string[] = ADMIN_ROLES
-): Promise<{ valid: boolean; admin?: { id: string; name: string; role: string }; error?: string }> {
+): Promise<{ valid: boolean; admin?: PinAuthorizedUser; error?: string }> {
     try {
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
-        const bcrypt = await import('bcryptjs');
+        const result = await validatePinForRoles(client, pin, requiredRoles, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        const usersRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE role = ANY($1::text[])
-            AND is_active = true
-        `, [requiredRoles]);
-
-        for (const user of usersRes.rows) {
-            // Check rate limit before PIN comparison
-            const rateCheck = checkRateLimit(user.id);
-            if (!rateCheck.allowed) {
-                logger.warn({ userId: user.id }, '🚫 [Security] Admin PIN blocked by rate limit');
-                continue;
-            }
-
-            // bcrypt comparison
-            if (user.access_pin_hash) {
-                const isValid = await bcrypt.compare(pin, user.access_pin_hash);
-                if (isValid) {
-                    resetAttempts(user.id);
-                    return {
-                        valid: true,
-                        admin: { id: user.id, name: user.name, role: user.role }
-                    };
-                } else {
-                    recordFailedAttempt(user.id);
-                }
-            }
-            // Legacy fallback
-            else if (user.access_pin && user.access_pin === pin) {
-                logger.warn({ userId: user.id }, '⚠️ [Security] Using legacy plaintext PIN');
-                resetAttempts(user.id);
-                return {
-                    valid: true,
-                    admin: { id: user.id, name: user.name, role: user.role }
-                };
-            } else if (user.access_pin) {
-                recordFailedAttempt(user.id);
-            }
+        if (!result.valid) {
+            return { valid: false, error: result.error };
         }
 
-        return { valid: false, error: 'PIN de administrador inválido' };
+        return {
+            valid: true,
+            admin: result.authorizedBy,
+        };
     } catch (error) {
         logger.error({ error }, '[Security] Admin PIN validation error');
         return { valid: false, error: 'Error validando PIN' };
@@ -406,6 +401,11 @@ export async function unlockAccountSecure(
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
+    const actor = await resolveSecurityActor(ADMIN_ROLES);
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+
     const client = await pool.connect();
 
     try {
@@ -445,18 +445,24 @@ export async function unlockAccountSecure(
 
         // Audit
         await insertSecurityAudit(client, {
-            userId: authResult.admin!.id,
+            userId: actor.actor.userId,
             actionCode: 'ACCOUNT_UNLOCKED',
             targetUserId: userId,
             details: {
                 reason,
-                unlocked_by: authResult.admin!.name,
+                unlocked_by: actor.actor.userName,
+                authorized_by: authResult.admin!.name,
+                authorized_by_id: authResult.admin!.id,
             }
         });
 
         await client.query('COMMIT');
 
-        logger.info({ userId, unlockedBy: authResult.admin!.id }, '🔓 [Security] Account unlocked');
+        logger.info({
+            userId,
+            actorUserId: actor.actor.userId,
+            authorizedById: authResult.admin!.id,
+        }, '🔓 [Security] Account unlocked');
         revalidatePath('/settings');
         return { success: true };
 
@@ -561,6 +567,11 @@ export async function forceLogoutSecure(
     }
 
     try {
+        const actor = await resolveSecurityActor(MANAGER_ROLES);
+        if (!actor.success) {
+            return { success: false, error: actor.error };
+        }
+
         const { query } = await import('@/lib/db');
 
         // Step 1: Validate ADMIN/MANAGER PIN (using a fresh simple query, no transaction)
@@ -578,7 +589,7 @@ export async function forceLogoutSecure(
         }
 
         // Cannot force logout yourself
-        if (authResult.admin!.id === targetUserId) {
+        if (actor.actor.userId === targetUserId) {
             return { success: false, error: 'No puedes cerrar tu propia sesión de esta manera' };
         }
 
@@ -609,12 +620,14 @@ export async function forceLogoutSecure(
         const auditClient = await pool.connect();
         try {
             await insertSecurityAudit(auditClient, {
-                userId: authResult.admin!.id,
+                userId: actor.actor.userId,
                 actionCode: 'FORCE_LOGOUT',
                 targetUserId,
                 details: {
                     reason,
-                    forced_by: authResult.admin!.name,
+                    forced_by: actor.actor.userName,
+                    authorized_by: authResult.admin!.name,
+                    authorized_by_id: authResult.admin!.id,
                     target_name: targetUser.name,
                 }
             });
@@ -624,7 +637,11 @@ export async function forceLogoutSecure(
             auditClient.release();
         }
 
-        logger.info({ targetUserId, forcedBy: authResult.admin!.id }, '🚫 [Security] Forced logout');
+        logger.info({
+            targetUserId,
+            actorUserId: actor.actor.userId,
+            authorizedById: authResult.admin!.id,
+        }, '🚫 [Security] Forced logout');
         revalidatePath('/settings');
         return { success: true };
 

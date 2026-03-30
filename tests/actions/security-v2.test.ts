@@ -18,6 +18,30 @@ const { mockHeaders } = vi.hoisted(() => ({
     ])
 }));
 
+const {
+    mockGetActorOrFail,
+    mockRequireRole,
+    mockValidatePinForRoles,
+    MockPinRbacError,
+} = vi.hoisted(() => {
+    class MockPinRbacError extends Error {
+        code: string;
+
+        constructor(code: string, message: string) {
+            super(message);
+            this.name = 'PinRbacError';
+            this.code = code;
+        }
+    }
+
+    return {
+        mockGetActorOrFail: vi.fn(),
+        mockRequireRole: vi.fn(),
+        mockValidatePinForRoles: vi.fn(),
+        MockPinRbacError,
+    };
+});
+
 vi.mock('next/headers', () => ({
     headers: vi.fn().mockReturnValue(Promise.resolve(mockHeaders)),
     cookies: vi.fn(() => ({ get: vi.fn() }))
@@ -61,6 +85,17 @@ vi.mock('@/lib/logger', () => ({
     }
 }));
 
+vi.mock('@/lib/pin-rbac', () => ({
+    getActorOrFail: (...args: unknown[]) => mockGetActorOrFail(...args),
+    requireRole: (...args: unknown[]) => mockRequireRole(...args),
+    validatePinForRoles: (...args: unknown[]) => mockValidatePinForRoles(...args),
+    ROLE_GROUPS: {
+        ADMIN: ['ADMIN', 'GERENTE_GENERAL'],
+        MANAGER: ['ADMIN', 'MANAGER', 'GERENTE_GENERAL'],
+    },
+    PinRbacError: MockPinRbacError,
+}));
+
 vi.mock('crypto', () => ({
     randomBytes: vi.fn(() => ({ toString: () => 'mock-token-123456' }))
 }));
@@ -70,6 +105,20 @@ beforeEach(() => {
     vi.clearAllMocks();
     mockHeaders.clear();
     mockHeaders.set('x-forwarded-for', '127.0.0.1');
+    mockGetActorOrFail.mockResolvedValue({
+        userId: validAdminId,
+        userName: 'Actor Admin',
+        role: 'ADMIN',
+        locationId: 'loc-1',
+        tokenVersion: 1,
+        sessionToken: 'session-token',
+    });
+    mockRequireRole.mockImplementation((actor: unknown) => actor);
+    mockValidatePinForRoles.mockResolvedValue({
+        valid: true,
+        authorizedBy: { id: 'pin-admin-1', name: 'Admin PIN', role: 'ADMIN' },
+        matchedBy: 'hash',
+    });
 });
 
 // Test data
@@ -226,7 +275,6 @@ describe('Security V2 - Account Locking', () => {
 describe('Security V2 - Account Unlocking', () => {
     it('should unlock with valid ADMIN PIN', async () => {
         const mockClient = createMockClient([
-            { rows: [mockAdmin], rowCount: 1 }, // Auth query
             { rows: [{ ...mockUser, account_locked_permanently: true }], rowCount: 1 }, // Target user
             { rows: [], rowCount: 1 }, // Update
             { rows: [], rowCount: 0 } // Audit
@@ -239,15 +287,19 @@ describe('Security V2 - Account Unlocking', () => {
         );
 
         expect(result.success).toBe(true);
+        expect(mockValidatePinForRoles).toHaveBeenCalled();
+        const auditCall = mockClient.query.mock.calls.find(
+            (call: any) => call[0].includes('INSERT INTO audit_logs')
+        );
+        expect(auditCall?.[1]?.[0]).toBe(validAdminId);
     });
 
     it('should reject invalid ADMIN PIN', async () => {
-        const mockClient = createMockClient([
-            { rows: [mockAdmin], rowCount: 1 }
-        ]);
-
-        const bcrypt = await import('bcryptjs');
-        vi.mocked(bcrypt.compare).mockImplementationOnce(async () => false);
+        createMockClient([]);
+        mockValidatePinForRoles.mockResolvedValueOnce({
+            valid: false,
+            error: 'PIN de administrador inválido',
+        });
 
         const result = await securityV2.unlockAccountSecure(
             '550e8400-e29b-41d4-a716-446655440002',
@@ -262,7 +314,6 @@ describe('Security V2 - Account Unlocking', () => {
     it('should reset rate limiter on unlock', async () => {
         const rateLimiter = await import('@/lib/rate-limiter');
         createMockClient([
-            { rows: [mockAdmin], rowCount: 1 },
             { rows: [mockUser], rowCount: 1 },
             { rows: [], rowCount: 1 },
             { rows: [], rowCount: 0 }
@@ -309,7 +360,6 @@ describe('Security V2 - Token Rotation', () => {
 describe('Security V2 - Force Logout', () => {
     it('should force logout with valid MANAGER PIN', async () => {
         const mockClient = createMockClient([
-            { rows: [mockAdmin], rowCount: 1 }, // Auth
             { rows: [mockUser], rowCount: 1 }, // Target
             { rows: [], rowCount: 1 }, // Update
             { rows: [], rowCount: 0 } // Audit
@@ -322,12 +372,22 @@ describe('Security V2 - Force Logout', () => {
         );
 
         expect(result.success).toBe(true);
+        const auditCall = mockClient.query.mock.calls.find(
+            (call: any) => call[0].includes('INSERT INTO audit_logs')
+        );
+        expect(auditCall?.[1]?.[0]).toBe(validAdminId);
     });
 
     it('should prevent self-logout', async () => {
-        createMockClient([
-            { rows: [mockAdmin], rowCount: 1 }
-        ]);
+        createMockClient([]);
+        mockGetActorOrFail.mockResolvedValueOnce({
+            userId: validAdminId,
+            userName: 'Actor Admin',
+            role: 'ADMIN',
+            locationId: 'loc-1',
+            tokenVersion: 1,
+            sessionToken: 'session-token',
+        });
 
         const result = await securityV2.forceLogoutSecure(
             '550e8400-e29b-41d4-a716-446655440001', // Same as admin
@@ -341,7 +401,6 @@ describe('Security V2 - Force Logout', () => {
 
     it('should increment token version on logout', async () => {
         const mockClient = createMockClient([
-            { rows: [mockAdmin], rowCount: 1 },
             { rows: [{ ...mockUser, token_version: 3 }], rowCount: 1 },
             { rows: [], rowCount: 1 },
             { rows: [], rowCount: 0 }

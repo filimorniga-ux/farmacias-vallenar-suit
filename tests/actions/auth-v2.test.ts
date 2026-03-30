@@ -21,8 +21,21 @@ vi.mock('@sentry/nextjs', () => ({
     captureException: vi.fn(),
 }));
 vi.mock('bcryptjs', () => ({
+    default: {
+        compare: vi.fn(async (plainText: string, hash: string) => hash === `hashed_${plainText}`),
+    },
     compare: vi.fn(async (plainText: string, hash: string) => hash === `hashed_${plainText}`),
 }));
+
+function getDefaultBcryptCompareMock() {
+    const bcryptModule = bcrypt as typeof bcrypt & {
+        default: {
+            compare: (plainText: string, hash: string) => Promise<boolean>;
+        };
+    };
+
+    return vi.mocked(bcryptModule.default.compare);
+}
 
 describe('Auth V2 - Typed error mapping', () => {
     beforeEach(() => {
@@ -184,7 +197,7 @@ describe('Auth V2 - Typed error mapping', () => {
         expect(result.success).toBe(true);
         if (!result.success) return;
         expect(result.authorizedBy?.id).toBe('sup-1');
-        expect(vi.mocked(bcrypt.compare)).toHaveBeenCalledWith('1234', 'hashed_1234');
+        expect(getDefaultBcryptCompareMock()).toHaveBeenCalledWith('1234', 'hashed_1234');
     });
 
     it('validateSupervisorPin acepta fallback legacy plaintext', async () => {
@@ -232,21 +245,33 @@ describe('Auth V2 - Typed error mapping', () => {
     });
 
     it('verifyUserPin acepta hash para roles autorizados', async () => {
-        vi.mocked(dbModule.query).mockResolvedValueOnce({
-            rows: [{
-                role: 'ADMIN',
-                access_pin_hash: 'hashed_4321',
-                access_pin: null,
-            }],
-            rowCount: 1,
-            command: '',
-            oid: 0,
-            fields: []
-        });
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce({
+                rows: [{
+                    role: 'ADMIN',
+                }],
+                rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: []
+            })
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'admin-1',
+                    name: 'Admin Uno',
+                    role: 'ADMIN',
+                    access_pin_hash: 'hashed_4321',
+                    access_pin: null,
+                }],
+                rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: []
+            });
 
         const result = await authV2.verifyUserPin('admin-1', '4321');
 
         expect(result.success).toBe(true);
-        expect(vi.mocked(bcrypt.compare)).toHaveBeenCalledWith('4321', 'hashed_4321');
+        expect(getDefaultBcryptCompareMock()).toHaveBeenCalledWith('4321', 'hashed_4321');
     });
 });

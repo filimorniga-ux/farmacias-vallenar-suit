@@ -10,6 +10,12 @@ import {
     getValidatedSession,
     invalidateCurrentSession,
 } from '@/lib/server-session';
+import {
+    type PinQueryClient,
+    ROLE_GROUPS,
+    validatePinForRoles,
+    validatePinForUser,
+} from '@/lib/pin-rbac';
 
 export interface AuthenticatedUser {
     id: string;
@@ -46,6 +52,13 @@ interface UserPinRecord {
     access_pin?: string | null;
 }
 
+type AuthPinQueryParam = string | number | boolean | Date | string[] | null | undefined;
+
+const pinQueryClient: PinQueryClient = {
+    query: (sql, params) =>
+        query(sql, params as AuthPinQueryParam[] | undefined) as Promise<Awaited<ReturnType<PinQueryClient['query']>>>,
+};
+
 async function isValidUserPin(pin: string, user: UserPinRecord) {
     if (process.env.NODE_ENV !== 'production' && pin === DEVELOPMENT_PIN) {
         return true;
@@ -70,24 +83,29 @@ export async function verifyUserPin(userId: string, pin: string) {
     try {
         if (!userId || !pin) return { success: false, error: 'Datos incompletos' };
 
-        const res = await query('SELECT role, access_pin_hash, access_pin FROM users WHERE id = $1', [userId]);
+        const res = await query('SELECT role FROM users WHERE id = $1', [userId]);
 
         if ((res.rowCount ?? 0) === 0) {
             return { success: false, error: 'Usuario no encontrado' };
         }
 
         const userData = res.rows[0];
+        const normalizedRole = String(userData.role || '').trim().toUpperCase();
 
-        const allowedRoles = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
-        if (!allowedRoles.includes(userData.role)) {
+        if (!ROLE_GROUPS.MANAGER.includes(normalizedRole as typeof ROLE_GROUPS.MANAGER[number])) {
             return { success: false, error: 'Sin permisos suficientes' };
         }
 
-        if (await isValidUserPin(pin, userData)) {
+        const result = await validatePinForUser(pinQueryClient, userId, pin, {
+            allowLegacyPlaintext: true,
+            allowDevelopmentMasterPin: true,
+        });
+
+        if (result.valid) {
             return { success: true };
         }
 
-        return { success: false, error: 'PIN Incorrecto' };
+        return { success: false, error: result.error === 'PIN inválido' ? 'PIN Incorrecto' : result.error };
     } catch (error) {
         const correlationId = createCorrelationId();
         Sentry.captureException(error, {
@@ -103,50 +121,23 @@ export async function verifyUserPin(userId: string, pin: string) {
 /**
  * Validates supervisor PIN for overrides (POS, Inventory, etc)
  */
-export async function validateSupervisorPin(pin: string, requiredRoles: string[] = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL']) {
+export async function validateSupervisorPin(
+    pin: string,
+    requiredRoles: string[] = [...ROLE_GROUPS.MANAGER]
+) {
     try {
-        interface SupervisorPinRow {
-            id: string;
-            name: string;
-            role: string;
-            access_pin_hash?: string | null;
-            access_pin?: string | null;
-        }
+        const result = await validatePinForRoles(pinQueryClient, pin, requiredRoles, {
+            allowLegacyPlaintext: true,
+        });
 
-        const res = await query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users
-            WHERE role = ANY($1::text[])
-            AND is_active = true
-        `, [requiredRoles]);
-
-        if ((res.rowCount ?? 0) === 0) {
+        if (!result.valid) {
             return { success: false, error: 'PIN inválido o sin permisos' };
         }
 
-        const bcrypt = await import('bcryptjs');
-        const users = res.rows as SupervisorPinRow[];
-
-        for (const user of users) {
-            if (user.access_pin_hash) {
-                const validHash = await bcrypt.compare(pin, user.access_pin_hash);
-                if (validHash) {
-                    return {
-                        success: true,
-                        authorizedBy: { id: user.id, name: user.name, role: user.role }
-                    };
-                }
-            }
-
-            if (user.access_pin && user.access_pin === pin) {
-                return {
-                    success: true,
-                    authorizedBy: { id: user.id, name: user.name, role: user.role }
-                };
-            }
-        }
-
-        return { success: false, error: 'PIN inválido o sin permisos' };
+        return {
+            success: true,
+            authorizedBy: result.authorizedBy,
+        };
     } catch (error) {
         const correlationId = createCorrelationId();
         Sentry.captureException(error, {

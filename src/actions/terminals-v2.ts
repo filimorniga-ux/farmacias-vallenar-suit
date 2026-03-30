@@ -18,7 +18,13 @@ import { query } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
-import { getValidatedSession } from '@/lib/server-session';
+import {
+    getActorOrFail,
+    PinRbacError,
+    requireRole,
+    ROLE_GROUPS,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DBRow = any;
@@ -66,7 +72,7 @@ const ERROR_MESSAGES = {
     DEADLOCK: 'Se detectó un bloqueo. Reintentando...'
 } as const;
 
-const TERMINAL_ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'] as const;
+const TERMINAL_ADMIN_ROLES = ROLE_GROUPS.ADMIN;
 
 async function resolveValidatedTerminalActor(input: {
     requestedUserId?: string;
@@ -74,34 +80,41 @@ async function resolveValidatedTerminalActor(input: {
     requiredRoles?: readonly string[];
     forbiddenMessage?: string;
 }) {
-    const session = await getValidatedSession();
-    if (!session) {
-        return { success: false as const, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
-    }
+    try {
+        let actor = await getActorOrFail();
 
-    if (input.requiredRoles && !input.requiredRoles.includes(session.role)) {
+        if (input.requiredRoles) {
+            actor = requireRole(actor, input.requiredRoles);
+        }
+
+        if (input.requestedUserId && input.requestedUserId !== actor.userId) {
+            logger.warn(
+                {
+                    requestedUserId: input.requestedUserId,
+                    actorUserId: actor.userId,
+                    action: input.action,
+                },
+                'Ignoring payload userId in terminal mutation; using validated session user'
+            );
+        }
+
         return {
-            success: false as const,
-            error: input.forbiddenMessage || 'Acceso denegado',
+            success: true as const,
+            actorUserId: actor.userId,
+            actor,
         };
-    }
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return {
+                success: false as const,
+                error: error.code === 'AUTH_FORBIDDEN'
+                    ? (input.forbiddenMessage || 'Acceso denegado')
+                    : 'Sesión no válida. Vuelve a iniciar sesión.',
+            };
+        }
 
-    if (input.requestedUserId && input.requestedUserId !== session.userId) {
-        logger.warn(
-            {
-                requestedUserId: input.requestedUserId,
-                actorUserId: session.userId,
-                action: input.action,
-            },
-            'Ignoring payload userId in terminal mutation; using validated session user'
-        );
+        throw error;
     }
-
-    return {
-        success: true as const,
-        actorUserId: session.userId,
-        session,
-    };
 }
 
 // =====================================================
@@ -356,13 +369,12 @@ export async function openTerminalAtomic(
  * Abre un terminal validando el PIN del supervisor en el servidor.
  * 
  * SECURITY FIX: Esta función reemplaza la validación de PIN en el cliente.
- * El PIN se valida con bcrypt en el servidor, nunca se expone en logs
- * ni se compara en texto plano.
+ * El PIN se valida server-side y la autorización queda separada del actor real.
  * 
  * @param terminalId - UUID del terminal
  * @param userId - ID del usuario/cajero
  * @param initialCash - Monto inicial de apertura
- * @param supervisorPin - PIN del supervisor (se valida con bcrypt)
+ * @param supervisorPin - PIN del supervisor
  * @returns Resultado con sessionId y authorizedById o error
  */
 export async function openTerminalWithPinValidation(
@@ -399,7 +411,6 @@ export async function openTerminalWithPinValidation(
     const actorUserId = actor.actorUserId;
 
     const { pool } = await import('@/lib/db');
-    const bcrypt = await import('bcryptjs');
     const client = await pool.connect();
 
     try {
@@ -407,43 +418,19 @@ export async function openTerminalWithPinValidation(
         logger.info({ terminalId, userId: actorUserId, initialCash, dbHost }, '🔐 [Atomic v2.2] Starting secure transaction: Open Terminal with PIN validation');
 
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
-        console.log(`[DB-TRACE] BEGIN transaction on ${dbHost} for terminal ${terminalId}`);
 
-        // 2. VALIDACIÓN DE PIN EN EL SERVIDOR (bcrypt)
-        // Buscar supervisores activos (MANAGER, ADMIN, GERENTE_GENERAL)
-        const supervisorQuery = await client.query(`
-            SELECT id, name, access_pin_hash, access_pin
-            FROM users 
-            WHERE role IN ('MANAGER', 'ADMIN', 'GERENTE_GENERAL')
-            AND is_active = true
-        `);
+        const authResult = await validatePinForRoles(client, supervisorPin, ROLE_GROUPS.MANAGER, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        let authorizedBy: { id: string; name: string } | null = null;
-
-        for (const supervisor of supervisorQuery.rows) {
-            // Primero intentar con bcrypt hash (sistema nuevo)
-            if (supervisor.access_pin_hash) {
-                const isValid = await bcrypt.compare(supervisorPin, supervisor.access_pin_hash);
-                if (isValid) {
-                    authorizedBy = { id: supervisor.id, name: supervisor.name };
-                    break;
-                }
-            }
-            // Fallback: PIN legacy en texto plano (para usuarios no migrados)
-            // NOTA: Este fallback debe eliminarse después de migrar todos los usuarios
-            else if (supervisor.access_pin && supervisor.access_pin === supervisorPin) {
-                authorizedBy = { id: supervisor.id, name: supervisor.name };
-                logger.warn({ supervisorId: supervisor.id }, '⚠️ Using legacy plaintext PIN - user should be migrated');
-                break;
-            }
-        }
-
-        if (!authorizedBy) {
+        if (!authResult.valid) {
             await client.query('ROLLBACK');
             logger.warn({ userId: actorUserId, terminalId }, '🚫 PIN validation failed - no matching supervisor');
-            return { success: false, error: 'PIN de autorización inválido' };
+            return { success: false, error: authResult.error || 'PIN de autorización inválido' };
         }
 
+        const authorizedBy = authResult.authorizedBy;
         logger.info({ authorizedById: authorizedBy.id }, '✅ Supervisor PIN validated successfully');
 
         // 3. Check Idempotency (si ya tiene sesión activa, retornarla)
@@ -1079,17 +1066,19 @@ export async function updateTerminalSecure(
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
+    const actor = await resolveValidatedTerminalActor({
+        action: 'updateTerminalSecure',
+        requiredRoles: TERMINAL_ADMIN_ROLES,
+        forbiddenMessage: 'Acceso denegado: requiere rol de administrador',
+    });
+    if (!actor.success) {
+        return {
+            success: false,
+            error: actor.error.includes('Sesión no válida') ? 'No autenticado' : actor.error,
+        };
+    }
+
     try {
-        const session = await getValidatedSession();
-
-        if (!session) {
-            return { success: false, error: 'No autenticado' };
-        }
-
-        const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
-        if (!ADMIN_ROLES.includes(session.role)) {
-            return { success: false, error: 'Acceso denegado: requiere rol de administrador' };
-        }
 
         // Obtener datos actuales para auditoría
         const current = await query('SELECT name, type, printer_config FROM terminals WHERE id = $1', [terminalId]);
@@ -1134,9 +1123,9 @@ export async function updateTerminalSecure(
         await query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, new_values, timestamp)
             VALUES ($1, 'TERMINAL_UPDATE', 'TERMINAL', $2, $3, $4, NOW())
-        `, [session.userId, terminalId, JSON.stringify(current.rows[0]), JSON.stringify(data)]);
+        `, [actor.actorUserId, terminalId, JSON.stringify(current.rows[0]), JSON.stringify(data)]);
 
-        logger.info({ terminalId, userId: session.userId }, '✅ Terminal actualizado');
+        logger.info({ terminalId, userId: actor.actorUserId }, '✅ Terminal actualizado');
         revalidatePath('/settings');
         revalidatePath('/settings/organization');
 
@@ -1163,17 +1152,19 @@ export async function deleteTerminalSecure(
         return { success: false, error: 'ID de terminal inválido' };
     }
 
+    const actor = await resolveValidatedTerminalActor({
+        action: 'deleteTerminalSecure',
+        requiredRoles: TERMINAL_ADMIN_ROLES,
+        forbiddenMessage: 'Acceso denegado: requiere rol de administrador',
+    });
+    if (!actor.success) {
+        return {
+            success: false,
+            error: actor.error.includes('Sesión no válida') ? 'No autenticado' : actor.error,
+        };
+    }
+
     try {
-        const session = await getValidatedSession();
-
-        if (!session) {
-            return { success: false, error: 'No autenticado' };
-        }
-
-        const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
-        if (!ADMIN_ROLES.includes(session.role)) {
-            return { success: false, error: 'Acceso denegado: requiere rol de administrador' };
-        }
 
         // Verificar estado del terminal
         const terminal = await query(
@@ -1199,9 +1190,9 @@ export async function deleteTerminalSecure(
         await query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, timestamp)
             VALUES ($1, 'TERMINAL_DELETE', 'TERMINAL', $2, $3, NOW())
-        `, [session.userId, terminalId, JSON.stringify(terminal.rows[0])]);
+        `, [actor.actorUserId, terminalId, JSON.stringify(terminal.rows[0])]);
 
-        logger.info({ terminalId, userId: session.userId }, '🗑️ Terminal eliminado (soft delete)');
+        logger.info({ terminalId, userId: actor.actorUserId }, '🗑️ Terminal eliminado (soft delete)');
         revalidatePath('/settings');
         revalidatePath('/settings/organization');
 

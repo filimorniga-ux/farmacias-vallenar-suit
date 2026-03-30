@@ -62,6 +62,12 @@ vi.mock('@/actions/attendance-v2', () => ({
     ensureCheckInSecure: vi.fn(async () => false),
 }));
 
+vi.mock('@/lib/rate-limiter', () => ({
+    checkRateLimit: vi.fn(() => ({ allowed: true, reason: null })),
+    recordFailedAttempt: vi.fn(),
+    resetAttempts: vi.fn(),
+}));
+
 // Import after all mocks are set up
 import { closeTerminalAtomic, forceCloseTerminalSecure, openTerminalAtomic, openTerminalWithPinValidation } from '@/actions/terminals-v2';
 
