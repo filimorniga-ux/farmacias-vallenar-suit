@@ -11,12 +11,18 @@ import { pool, type PoolClient } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
+import {
+    getActorOrFail,
+    PinRbacError,
+    ROLE_GROUPS,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
 const UUIDSchema = z.string().uuid('ID inválido');
 const MonthSchema = z.number().int().min(1).max(12);
 const YearSchema = z.number().int().min(2020).max(2100);
-const GERENTE_ROLES = ['GERENTE_GENERAL', 'ADMIN'];
-const ADMIN_ROLES = ['ADMIN'];
+const GERENTE_ROLES = ROLE_GROUPS.ADMIN;
+const ADMIN_ROLES = ['ADMIN'] as const;
 
 const ENTRY_CATEGORIES = {
     CASH: { direction: 'IN', label: 'Efectivo recaudado' },
@@ -83,18 +89,50 @@ type Totals = {
     netResult: number;
 };
 
-async function validatePin(client: PoolClient, pin: string, roles: string[]) {
-    const bcrypt = await import('bcryptjs');
-    const users = await client.query(
-        `SELECT id, name, role, access_pin_hash, access_pin FROM users WHERE role = ANY($1::text[]) AND is_active = true`,
-        [roles],
-    );
-    for (const user of users.rows) {
-        if (user.access_pin_hash && (await bcrypt.compare(pin, user.access_pin_hash))) {
-            return { valid: true, user: { id: user.id, name: user.name, role: user.role } };
+type FinanceClosingActor = Awaited<ReturnType<typeof getActorOrFail>>;
+
+async function requireFinanceClosingActor(): Promise<
+    | { success: true; actor: FinanceClosingActor }
+    | { success: false; error: string }
+> {
+    try {
+        const actor = await getActorOrFail();
+        return { success: true, actor };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { success: false, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
         }
+
+        throw error;
     }
-    return { valid: false, error: 'PIN inválido' };
+}
+
+async function validateClosingPin(
+    client: PoolClient,
+    pin: string,
+    roles: readonly string[],
+): Promise<{
+    valid: boolean;
+    authorizedBy?: { id: string; name: string; role: string };
+    error?: string;
+}> {
+    const result = await validatePinForRoles(client, pin, roles, {
+        allowLegacyPlaintext: true,
+        useRateLimiter: true,
+    });
+
+    if (!result.valid) {
+        return { valid: false, error: result.error || 'PIN inválido' };
+    }
+
+    return {
+        valid: true,
+        authorizedBy: {
+            id: result.authorizedBy.id,
+            name: result.authorizedBy.name,
+            role: result.authorizedBy.role,
+        },
+    };
 }
 
 function normalizeDate(value: string) {
@@ -277,6 +315,12 @@ export async function addClosingEntry(data: z.infer<typeof EntrySchema>) {
     const validated = EntrySchema.safeParse(data);
     if (!validated.success) return { success: false, error: validated.error.issues[0]?.message };
 
+    const auth = await requireFinanceClosingActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+    const actorUserId = auth.actor.userId;
+
     const client = await pool.connect();
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
@@ -328,7 +372,7 @@ export async function addClosingEntry(data: z.infer<typeof EntrySchema>) {
                 validated.data.description || null,
                 refDate,
                 validated.data.amount,
-                validated.data.userId,
+                actorUserId,
             ],
         );
 
@@ -337,7 +381,7 @@ export async function addClosingEntry(data: z.infer<typeof EntrySchema>) {
             `INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at)
              VALUES ($1, 'CLOSING_ENTRY_ADDED', 'MONTHLY_CLOSING', $2, $3::jsonb, NOW())`,
             [
-                validated.data.userId,
+                actorUserId,
                 `${validated.data.year}-${validated.data.month}`,
                 JSON.stringify({
                     category: validated.data.category,
@@ -358,8 +402,15 @@ export async function addClosingEntry(data: z.infer<typeof EntrySchema>) {
     }
 }
 
-export async function deleteClosingEntry(entryId: string, month: number, year: number, userId: string) {
-    if (!entryId || !userId) return { success: false, error: 'Parámetros inválidos' };
+export async function deleteClosingEntry(entryId: string, month: number, year: number, _userId: string) {
+    if (!entryId) return { success: false, error: 'Parámetros inválidos' };
+
+    const auth = await requireFinanceClosingActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+    const actorUserId = auth.actor.userId;
+
     const client = await pool.connect();
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
@@ -386,7 +437,7 @@ export async function deleteClosingEntry(entryId: string, month: number, year: n
         await client.query(
             `INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, created_at)
              VALUES ($1, 'CLOSING_ENTRY_REMOVED', 'MONTHLY_CLOSING', $2, NOW())`,
-            [userId, `${year}-${month}`],
+            [actorUserId, `${year}-${month}`],
         );
 
         await client.query('COMMIT');
@@ -403,6 +454,12 @@ export async function deleteClosingEntry(entryId: string, month: number, year: n
 export async function initiateClosingSecure(data: z.infer<typeof DraftSchema>) {
     const validated = DraftSchema.safeParse(data);
     if (!validated.success) return { success: false, error: validated.error.issues[0]?.message };
+
+    const auth = await requireFinanceClosingActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+    const actorUserId = auth.actor.userId;
 
     const client = await pool.connect();
     try {
@@ -427,7 +484,7 @@ export async function initiateClosingSecure(data: z.infer<typeof DraftSchema>) {
             `INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at) 
              VALUES ($1, 'CLOSING_DRAFT_SAVED', 'MONTHLY_CLOSING', $2, $3::jsonb, NOW())`,
             [
-                validated.data.userId,
+                actorUserId,
                 `${validated.data.year}-${validated.data.month}`,
                 JSON.stringify({ month: validated.data.month, year: validated.data.year }),
             ],
@@ -447,6 +504,12 @@ export async function initiateClosingSecure(data: z.infer<typeof DraftSchema>) {
 export async function executeClosingSecure(data: z.infer<typeof ExecuteClosingSchema>) {
     const validated = ExecuteClosingSchema.safeParse(data);
     if (!validated.success) return { success: false, error: validated.error.issues[0]?.message };
+
+    const auth = await requireFinanceClosingActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+    const actorUserId = auth.actor.userId;
 
     const client = await pool.connect();
     try {
@@ -472,7 +535,7 @@ export async function executeClosingSecure(data: z.infer<typeof ExecuteClosingSc
             return { success: false, error: 'Agregue movimientos antes de cerrar el mes.' };
         }
 
-        const pinCheck = await validatePin(client, validated.data.gerentePin, GERENTE_ROLES);
+        const pinCheck = await validateClosingPin(client, validated.data.gerentePin, GERENTE_ROLES);
         if (!pinCheck.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: pinCheck.error };
@@ -480,7 +543,7 @@ export async function executeClosingSecure(data: z.infer<typeof ExecuteClosingSc
 
         await recalcAndPersist(client, validated.data.month, validated.data.year, {
             status: 'CLOSED',
-            closedBy: pinCheck.user!.id,
+            closedBy: actorUserId,
             closedAt: new Date(),
         });
 
@@ -488,12 +551,14 @@ export async function executeClosingSecure(data: z.infer<typeof ExecuteClosingSc
             `INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at) 
              VALUES ($1, 'MONTHLY_CLOSING_EXECUTED', 'MONTHLY_CLOSING', $2, $3::jsonb, NOW())`,
             [
-                pinCheck.user!.id,
+                actorUserId,
                 `${validated.data.year}-${validated.data.month}`,
                 JSON.stringify({
                     month: validated.data.month,
                     year: validated.data.year,
-                    closed_by: pinCheck.user!.name,
+                    closed_by: auth.actor.userName || actorUserId,
+                    authorized_by: pinCheck.authorizedBy?.id || null,
+                    authorized_by_name: pinCheck.authorizedBy?.name || null,
                 }),
             ],
         );
@@ -517,11 +582,17 @@ export async function reopenPeriodSecure(data: z.infer<typeof ReopenPeriodSchema
     const validated = ReopenPeriodSchema.safeParse(data);
     if (!validated.success) return { success: false, error: validated.error.issues[0]?.message };
 
+    const auth = await requireFinanceClosingActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+    const actorUserId = auth.actor.userId;
+
     const client = await pool.connect();
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-        const pinCheck = await validatePin(client, validated.data.adminPin, ADMIN_ROLES);
+        const pinCheck = await validateClosingPin(client, validated.data.adminPin, ADMIN_ROLES);
         if (!pinCheck.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: 'Solo ADMIN puede reabrir períodos' };
@@ -540,7 +611,7 @@ export async function reopenPeriodSecure(data: z.infer<typeof ReopenPeriodSchema
         await recalcAndPersist(client, validated.data.month, validated.data.year, {
             status: 'DRAFT',
             reopenReason: validated.data.reason,
-            reopenedBy: pinCheck.user!.id,
+            reopenedBy: actorUserId,
             reopenedAt: new Date(),
             closedAt: null,
             closedBy: null,
@@ -550,9 +621,14 @@ export async function reopenPeriodSecure(data: z.infer<typeof ReopenPeriodSchema
             `INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at) 
              VALUES ($1, 'PERIOD_REOPENED', 'MONTHLY_CLOSING', $2, $3::jsonb, NOW())`,
             [
-                pinCheck.user!.id,
+                actorUserId,
                 `${validated.data.year}-${validated.data.month}`,
-                JSON.stringify({ reason: validated.data.reason, admin: pinCheck.user!.name }),
+                JSON.stringify({
+                    reason: validated.data.reason,
+                    reopened_by: auth.actor.userName || actorUserId,
+                    authorized_by: pinCheck.authorizedBy?.id || null,
+                    authorized_by_name: pinCheck.authorizedBy?.name || null,
+                }),
             ],
         );
 
@@ -580,6 +656,11 @@ interface ClosingEntry {
 }
 
 export async function getClosingDataSecure(month: number, year: number) {
+    const auth = await requireFinanceClosingActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     try {
         const [closing, entries] = await Promise.all([
             pool.query('SELECT * FROM monthly_closings WHERE month = $1 AND year = $2', [month, year]),
@@ -637,6 +718,11 @@ export async function getClosingDataSecure(month: number, year: number) {
 }
 
 export async function getClosingReport(month: number, year: number) {
+    const auth = await requireFinanceClosingActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     try {
         const entries = await pool.query(
             `SELECT category, amount FROM monthly_closing_entries WHERE month = $1 AND year = $2`,

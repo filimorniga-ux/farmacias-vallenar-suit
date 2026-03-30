@@ -18,7 +18,13 @@ import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
-import bcrypt from 'bcryptjs';
+import {
+    getActorOrFail,
+    PinRbacError,
+    ROLE_GROUPS,
+    requireRole,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
 // ============================================================================
 // SCHEMAS
@@ -45,52 +51,47 @@ const UpdateAccountSchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
+type FinancialAccountsActor = Awaited<ReturnType<typeof getActorOrFail>>;
 
 // ============================================================================
 // HELPERS
 // ============================================================================
 
-async function getSession(): Promise<{ userId: string; role: string; locationId?: string } | null> {
+async function requireFinancialAccountsActor(): Promise<FinancialAccountsActor | null> {
     try {
-        const { getSessionSecure } = await import('@/actions/auth-v2');
-        return await getSessionSecure();
-    } catch {
-        return null;
+        return await getActorOrFail();
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return null;
+        }
+
+        throw error;
     }
 }
 
-async function validatePin(
+async function validateFinancialAccountsPin(
     client: PoolClient,
     pin: string,
-    allowedRoles: string[]
-): Promise<{ valid: boolean; user?: { id: string; name: string } }> {
+    allowedRoles: readonly string[]
+): Promise<{ valid: boolean; authorizedBy?: { id: string; name: string; role: string } }> {
     try {
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
+        const result = await validatePinForRoles(client, pin, allowedRoles, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        const usersRes = await client.query(`
-            SELECT id, name, access_pin_hash, access_pin
-            FROM users WHERE role = ANY($1::text[]) AND is_active = true
-        `, [allowedRoles]);
-
-        for (const user of usersRes.rows) {
-            const rateCheck = checkRateLimit(user.id);
-            if (!rateCheck.allowed) continue;
-
-            if (user.access_pin_hash) {
-                const valid = await bcrypt.compare(pin, user.access_pin_hash);
-                if (valid) {
-                    resetAttempts(user.id);
-                    return { valid: true, user: { id: user.id, name: user.name } };
-                }
-                recordFailedAttempt(user.id);
-            } else if (user.access_pin === pin) {
-                resetAttempts(user.id);
-                return { valid: true, user: { id: user.id, name: user.name } };
-            }
+        if (!result.valid) {
+            return { valid: false };
         }
-        return { valid: false };
+
+        return {
+            valid: true,
+            authorizedBy: {
+                id: result.authorizedBy.id,
+                name: result.authorizedBy.name,
+                role: result.authorizedBy.role,
+            },
+        };
     } catch {
         return { valid: false };
     }
@@ -108,8 +109,8 @@ export async function getFinancialAccountsSecure(): Promise<{
     data?: Record<string, unknown>[];
     error?: string;
 }> {
-    const session = await getSession();
-    if (!session) {
+    const actor = await requireFinancialAccountsActor();
+    if (!actor) {
         return { success: false, error: 'No autenticado' };
     }
 
@@ -123,9 +124,9 @@ export async function getFinancialAccountsSecure(): Promise<{
         const params: (string | number | boolean | Date | string[] | null | undefined)[] = [];
 
         // Filtrar por ubicación si no es admin
-        if (!ADMIN_ROLES.includes(session.role) && session.locationId) {
+        if (!ROLE_GROUPS.ADMIN.includes(actor.role as typeof ROLE_GROUPS.ADMIN[number]) && actor.locationId) {
             sql += ' AND (fa.location_id = $1 OR fa.location_id IS NULL)';
-            params.push(session.locationId);
+            params.push(actor.locationId);
         }
 
         sql += ' ORDER BY fa.created_at DESC';
@@ -150,9 +151,14 @@ export async function createFinancialAccountSecure(
     data: z.infer<typeof CreateAccountSchema>,
     adminPin: string
 ): Promise<{ success: boolean; accountId?: string; error?: string }> {
-    const session = await getSession();
-    if (!session) {
+    const actor = await requireFinancialAccountsActor();
+    if (!actor) {
         return { success: false, error: 'No autenticado' };
+    }
+    try {
+        requireRole(actor, ROLE_GROUPS.ADMIN);
+    } catch {
+        return { success: false, error: 'Requiere permisos de ADMIN' };
     }
 
     const validated = CreateAccountSchema.safeParse(data);
@@ -167,7 +173,7 @@ export async function createFinancialAccountSecure(
         await client.query('BEGIN');
 
         // Validar PIN ADMIN
-        const authResult = await validatePin(client, adminPin, ADMIN_ROLES);
+        const authResult = await validateFinancialAccountsPin(client, adminPin, ROLE_GROUPS.ADMIN);
         if (!authResult.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: 'PIN de administrador inválido' };
@@ -184,12 +190,14 @@ export async function createFinancialAccountSecure(
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at)
             VALUES ($1, 'FINANCIAL_ACCOUNT_CREATED', 'FINANCIAL_ACCOUNT', $2, $3::jsonb, NOW())
-        `, [authResult.user!.id, accountId, JSON.stringify({
+        `, [actor.userId, accountId, JSON.stringify({
             name,
             type,
             location_id: locationId,
             initial_balance: initialBalance,
-            created_by: authResult.user!.name,
+            created_by: actor.userName || actor.userId,
+            authorized_by: authResult.authorizedBy?.id || null,
+            authorized_by_name: authResult.authorizedBy?.name || null,
         })]);
 
         await client.query('COMMIT');
@@ -218,9 +226,14 @@ export async function updateFinancialAccountSecure(
     data: z.infer<typeof UpdateAccountSchema>,
     managerPin: string
 ): Promise<{ success: boolean; error?: string }> {
-    const session = await getSession();
-    if (!session) {
+    const actor = await requireFinancialAccountsActor();
+    if (!actor) {
         return { success: false, error: 'No autenticado' };
+    }
+    try {
+        requireRole(actor, ROLE_GROUPS.MANAGER);
+    } catch {
+        return { success: false, error: 'Requiere permisos de MANAGER' };
     }
 
     const validated = UpdateAccountSchema.safeParse(data);
@@ -235,7 +248,7 @@ export async function updateFinancialAccountSecure(
         await client.query('BEGIN');
 
         // Validar PIN MANAGER
-        const authResult = await validatePin(client, managerPin, MANAGER_ROLES);
+        const authResult = await validateFinancialAccountsPin(client, managerPin, ROLE_GROUPS.MANAGER);
         if (!authResult.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: 'PIN de manager inválido' };
@@ -273,7 +286,7 @@ export async function updateFinancialAccountSecure(
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, new_values, created_at)
             VALUES ($1, 'FINANCIAL_ACCOUNT_UPDATED', 'FINANCIAL_ACCOUNT', $2, $3::jsonb, $4::jsonb, NOW())
-        `, [authResult.user!.id, accountId, JSON.stringify({
+        `, [actor.userId, accountId, JSON.stringify({
             name: prev.name,
             location_id: prev.location_id,
         }), JSON.stringify({ name, location_id: locationId })]);
@@ -309,13 +322,23 @@ export async function toggleAccountStatusSecure(
         return { success: false, error: 'ID inválido' };
     }
 
+    const actor = await requireFinancialAccountsActor();
+    if (!actor) {
+        return { success: false, error: 'No autenticado' };
+    }
+    try {
+        requireRole(actor, ROLE_GROUPS.ADMIN);
+    } catch {
+        return { success: false, error: 'Requiere permisos de ADMIN' };
+    }
+
     const client = await pool.connect();
 
     try {
         await client.query('BEGIN');
 
         // Validar PIN ADMIN
-        const authResult = await validatePin(client, adminPin, ADMIN_ROLES);
+        const authResult = await validateFinancialAccountsPin(client, adminPin, ROLE_GROUPS.ADMIN);
         if (!authResult.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: 'PIN de administrador inválido' };
@@ -337,10 +360,12 @@ export async function toggleAccountStatusSecure(
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at)
             VALUES ($1, $2, 'FINANCIAL_ACCOUNT', $3, $4::jsonb, NOW())
-        `, [authResult.user!.id, newStatus ? 'ACCOUNT_ACTIVATED' : 'ACCOUNT_DEACTIVATED', accountId, JSON.stringify({
+        `, [actor.userId, newStatus ? 'ACCOUNT_ACTIVATED' : 'ACCOUNT_DEACTIVATED', accountId, JSON.stringify({
             account_name: result.rows[0].name,
             new_status: newStatus,
-            admin_name: authResult.user!.name,
+            admin_name: actor.userName || actor.userId,
+            authorized_by: authResult.authorizedBy?.id || null,
+            authorized_by_name: authResult.authorizedBy?.name || null,
         })]);
 
         await client.query('COMMIT');
@@ -372,6 +397,11 @@ export async function getAccountBalance(
         return { success: false, error: 'ID inválido' };
     }
 
+    const actor = await requireFinancialAccountsActor();
+    if (!actor) {
+        return { success: false, error: 'No autenticado' };
+    }
+
     try {
         const res = await query('SELECT balance FROM financial_accounts WHERE id = $1', [accountId]);
         if (res.rowCount === 0) {
@@ -396,8 +426,8 @@ export async function getAccountHistory(
         return { success: false, error: 'ID inválido' };
     }
 
-    const session = await getSession();
-    if (!session) {
+    const actor = await requireFinancialAccountsActor();
+    if (!actor) {
         return { success: false, error: 'No autenticado' };
     }
 
