@@ -40,8 +40,13 @@ const ManagerDashboard = React.lazy(() => import('../components/dashboard/Manage
 
 const DashboardPage: React.FC = () => {
     const navigate = useNavigate();
-    const { login, user, employees, syncData } = usePharmaStore();
-    const { currentLocation, locations, switchLocation } = useLocationStore();
+    const login = usePharmaStore((state) => state.login);
+    const user = usePharmaStore((state) => state.user);
+    const employees = usePharmaStore((state) => state.employees);
+    const syncData = usePharmaStore((state) => state.syncData);
+    const currentLocation = useLocationStore((state) => state.currentLocation);
+    const locations = useLocationStore((state) => state.locations);
+    const switchLocation = useLocationStore((state) => state.switchLocation);
 
     // Check if user is Manager/Admin
     const isManager = user?.role === 'MANAGER' || user?.role === 'ADMIN' || user?.role === 'GERENTE_GENERAL';

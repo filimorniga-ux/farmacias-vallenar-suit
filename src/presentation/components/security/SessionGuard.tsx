@@ -9,7 +9,7 @@ import { usePathname } from 'next/navigation';
 
 export default function SessionGuard({ children }: { children: React.ReactNode }) {
     const [isLocked, setIsLocked] = useState(false);
-    const { user } = usePharmaStore();
+    const user = usePharmaStore((state) => state.user);
     const { security } = useSettingsStore();
     const pathname = usePathname();
 

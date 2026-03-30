@@ -22,8 +22,10 @@ import * as Sentry from '@sentry/nextjs';
 
 export const WMSDespachoTab: React.FC<{ isLoading?: boolean }> = ({ isLoading = false }) => {
     const queryClient = useQueryClient();
-    const { inventory, currentLocationId } = usePharmaStore();
+    const inventory = usePharmaStore((state) => state.inventory);
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
     const locationStoreCurrent = useLocationStore(s => s.currentLocation);
+    const locationStoreLocations = useLocationStore(s => s.locations);
 
     // State
     const [cartItems, setCartItems] = useState<WMSCartItem[]>([]);
@@ -38,12 +40,11 @@ export const WMSDespachoTab: React.FC<{ isLoading?: boolean }> = ({ isLoading = 
     // Wizard de Devolución
     const [wizardOpen, setWizardOpen] = useState(false);
 
-    const pharmaLocationName = usePharmaStore(s => {
-        const loc = s.locations?.find(l => l.id === s.currentLocationId);
-        return loc?.name || '';
-    });
     const effectiveLocationId = currentLocationId || locationStoreCurrent?.id || '';
-    const currentLocationName = pharmaLocationName || locationStoreCurrent?.name || 'Sucursal Actual';
+    const currentLocationName =
+        locationStoreCurrent?.name ||
+        locationStoreLocations.find((loc) => loc.id === currentLocationId)?.name ||
+        'Sucursal Actual';
 
     // Agregar producto al carrito
     const handleProductSelected = useCallback((product: InventoryBatch) => {

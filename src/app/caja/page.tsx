@@ -45,7 +45,8 @@ export default function CajaPage() {
 
     // Auth & Context
     const { user } = useAuthStore();
-    const { currentTerminalId, currentLocationId } = usePharmaStore();
+    const currentTerminalId = usePharmaStore((state) => state.currentTerminalId);
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
 
     // LocalStorage Session Recovery Hook
     const [localTerminalId, setLocalTerminalId] = useState<string | null>(null);

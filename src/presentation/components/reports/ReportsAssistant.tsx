@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquare, Send, X, Bot, User, Loader2, Sparkles, AlertCircle } from 'lucide-react';
 import { askReportsAssistant } from '@/actions/analytics/ai-reports-assistant';
 import { usePharmaStore } from '../../store/useStore';
+import { useLocationStore } from '../../store/useLocationStore';
 
 interface Message {
     id: string;
@@ -27,7 +28,8 @@ export default function ReportsAssistant() {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const { currentLocationId, locations } = usePharmaStore();
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const locations = useLocationStore((state) => state.locations);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

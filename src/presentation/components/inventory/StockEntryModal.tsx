@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, ScanBarcode, Save, Package, Calendar, AlertTriangle, CheckCircle2, Camera, Receipt, Truck } from 'lucide-react';
 import { InventoryBatch } from '../../../domain/types';
 import { usePharmaStore } from '../../store/useStore';
+import { useLocationStore } from '../../store/useLocationStore';
 import { useNetworkStatus } from '../../../hooks/useNetworkStatus';
 import { toast } from 'sonner';
 import CameraScanner from '../ui/CameraScanner';
@@ -18,17 +19,15 @@ interface StockEntryModalProps {
 
 const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, initialProduct }) => {
     const queryClient = useQueryClient();
-    const {
-        inventory,
-        updateStock,
-        addNewProduct,
-        currentLocationId,
-        currentWarehouseId,
-        user,
-        locations,
-        fetchLocations,
-        suppliers
-    } = usePharmaStore();
+    const inventory = usePharmaStore((state) => state.inventory);
+    const updateStock = usePharmaStore((state) => state.updateStock);
+    const addNewProduct = usePharmaStore((state) => state.addNewProduct);
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const currentWarehouseId = usePharmaStore((state) => state.currentWarehouseId);
+    const user = usePharmaStore((state) => state.user);
+    const suppliers = usePharmaStore((state) => state.suppliers);
+    const locations = useLocationStore((state) => state.locations);
+    const fetchLocations = useLocationStore((state) => state.fetchLocations);
     const { isOnline } = useNetworkStatus();
     const [activeTab, setActiveTab] = useState<'SCAN' | 'CREATE'>('SCAN');
     const [step, setStep] = useState<'SCAN' | 'DETAILS' | 'NEW_PRODUCT'>('SCAN');

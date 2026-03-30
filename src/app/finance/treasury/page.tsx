@@ -13,6 +13,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { usePharmaStore } from '@/presentation/store/useStore';
+import { useLocationStore } from '@/presentation/store/useLocationStore';
 // V2: Funciones seguras y tipos de treasury-v2
 import {
     transferFundsSecure,
@@ -42,7 +43,9 @@ const AUTHORIZATION_THRESHOLDS = {
 
 
 export default function TreasuryPage() {
-    const { user, locations, currentLocationId } = usePharmaStore();
+    const user = usePharmaStore((state) => state.user);
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const locations = useLocationStore((state) => state.locations);
 
     const [accounts, setAccounts] = useState<FinancialAccount[]>([]);
     const [transactions, setTransactions] = useState<TreasuryTransaction[]>([]);

@@ -68,33 +68,27 @@ export const WMSPage: React.FC = () => {
     const [selectedMovement, setSelectedMovement] = useState<any | null>(null);
     const [isMovementDetailOpen, setIsMovementDetailOpen] = useState(false);
 
-    const {
-        currentLocationId,
-        currentWarehouseId,
-        currentTerminalId,
-        setCurrentLocation,
-        locations: pharmaLocations,
-        user,
-        receivePurchaseOrder,
-        finalizePurchaseOrderReview,
-        setInventory,
-        refreshShipments,
-        refreshPurchaseOrders
-    } = usePharmaStore();
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const currentWarehouseId = usePharmaStore((state) => state.currentWarehouseId);
+    const currentTerminalId = usePharmaStore((state) => state.currentTerminalId);
+    const setCurrentLocation = usePharmaStore((state) => state.setCurrentLocation);
+    const user = usePharmaStore((state) => state.user);
+    const receivePurchaseOrder = usePharmaStore((state) => state.receivePurchaseOrder);
+    const finalizePurchaseOrderReview = usePharmaStore((state) => state.finalizePurchaseOrderReview);
+    const setInventory = usePharmaStore((state) => state.setInventory);
+    const refreshShipments = usePharmaStore((state) => state.refreshShipments);
+    const refreshPurchaseOrders = usePharmaStore((state) => state.refreshPurchaseOrders);
     const locationStoreCurrent = useLocationStore(s => s.currentLocation);
     const locationStoreLocations = useLocationStore(s => s.locations);
 
     const resolvedLocation = useMemo(() => {
-        const fromPharma = pharmaLocations.find(loc => loc.id === currentLocationId);
-        if (fromPharma) return fromPharma;
-
         if (locationStoreCurrent) return locationStoreCurrent;
 
         const fromLocationStore = locationStoreLocations.find(loc => loc.id === currentLocationId);
         if (fromLocationStore) return fromLocationStore;
 
         return null;
-    }, [currentLocationId, pharmaLocations, locationStoreCurrent, locationStoreLocations]);
+    }, [currentLocationId, locationStoreCurrent, locationStoreLocations]);
 
     const currentLocationName = resolvedLocation?.name || 'Sin ubicación';
     const currentLocationType = resolvedLocation?.type || 'STORE';
@@ -121,7 +115,6 @@ export const WMSPage: React.FC = () => {
         if (!targetId) return;
 
         const targetLocation =
-            pharmaLocations.find(loc => loc.id === targetId) ||
             locationStoreLocations.find(loc => loc.id === targetId) ||
             (locationStoreCurrent?.id === targetId ? locationStoreCurrent : undefined);
 
@@ -135,7 +128,6 @@ export const WMSPage: React.FC = () => {
         currentWarehouseId,
         currentTerminalId,
         setCurrentLocation,
-        pharmaLocations,
         locationStoreLocations,
         locationStoreCurrent,
         user?.assigned_location_id,

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { X, Save, Package, Camera, Info, Sparkles, Search as SearchIcon, AlertTriangle, Globe, Loader2, CheckCircle, Calculator, Percent, Syringe, Tag, Truck, FileText, Barcode, DollarSign } from 'lucide-react';
 import { createProductSecure, updateProductMasterSecure } from '../../../actions/products-v2';
 import { usePharmaStore } from '../../store/useStore';
+import { useLocationStore } from '../../store/useLocationStore';
 import { InventoryBatch } from '../../../domain/types';
 import { toast } from 'sonner';
 import CameraScanner from '../ui/CameraScanner';
@@ -27,7 +28,10 @@ interface ProductFormModalProps {
 
 const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialValues, onClose, onSuccess }) => {
     const queryClient = useQueryClient();
-    const { suppliers, currentLocationId, locations, user } = usePharmaStore();
+    const suppliers = usePharmaStore((state) => state.suppliers);
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const user = usePharmaStore((state) => state.user);
+    const locations = useLocationStore((state) => state.locations);
     const isEdit = !!product;
 
     // Calculadora State

@@ -31,7 +31,14 @@ const parseFormattedNumber = (formatted: string): number => {
 
 const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onClose }) => {
     const router = useRouter();
-    const { employees, openShift, resumeShift, fetchLocations, locations, fetchTerminals, user, syncData } = usePharmaStore();
+    const employees = usePharmaStore((state) => state.employees);
+    const openShift = usePharmaStore((state) => state.openShift);
+    const resumeShift = usePharmaStore((state) => state.resumeShift);
+    const fetchTerminals = usePharmaStore((state) => state.fetchTerminals);
+    const user = usePharmaStore((state) => state.user);
+    const syncData = usePharmaStore((state) => state.syncData);
+    const fetchLocations = useLocationStore((state) => state.fetchLocations);
+    const locations = useLocationStore((state) => state.locations);
     const { saveSession } = useTerminalSession(); // Hook para persistencia local segura
 
     const [selectedLocation, setSelectedLocation] = useState('');

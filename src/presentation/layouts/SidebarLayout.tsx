@@ -20,7 +20,8 @@ import { useCalculatorStore } from '../hooks/useCalculator';
 import { brand } from '@/config/brand.config';
 
 const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
-    const { user, logout } = usePharmaStore();
+    const user = usePharmaStore((state) => state.user);
+    const logout = usePharmaStore((state) => state.logout);
     const location = useLocation();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isCollapsed, setIsCollapsed] = useState(false);

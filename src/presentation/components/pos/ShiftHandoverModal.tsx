@@ -3,6 +3,7 @@ import { calculateHandoverSecure, executeHandoverSecure, type HandoverSummary } 
 import { toast } from 'sonner';
 import { Loader2, ArrowRight, CheckCircle, AlertTriangle, ShieldCheck, X } from 'lucide-react';
 import { usePharmaStore } from '@/presentation/store/useStore';
+import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { printHandoverTicket } from '@/presentation/utils/print-utils'; // New Import
 import { HardwareConfig } from '@/domain/types'; // Import Type
 
@@ -12,7 +13,12 @@ interface ShiftHandoverModalProps {
 }
 
 export const ShiftHandoverModal: React.FC<ShiftHandoverModalProps> = ({ isOpen, onClose }) => {
-    const { currentTerminalId, user, locations, currentLocationId, logoutShift, fetchTerminals } = usePharmaStore();
+    const currentTerminalId = usePharmaStore((state) => state.currentTerminalId);
+    const user = usePharmaStore((state) => state.user);
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const logoutShift = usePharmaStore((state) => state.logoutShift);
+    const fetchTerminals = usePharmaStore((state) => state.fetchTerminals);
+    const locations = useLocationStore((state) => state.locations);
 
     const [step, setStep] = useState<'COUNT' | 'SUMMARY' | 'PROCESSING'>('COUNT');
     const [declaredAmount, setDeclaredAmount] = useState<string>('');

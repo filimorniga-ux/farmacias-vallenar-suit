@@ -35,8 +35,12 @@ interface LocationSwitcherProps {
 }
 
 const LocationSwitcher: React.FC<LocationSwitcherProps> = ({ variant = 'default' }) => {
-    const { currentLocation, locations, switchLocation, canSwitchLocation } = useLocationStore();
-    const { user, setCurrentLocation } = usePharmaStore();
+    const currentLocation = useLocationStore((state) => state.currentLocation);
+    const locations = useLocationStore((state) => state.locations);
+    const switchLocation = useLocationStore((state) => state.switchLocation);
+    const canSwitchLocation = useLocationStore((state) => state.canSwitchLocation);
+    const user = usePharmaStore((state) => state.user);
+    const setCurrentLocation = usePharmaStore((state) => state.setCurrentLocation);
     const [isOpen, setIsOpen] = useState(false);
     const [isSwitching, setIsSwitching] = useState(false);
     const router = useRouter();

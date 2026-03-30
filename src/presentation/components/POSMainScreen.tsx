@@ -114,30 +114,34 @@ const POSMainScreen: React.FC = () => {
     const [showQuoteHistory, setShowQuoteHistory] = useState(false);
     const foreignSessionWarningRef = useRef<string>('');
     useKioskGuard(true); // Enable Kiosk Lock
-    const {
-        inventory, cart, addToCart, addManualItem, removeFromCart, clearCart,
-        currentCustomer, getShiftMetrics, updateOpeningAmount,
-        setCustomer, promotions, createQuote, retrieveQuote, updateCartItemQuantity,
-        setInventory, splitBox
-        // NOTE: processSale, redeemPoints, calculateDiscountValue, loyaltyConfig, employees, printerConfig
-        // are now accessed via useCheckout hook in PaymentModal
-    } = usePharmaStore();
-
-
-    const {
-        currentShift,
-        currentLocationId,
-        currentTerminalId,
-        terminals,
-        user
-    } = usePharmaStore();
+    const inventory = usePharmaStore((state) => state.inventory);
+    const cart = usePharmaStore((state) => state.cart);
+    const addToCart = usePharmaStore((state) => state.addToCart);
+    const addManualItem = usePharmaStore((state) => state.addManualItem);
+    const removeFromCart = usePharmaStore((state) => state.removeFromCart);
+    const clearCart = usePharmaStore((state) => state.clearCart);
+    const currentCustomer = usePharmaStore((state) => state.currentCustomer);
+    const getShiftMetrics = usePharmaStore((state) => state.getShiftMetrics);
+    const updateOpeningAmount = usePharmaStore((state) => state.updateOpeningAmount);
+    const setCustomer = usePharmaStore((state) => state.setCustomer);
+    const promotions = usePharmaStore((state) => state.promotions);
+    const createQuote = usePharmaStore((state) => state.createQuote);
+    const retrieveQuote = usePharmaStore((state) => state.retrieveQuote);
+    const updateCartItemQuantity = usePharmaStore((state) => state.updateCartItemQuantity);
+    const setInventory = usePharmaStore((state) => state.setInventory);
+    const splitBox = usePharmaStore((state) => state.splitBox);
+    const currentShift = usePharmaStore((state) => state.currentShift);
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const currentTerminalId = usePharmaStore((state) => state.currentTerminalId);
+    const terminals = usePharmaStore((state) => state.terminals);
+    const user = usePharmaStore((state) => state.user);
 
     const [mounted, setMounted] = useState(false);
     useEffect(() => {
         setMounted(true);
     }, []);
 
-    const { currentLocation } = useLocationStore();
+    const currentLocation = useLocationStore((state) => state.currentLocation);
     const activeTerminal = useMemo(
         () => terminals.find(t => t.id === currentTerminalId),
         [terminals, currentTerminalId]

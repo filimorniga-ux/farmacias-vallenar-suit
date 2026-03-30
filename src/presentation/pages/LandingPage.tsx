@@ -16,7 +16,10 @@ import { brand } from '@/config/brand.config';
 
 const LandingPage: React.FC = () => {
     const navigate = useNavigate();
-    const { login, employees, user, syncData } = usePharmaStore();
+    const login = usePharmaStore((state) => state.login);
+    const employees = usePharmaStore((state) => state.employees);
+    const user = usePharmaStore((state) => state.user);
+    const syncData = usePharmaStore((state) => state.syncData);
     const [localEmployees, setLocalEmployees] = useState<EmployeeProfile[]>([]);
 
     // Context State

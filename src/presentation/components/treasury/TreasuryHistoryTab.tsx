@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 // V2: Funciones seguras con RBAC y auditoría
 import { getRemittanceHistorySecure, RemittanceHistoryItem } from '@/actions/treasury-v2';
 import { exportCashFlowSecure } from '@/actions/finance-export-v2';
-import { usePharmaStore } from '@/presentation/store/useStore';
+import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { Download, RefreshCw, Filter, Calendar, Search } from 'lucide-react';
 import { toast } from 'sonner';
 
 export const TreasuryHistoryTab = () => {
-    const { user, locations } = usePharmaStore();
+    const locations = useLocationStore((state) => state.locations);
     const [history, setHistory] = useState<RemittanceHistoryItem[]>([]);
     const [loading, setLoading] = useState(false);
     const [exporting, setExporting] = useState(false);

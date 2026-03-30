@@ -12,7 +12,7 @@ interface RouteGuardProps {
 
 export default function RouteGuard({ children, allowedRoles }: RouteGuardProps) {
     const router = useRouter();
-    const { user } = usePharmaStore();
+    const user = usePharmaStore((state) => state.user);
     const [authorized, setAuthorized] = useState(false);
     // True hydration check from Zustand utils + React mount
     const [isStoreHydrated, setIsStoreHydrated] = useState(false);

@@ -6,10 +6,11 @@ import { Loader2 } from 'lucide-react';
 import { getScheduleData, getStaff, getWeeklyHoursSummary } from '@/actions/scheduler-v2';
 import { SchedulerContainer } from '@/presentation/components/scheduler/SchedulerContainer';
 import { usePharmaStore } from '@/presentation/store/useStore';
+import { useLocationStore } from '@/presentation/store/useLocationStore';
 
 export default function SchedulerPage() {
     const currentLocationId = usePharmaStore(s => s.currentLocationId);
-    const locations = usePharmaStore(s => s.locations);
+    const locations = useLocationStore(s => s.locations);
     const currentLocationName = locations.find(l => l.id === currentLocationId)?.name || 'Todas las sucursales';
 
     const [loading, setLoading] = useState(true);

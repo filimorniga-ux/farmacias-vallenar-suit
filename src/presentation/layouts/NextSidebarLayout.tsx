@@ -17,7 +17,8 @@ import AppIcon, { AppThemeColor } from '@/presentation/components/ui/AppIcon';
 import SyncStatusIndicator from '@/presentation/components/ui/SyncStatusIndicator';
 
 const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
-    const { user, logout } = usePharmaStore();
+    const user = usePharmaStore((state) => state.user);
+    const logout = usePharmaStore((state) => state.logout);
     const pathname = usePathname();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isCollapsed, setIsCollapsed] = useState(false);

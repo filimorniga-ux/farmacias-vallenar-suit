@@ -21,18 +21,16 @@ const PIN_THRESHOLD = 100;
 
 export const WMSTransferenciaTab: React.FC<{ isLoading?: boolean }> = ({ isLoading = false }) => {
     const qc = useQueryClient();
-    const { inventory, currentLocationId, currentWarehouseId } = usePharmaStore();
+    const inventory = usePharmaStore((state) => state.inventory);
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const currentWarehouseId = usePharmaStore((state) => state.currentWarehouseId);
     const user = usePharmaStore(s => s.user);
     const locationStoreCurrent = useLocationStore(s => s.currentLocation);
-    const pharmaLocationWarehouseId = usePharmaStore(s =>
-        s.locations?.find(l => l.id === s.currentLocationId)?.default_warehouse_id || ''
-    );
-    const pharmaLocationName = usePharmaStore(s =>
-        s.locations?.find(l => l.id === s.currentLocationId)?.name || ''
-    );
+    const locationStoreLocations = useLocationStore(s => s.locations);
+    const currentLocationMetadata = locationStoreLocations.find((loc) => loc.id === currentLocationId);
     const effectiveLocationId = currentLocationId || locationStoreCurrent?.id || '';
-    const currentLocationWarehouseId = pharmaLocationWarehouseId || locationStoreCurrent?.default_warehouse_id || '';
-    const locName = pharmaLocationName || locationStoreCurrent?.name || 'Actual';
+    const currentLocationWarehouseId = currentLocationMetadata?.default_warehouse_id || locationStoreCurrent?.default_warehouse_id || '';
+    const locName = currentLocationMetadata?.name || locationStoreCurrent?.name || 'Actual';
 
     const [cart, setCart] = useState<WMSCartItem[]>([]);
     const [originId, setOriginId] = useState(currentWarehouseId || currentLocationWarehouseId);

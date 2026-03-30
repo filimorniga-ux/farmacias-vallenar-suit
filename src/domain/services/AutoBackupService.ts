@@ -1,4 +1,5 @@
 import { usePharmaStore } from '../../presentation/store/useStore';
+import { useLocationStore } from '../../presentation/store/useLocationStore';
 import { generateDailyBackup } from '../logic/backupService';
 
 const BACKUP_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
@@ -80,7 +81,7 @@ class AutoBackupService {
         try {
             const state = usePharmaStore.getState();
             const currentLocationId = state.currentLocationId;
-            const branchName = state.locations.find(l => l.id === currentLocationId)?.name || 'GLOBAL';
+            const branchName = useLocationStore.getState().locations.find((location) => location.id === currentLocationId)?.name || 'GLOBAL';
 
             const backupData = {
                 timestamp: Date.now(),

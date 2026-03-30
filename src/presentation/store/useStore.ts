@@ -24,8 +24,7 @@ import {
     Quote,
     ReorderConfig,
     AutoOrderSuggestion,
-    StockMovement,
-    Location
+    StockMovement
 } from '../../domain/types';
 import { TigerDataService } from '../../domain/services/TigerDataService';
 import { IntelligentOrderingService } from '../services/intelligentOrderingService';
@@ -61,7 +60,6 @@ interface PharmaState {
 
     // Data Sync
     isLoading: boolean;
-    isLoadingLocations: boolean; // Tracking for locations specifically
     isFetchingTerminals: boolean; // Tracking for terminals specifically
     isInitialized: boolean;
     syncData: (options?: { force?: boolean }) => Promise<void>;
@@ -136,9 +134,6 @@ interface PharmaState {
     expenses: Expense[];
     addExpense: (expense: Omit<Expense, 'id'>) => void;
 
-    // Locations & Context
-    locations: Location[];
-    fetchLocations: () => Promise<void>;
     fetchTerminals: (locationId: string) => Promise<void>;
 
     // Cash Management & Shifts
@@ -491,8 +486,9 @@ export const usePharmaStore = create<PharmaState>()(
                             // Set in Store if not already set by auto-assign logic
                             const state = get();
                             let warehouseId = '';
-                            if (state.locations.length > 0) {
-                                const loc = state.locations.find(l => l.id === locationId);
+                            const locationStore = useLocationStore.getState();
+                            if (locationStore.locations.length > 0) {
+                                const loc = locationStore.locations.find(l => l.id === locationId);
                                 warehouseId = loc?.default_warehouse_id || '';
                             }
 
@@ -647,7 +643,6 @@ export const usePharmaStore = create<PharmaState>()(
                         employees,
                         suppliers,
                         customers: customers || [],
-                        locations,
                         isLoading: false // ⚡️ UNBLOCK UI HERE
                     });
 
@@ -704,14 +699,14 @@ export const usePharmaStore = create<PharmaState>()(
                                 expenses: get().expenses
                             });
 
-                            set({ isInitialized: true, isLoadingLocations: false });
+                            set({ isInitialized: true });
                             console.log('✅ Background Sync Complete (Serialized)');
 
                             // Mirror data to SQLite for offline usage (Electron only)
                             import('../../lib/offline/OfflineInterceptor').then(({ mirrorStoreToSQLite }) => {
                                 mirrorStoreToSQLite({
                                     employees,
-                                    locations: get().locations,
+                                    locations: useLocationStore.getState().locations,
                                     inventory,
                                     customers: get().customers,
                                     suppliers: get().suppliers,
@@ -746,12 +741,12 @@ export const usePharmaStore = create<PharmaState>()(
                                 console.log('📦 Loading from SQLite offline cache...');
                                 set({
                                     employees: localData.users as any,
-                                    locations: localData.locations as any,
                                     inventory: localData.inventory as any,
                                     customers: localData.clients as any,
                                     isLoading: false,
                                     isInitialized: true,
                                 });
+                                useLocationStore.getState().setLocations(localData.locations as any);
                                 import('sonner').then(({ toast }) => toast.warning('Modo Offline', { description: 'Usando datos locales. Se sincronizará al conectar.' }));
                                 return;
                             }
@@ -767,9 +762,7 @@ export const usePharmaStore = create<PharmaState>()(
 
 
             // --- Inventory ---
-            isLoadingLocations: false,
             isFetchingTerminals: false,
-            locations: [], // Initialize locations
             inventory: [],
             setInventory: (inventory) => set({ inventory }),
             suppliers: [],
@@ -1685,21 +1678,6 @@ export const usePharmaStore = create<PharmaState>()(
             // --- Cash Management & Shifts ---
             currentShift: null,
             dailyShifts: [],
-            fetchLocations: async () => {
-                set({ isLoadingLocations: true });
-                try {
-                    const { getLocationsSecure } = await import('../../actions/locations-v2');
-                    const result = await getLocationsSecure();
-                    if (result.success && result.data) {
-                        set({ locations: result.data });
-                    }
-                } catch (error) {
-                    console.error('Failed to fetch locations', error);
-                } finally {
-                    set({ isLoadingLocations: false });
-                }
-            },
-
             terminals: [],
             fetchTerminals: async (locationId) => {
                 set({ isFetchingTerminals: true });

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { generateRestockSuggestionSecure, createPurchaseOrderSecure, approvePurchaseOrderSecure } from '@/actions/procurement-v2';
 import { getSuppliersListSecure } from '@/actions/suppliers-v2';
 import { usePharmaStore } from '@/presentation/store/useStore';
+import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { PinModal } from '@/components/shared/PinModal';
 import { Calculator, ShoppingCart, Loader2, AlertTriangle, CheckCircle, TrendingUp, Shield, Lock } from 'lucide-react';
 import { toast } from 'sonner';
@@ -14,7 +15,9 @@ const GERENTE_THRESHOLD = 1000000;
 
 export default function SmartOrderPage() {
     const router = useRouter();
-    const { user, locations, currentLocationId } = usePharmaStore();
+    const user = usePharmaStore((state) => state.user);
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const locations = useLocationStore((state) => state.locations);
 
     // filters
     const [supplierId, setSupplierId] = useState('');

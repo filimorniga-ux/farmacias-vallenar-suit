@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { usePharmaStore } from '../store/useStore';
+import { useLocationStore } from '../store/useLocationStore';
 import { AutoOrderSuggestion } from '../../domain/types';
 import { Package, Truck, CheckCircle, AlertCircle, Plus, Calendar, TrendingUp, RefreshCw, AlertTriangle, Zap, DollarSign, Trash2, Filter, Calculator, MapPin, Search, BarChart3, Users, ChevronDown, ScanBarcode, Settings, ArrowLeftRight, ShoppingCart, Clock } from 'lucide-react';
 import { PurchaseOrderReceivingModal } from '../components/scm/PurchaseOrderReceivingModal';
@@ -88,17 +89,15 @@ interface ExtendedSuggestion extends AutoOrderSuggestion {
 
 const SupplyChainPage: React.FC = () => {
     // ... (store hooks remain same)
-    const {
-        inventory,
-        suppliers,
-        purchaseOrders,
-        receivePurchaseOrder,
-        finalizePurchaseOrderReview,
-        locations,
-        fetchLocations,
-        currentLocationId,
-        user
-    } = usePharmaStore();
+    const inventory = usePharmaStore((state) => state.inventory);
+    const suppliers = usePharmaStore((state) => state.suppliers);
+    const purchaseOrders = usePharmaStore((state) => state.purchaseOrders);
+    const receivePurchaseOrder = usePharmaStore((state) => state.receivePurchaseOrder);
+    const finalizePurchaseOrderReview = usePharmaStore((state) => state.finalizePurchaseOrderReview);
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const user = usePharmaStore((state) => state.user);
+    const locations = useLocationStore((state) => state.locations);
+    const fetchLocations = useLocationStore((state) => state.fetchLocations);
 
     const [isReceptionModalOpen, setIsReceptionModalOpen] = useState(false);
     const [receptionModalMode, setReceptionModalMode] = useState<'RECEIVE' | 'VIEW' | 'REVIEW'>('RECEIVE');
