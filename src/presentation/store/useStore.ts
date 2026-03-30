@@ -69,6 +69,7 @@ interface PharmaState {
     setInventory: (inventory: InventoryBatch[]) => void;
     suppliers: Supplier[];
     supplierDocuments: SupplierDocument[];
+    // Legacy cache for non-WMS-query contexts only. WMS main flow must use usePurchaseOrdersQuery.
     purchaseOrders: PurchaseOrder[];
     updateStock: (batchId: string, quantity: number) => void;
     addStock: (batchId: string, quantity: number, expiry?: number) => void;
@@ -173,7 +174,8 @@ interface PharmaState {
 
     // WMS & Logistics
     stockTransfers: StockTransfer[]; // Legacy
-    shipments: Shipment[]; // New
+    // Legacy cache for non-WMS-query contexts only. WMS main flow must use useShipmentsQuery.
+    shipments: Shipment[];
     warehouseIncidents: WarehouseIncident[];
     dispatchTransfer: (transfer: Omit<StockTransfer, 'id' | 'status' | 'timeline'>) => void;
     receiveTransfer: (transferId: string, incidents?: Omit<WarehouseIncident, 'id' | 'transfer_id' | 'reported_at' | 'status'>[]) => void;
@@ -183,6 +185,8 @@ interface PharmaState {
     confirmReception: (shipmentId: string, data: { photos: string[], notes: string, receivedItems: { batchId: string, quantity: number, condition: 'GOOD' | 'DAMAGED' }[] }) => void;
     uploadLogisticsDocument: (shipmentId: string, type: 'INVOICE' | 'GUIDE' | 'PHOTO', url: string, observations?: string) => void;
     cancelShipment: (shipmentId: string) => void;
+    // Transitional refresh helpers for WarehouseOps / SupplyKanban / SupplierProfile.
+    // Do not use in WMS main flow; prefer query hooks + bootstrap cache orchestration.
     refreshShipments: (locationId?: string) => Promise<void>;
     refreshPurchaseOrders: (locationId?: string) => Promise<void>;
 
@@ -2159,6 +2163,7 @@ export const usePharmaStore = create<PharmaState>()(
             })),
 
             // --- WMS & Logistics ---
+            // Legacy cache kept only for non-query consumers outside the main WMS flow.
             stockTransfers: [],
             shipments: [],
             warehouseIncidents: [],
@@ -2751,6 +2756,9 @@ export const usePharmaStore = create<PharmaState>()(
                             // We don't use set() here because we are in the rehydration callback directly on the state
                             state.currentLocationId = '';
                         }
+                        // WMS server-state now lives in React Query. Drop any stale persisted cache on hydration.
+                        state.shipments = [];
+                        state.purchaseOrders = [];
                     }
                 };
             },
@@ -2771,7 +2779,6 @@ export const usePharmaStore = create<PharmaState>()(
                 customers: state.customers,
                 suppliers: state.suppliers,
                 supplierDocuments: state.supplierDocuments,
-                purchaseOrders: state.purchaseOrders,
                 salesHistory: state.salesHistory,
                 cashMovements: state.cashMovements,
                 expenses: state.expenses,
