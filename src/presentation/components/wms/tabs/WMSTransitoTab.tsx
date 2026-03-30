@@ -5,6 +5,7 @@ import {
 import { toast } from 'sonner';
 import * as Sentry from '@sentry/nextjs';
 import { usePharmaStore } from '@/presentation/store/useStore';
+import { Shipment } from '@/domain/types';
 
 type DirectionFilter = 'BOTH' | 'INCOMING' | 'OUTGOING';
 
@@ -30,7 +31,10 @@ interface ShipmentCard {
 }
 
 interface WMSTransitoTabProps {
+    shipments: Shipment[];
+    isLoading?: boolean;
     bootstrapOnMount?: boolean;
+    onRefresh?: () => Promise<unknown> | unknown;
     onReceiveShipment?: (shipmentId: string) => void;
     onReceivePurchaseOrder?: (order: Record<string, unknown>) => void;
 }
@@ -163,35 +167,28 @@ const formatDate = (value: number | null | undefined) => {
 };
 
 export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
+    shipments,
+    isLoading = false,
     bootstrapOnMount = true,
+    onRefresh,
     onReceiveShipment,
     onReceivePurchaseOrder,
 }) => {
     const {
         currentLocationId,
-        shipments: storeShipments,
         purchaseOrders: storePurchaseOrders,
-        refreshShipments,
-        refreshPurchaseOrders,
     } = usePharmaStore();
     const [direction, setDirection] = useState<DirectionFilter>('BOTH');
-    const [loading, setLoading] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
     const fetchTransit = useCallback(async () => {
-        if (!currentLocationId) {
+        if (!currentLocationId || !onRefresh) {
             return;
         }
 
-        setLoading(true);
+        setIsRefreshing(true);
         try {
-            const [scopedShipments, scopedPurchaseOrders] = await Promise.allSettled([
-                refreshShipments(currentLocationId),
-                refreshPurchaseOrders(currentLocationId),
-            ]);
-
-            if (scopedShipments.status === 'rejected' && scopedPurchaseOrders.status === 'rejected') {
-                toast.error('No se pudieron cargar los movimientos en tránsito');
-            }
+            await onRefresh();
         } catch (error) {
             Sentry.captureException(error, {
                 tags: { module: 'WMS', tab: 'Transito', action: 'fetchTransit' },
@@ -199,9 +196,9 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
             });
             toast.error('Error al consultar tránsito');
         } finally {
-            setLoading(false);
+            setIsRefreshing(false);
         }
-    }, [currentLocationId, direction, refreshPurchaseOrders, refreshShipments]);
+    }, [currentLocationId, direction, onRefresh]);
 
     useEffect(() => {
         if (!bootstrapOnMount) return;
@@ -211,7 +208,7 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
     const transitRows = useMemo(() => {
         if (!currentLocationId) return [] as ShipmentCard[];
 
-        const shipmentRows = (Array.isArray(storeShipments) ? storeShipments : [])
+        const shipmentRows = (Array.isArray(shipments) ? shipments : [])
             .filter((raw) => !!raw && typeof raw === 'object')
             .map((raw) => {
                 const row = raw as unknown as Record<string, unknown>;
@@ -258,7 +255,7 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
         return [...shipmentRows, ...purchaseOrderRows]
             .filter((row) => direction === 'BOTH' || row.direction === direction)
             .sort((a, b) => b.created_at - a.created_at);
-    }, [currentLocationId, direction, storePurchaseOrders, storeShipments]);
+    }, [currentLocationId, direction, shipments, storePurchaseOrders]);
 
     const summary = useMemo(() => {
         const incoming = transitRows.filter(s => s.direction === 'INCOMING').length;
@@ -291,10 +288,10 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
                     </div>
                     <button
                         onClick={fetchTransit}
-                        disabled={loading}
+                        disabled={isLoading || isRefreshing || !onRefresh}
                         className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-semibold flex items-center gap-1.5 disabled:opacity-60"
                     >
-                        <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                        <RefreshCw size={14} className={isLoading || isRefreshing ? 'animate-spin' : ''} />
                         Actualizar
                     </button>
                 </div>
@@ -315,7 +312,7 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
                 </div>
             </div>
 
-            {loading ? (
+            {isLoading || isRefreshing ? (
                 <div className="flex items-center justify-center py-12">
                     <RefreshCw size={26} className="animate-spin text-indigo-400" />
                 </div>

@@ -18,8 +18,9 @@ import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { useQueryClient } from '@tanstack/react-query';
 import { usePlatform } from '@/hooks/usePlatform';
 import { useInventoryQuery } from '@/presentation/hooks/useInventoryQuery';
+import { useShipmentsQuery } from '@/presentation/hooks/useShipmentsQuery';
 import { useBootstrapWms } from '@/presentation/hooks/useBootstrapWms';
-import { InventoryBatch } from '@/domain/types';
+import { InventoryBatch, Shipment } from '@/domain/types';
 import { WMSDespachoTab } from '@/presentation/components/wms/tabs/WMSDespachoTab';
 import { WMSRecepcionTab } from '@/presentation/components/wms/tabs/WMSRecepcionTab';
 import { WMSTransferenciaTab } from '@/presentation/components/wms/tabs/WMSTransferenciaTab';
@@ -141,6 +142,11 @@ export const WMSPage: React.FC = () => {
         enabled: shouldLoadInventory && !!activeLocationId,
     });
     const inventory = inventoryData ?? ([] as InventoryBatch[]);
+    const shouldLoadShipments = activeTab === 'transito';
+    const { data: shipmentsData, isLoading: isLoadingShipments } = useShipmentsQuery(activeLocationId, {
+        enabled: shouldLoadShipments && !!activeLocationId,
+    });
+    const shipments = shipmentsData ?? ([] as Shipment[]);
 
     const handleRefresh = async () => {
         if (activeLocationId) {
@@ -171,7 +177,10 @@ export const WMSPage: React.FC = () => {
             case 'transito':
                 return (
                     <WMSTransitoTab
+                        shipments={shipments}
+                        isLoading={isLoadingShipments}
                         bootstrapOnMount={false}
+                        onRefresh={() => bootstrapWms({ force: true })}
                         onReceiveShipment={(shipmentId) => {
                             setPreselectedReceptionShipmentId(shipmentId);
                             setActiveTab('recepcion');

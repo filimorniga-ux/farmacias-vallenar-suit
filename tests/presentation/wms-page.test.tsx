@@ -51,6 +51,19 @@ const mocks = vi.hoisted(() => {
             { id: 'b1', sku: 'SKU-1', name: 'Producto 1', stock_actual: 10 },
             { id: 'b2', sku: 'SKU-2', name: 'Producto 2', stock_actual: 5 },
         ],
+        shipmentsData: [
+            {
+                id: 'shp-1',
+                type: 'INTER_BRANCH',
+                status: 'IN_TRANSIT',
+                origin_location_id: 'loc-2',
+                origin_location_name: 'Bodega Norte',
+                destination_location_id: 'loc-1',
+                destination_location_name: 'Sucursal Centro',
+                created_at: 1710000000000,
+                items: [],
+            },
+        ],
         locationState,
         pharmaState,
         setInventoryMock,
@@ -88,6 +101,13 @@ vi.mock('@/presentation/hooks/useInventoryQuery', () => ({
     }),
 }));
 
+vi.mock('@/presentation/hooks/useShipmentsQuery', () => ({
+    useShipmentsQuery: () => ({
+        data: mocks.shipmentsData,
+        isLoading: false,
+    }),
+}));
+
 vi.mock('@/presentation/components/wms/tabs/WMSDespachoTab', () => ({
     WMSDespachoTab: ({ inventory }: { inventory: Array<{ id: string }> }) => (
         <div>Despacho inventory {inventory.length}</div>
@@ -107,7 +127,9 @@ vi.mock('@/presentation/components/wms/tabs/WMSTransferenciaTab', () => ({
 }));
 
 vi.mock('@/presentation/components/wms/tabs/WMSTransitoTab', () => ({
-    WMSTransitoTab: () => <div>Transit stub</div>,
+    WMSTransitoTab: ({ shipments }: { shipments: Array<{ id: string }> }) => (
+        <div>Transit shipments {shipments.length}</div>
+    ),
 }));
 
 vi.mock('@/presentation/components/wms/tabs/WMSPedidosTab', () => ({
@@ -182,5 +204,8 @@ describe('WMSPage', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Crear Pedido' }));
         expect(screen.getByText('Crear pedido inventory 2')).toBeTruthy();
+
+        fireEvent.click(screen.getByRole('button', { name: 'En Tránsito' }));
+        expect(screen.getByText('Transit shipments 1')).toBeTruthy();
     });
 });

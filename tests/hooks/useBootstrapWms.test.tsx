@@ -6,13 +6,11 @@ import { renderHook, waitFor, act } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 type PharmaState = {
-    refreshShipments: (locationId?: string) => Promise<void>;
     refreshPurchaseOrders: (locationId?: string) => Promise<void>;
 };
 
 const mocks = vi.hoisted(() => {
     const state: PharmaState = {
-        refreshShipments: vi.fn(async () => {}),
         refreshPurchaseOrders: vi.fn(async () => {}),
     };
 
@@ -28,6 +26,12 @@ const mocks = vi.hoisted(() => {
     return {
         state,
         usePharmaStoreMock,
+        ensureQueryDataMock: vi.fn(async () => []),
+        fetchQueryMock: vi.fn(async () => []),
+        queryClientMock: {
+            ensureQueryData: vi.fn(async () => []),
+            fetchQuery: vi.fn(async () => []),
+        },
         toastErrorMock: vi.fn(),
         sentryCaptureExceptionMock: vi.fn(),
     };
@@ -47,13 +51,22 @@ vi.mock('@sentry/nextjs', () => ({
     captureException: mocks.sentryCaptureExceptionMock,
 }));
 
+vi.mock('@tanstack/react-query', async () => {
+    const actual = await vi.importActual<typeof import('@tanstack/react-query')>('@tanstack/react-query');
+    return {
+        ...actual,
+        useQueryClient: () => mocks.queryClientMock,
+    };
+});
+
 import { useBootstrapWms } from '@/presentation/hooks/useBootstrapWms';
 
 describe('useBootstrapWms', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.state.refreshShipments = vi.fn(async () => {});
         mocks.state.refreshPurchaseOrders = vi.fn(async () => {});
+        mocks.queryClientMock.ensureQueryData = mocks.ensureQueryDataMock.mockResolvedValue([]);
+        mocks.queryClientMock.fetchQuery = mocks.fetchQueryMock.mockResolvedValue([]);
     });
 
     it('no bootstrapea si no hay ubicación activa', async () => {
@@ -63,7 +76,8 @@ describe('useBootstrapWms', () => {
             expect(result.current.isBootstrappingWms).toBe(false);
         });
 
-        expect(mocks.state.refreshShipments).not.toHaveBeenCalled();
+        expect(mocks.ensureQueryDataMock).not.toHaveBeenCalled();
+        expect(mocks.fetchQueryMock).not.toHaveBeenCalled();
         expect(mocks.state.refreshPurchaseOrders).not.toHaveBeenCalled();
     });
 
@@ -76,28 +90,27 @@ describe('useBootstrapWms', () => {
         );
 
         await waitFor(() => {
-            expect(mocks.state.refreshShipments).toHaveBeenCalledTimes(1);
+            expect(mocks.ensureQueryDataMock).toHaveBeenCalledTimes(1);
             expect(mocks.state.refreshPurchaseOrders).toHaveBeenCalledTimes(1);
         });
 
         rerender({ activeLocationId: 'loc-1' });
 
-        expect(mocks.state.refreshShipments).toHaveBeenCalledTimes(1);
+        expect(mocks.ensureQueryDataMock).toHaveBeenCalledTimes(1);
         expect(mocks.state.refreshPurchaseOrders).toHaveBeenCalledTimes(1);
 
         await act(async () => {
             await result.current.bootstrapWms({ force: true });
         });
 
-        expect(mocks.state.refreshShipments).toHaveBeenCalledTimes(2);
+        expect(mocks.fetchQueryMock).toHaveBeenCalledTimes(1);
         expect(mocks.state.refreshPurchaseOrders).toHaveBeenCalledTimes(2);
     });
 
     it('reporta error si falla el bootstrap', async () => {
-        mocks.state.refreshShipments = vi.fn(async () => {
+        mocks.ensureQueryDataMock.mockImplementation(async () => {
             throw new Error('Fallo WMS');
         });
-        mocks.state.refreshPurchaseOrders = vi.fn(async () => {});
 
         const { result } = renderHook(() => useBootstrapWms({ activeLocationId: 'loc-2' }));
 

@@ -9,27 +9,37 @@ import WMSTransitoTab from '@/presentation/components/wms/tabs/WMSTransitoTab';
 
 type PharmaState = {
     currentLocationId: string;
-    shipments: unknown[];
     purchaseOrders: unknown[];
-    refreshShipments: (locationId?: string) => Promise<void>;
-    refreshPurchaseOrders: (locationId?: string) => Promise<void>;
 };
 
 const mocks = vi.hoisted(() => {
     const state: PharmaState = {
         currentLocationId: 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6',
-        shipments: [],
         purchaseOrders: [],
-        refreshShipments: vi.fn(async () => {}),
-        refreshPurchaseOrders: vi.fn(async () => {}),
     };
 
     const usePharmaStoreMock = Object.assign(
-        () => state,
+        function <T>(selector?: (state: PharmaState) => T) {
+            return selector ? selector(state) : (state as T);
+        },
         { getState: () => state }
     );
 
     return {
+        refreshTransitMock: vi.fn(async () => {}),
+        shipmentRows: [
+            {
+                id: 'shp-1',
+                type: 'INTER_BRANCH',
+                status: 'IN_TRANSIT',
+                origin_location_id: 'aaaa1111-1111-4111-8111-111111111111',
+                origin_location_name: 'Farmacia prat',
+                destination_location_id: 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6',
+                destination_location_name: 'Farmacia Vallenar santiago',
+                created_at: Date.now(),
+                items: [{ id: 'item-1', sku: 'SKU-9', name: 'Producto Z', quantity: 3 }],
+            },
+        ],
         state,
         usePharmaStoreMock,
         toastErrorMock: vi.fn(),
@@ -50,10 +60,8 @@ describe('WMSTransitoTab', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.state.currentLocationId = 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6';
-        mocks.state.shipments = [];
         mocks.state.purchaseOrders = [];
-        mocks.state.refreshShipments = vi.fn(async () => {});
-        mocks.state.refreshPurchaseOrders = vi.fn(async () => {});
+        mocks.refreshTransitMock.mockResolvedValue(undefined);
     });
 
     it('muestra en transito una OC del kanban (ORDERED/SENT)', async () => {
@@ -71,7 +79,12 @@ describe('WMSTransitoTab', () => {
             },
         ];
 
-        render(<WMSTransitoTab />);
+        render(
+            <WMSTransitoTab
+                shipments={[]}
+                onRefresh={mocks.refreshTransitMock}
+            />
+        );
 
         expect(await screen.findByText('Orden Compra')).toBeTruthy();
         expect(screen.getByText('Farmacia prat')).toBeTruthy();
@@ -91,7 +104,12 @@ describe('WMSTransitoTab', () => {
             },
         ];
 
-        render(<WMSTransitoTab />);
+        render(
+            <WMSTransitoTab
+                shipments={[]}
+                onRefresh={mocks.refreshTransitMock}
+            />
+        );
 
         await waitFor(() => {
             expect(screen.getByText('Farmacia Vallenar santiago')).toBeTruthy();
@@ -109,20 +127,37 @@ describe('WMSTransitoTab', () => {
     });
 
     it('permite desactivar el bootstrap automático cuando WMS ya inicializó el dominio', async () => {
-        render(<WMSTransitoTab bootstrapOnMount={false} />);
+        render(
+            <WMSTransitoTab
+                shipments={[]}
+                bootstrapOnMount={false}
+                onRefresh={mocks.refreshTransitMock}
+            />
+        );
 
         await waitFor(() => {
             expect(screen.getByText('Sin movimientos en tránsito')).toBeTruthy();
         });
 
-        expect(mocks.state.refreshShipments).not.toHaveBeenCalled();
-        expect(mocks.state.refreshPurchaseOrders).not.toHaveBeenCalled();
+        expect(mocks.refreshTransitMock).not.toHaveBeenCalled();
 
         fireEvent.click(screen.getByRole('button', { name: 'Actualizar' }));
 
         await waitFor(() => {
-            expect(mocks.state.refreshShipments).toHaveBeenCalledTimes(1);
-            expect(mocks.state.refreshPurchaseOrders).toHaveBeenCalledTimes(1);
+            expect(mocks.refreshTransitMock).toHaveBeenCalledTimes(1);
         });
+    });
+
+    it('muestra envíos desde props en vez de depender del store global', async () => {
+        render(
+            <WMSTransitoTab
+                shipments={mocks.shipmentRows as never[]}
+                bootstrapOnMount={false}
+                onReceiveShipment={vi.fn()}
+            />
+        );
+
+        expect(await screen.findByText('Farmacia prat')).toBeTruthy();
+        expect(screen.getByText('Farmacia Vallenar santiago')).toBeTruthy();
     });
 });
