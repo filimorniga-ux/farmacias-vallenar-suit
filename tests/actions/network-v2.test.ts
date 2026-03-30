@@ -1,33 +1,97 @@
-/**
- * Tests - Network V2 Module
- */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { beforeEach, describe, it, expect, vi } from 'vitest';
-import * as networkV2 from '@/actions/network-v2';
-import { getValidatedSession } from '@/lib/server-session';
+const VALID_LOCATION_ID = '550e8400-e29b-41d4-a716-446655440001';
+const ACTOR_USER_ID = '550e8400-e29b-41d4-a716-446655440010';
 
-vi.mock('@/lib/db', () => ({ query: vi.fn(), pool: { connect: vi.fn() } }));
-vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
-vi.mock('@/lib/server-session', () => ({
-    getValidatedSession: vi.fn(),
-}));
-vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+const {
+    mockQuery,
+    mockRelease,
+    mockConnect,
+    mockGetActorOrFail,
+    mockValidatePinForRoles,
+    PinRbacErrorMock,
+} = vi.hoisted(() => {
+    class PinRbacErrorMock extends Error {
+        code: string;
 
-beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(getValidatedSession).mockResolvedValue({
-        userId: 'user-1',
-        role: 'ADMIN',
-        locationId: 'loc-1',
-        userName: 'Admin',
-        tokenVersion: 1,
-        sessionToken: 'token',
-    });
+        constructor(code: string, message: string) {
+            super(message);
+            this.name = 'PinRbacError';
+            this.code = code;
+        }
+    }
+
+    return {
+        mockQuery: vi.fn(),
+        mockRelease: vi.fn(),
+        mockConnect: vi.fn(),
+        mockGetActorOrFail: vi.fn(),
+        mockValidatePinForRoles: vi.fn(),
+        PinRbacErrorMock,
+    };
 });
 
-describe('Network V2 - Authentication', () => {
-    it('should require authentication for getOrganizationStructure', async () => {
-        vi.mocked(getValidatedSession).mockResolvedValueOnce(null);
+vi.mock('@/lib/db', () => ({
+    query: vi.fn(),
+    pool: {
+        connect: () =>
+            Promise.resolve({
+                query: mockQuery,
+                release: mockRelease,
+            }),
+    },
+}));
+
+vi.mock('@/lib/pin-rbac', () => ({
+    getActorOrFail: (...args: unknown[]) => mockGetActorOrFail(...args),
+    validatePinForRoles: (...args: unknown[]) => mockValidatePinForRoles(...args),
+    requireRole: (actor: { role?: string }, allowedRoles: readonly string[]) => {
+        const normalizedRole = String(actor.role || '').trim().toUpperCase();
+        const normalizedAllowed = allowedRoles.map((role) => String(role).trim().toUpperCase());
+        if (!normalizedAllowed.includes(normalizedRole)) {
+            throw new PinRbacErrorMock('AUTH_FORBIDDEN', 'Acceso denegado');
+        }
+        return actor;
+    },
+    ROLE_GROUPS: {
+        ADMIN: ['ADMIN', 'GERENTE_GENERAL'],
+        MANAGER: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
+    },
+    PinRbacError: PinRbacErrorMock,
+}));
+
+vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
+vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock('crypto', () => ({ randomUUID: vi.fn(() => '550e8400-e29b-41d4-a716-446655440999') }));
+
+import * as networkV2 from '@/actions/network-v2';
+
+describe('network-v2 auth alignment', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockConnect.mockClear();
+        mockGetActorOrFail.mockResolvedValue({
+            userId: ACTOR_USER_ID,
+            role: 'ADMIN',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Admin Actor',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+        mockValidatePinForRoles.mockResolvedValue({
+            valid: true,
+            authorizedBy: {
+                id: '550e8400-e29b-41d4-a716-446655440099',
+                name: 'Supervisor PIN',
+                role: 'ADMIN',
+            },
+        });
+    });
+
+    it('rechaza getOrganizationStructureSecure sin sesión válida', async () => {
+        mockGetActorOrFail.mockRejectedValueOnce(
+            new PinRbacErrorMock('AUTH_UNAUTHORIZED', 'Sesión no válida')
+        );
 
         const result = await networkV2.getOrganizationStructureSecure();
 
@@ -35,51 +99,49 @@ describe('Network V2 - Authentication', () => {
         expect(result.error).toContain('autenticado');
     });
 
-    it('should ignore explicitUserId without validated session', async () => {
-        vi.mocked(getValidatedSession).mockResolvedValueOnce(null);
-
-        const result = await networkV2.getOrganizationStructureSecure('550e8400-e29b-41d4-a716-446655440001');
-
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('autenticado');
-    });
-});
-
-describe('Network V2 - Create Location', () => {
-    it('should require valid data', async () => {
-        const mockDb = await import('@/lib/db');
-        const mockClient = {
-            query: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
-            release: vi.fn()
-        };
-        vi.mocked(mockDb.pool.connect).mockResolvedValueOnce(mockClient as any);
-
+    it('createLocationSecure valida input antes de tocar DB', async () => {
         const result = await networkV2.createLocationSecure(
-            { name: 'AB', address: '123', type: 'STORE' }, // Name too short
+            { name: 'AB', address: '123', type: 'STORE' },
             '1234'
         );
 
         expect(result.success).toBe(false);
+        expect(mockQuery).not.toHaveBeenCalled();
     });
-});
 
-describe('Network V2 - Deactivate Location', () => {
-    it('should require reason with minimum length', async () => {
+    it('createLocationSecure audita con actor de sesión y deja authorized_by como metadato', async () => {
+        mockQuery
+            .mockResolvedValueOnce({ rows: [] })
+            .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+            .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+            .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+            .mockResolvedValueOnce({ rows: [] });
+
+        const result = await networkV2.createLocationSecure(
+            { name: 'Sucursal Prat', address: 'Dirección larga válida', type: 'STORE' },
+            '1234'
+        );
+
+        expect(result.success).toBe(true);
+        expect(mockValidatePinForRoles).toHaveBeenCalledOnce();
+
+        const auditCall = mockQuery.mock.calls.find((call) =>
+            String(call[0]).includes('INSERT INTO audit_log')
+        );
+        expect(auditCall?.[1]?.[0]).toBe(ACTOR_USER_ID);
+        const payload = JSON.parse(String(auditCall?.[1]?.[2] || '{}')) as Record<string, unknown>;
+        expect(payload.created_by).toBe('Admin Actor');
+        expect(payload.authorized_by_id).toBe('550e8400-e29b-41d4-a716-446655440099');
+    });
+
+    it('deactivateLocationSecure exige razón mínima', async () => {
         const result = await networkV2.deactivateLocationSecure(
-            '550e8400-e29b-41d4-a716-446655440000',
+            VALID_LOCATION_ID,
             '1234',
-            'short' // Too short
+            'short'
         );
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('10 caracteres');
-    });
-});
-
-describe('Network V2 - NO AUTO-DDL', () => {
-    it('should NOT contain any ensure*Column functions', async () => {
-        // This test verifies the module doesn't have AUTO-DDL
-        // The V2 module was created without any ensure* functions
-        expect(true).toBe(true); // Placeholder - real verification is code review
     });
 });
