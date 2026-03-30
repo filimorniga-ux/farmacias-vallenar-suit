@@ -31,6 +31,13 @@ import { logger } from '@/lib/logger';
 import { getSessionSecure } from './auth-v2';
 import { recordCostChange, createCostChangeNotification, type CostAlert } from './pricing-v2';
 import { upsertSupplierPrice, generatePriceRecommendations } from './pricing-intelligence';
+import {
+    getActorOrFail,
+    type PinAuthorizedUser,
+    PinRbacError,
+    ROLE_GROUPS,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -83,8 +90,8 @@ const CancelPurchaseOrderSchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
-const GERENTE_ROLES = ['GERENTE_GENERAL', 'ADMIN'];
+const MANAGER_ROLES = ROLE_GROUPS.MANAGER;
+const GERENTE_ROLES = ROLE_GROUPS.ADMIN;
 const MANAGER_THRESHOLD = 500000; // CLP - requires MANAGER PIN
 const GERENTE_THRESHOLD = 1000000; // CLP - requires GERENTE_GENERAL PIN
 
@@ -100,49 +107,42 @@ function revalidateProcurementPaths(): void {
 // HELPER FUNCTIONS
 // ============================================================================
 
+async function resolveValidatedProcurementActor(requestedUserId?: string, action = 'procurement-operation') {
+    try {
+        const actor = await getActorOrFail();
+
+        if (requestedUserId && requestedUserId !== actor.userId) {
+            logger.warn(
+                { requestedUserId, actorUserId: actor.userId, action },
+                'Ignoring payload userId in procurement operation; using validated session user'
+            );
+        }
+
+        return { success: true as const, actor };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { success: false as const, error: error.message };
+        }
+        logger.error({ error, action }, '[PROCUREMENT-V2] Session resolution error');
+        return { success: false as const, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
+    }
+}
+
 async function validateApproverPin(client: PoolClient, pin: string, requiredRoles: readonly string[]): Promise<{
     valid: boolean;
-    approver?: { id: string; name: string; role: string };
+    approver?: PinAuthorizedUser;
     error?: string;
 }> {
     try {
-        const bcrypt = await import('bcryptjs');
+        const result = await validatePinForRoles(client, pin, requiredRoles, {
+            allowLegacyPlaintext: true,
+        });
 
-        const approversRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE role = ANY($1::text[])
-            AND is_active = true
-        `, [requiredRoles]);
-
-        if (approversRes.rows.length === 0) {
-            return { valid: false, error: 'No hay aprobadores activos con el rol requerido' };
+        if (!result.valid) {
+            return { valid: false, error: result.error };
         }
 
-        for (const approver of approversRes.rows) {
-            let pinValid = false;
-
-            if (approver.access_pin_hash) {
-                pinValid = await bcrypt.compare(pin, approver.access_pin_hash);
-            } else if (approver.access_pin) {
-                const crypto = await import('crypto');
-                const inputBuffer = Buffer.from(pin);
-                const storedBuffer = Buffer.from(approver.access_pin);
-
-                if (inputBuffer.length === storedBuffer.length) {
-                    pinValid = crypto.timingSafeEqual(inputBuffer, storedBuffer);
-                }
-            }
-
-            if (pinValid) {
-                return {
-                    valid: true,
-                    approver: { id: approver.id, name: approver.name, role: approver.role }
-                };
-            }
-        }
-
-        return { valid: false, error: 'PIN inválido' };
+        return { valid: true, approver: result.authorizedBy };
     } catch (error) {
         logger.error({ error }, '[PROCUREMENT-V2] PIN validation error');
         return { valid: false, error: 'Error validando PIN' };
@@ -234,6 +234,12 @@ export async function createPurchaseOrderSecure(data: z.infer<typeof CreatePurch
         };
     }
 
+    const auth = await resolveValidatedProcurementActor(validated.data.userId, 'createPurchaseOrderSecure');
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+    const actorUserId = auth.actor.userId;
+
     const client = await pool.connect();
 
     try {
@@ -285,7 +291,7 @@ export async function createPurchaseOrderSecure(data: z.infer<typeof CreatePurch
             orderId,
             validated.data.supplierId,
             warehouseId,
-            validated.data.userId,
+            actorUserId,
             validated.data.notes || null
         ]);
 
@@ -312,7 +318,7 @@ export async function createPurchaseOrderSecure(data: z.infer<typeof CreatePurch
         // 8. Audit
         await insertProcurementAudit(client, {
             actionCode: 'PURCHASE_ORDER_CREATED',
-            userId: validated.data.userId,
+            userId: actorUserId,
             orderId,
             details: {
                 supplier_id: validated.data.supplierId,
@@ -320,7 +326,8 @@ export async function createPurchaseOrderSecure(data: z.infer<typeof CreatePurch
                 warehouse_id: warehouseId,
                 items_count: validated.data.items.length,
                 total,
-                requires_approval: requiresApproval
+                requires_approval: requiresApproval,
+                actor_user_id: actorUserId,
             }
         });
 
@@ -360,6 +367,12 @@ export async function approvePurchaseOrderSecure(data: z.infer<typeof ApprovePur
             error: validated.error.issues[0]?.message || 'Datos inválidos'
         };
     }
+
+    const auth = await resolveValidatedProcurementActor(undefined, 'approvePurchaseOrderSecure');
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+    const actorUserId = auth.actor.userId;
 
     const client = await pool.connect();
 
@@ -414,15 +427,17 @@ export async function approvePurchaseOrderSecure(data: z.infer<typeof ApprovePur
                 approval_notes = $2,
                 updated_at = NOW()
             WHERE id = $3
-        `, [pinCheck.approver!.id, validated.data.notes, validated.data.orderId]);
+        `, [actorUserId, validated.data.notes, validated.data.orderId]);
 
         // 6. Audit
         await insertProcurementAudit(client, {
             actionCode: 'PURCHASE_ORDER_APPROVED',
-            userId: pinCheck.approver!.id,
+            userId: actorUserId,
             orderId: validated.data.orderId,
             details: {
                 total,
+                actor_user_id: actorUserId,
+                authorized_by_id: pinCheck.approver!.id,
                 approved_by_name: pinCheck.approver!.name,
                 approved_by_role: pinCheck.approver!.role,
                 notes: validated.data.notes
@@ -468,6 +483,12 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
             error: validated.error.issues[0]?.message || 'Datos inválidos'
         };
     }
+
+    const auth = await resolveValidatedProcurementActor(validated.data.userId, 'receivePurchaseOrderSecure');
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+    const actorUserId = auth.actor.userId;
 
     const client = await pool.connect();
 
@@ -558,7 +579,7 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
                     referenceId: validated.data.orderId,
                     supplierId: order.supplier_id,
                     locationId: destinationLocationId,
-                    userId: validated.data.userId,
+                    userId: actorUserId,
                     notes: `OC ${validated.data.orderId.slice(0, 8)} | ${product.name}`,
                     client,
                 });
@@ -590,7 +611,7 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
                     referenceId: validated.data.orderId,
                     supplierId: order.supplier_id,
                     locationId: destinationLocationId,
-                    userId: validated.data.userId,
+                    userId: actorUserId,
                     notes: `Primer costo registrado via OC ${validated.data.orderId.slice(0, 8)}`,
                     client,
                 });
@@ -669,7 +690,7 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
                 product.name || item.name,
                 destinationLocationId,
                 receivedItem.quantityReceived,
-                validated.data.userId,
+                actorUserId,
                 `Recepción de OC ${validated.data.orderId.slice(0, 8)}`,
                 validated.data.orderId
             ]);
@@ -683,17 +704,18 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
             SET status = 'RECEIVED',
                 received_by = $1
             WHERE id = $2
-        `, [validated.data.userId, validated.data.orderId]);
+        `, [actorUserId, validated.data.orderId]);
 
         // 5. Audit
         await insertProcurementAudit(client, {
             actionCode: 'PURCHASE_ORDER_RECEIVED',
-            userId: validated.data.userId,
+            userId: actorUserId,
             orderId: validated.data.orderId,
             details: {
                 items_received: validated.data.receivedItems.length,
                 total_units_received: totalReceived,
                 warehouse_id: order.target_warehouse_id,
+                actor_user_id: actorUserId,
                 notes: validated.data.notes
             }
         });
@@ -703,7 +725,7 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
             await createCostChangeNotification({
                 alerts: costAlerts,
                 orderId: validated.data.orderId,
-                userId: validated.data.userId,
+                userId: actorUserId,
                 client,
             });
         }
@@ -776,6 +798,12 @@ export async function cancelPurchaseOrderSecure(data: z.infer<typeof CancelPurch
         };
     }
 
+    const auth = await resolveValidatedProcurementActor(undefined, 'cancelPurchaseOrderSecure');
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+    const actorUserId = auth.actor.userId;
+
     const client = await pool.connect();
 
     try {
@@ -817,16 +845,18 @@ export async function cancelPurchaseOrderSecure(data: z.infer<typeof CancelPurch
                 cancellation_reason = $2,
                 updated_at = NOW()
             WHERE id = $3
-        `, [pinCheck.approver!.id, validated.data.reason, validated.data.orderId]);
+        `, [actorUserId, validated.data.reason, validated.data.orderId]);
 
         // 5. Audit
         await insertProcurementAudit(client, {
             actionCode: 'PURCHASE_ORDER_CANCELLED',
-            userId: pinCheck.approver!.id,
+            userId: actorUserId,
             orderId: validated.data.orderId,
             details: {
                 previous_status: order.status,
                 total: order.total_amount,
+                actor_user_id: actorUserId,
+                authorized_by_id: pinCheck.approver!.id,
                 cancelled_by_name: pinCheck.approver!.name,
                 reason: validated.data.reason
             }

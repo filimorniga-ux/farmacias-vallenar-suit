@@ -12,9 +12,21 @@ import {
 import * as dbModule from '@/lib/db';
 
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
-vi.mock('bcryptjs', () => ({
-    compare: vi.fn(async (p: string, h: string) => h === `hashed_${p}`)
-}));
+const mockGetActorOrFail = vi.fn();
+const mockValidatePinForRoles = vi.fn();
+
+vi.mock('@/lib/pin-rbac', () => {
+    class MockPinRbacError extends Error {}
+    return {
+        ROLE_GROUPS: {
+            ADMIN: ['ADMIN', 'GERENTE_GENERAL'],
+            MANAGER: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
+        },
+        PinRbacError: MockPinRbacError,
+        getActorOrFail: (...args: unknown[]) => mockGetActorOrFail(...args),
+        validatePinForRoles: (...args: unknown[]) => mockValidatePinForRoles(...args),
+    };
+});
 
 // Mock DB
 vi.mock('@/lib/db', () => ({
@@ -39,6 +51,22 @@ describe('Procurement V2 Logic', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mockGetActorOrFail.mockResolvedValue({
+            userId: validUuid,
+            role: 'ADMIN',
+            userName: 'Admin Procurement',
+            locationId: '550e8400-e29b-41d4-a716-446655440099',
+            tokenVersion: 1,
+            sessionToken: 'procurement-session',
+        });
+        mockValidatePinForRoles.mockResolvedValue({
+            valid: true,
+            authorizedBy: {
+                id: approverId,
+                name: 'Approver',
+                role: 'ADMIN',
+            },
+        });
     });
 
     // --- Suggestion Tests ---
@@ -279,11 +307,13 @@ describe('Procurement V2 Logic', () => {
     describe('Approve & Cancel Purchase Order', () => {
         it('should fail approval with incorrect PIN', async () => {
             vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
+            mockValidatePinForRoles.mockResolvedValueOnce({
+                valid: false,
+                error: 'PIN inválido',
+            });
             mockClient.query.mockImplementation(async (sql: string) => {
                 if (sql.startsWith('BEGIN')) return { rows: [] };
                 if (sql.includes('FROM purchase_orders')) return { rows: [{ id: orderId, status: 'DRAFT', total_estimated: 100000 }] };
-                // Return user but simulate failed check handled by mocked bcrypt or logic
-                if (sql.includes('FROM users')) return { rows: [{ id: approverId, access_pin_hash: 'hashed_1234' }] };
                 return { rows: [] };
             });
 
@@ -294,6 +324,44 @@ describe('Procurement V2 Logic', () => {
             // Since we mocked bcrypt.compare to check 'hashed_' + pin, hashed_1234 vs 9999 (hashed_9999) fails
             expect(res.success).toBe(false);
             expect(res.error).toContain('PIN inválido');
+        });
+
+        it('should audit approval with actor session user and keep approver PIN as metadata', async () => {
+            const actorUserId = '550e8400-e29b-41d4-a716-446655440555';
+            mockGetActorOrFail.mockResolvedValueOnce({
+                userId: actorUserId,
+                role: 'MANAGER',
+                userName: 'Actor Procurement',
+                locationId: '550e8400-e29b-41d4-a716-446655440099',
+                tokenVersion: 1,
+                sessionToken: 'procurement-session-actor',
+            });
+
+            vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
+            mockClient.query.mockImplementation(async (sql: string, params?: unknown[]) => {
+                if (sql.startsWith('BEGIN') || sql.startsWith('COMMIT') || sql.startsWith('ROLLBACK')) return { rows: [] };
+                if (sql.includes('FROM purchase_orders')) return { rows: [{ id: orderId, status: 'DRAFT', total_amount: 700000 }] };
+                if (sql.includes('UPDATE purchase_orders')) {
+                    expect(params?.[0]).toBe(actorUserId);
+                    return { rows: [], rowCount: 1 };
+                }
+                if (sql.includes('INSERT INTO audit_log')) {
+                    expect(params?.[0]).toBe(actorUserId);
+                    const payload = JSON.parse(String(params?.[3]));
+                    expect(payload.actor_user_id).toBe(actorUserId);
+                    expect(payload.authorized_by_id).toBe(approverId);
+                    return { rows: [], rowCount: 1 };
+                }
+                return { rows: [], rowCount: 0 };
+            });
+
+            const res = await approvePurchaseOrderSecure({
+                orderId,
+                approverPin: '1234',
+                notes: 'Aprobación suficientemente larga',
+            });
+
+            expect(res.success).toBe(true);
         });
 
         it('should prevent cancelling an already RECEIVED order', async () => {
@@ -320,8 +388,17 @@ describe('Procurement V2 Logic', () => {
         const itemUuid = '550e8400-e29b-41d4-a716-446655440444';
 
         it('should receive items successfully and update inventory', async () => {
+            const actorUserId = '550e8400-e29b-41d4-a716-446655440777';
+            mockGetActorOrFail.mockResolvedValueOnce({
+                userId: actorUserId,
+                role: 'ADMIN',
+                userName: 'Receiver Session',
+                locationId: '550e8400-e29b-41d4-a716-446655440099',
+                tokenVersion: 1,
+                sessionToken: 'procurement-session-receive',
+            });
             vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
-            mockClient.query.mockImplementation(async (sql: string) => {
+            mockClient.query.mockImplementation(async (sql: string, params?: unknown[]) => {
                 if (sql.startsWith('BEGIN')) return { rows: [] };
                 if (sql.startsWith('ROLLBACK')) return { rows: [] };
                 if (sql.startsWith('COMMIT')) return { rows: [] };
@@ -349,6 +426,20 @@ describe('Procurement V2 Logic', () => {
 
                 // Updates/Inserts (catch-all for UPDATE and trimmed INSERT)
                 const trimmed = sql.trim();
+                if (trimmed.startsWith('UPDATE purchase_orders')) {
+                    expect(params?.[0]).toBe(actorUserId);
+                    return { rows: [], rowCount: 1 };
+                }
+                if (trimmed.startsWith('INSERT INTO stock_movements')) {
+                    expect(params?.[5]).toBe(actorUserId);
+                    return { rows: [], rowCount: 1 };
+                }
+                if (trimmed.startsWith('INSERT INTO audit_log')) {
+                    expect(params?.[0]).toBe(actorUserId);
+                    const payload = JSON.parse(String(params?.[3]));
+                    expect(payload.actor_user_id).toBe(actorUserId);
+                    return { rows: [], rowCount: 1 };
+                }
                 if (trimmed.startsWith('UPDATE') || trimmed.startsWith('INSERT')) return { rows: [], rowCount: 1 };
 
                 return { rows: [] };

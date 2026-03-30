@@ -12,10 +12,15 @@ import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
-import bcrypt from 'bcryptjs';
 import { ExcelService } from '@/lib/excel-generator';
 import { formatDateCL, formatDateTimeCL } from '@/lib/timezone';
-import { getValidatedSession } from '@/lib/server-session';
+import {
+    getActorOrFail,
+    PinRbacError,
+    requireRole,
+    ROLE_GROUPS,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
 // ============================================================================
 // SCHEMAS
@@ -117,27 +122,31 @@ const ExportSupplyHistorySchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
+const MANAGER_ROLES = ROLE_GROUPS.MANAGER;
 const PIN_THRESHOLD_CLP = 500000; // Requiere PIN para > $500,000
 
 async function resolveValidatedActor(requestedUserId?: string, action = 'supply-operation') {
-    const session = await getValidatedSession();
-    if (!session) {
+    try {
+        const actor = await getActorOrFail();
+
+        if (requestedUserId && requestedUserId !== actor.userId) {
+            logger.warn(
+                { requestedUserId, actorUserId: actor.userId, action },
+                'Ignoring payload userId in supply operation; using validated session user'
+            );
+        }
+
+        return {
+            success: true as const,
+            actorUserId: actor.userId,
+            session: actor,
+        };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { success: false as const, error: error.message };
+        }
         return { success: false as const, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
     }
-
-    if (requestedUserId && requestedUserId !== session.userId) {
-        logger.warn(
-            { requestedUserId, actorUserId: session.userId, action },
-            'Ignoring payload userId in supply operation; using validated session user'
-        );
-    }
-
-    return {
-        success: true as const,
-        actorUserId: session.userId,
-        session,
-    };
 }
 
 // ============================================================================
@@ -147,22 +156,17 @@ async function resolveValidatedActor(requestedUserId?: string, action = 'supply-
 async function validateManagerPin(
     client: DBRow,
     pin: string
-): Promise<{ valid: boolean; manager?: { id: string; name: string } }> {
+): Promise<{ valid: boolean; manager?: { id: string; name: string; role: string } }> {
     try {
-        const usersRes = await client.query(`
-            SELECT id, name, access_pin_hash, access_pin
-            FROM users WHERE role = ANY($1::text[]) AND is_active = true
-        `, [MANAGER_ROLES]);
+        const result = await validatePinForRoles(client, pin, MANAGER_ROLES, {
+            allowLegacyPlaintext: true,
+        });
 
-        for (const user of usersRes.rows) {
-            if (user.access_pin_hash) {
-                const valid = await bcrypt.compare(pin, user.access_pin_hash);
-                if (valid) return { valid: true, manager: { id: user.id, name: user.name } };
-            } else if (user.access_pin === pin) {
-                return { valid: true, manager: { id: user.id, name: user.name } };
-            }
+        if (!result.valid) {
+            return { valid: false };
         }
-        return { valid: false };
+
+        return { valid: true, manager: result.authorizedBy };
     } catch {
         return { valid: false };
     }
@@ -641,6 +645,7 @@ export async function receivePurchaseOrderSecure(
         }
 
         const totalEstimated = Number(po.total_amount) || 0;
+        let authorizedBy: { id: string; name: string; role: string } | undefined;
         if (totalEstimated > PIN_THRESHOLD_CLP) {
             if (!managerPin) {
                 await client.query('ROLLBACK');
@@ -651,6 +656,7 @@ export async function receivePurchaseOrderSecure(
                 await client.query('ROLLBACK');
                 return { success: false, error: 'PIN inválido' };
             }
+            authorizedBy = auth.manager;
         }
 
         const itemsRes = await client.query('SELECT * FROM purchase_order_items WHERE purchase_order_id = $1', [purchaseOrderId]);
@@ -767,7 +773,13 @@ export async function receivePurchaseOrderSecure(
             actionCode: 'PURCHASE_ORDER_RECEIVED',
             entityType: 'PURCHASE_ORDER',
             entityId: purchaseOrderId,
-            newValues: { items_received: itemsToReceive.length, units_received: totalReceivedUnits, status: 'REVIEW' },
+            newValues: {
+                items_received: itemsToReceive.length,
+                units_received: totalReceivedUnits,
+                status: 'REVIEW',
+                authorized_by: authorizedBy?.name,
+                authorized_by_id: authorizedBy?.id,
+            },
         });
 
         await client.query('COMMIT');
@@ -833,6 +845,7 @@ export async function finalizePurchaseOrderReviewSecure(
         }
 
         const totalEstimated = Number(po.total_amount) || 0;
+        let authorizedBy: { id: string; name: string; role: string } | undefined;
         if (totalEstimated > PIN_THRESHOLD_CLP) {
             if (!managerPin) {
                 await client.query('ROLLBACK');
@@ -843,6 +856,7 @@ export async function finalizePurchaseOrderReviewSecure(
                 await client.query('ROLLBACK');
                 return { success: false, error: 'PIN inválido' };
             }
+            authorizedBy = auth.manager;
         }
 
         const warehouseId = String(po.target_warehouse_id || '');
@@ -975,6 +989,8 @@ export async function finalizePurchaseOrderReviewSecure(
                 reviewed_items: totalReviewedItemsCount,
                 reviewed_units: totalReviewedUnits,
                 movement_type: movementType,
+                authorized_by: authorizedBy?.name,
+                authorized_by_id: authorizedBy?.id,
             },
         });
 
@@ -1370,10 +1386,13 @@ export async function getSupplyChainHistorySecure(filters?: {
 export async function exportSupplyChainHistorySecure(
     filters: z.infer<typeof ExportSupplyHistorySchema>
 ): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
-    const { getSessionSecure } = await import('@/actions/auth-v2');
-    const session = await getSessionSecure();
-    if (!session) return { success: false, error: 'No autenticado' };
-    if (!MANAGER_ROLES.includes(session.role)) return { success: false, error: 'Acceso denegado' };
+    const auth = await resolveValidatedActor(undefined, 'exportSupplyChainHistorySecure');
+    if (!auth.success) return { success: false, error: auth.error };
+    try {
+        requireRole(auth.session, MANAGER_ROLES);
+    } catch {
+        return { success: false, error: 'Acceso denegado' };
+    }
 
     const validated = ExportSupplyHistorySchema.safeParse(filters || {});
     if (!validated.success) {
@@ -1524,7 +1543,7 @@ export async function exportSupplyChainHistorySecure(
             title: 'Historial Corporativo de Logística',
             subtitle: `Corte: ${formatDateCL(new Date())} | Registros: ${data.length}`,
             sheetName: 'Logistica',
-            creator: session.userName,
+            creator: auth.session.userName,
             columns: [
                 { header: 'Tipo', key: 'tipo', width: 22 },
                 { header: 'ID Movimiento', key: 'id_movimiento', width: 38 },
