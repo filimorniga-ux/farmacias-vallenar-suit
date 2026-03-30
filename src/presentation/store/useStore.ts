@@ -185,10 +185,6 @@ interface PharmaState {
     confirmReception: (shipmentId: string, data: { photos: string[], notes: string, receivedItems: { batchId: string, quantity: number, condition: 'GOOD' | 'DAMAGED' }[] }) => void;
     uploadLogisticsDocument: (shipmentId: string, type: 'INVOICE' | 'GUIDE' | 'PHOTO', url: string, observations?: string) => void;
     cancelShipment: (shipmentId: string) => void;
-    // Transitional refresh helpers for WarehouseOps / SupplyKanban / SupplierProfile.
-    // Do not use in WMS main flow; prefer query hooks + bootstrap cache orchestration.
-    refreshShipments: (locationId?: string) => Promise<void>;
-    refreshPurchaseOrders: (locationId?: string) => Promise<void>;
 
     // Import
     importInventory: (items: InventoryBatch[]) => void;
@@ -2163,7 +2159,8 @@ export const usePharmaStore = create<PharmaState>()(
             })),
 
             // --- WMS & Logistics ---
-            // Legacy cache kept only for non-query consumers outside the main WMS flow.
+            // Local cache kept only for optimistic legacy mutation flows.
+            // Do not use as source of truth for WMS / supply / procurement reads.
             stockTransfers: [],
             shipments: [],
             warehouseIncidents: [],
@@ -2245,45 +2242,6 @@ export const usePharmaStore = create<PharmaState>()(
 
                 return { shipments: updatedShipments, inventory: updatedInventory };
             }),
-            refreshShipments: async (locationId) => {
-                const effectiveId = locationId || get().currentLocationId;
-                try {
-                    const { TigerDataService } = await import('../../domain/services/TigerDataService');
-                    const shipments = await TigerDataService.fetchShipments(effectiveId);
-                    set({ shipments: shipments || [] });
-                } catch (error) {
-                    Sentry.captureException(error, {
-                        tags: {
-                            module: 'useStore',
-                            action: 'refreshShipments',
-                        },
-                        extra: {
-                            locationId: effectiveId || null,
-                        }
-                    });
-                }
-            },
-            refreshPurchaseOrders: async (locationId) => {
-                const effectiveId = locationId || get().currentLocationId;
-                try {
-                    const { TigerDataService } = await import('../../domain/services/TigerDataService');
-                    const purchaseOrders = await TigerDataService.fetchPurchaseOrders(effectiveId);
-                    set({ purchaseOrders: purchaseOrders || [] });
-                } catch (error) {
-                    Sentry.captureException(error, {
-                        tags: {
-                            module: 'useStore',
-                            action: 'refreshPurchaseOrders',
-                        },
-                        extra: {
-                            locationId: effectiveId || null,
-                        }
-                    });
-                }
-            },
-
-
-
             confirmReception: (shipmentId, evidenceData) => set((state) => {
                 const shipmentIndex = state.shipments.findIndex(s => s.id === shipmentId);
                 if (shipmentIndex === -1) return {};
@@ -2756,9 +2714,6 @@ export const usePharmaStore = create<PharmaState>()(
                             // We don't use set() here because we are in the rehydration callback directly on the state
                             state.currentLocationId = '';
                         }
-                        // WMS server-state now lives in React Query. Drop any stale persisted cache on hydration.
-                        state.shipments = [];
-                        state.purchaseOrders = [];
                     }
                 };
             },
