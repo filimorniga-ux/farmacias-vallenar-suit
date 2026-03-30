@@ -15,8 +15,8 @@ const validUserId = '550e8400-e29b-41d4-a716-446655440002';
 const newUserId = '550e8400-e29b-41d4-a716-446655440003';
 
 vi.mock('next/headers', () => ({
-    headers: vi.fn().mockReturnValue(Promise.resolve(new Map())),
-    cookies: vi.fn(() => ({ get: vi.fn() }))
+    headers: vi.fn().mockResolvedValue(new Map([['x-forwarded-for', '127.0.0.1']])),
+    cookies: vi.fn().mockResolvedValue({ get: vi.fn(() => undefined) })
 }));
 
 vi.mock('@/lib/server-session', () => ({

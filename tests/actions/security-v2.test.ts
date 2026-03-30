@@ -14,8 +14,7 @@ const validUserId = '550e8400-e29b-41d4-a716-446655440002';
 
 const { mockHeaders } = vi.hoisted(() => ({
     mockHeaders: new Map([
-        ['x-user-id', '550e8400-e29b-41d4-a716-446655440001'],
-        ['x-user-role', 'ADMIN']
+        ['x-forwarded-for', '127.0.0.1']
     ])
 }));
 
@@ -69,8 +68,8 @@ vi.mock('crypto', () => ({
 // Reset mocks before each test
 beforeEach(() => {
     vi.clearAllMocks();
-    mockHeaders.set('x-user-id', validAdminId); // Reset to default admin
-    mockHeaders.set('x-user-role', 'ADMIN');
+    mockHeaders.clear();
+    mockHeaders.set('x-forwarded-for', '127.0.0.1');
 });
 
 // Test data
