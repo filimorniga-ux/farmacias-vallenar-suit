@@ -18,6 +18,7 @@ import SuggestionAnalysisHistoryPanel from '../components/supply/SuggestionAnaly
 import { exportSuggestedOrdersSecure } from '../../actions/procurement-export';
 import { FileDown } from 'lucide-react';
 import { usePlatform } from '@/hooks/usePlatform';
+import { useBootstrapSupplyProcurement } from '@/presentation/hooks/useBootstrapSupplyProcurement';
 
 // Helper Components
 const SupplierSelector = React.memo(({ item, className, onChangeSupplier }: { item: ExtendedSuggestion, className: string, onChangeSupplier: (sku: string, supplierId: string) => void }) => {
@@ -89,15 +90,11 @@ interface ExtendedSuggestion extends AutoOrderSuggestion {
 
 const SupplyChainPage: React.FC = () => {
     // ... (store hooks remain same)
-    const inventory = usePharmaStore((state) => state.inventory);
-    const suppliers = usePharmaStore((state) => state.suppliers);
-    const purchaseOrders = usePharmaStore((state) => state.purchaseOrders);
     const receivePurchaseOrder = usePharmaStore((state) => state.receivePurchaseOrder);
     const finalizePurchaseOrderReview = usePharmaStore((state) => state.finalizePurchaseOrderReview);
     const currentLocationId = usePharmaStore((state) => state.currentLocationId);
     const user = usePharmaStore((state) => state.user);
     const locations = useLocationStore((state) => state.locations);
-    const fetchLocations = useLocationStore((state) => state.fetchLocations);
 
     const [isReceptionModalOpen, setIsReceptionModalOpen] = useState(false);
     const [receptionModalMode, setReceptionModalMode] = useState<'RECEIVE' | 'VIEW' | 'REVIEW'>('RECEIVE');
@@ -128,6 +125,13 @@ const SupplyChainPage: React.FC = () => {
     const [analysisHistoryRefreshKey, setAnalysisHistoryRefreshKey] = useState(0);
     const { isMobile, isDesktopLike, isLandscape, viewportWidth } = usePlatform();
     const [showAdvancedMobileFilters, setShowAdvancedMobileFilters] = useState(false);
+    const showSplitPanels = isDesktopLike || (isLandscape && viewportWidth >= 900);
+    const { suppliers } = useBootstrapSupplyProcurement({
+        activeLocationId: currentLocationId,
+        enableKanbanBootstrap: showSplitPanels,
+        loadSuppliers: true,
+        loadLocations: true,
+    });
 
     // NEW: Date-range analysis mode
     const [analysisMode, setAnalysisMode] = useState<'window' | 'daterange'>('window');
@@ -150,15 +154,10 @@ const SupplyChainPage: React.FC = () => {
     });
 
     useEffect(() => {
-        usePharmaStore.getState().syncData();
-        fetchLocations();
-    }, []);
-
-    useEffect(() => {
         if (currentLocationId && !selectedLocation) {
             setSelectedLocation(currentLocationId);
         }
-    }, [currentLocationId]);
+    }, [currentLocationId, selectedLocation]);
 
     // Intelligent ordering analysis is now manual to allow users to configure filters first.
     // The analysis only runs when the "Analizar" button is clicked or "Enter" is pressed in the search box.
@@ -590,7 +589,6 @@ const SupplyChainPage: React.FC = () => {
 
     // ... Logic moved to SupplyKanban ...
 
-    const showSplitPanels = isDesktopLike || (isLandscape && viewportWidth >= 900);
     const transferSuggestions = suggestions.filter(
         (suggestion) => suggestion.action_type === 'TRANSFER' || suggestion.action_type === 'PARTIAL_TRANSFER'
     );
@@ -1362,6 +1360,7 @@ const SupplyChainPage: React.FC = () => {
                 {/* Right: Kanban Status */}
                 <div className={`${showSplitPanels ? 'flex' : 'hidden'} flex-1 flex-col overflow-hidden max-w-sm`}>
                     <SupplyKanban
+                        bootstrapOnMount={false}
                         onEditOrder={(po) => {
                             setSelectedOrder(po);
                             setIsManualOrderModalOpen(true);

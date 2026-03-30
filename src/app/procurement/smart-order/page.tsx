@@ -1,11 +1,10 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { generateRestockSuggestionSecure, createPurchaseOrderSecure, approvePurchaseOrderSecure } from '@/actions/procurement-v2';
-import { getSuppliersListSecure } from '@/actions/suppliers-v2';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { useLocationStore } from '@/presentation/store/useLocationStore';
+import { useBootstrapSupplyProcurement } from '@/presentation/hooks/useBootstrapSupplyProcurement';
 import { PinModal } from '@/components/shared/PinModal';
 import { Calculator, ShoppingCart, Loader2, AlertTriangle, CheckCircle, TrendingUp, Shield, Lock } from 'lucide-react';
 import { toast } from 'sonner';
@@ -14,15 +13,19 @@ const MANAGER_THRESHOLD = 500000;
 const GERENTE_THRESHOLD = 1000000;
 
 export default function SmartOrderPage() {
-    const router = useRouter();
     const user = usePharmaStore((state) => state.user);
     const currentLocationId = usePharmaStore((state) => state.currentLocationId);
     const locations = useLocationStore((state) => state.locations);
+    const { suppliers } = useBootstrapSupplyProcurement({
+        activeLocationId: currentLocationId,
+        enableKanbanBootstrap: false,
+        loadSuppliers: true,
+        loadLocations: true,
+    });
 
     // filters
     const [supplierId, setSupplierId] = useState('');
     const [locationId, setLocationId] = useState('');
-    const [suppliers, setSuppliers] = useState<{ id: string, name: string }[]>([]);
     const [daysToCover, setDaysToCover] = useState(15);
     const [analysisWindow, setAnalysisWindow] = useState(30);
 
@@ -37,18 +40,10 @@ export default function SmartOrderPage() {
     const [showPinModal, setShowPinModal] = useState(false);
 
     useEffect(() => {
-        loadSuppliers();
         if (currentLocationId) {
             setLocationId(currentLocationId);
         }
     }, [currentLocationId]);
-
-    const loadSuppliers = async () => {
-        const res = await getSuppliersListSecure();
-        if (res.success && res.data) {
-            setSuppliers(res.data);
-        }
-    };
 
     const handleCalculate = async () => {
         if (!supplierId) return;

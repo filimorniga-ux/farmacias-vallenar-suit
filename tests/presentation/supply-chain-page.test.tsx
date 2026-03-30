@@ -9,8 +9,6 @@ import SupplyChainPage from '@/presentation/pages/SupplyChainPage';
 import { generateRestockSuggestionSecure } from '@/actions/procurement-v2';
 
 const mocks = vi.hoisted(() => {
-    const syncDataMock = vi.fn();
-    const fetchLocationsMock = vi.fn();
     const addPurchaseOrderMock = vi.fn();
     const receivePurchaseOrderMock = vi.fn();
     const generateSuggestedPOsMock = vi.fn(() => []);
@@ -24,36 +22,38 @@ const mocks = vi.hoisted(() => {
         isLandscape: false,
         viewportWidth: 1400,
     };
+    const bootstrapSupplyProcurementMock = vi.fn();
 
     const pharmaState = {
-        inventory: [],
-        suppliers: [],
-        purchaseOrders: [],
         addPurchaseOrder: addPurchaseOrderMock,
         receivePurchaseOrder: receivePurchaseOrderMock,
         generateSuggestedPOs: generateSuggestedPOsMock,
-        locations: [{ id: 'loc-1', name: 'Farmacia Test', default_warehouse_id: null }],
-        fetchLocations: fetchLocationsMock,
         currentLocationId: 'loc-1',
         user: { id: '1719073d-9da1-40d7-9dce-28ac3a415a6b' },
     };
 
+    const locationState = {
+        locations: [{ id: 'loc-1', name: 'Farmacia Test', default_warehouse_id: null }],
+    };
+
     const usePharmaStoreMock = Object.assign(
-        () => pharmaState,
+        function <T>(selector?: (state: typeof pharmaState) => T) {
+            return selector ? selector(pharmaState) : (pharmaState as T);
+        },
         {
-            getState: () => ({ ...pharmaState, syncData: syncDataMock }),
+            getState: () => pharmaState,
         }
     );
 
     return {
-        syncDataMock,
-        fetchLocationsMock,
         toastSuccessMock,
         toastErrorMock,
         toastInfoMock,
         generateRestockSuggestionSecureMock,
         usePharmaStoreMock,
+        locationState,
         platformState,
+        bootstrapSupplyProcurementMock,
     };
 });
 
@@ -61,8 +61,21 @@ vi.mock('@/presentation/store/useStore', () => ({
     usePharmaStore: mocks.usePharmaStoreMock,
 }));
 
+vi.mock('@/presentation/store/useLocationStore', () => ({
+    useLocationStore: (selector: (state: typeof mocks.locationState) => unknown) => selector(mocks.locationState),
+}));
+
 vi.mock('@/hooks/usePlatform', () => ({
     usePlatform: () => mocks.platformState,
+}));
+
+vi.mock('@/presentation/hooks/useBootstrapSupplyProcurement', () => ({
+    useBootstrapSupplyProcurement: () => ({
+        suppliers: [{ id: 'SUP-1', name: 'Proveedor Test' }],
+        isBootstrappingSupplyProcurement: false,
+        error: null,
+        bootstrapSupplyProcurement: mocks.bootstrapSupplyProcurementMock,
+    }),
 }));
 
 vi.mock('@/presentation/store/useNotificationStore', () => ({
