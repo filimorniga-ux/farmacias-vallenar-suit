@@ -28,6 +28,13 @@ import { pool } from '@/lib/db';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import {
+    getActorOrFail,
+    PinRbacError,
+    requireRole,
+    ROLE_GROUPS,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
+import {
     buildDispatchLotNumber,
     buildTransferLotNumber,
     getTransferLotColor,
@@ -102,8 +109,8 @@ const CreateReturnSchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-const SUPERVISOR_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
 const LARGE_ADJUSTMENT_THRESHOLD = 100; // units - requires supervisor PIN
+const WMS_ALLOWED_ROLES = [...ROLE_GROUPS.MANAGER, 'WAREHOUSE', 'QF'] as const;
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -112,49 +119,77 @@ const LARGE_ADJUSTMENT_THRESHOLD = 100; // units - requires supervisor PIN
 /**
  * Validate supervisor PIN
  */
+type WmsActor = Awaited<ReturnType<typeof getActorOrFail>>;
+
+async function resolveWmsActor(
+    requestedUserId?: string,
+    action = 'wms-operation'
+): Promise<{ success: true; actor: WmsActor } | { success: false; error: string }> {
+    try {
+        const actor = await getActorOrFail();
+
+        if (requestedUserId && requestedUserId !== actor.userId) {
+            console.warn('[WMS-V2] Ignoring payload userId; using validated session user', {
+                requestedUserId,
+                actorUserId: actor.userId,
+                action,
+            });
+        }
+
+        return { success: true, actor };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { success: false, error: 'No autorizado' };
+        }
+
+        throw error;
+    }
+}
+
+async function requireWmsRoleActor(
+    allowedRoles: readonly string[],
+    action = 'wms-read-operation'
+): Promise<{ success: true; actor: WmsActor } | { success: false; error: string }> {
+    const actorResult = await resolveWmsActor(undefined, action);
+    if (!actorResult.success) {
+        return actorResult;
+    }
+
+    try {
+        requireRole(actorResult.actor, allowedRoles);
+        return actorResult;
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { success: false, error: 'No autorizado' };
+        }
+
+        throw error;
+    }
+}
+
 async function validateSupervisorPin(client: DBRow, pin: string): Promise<{
     valid: boolean;
-    supervisor?: { id: string; name: string };
+    supervisor?: { id: string; name: string; role: string };
     error?: string;
 }> {
     try {
-        const bcrypt = await import('bcryptjs');
+        const result = await validatePinForRoles(client, pin, ROLE_GROUPS.MANAGER, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        const supervisorsRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE role = ANY($1::text[])
-            AND is_active = true
-        `, [SUPERVISOR_ROLES]);
-
-        if (supervisorsRes.rows.length === 0) {
-            return { valid: false, error: 'No hay supervisores activos' };
+        if (!result.valid) {
+            return { valid: false, error: result.error || 'PIN de supervisor inválido' };
         }
 
-        for (const supervisor of supervisorsRes.rows) {
-            let pinValid = false;
-
-            if (supervisor.access_pin_hash) {
-                pinValid = await bcrypt.compare(pin, supervisor.access_pin_hash);
-            } else if (supervisor.access_pin) {
-                const crypto = await import('crypto');
-                const inputBuffer = Buffer.from(pin);
-                const storedBuffer = Buffer.from(supervisor.access_pin);
-
-                if (inputBuffer.length === storedBuffer.length) {
-                    pinValid = crypto.timingSafeEqual(inputBuffer, storedBuffer);
-                }
+        return {
+            valid: true,
+            supervisor: {
+                id: result.authorizedBy.id,
+                name: result.authorizedBy.name,
+                role: result.authorizedBy.role,
             }
-
-            if (pinValid) {
-                return {
-                    valid: true,
-                    supervisor: { id: supervisor.id, name: supervisor.name }
-                };
-            }
-        }
-
-        return { valid: false, error: 'PIN de supervisor inválido' };
+        };
     } catch (error) {
         console.error('[WMS-V2] PIN validation error:', error);
         return { valid: false, error: 'Error validando PIN' };
@@ -357,7 +392,14 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
         };
     }
 
+    const actorResult = await resolveWmsActor(validated.data.userId, 'wms-stock-movement');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    const actorUserId = actorResult.actor.userId;
     const client = await pool.connect();
+    let authorizedBy: { id: string; name: string; role: string } | undefined;
 
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
@@ -379,6 +421,8 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
                 await client.query('ROLLBACK');
                 return { success: false, error: pinCheck.error };
             }
+
+            authorizedBy = pinCheck.supervisor;
         }
 
         // 3. Find or validate batch
@@ -461,7 +505,7 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
             randomUUID(),
             productSku, productName, locationId, validated.data.type,
             delta, currentQty, newQty,
-            validated.data.userId, validated.data.reason, targetBatchId
+            actorUserId, validated.data.reason, targetBatchId
         ]);
 
         // 10. Audit
@@ -472,7 +516,7 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
 
         await insertStockAudit(client, {
             actionCode: movementAuditAction,
-            userId: validated.data.userId,
+            userId: actorUserId,
             productId: validated.data.productId,
             details: {
                 type: validated.data.type,
@@ -481,7 +525,9 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
                 stock_before: currentQty,
                 stock_after: newQty,
                 warehouse_id: validated.data.warehouseId,
-                reason: validated.data.reason
+                reason: validated.data.reason,
+                authorized_by: authorizedBy?.id || null,
+                authorized_by_name: authorizedBy?.name || null,
             }
         });
 
@@ -506,7 +552,8 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
                             batchId: targetBatchId,
                             warehouseId: validated.data.warehouseId,
                             movementType: validated.data.type,
-                            userId: validated.data.userId,
+                            userId: actorUserId,
+                            authorizedById: authorizedBy?.id || null,
                             newStock: newQty
                         }
                     });
@@ -561,6 +608,12 @@ export async function executeTransferSecure(data: z.infer<typeof TransferSchema>
         return { success: false, error: 'Origen y destino no pueden ser iguales' };
     }
 
+    const actorResult = await resolveWmsActor(validated.data.userId, 'wms-transfer');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    const actorUserId = actorResult.actor.userId;
     const client = await pool.connect();
 
     try {
@@ -612,11 +665,11 @@ export async function executeTransferSecure(data: z.infer<typeof TransferSchema>
                 mode: 'DIRECT_TRANSFER',
                 origin_warehouse_id: validated.data.originWarehouseId,
                 target_warehouse_id: validated.data.targetWarehouseId,
-                created_by_id: validated.data.userId,
+                created_by_id: actorUserId,
                 authorized_by_id: authorizedBy?.id || null,
                 authorized_by_name: authorizedBy?.name || null
             }),
-            validated.data.userId,
+            actorUserId,
             validated.data.notes || 'Transferencia directa entre bodegas'
         ]);
 
@@ -694,7 +747,7 @@ export async function executeTransferSecure(data: z.infer<typeof TransferSchema>
             `, [
                 batch.sku, batch.name, originLoc, -item.quantity,
                 batch.quantity_real, newOriginQty,
-                validated.data.userId,
+                actorUserId,
                 `Transfer to ${validated.data.targetWarehouseId}`,
                 targetBatchId,
                 shipmentId
@@ -729,14 +782,16 @@ export async function executeTransferSecure(data: z.infer<typeof TransferSchema>
         // 6. Audit
         await insertStockAudit(client, {
             actionCode: 'STOCK_TRANSFERRED',
-            userId: validated.data.userId,
+            userId: actorUserId,
             productId: validated.data.items[0].productId,
             details: {
                 origin_warehouse: validated.data.originWarehouseId,
                 target_warehouse: validated.data.targetWarehouseId,
                 items_count: validated.data.items.length,
                 total_quantity: totalQuantity,
-                notes: validated.data.notes
+                notes: validated.data.notes,
+                authorized_by: authorizedBy?.id || null,
+                authorized_by_name: authorizedBy?.name || null,
             }
         });
 
@@ -934,12 +989,9 @@ export async function getShipmentsSecure(filters?: z.input<typeof GetShipmentsSc
         };
     }
 
-    const { getSessionSecure } = await import('@/actions/auth-v2');
-    const session = await getSessionSecure();
-    const ALLOWED_ROLES = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'WAREHOUSE', 'QF'];
-
-    if (!session || !ALLOWED_ROLES.includes(session.role as string)) {
-        return { success: false, error: 'No autorizado' };
+    const actorResult = await requireWmsRoleActor(WMS_ALLOWED_ROLES, 'wms-get-shipments');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
     try {
@@ -1140,12 +1192,12 @@ export async function createDispatchSecure(data: z.infer<typeof CreateDispatchSc
     shipmentId?: string;
     error?: string;
 }> {
-    const { getSessionSecure } = await import('@/actions/auth-v2'); // Dynamic import to avoid circular deps if any
     const { revalidatePath } = await import('next/cache');
 
     // 0. Auth Check
-    const session = await getSessionSecure();
-    if (!session) return { success: false, error: 'No autorizado' };
+    const actorResult = await resolveWmsActor(undefined, 'wms-create-dispatch');
+    if (!actorResult.success) return { success: false, error: actorResult.error };
+    const actor = actorResult.actor;
 
     // 1. Validation
     const validated = CreateDispatchSchema.safeParse(data);
@@ -1205,8 +1257,8 @@ export async function createDispatchSecure(data: z.infer<typeof CreateDispatchSc
 
         const transportContext = {
             ...transportData,
-            created_by_id: session.userId,
-            created_by_name: session.userName || null,
+            created_by_id: actor.userId,
+            created_by_name: actor.userName || null,
         };
 
         await client.query(`
@@ -1219,7 +1271,7 @@ export async function createDispatchSecure(data: z.infer<typeof CreateDispatchSc
             )
         `, [
             shipmentId, mappedType, originLocationId, destinationLocationId,
-            JSON.stringify(transportContext), session.userId, notes || ''
+            JSON.stringify(transportContext), actor.userId, notes || ''
         ]);
 
         // 4. Process Items (Lock, deduct, add to shipment_items)
@@ -1257,7 +1309,7 @@ export async function createDispatchSecure(data: z.infer<typeof CreateDispatchSc
                 `, [
                     randomUUID(), item.sku, item.name, originLocationId,
                     item.quantity, batch.quantity_real, newQty,
-                    session.userId, `Despacho ${shipmentId}`, item.batchId, shipmentId
+                    actor.userId, `Despacho ${shipmentId}`, item.batchId, shipmentId
                 ]);
 
                 // Add to Shipment Items
@@ -1291,7 +1343,7 @@ export async function createDispatchSecure(data: z.infer<typeof CreateDispatchSc
         // 5. Audit
         await insertAuditLog(client, {
             type: 'dispatch',
-            userId: session.userId,
+            userId: actor.userId,
             shipmentId,
             itemsCount: items.length
         }); // Reusing/adapting existing audit helper if flexible, or generic insert
@@ -1320,11 +1372,11 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
     success: boolean;
     error?: string;
 }> {
-    const { getSessionSecure } = await import('@/actions/auth-v2');
     const { revalidatePath } = await import('next/cache');
 
-    const session = await getSessionSecure();
-    if (!session) return { success: false, error: 'No autorizado' };
+    const actorResult = await resolveWmsActor(undefined, 'wms-process-reception');
+    if (!actorResult.success) return { success: false, error: actorResult.error };
+    const actor = actorResult.actor;
 
     const validated = ProcessReceptionSchema.safeParse(data);
     if (!validated.success) return { success: false, error: 'Datos inválidos' };
@@ -1431,7 +1483,7 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
             `, [
                 randomUUID(), shipItem.sku, resolvedName, shipment.destination_location_id,
                 received.quantity, qtyBefore, qtyAfter,
-                session.userId,
+                actor.userId,
                 transferColor
                     ? `Recepción ${shipmentId} | Lote ${lotNumber} | Color ${transferColor.label}`
                     : `Recepción ${shipmentId} | Lote ${lotNumber}`,
@@ -1491,7 +1543,7 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
                     randomUUID(), unexpected.sku, unexpected.name,
                     shipment.destination_location_id,
                     unexpected.quantity, unexpected.quantity,
-                    session.userId,
+                    actor.userId,
                     `Recepción inesperada ${shipmentId} | Lote ${uLotNumber}`,
                     uBatchId, shipmentId
                 ]);
@@ -1513,12 +1565,12 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
                 ),
                 notes = CASE WHEN $4::text IS NOT NULL THEN COALESCE(notes, '') || E'\n' || $4::text ELSE notes END
             WHERE id = $5
-        `, [status, session.userId, session.userName || 'Usuario', notes || null, shipmentId]);
+        `, [status, actor.userId, actor.userName || 'Usuario', notes || null, shipmentId]);
 
         // 5. Audit
         await insertAuditLog(client, {
             type: 'reception',
-            userId: session.userId,
+            userId: actor.userId,
             shipmentId,
             itemsCount: receivedItems.length
         });
@@ -1562,12 +1614,9 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
         };
     }
 
-    const { getSessionSecure } = await import('@/actions/auth-v2');
-    const session = await getSessionSecure();
-    const ALLOWED_ROLES = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'WAREHOUSE', 'QF'];
-
-    if (!session || !ALLOWED_ROLES.includes(session.role as string)) {
-        return { success: false, error: 'No autorizado' };
+    const actorResult = await requireWmsRoleActor(WMS_ALLOWED_ROLES, 'wms-get-purchase-orders');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
     try {
@@ -1745,11 +1794,10 @@ export async function createReturnSecure(data: z.infer<typeof CreateReturnSchema
     shipmentId?: string;
     error?: string;
 }> {
-    const { getSessionSecure } = await import('@/actions/auth-v2');
     const { revalidatePath } = await import('next/cache');
-    const session = await getSessionSecure();
-
-    if (!session) return { success: false, error: 'No autorizado' };
+    const actorResult = await resolveWmsActor(undefined, 'wms-create-return');
+    if (!actorResult.success) return { success: false, error: actorResult.error };
+    const actor = actorResult.actor;
 
     const validated = CreateReturnSchema.safeParse(data);
     if (!validated.success) {
@@ -1783,7 +1831,7 @@ export async function createReturnSecure(data: z.infer<typeof CreateReturnSchema
             )
         `, [
             shipmentId, originLocationId, destinationLocationId,
-            session.userId, notes || ''
+            actor.userId, notes || ''
         ]);
 
         // 3. Process Items
@@ -1838,7 +1886,7 @@ export async function createReturnSecure(data: z.infer<typeof CreateReturnSchema
                `, [
                     randomUUID(), item.sku, productName, originLocationId,
                     -item.quantity, batch.quantity_real, newQty,
-                    session.userId, `Devolución ${item.condition}`, batch.id, shipmentId
+                    actor.userId, `Devolución ${item.condition}`, batch.id, shipmentId
                 ]);
             } else {
                 // Force negative stock or error? 

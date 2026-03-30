@@ -16,9 +16,14 @@
 import { pool, query } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
-import { headers } from 'next/headers';
 import { randomUUID } from 'crypto';
 import { logger } from '@/lib/logger';
+import {
+    getActorOrFail,
+    PinRbacError,
+    ROLE_GROUPS,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
 // ============================================================================
 // SCHEMAS
@@ -47,8 +52,6 @@ const TicketSchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
-
 // Rate limiting para tickets (en memoria)
 const ticketRateLimit = new Map<string, { count: number; resetAt: number }>();
 const TICKET_RATE_LIMIT = { maxPerMinute: 30 };
@@ -57,36 +60,54 @@ const TICKET_RATE_LIMIT = { maxPerMinute: 30 };
 // HELPERS
 // ============================================================================
 
+type OperationsActor = Awaited<ReturnType<typeof getActorOrFail>>;
+
+async function requireOperationsActor(
+    requestedUserId?: string,
+    action = 'operations'
+): Promise<{ success: true; actor: OperationsActor } | { success: false; error: string }> {
+    try {
+        const actor = await getActorOrFail();
+
+        if (requestedUserId && requestedUserId !== actor.userId) {
+            logger.warn(
+                { requestedUserId, actorUserId: actor.userId, action },
+                'Ignoring payload userId in operations module; using validated session user'
+            );
+        }
+
+        return { success: true, actor };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { success: false, error: error.message };
+        }
+
+        throw error;
+    }
+}
+
 async function validateManagerPin(
     client: any,
     pin: string
-): Promise<{ valid: boolean; manager?: { id: string; name: string }; error?: string }> {
+): Promise<{ valid: boolean; manager?: { id: string; name: string; role: string }; error?: string }> {
     try {
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
-        const bcrypt = await import('bcryptjs');
+        const result = await validatePinForRoles(client, pin, ROLE_GROUPS.MANAGER, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        const usersRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users WHERE role = ANY($1::text[]) AND is_active = true
-        `, [MANAGER_ROLES]);
-
-        for (const user of usersRes.rows) {
-            const rateCheck = checkRateLimit(user.id);
-            if (!rateCheck.allowed) continue;
-
-            if (user.access_pin_hash) {
-                const valid = await bcrypt.compare(pin, user.access_pin_hash);
-                if (valid) {
-                    resetAttempts(user.id);
-                    return { valid: true, manager: { id: user.id, name: user.name } };
-                }
-                recordFailedAttempt(user.id);
-            } else if (user.access_pin === pin) {
-                resetAttempts(user.id);
-                return { valid: true, manager: { id: user.id, name: user.name } };
-            }
+        if (!result.valid) {
+            return { valid: false, error: result.error || 'PIN de manager inválido' };
         }
-        return { valid: false, error: 'PIN de manager inválido' };
+
+        return {
+            valid: true,
+            manager: {
+                id: result.authorizedBy.id,
+                name: result.authorizedBy.name,
+                role: result.authorizedBy.role,
+            },
+        };
     } catch (error) {
         logger.error({ error }, '[Operations] PIN validation error');
         return { valid: false, error: 'Error validando PIN' };
@@ -181,6 +202,13 @@ export async function openShiftSecure(
     }
 
     const { userId, locationId, managerPin } = validated.data;
+    const actorResult = await requireOperationsActor(userId, 'open-shift');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    const actorUserId = actorResult.actor.userId;
+    const actorName = actorResult.actor.userName || actorUserId;
     const client = await pool.connect();
 
     try {
@@ -209,24 +237,32 @@ export async function openShiftSecure(
             VALUES ($1, true, $2, NOW())
             ON CONFLICT (location_id) 
             DO UPDATE SET is_open = true, opened_by = $2, opened_at = NOW(), closed_by = NULL, closed_at = NULL
-        `, [locationId, authResult.manager!.id]);
+        `, [locationId, actorUserId]);
 
         // Auditar
         await auditOperation(client, {
-            userId: authResult.manager!.id,
+            userId: actorUserId,
             action: 'SHIFT_OPENED',
             entityType: 'SHIFT',
-            details: { location_id: locationId, opened_by: authResult.manager!.name },
+            details: {
+                location_id: locationId,
+                opened_by: actorName,
+                authorized_by: authResult.manager!.name,
+                authorized_by_id: authResult.manager!.id,
+            },
         });
 
         await client.query('COMMIT');
 
-        logger.info({ locationId, managerId: authResult.manager!.id }, '🟢 [Operations] Shift opened');
+        logger.info(
+            { locationId, actorUserId, authorizedById: authResult.manager!.id },
+            '🟢 [Operations] Shift opened'
+        );
         revalidatePath('/');
 
         // 🤖 AUTO-CHECK-IN: Si abrió turno, está trabajando.
         const { ensureCheckInSecure } = await import('@/actions/attendance-v2');
-        const autoCheckInTriggered = await ensureCheckInSecure(authResult.manager!.id, locationId);
+        const autoCheckInTriggered = await ensureCheckInSecure(actorUserId, locationId);
 
         return { success: true, autoCheckInTriggered };
 
@@ -252,6 +288,13 @@ export async function closeShiftSecure(
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
+    const actorResult = await requireOperationsActor(validated.data.userId, 'close-shift');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    const actorUserId = actorResult.actor.userId;
+    const actorName = actorResult.actor.userName || actorUserId;
     const client = await pool.connect();
 
     try {
@@ -269,7 +312,7 @@ export async function closeShiftSecure(
             UPDATE shift_status 
             SET is_open = false, closed_by = $2, closed_at = NOW()
             WHERE location_id = $1 AND is_open = true
-        `, [locationId, authResult.manager!.id]);
+        `, [locationId, actorUserId]);
 
         if (result.rowCount === 0) {
             await client.query('ROLLBACK');
@@ -277,15 +320,23 @@ export async function closeShiftSecure(
         }
 
         await auditOperation(client, {
-            userId: authResult.manager!.id,
+            userId: actorUserId,
             action: 'SHIFT_CLOSED',
             entityType: 'SHIFT',
-            details: { location_id: locationId, closed_by: authResult.manager!.name },
+            details: {
+                location_id: locationId,
+                closed_by: actorName,
+                authorized_by: authResult.manager!.name,
+                authorized_by_id: authResult.manager!.id,
+            },
         });
 
         await client.query('COMMIT');
 
-        logger.info({ locationId }, '🔴 [Operations] Shift closed');
+        logger.info(
+            { locationId, actorUserId, authorizedById: authResult.manager!.id },
+            '🔴 [Operations] Shift closed'
+        );
         revalidatePath('/');
         return { success: true };
 
@@ -314,6 +365,12 @@ export async function clockInSecure(
     }
 
     const { userId, locationId, method } = validated.data;
+    const actorResult = await requireOperationsActor(userId, 'clock-in');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    const actorUserId = actorResult.actor.userId;
     const client = await pool.connect();
 
     try {
@@ -331,7 +388,7 @@ export async function clockInSecure(
                 AND DATE(al2.timestamp) = CURRENT_DATE 
                 AND al2.type = 'CHECK_OUT'
             )
-        `, [userId]);
+        `, [actorUserId]);
 
         if (checkRes.rows.length > 0) {
             await client.query('ROLLBACK');
@@ -343,10 +400,10 @@ export async function clockInSecure(
         await client.query(`
             INSERT INTO attendance_logs (id, user_id, type, location_id, method, timestamp)
             VALUES ($1, $2, 'CHECK_IN', $3, $4, NOW())
-        `, [attendanceId, userId, locationId, method]);
+        `, [attendanceId, actorUserId, locationId, method]);
 
         await auditOperation(client, {
-            userId,
+            userId: actorUserId,
             action: 'CLOCK_IN',
             entityType: 'ATTENDANCE',
             details: { location_id: locationId, method },
@@ -354,7 +411,7 @@ export async function clockInSecure(
 
         await client.query('COMMIT');
 
-        logger.info({ userId, locationId }, '🕐 [Operations] Clock in');
+        logger.info({ userId: actorUserId, locationId }, '🕐 [Operations] Clock in');
         revalidatePath('/');
         return { success: true, attendanceId };
 
@@ -374,10 +431,16 @@ export async function clockOutSecure(
     userId: string,
     locationId: string
 ): Promise<{ success: boolean; hoursWorked?: number; error?: string }> {
-    if (!UUIDSchema.safeParse(userId).success || !UUIDSchema.safeParse(locationId).success) {
-        return { success: false, error: 'IDs inválidos' };
+    if (!UUIDSchema.safeParse(locationId).success) {
+        return { success: false, error: 'ID de ubicación inválido' };
     }
 
+    const actorResult = await requireOperationsActor(userId, 'clock-out');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    const actorUserId = actorResult.actor.userId;
     const client = await pool.connect();
 
     try {
@@ -391,7 +454,7 @@ export async function clockOutSecure(
             AND type = 'CHECK_IN'
             ORDER BY timestamp DESC
             LIMIT 1
-        `, [userId]);
+        `, [actorUserId]);
 
         if (checkInRes.rows.length === 0) {
             await client.query('ROLLBACK');
@@ -407,10 +470,10 @@ export async function clockOutSecure(
         await client.query(`
             INSERT INTO attendance_logs (id, user_id, type, location_id, method, timestamp, hours_worked)
             VALUES ($1, $2, 'CHECK_OUT', $3, 'PIN', NOW(), $4)
-        `, [attendanceId, userId, locationId, hoursWorked]);
+        `, [attendanceId, actorUserId, locationId, hoursWorked]);
 
         await auditOperation(client, {
-            userId,
+            userId: actorUserId,
             action: 'CLOCK_OUT',
             entityType: 'ATTENDANCE',
             details: { location_id: locationId, hours_worked: hoursWorked.toFixed(2) },
@@ -418,7 +481,7 @@ export async function clockOutSecure(
 
         await client.query('COMMIT');
 
-        logger.info({ userId, hoursWorked: hoursWorked.toFixed(2) }, '🕐 [Operations] Clock out');
+        logger.info({ userId: actorUserId, hoursWorked: hoursWorked.toFixed(2) }, '🕐 [Operations] Clock out');
         revalidatePath('/');
         return { success: true, hoursWorked: Math.round(hoursWorked * 100) / 100 };
 
@@ -490,10 +553,12 @@ export async function callNextTicketSecure(
     counterId: number,
     userId: string
 ): Promise<{ success: boolean; ticket?: { id: string; number: string }; error?: string }> {
-    if (!UUIDSchema.safeParse(userId).success) {
-        return { success: false, error: 'ID de usuario inválido' };
+    const actorResult = await requireOperationsActor(userId, 'call-next-ticket');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
+    const actorUserId = actorResult.actor.userId;
     const client = await pool.connect();
 
     try {
@@ -520,10 +585,10 @@ export async function callNextTicketSecure(
             UPDATE queue_tickets 
             SET status = 'CALLING', counter_id = $1, called_at = NOW(), called_by = $3
             WHERE id = $2
-        `, [counterId, ticket.id, userId]);
+        `, [counterId, ticket.id, actorUserId]);
 
         await auditOperation(client, {
-            userId,
+            userId: actorUserId,
             action: 'TICKET_CALLED',
             entityType: 'QUEUE',
             details: { ticket_number: ticket.ticket_number, counter: counterId },

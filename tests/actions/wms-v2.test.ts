@@ -20,13 +20,25 @@ const {
     mockRelease,
     mockConnect,
     mockPoolQuery,
-    mockGetSessionSecure,
+    mockGetActorOrFail,
+    mockValidatePinForRoles,
+    PinRbacErrorMock,
 } = vi.hoisted(() => ({
     mockQuery: vi.fn(),
     mockRelease: vi.fn(),
     mockConnect: vi.fn(),
     mockPoolQuery: vi.fn(),
-    mockGetSessionSecure: vi.fn(),
+    mockGetActorOrFail: vi.fn(),
+    mockValidatePinForRoles: vi.fn(),
+    PinRbacErrorMock: class PinRbacErrorMock extends Error {
+        code: string;
+
+        constructor(code: string, message: string) {
+            super(message);
+            this.name = 'PinRbacError';
+            this.code = code;
+        }
+    },
 }));
 
 // Mock DB
@@ -43,8 +55,21 @@ vi.mock('@/lib/db', () => ({
     },
 }));
 
-vi.mock('@/actions/auth-v2', () => ({
-    getSessionSecure: mockGetSessionSecure,
+vi.mock('@/lib/pin-rbac', () => ({
+    getActorOrFail: (...args: unknown[]) => mockGetActorOrFail(...args),
+    validatePinForRoles: (...args: unknown[]) => mockValidatePinForRoles(...args),
+    requireRole: (actor: { role?: string }, allowedRoles: readonly string[]) => {
+        const normalizedRole = String(actor.role || '').trim().toUpperCase();
+        const normalizedAllowed = allowedRoles.map((role) => String(role).trim().toUpperCase());
+        if (!normalizedAllowed.includes(normalizedRole)) {
+            throw new PinRbacErrorMock('AUTH_FORBIDDEN', 'Acceso denegado');
+        }
+        return actor;
+    },
+    ROLE_GROUPS: {
+        MANAGER: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
+    },
+    PinRbacError: PinRbacErrorMock,
 }));
 
 vi.mock('next/cache', () => ({
@@ -82,10 +107,18 @@ import {
 describe('WMS V2 - Input Validation', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mockGetSessionSecure.mockResolvedValue({
+        mockGetActorOrFail.mockResolvedValue({
             userId: TEST_USERS.manager.id,
             userName: TEST_USERS.manager.name,
             role: 'ADMIN',
+        });
+        mockValidatePinForRoles.mockResolvedValue({
+            valid: true,
+            authorizedBy: {
+                id: TEST_USERS.admin.id,
+                name: TEST_USERS.admin.name,
+                role: 'ADMIN',
+            },
         });
     });
 
@@ -196,10 +229,18 @@ describe('WMS V2 - Input Validation', () => {
 describe('WMS V2 - Database Scenarios', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mockGetSessionSecure.mockResolvedValue({
+        mockGetActorOrFail.mockResolvedValue({
             userId: TEST_USERS.manager.id,
             userName: TEST_USERS.manager.name,
             role: 'ADMIN',
+        });
+        mockValidatePinForRoles.mockResolvedValue({
+            valid: true,
+            authorizedBy: {
+                id: TEST_USERS.admin.id,
+                name: TEST_USERS.admin.name,
+                role: 'ADMIN',
+            },
         });
     });
 
@@ -231,6 +272,24 @@ describe('WMS V2 - Database Scenarios', () => {
         expect(result.error).toContain('lotes disponibles');
     });
 
+    it('should reject stock movement when session is not valid', async () => {
+        mockGetActorOrFail.mockRejectedValueOnce(new PinRbacErrorMock('AUTH_UNAUTHORIZED', 'Sesión no válida'));
+
+        const result = await executeStockMovementSecure({
+            productId: TEST_PRODUCT_ID,
+            warehouseId: TEST_WAREHOUSE_ID,
+            type: 'ADJUSTMENT',
+            quantity: 10,
+            reason: 'Movimiento con sesión inválida',
+            userId: TEST_USERS.cashier.id,
+            batchId: TEST_BATCH_ID,
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('No autorizado');
+        expect(mockConnect).not.toHaveBeenCalled();
+    });
+
     it('should handle lock contention error (55P03)', async () => {
         mockQuery.mockImplementation((sql: string) => {
             if (sql.startsWith('BEGIN')) return Promise.resolve({ rows: [] });
@@ -253,6 +312,60 @@ describe('WMS V2 - Database Scenarios', () => {
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('siendo modificado');
+    });
+
+    it('should use session actor for stock movement and keep PIN authorizer as metadata', async () => {
+        mockQuery.mockImplementation((sql: string) => {
+            if (sql === 'BEGIN ISOLATION LEVEL SERIALIZABLE') return Promise.resolve({ rows: [] });
+            if (sql.includes('SELECT') && sql.includes('FOR UPDATE NOWAIT')) {
+                return Promise.resolve({
+                    rows: [{
+                        id: TEST_BATCH_ID,
+                        quantity_real: 220,
+                        product_id: TEST_PRODUCT_ID,
+                        sku: 'SKU-001',
+                        name: 'Producto Test',
+                    }]
+                });
+            }
+            if (sql.includes('SELECT name, sku FROM products')) {
+                return Promise.resolve({ rows: [{ name: 'Producto Test', sku: 'SKU-001' }] });
+            }
+            if (sql.startsWith('SELECT location_id FROM warehouses')) {
+                return Promise.resolve({ rows: [{ location_id: TEST_LOCATION_ID }] });
+            }
+            if (sql.startsWith('SAVEPOINT') || sql.startsWith('ROLLBACK TO SAVEPOINT') || sql.startsWith('RELEASE SAVEPOINT')) {
+                return Promise.resolve({ rows: [] });
+            }
+            if (sql === 'COMMIT' || sql === 'ROLLBACK') return Promise.resolve({ rows: [] });
+            return Promise.resolve({ rows: [] });
+        });
+
+        const result = await executeStockMovementSecure({
+            productId: TEST_PRODUCT_ID,
+            warehouseId: TEST_WAREHOUSE_ID,
+            batchId: TEST_BATCH_ID,
+            type: 'ADJUSTMENT',
+            quantity: 150,
+            reason: 'Ajuste mayor con PIN supervisor',
+            userId: TEST_USERS.cashier.id,
+            supervisorPin: '1234',
+        });
+
+        expect(result.success).toBe(true);
+
+        const movementCall = mockQuery.mock.calls.find((call) =>
+            String(call[0]).includes('INSERT INTO stock_movements')
+        );
+        expect(movementCall?.[1]?.[8]).toBe(TEST_USERS.manager.id);
+
+        const auditCall = mockQuery.mock.calls.find((call) =>
+            String(call[0]).includes('INSERT INTO audit_log')
+        );
+        expect(auditCall?.[1]?.[0]).toBe(TEST_USERS.manager.id);
+        const auditPayload = JSON.parse(String(auditCall?.[1]?.[3] || '{}')) as Record<string, unknown>;
+        expect(auditPayload.authorized_by).toBe(TEST_USERS.admin.id);
+        expect(auditPayload.authorized_by_name).toBe(TEST_USERS.admin.name);
     });
 
     it('should keep transfer successful when audit FK fails', async () => {
@@ -316,7 +429,7 @@ describe('WMS V2 - Database Scenarios', () => {
             originWarehouseId: TEST_WAREHOUSE_ID,
             targetWarehouseId,
             items: [{ productId: TEST_PRODUCT_ID, quantity: 5, lotId: TEST_BATCH_ID }],
-            userId: TEST_USERS.manager.id,
+            userId: TEST_USERS.cashier.id,
             notes: 'Transferencia de prueba con fallback de auditoría'
         });
 
@@ -328,6 +441,20 @@ describe('WMS V2 - Database Scenarios', () => {
             return sql.includes('INSERT INTO shipments');
         });
         expect(didInsertShipment).toBe(true);
+
+        const shipmentInsertCall = mockQuery.mock.calls.find((call) => {
+            const sql = String(call[0] ?? '');
+            return sql.includes('INSERT INTO shipments');
+        });
+        expect(shipmentInsertCall?.[1]?.[4]).toBe(TEST_USERS.manager.id);
+        const transportData = JSON.parse(String(shipmentInsertCall?.[1]?.[3] || '{}')) as Record<string, unknown>;
+        expect(transportData.created_by_id).toBe(TEST_USERS.manager.id);
+
+        const movementCall = mockQuery.mock.calls.find((call) => {
+            const sql = String(call[0] ?? '');
+            return sql.includes("INSERT INTO stock_movements");
+        });
+        expect(movementCall?.[1]?.[6]).toBe(TEST_USERS.manager.id);
     });
 });
 
@@ -338,10 +465,18 @@ describe('WMS V2 - Database Scenarios', () => {
 describe('WMS V2 - getStockHistorySecure', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mockGetSessionSecure.mockResolvedValue({
+        mockGetActorOrFail.mockResolvedValue({
             userId: TEST_USERS.manager.id,
             userName: TEST_USERS.manager.name,
             role: 'ADMIN',
+        });
+        mockValidatePinForRoles.mockResolvedValue({
+            valid: true,
+            authorizedBy: {
+                id: TEST_USERS.admin.id,
+                name: TEST_USERS.admin.name,
+                role: 'ADMIN',
+            },
         });
     });
 
@@ -392,7 +527,7 @@ describe('WMS V2 - getShipmentsSecure', () => {
         const { pool } = await import('@/lib/db');
         vi.mocked(pool).query = mockPoolQuery as any;
         mockPoolQuery.mockReset();
-        mockGetSessionSecure.mockResolvedValue({
+        mockGetActorOrFail.mockResolvedValue({
             userId: TEST_USERS.manager.id,
             userName: TEST_USERS.manager.name,
             role: 'ADMIN',
@@ -450,7 +585,7 @@ describe('WMS V2 - getShipmentsSecure', () => {
     });
 
     it('should deny access when no session is available', async () => {
-        mockGetSessionSecure.mockResolvedValueOnce(null);
+        mockGetActorOrFail.mockRejectedValueOnce(new PinRbacErrorMock('AUTH_UNAUTHORIZED', 'Sesión no válida'));
 
         const result = await getShipmentsSecure({
             page: 1,
@@ -489,7 +624,7 @@ describe('WMS V2 - getPurchaseOrdersSecure', () => {
         const { pool } = await import('@/lib/db');
         vi.mocked(pool).query = mockPoolQuery as any;
         mockPoolQuery.mockReset();
-        mockGetSessionSecure.mockResolvedValue({
+        mockGetActorOrFail.mockResolvedValue({
             userId: TEST_USERS.manager.id,
             userName: TEST_USERS.manager.name,
             role: 'ADMIN',
@@ -570,7 +705,7 @@ describe('WMS V2 - getPurchaseOrdersSecure', () => {
 describe('WMS V2 - processReceptionSecure', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mockGetSessionSecure.mockResolvedValue({
+        mockGetActorOrFail.mockResolvedValue({
             userId: TEST_USERS.manager.id,
             userName: TEST_USERS.manager.name,
             role: 'ADMIN',
