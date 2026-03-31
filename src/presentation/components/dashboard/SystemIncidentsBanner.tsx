@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { ShieldAlert, ArrowRight, CheckCircle } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ShieldAlert, ArrowRight } from 'lucide-react';
 import { getRecentSystemIncidentsSecure } from '@/actions/maintenance-v2';
 import { usePharmaStore } from '../../store/useStore'; // Para obtener el ID del gerente actual
 import { ReconciliationModal } from './ReconciliationModal'; // Importamos el nuevo modal
+import { scheduleIdleTask } from '@/presentation/lib/scheduleIdleTask';
 
 export default function SystemIncidentsBanner() {
     const { user } = usePharmaStore();
@@ -15,18 +16,24 @@ export default function SystemIncidentsBanner() {
     const [selectedIncident, setSelectedIncident] = useState<any | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
 
-    const fetchIncidents = () => {
-        getRecentSystemIncidentsSecure().then((res: { success: boolean; data?: any[] }) => {
+    const fetchIncidents = useCallback(() => {
+        return getRecentSystemIncidentsSecure().then((res: { success: boolean; data?: any[] }) => {
             if (res.success && res.data) {
                 setIncidents(res.data);
             }
             setLoading(false);
         });
-    };
+    }, []);
 
     useEffect(() => {
-        fetchIncidents();
-    }, []);
+        const cancelDeferredFetch = scheduleIdleTask(() => {
+            void fetchIncidents();
+        }, 1200);
+
+        return () => {
+            cancelDeferredFetch();
+        };
+    }, [fetchIncidents]);
 
     const handleReconcileClick = (incident: any) => {
         setSelectedIncident(incident);
@@ -37,7 +44,7 @@ export default function SystemIncidentsBanner() {
         setIsModalOpen(false);
         setSelectedIncident(null);
         // Recargar incidentes para ver si ya desapareció el que acabamos de arreglar
-        fetchIncidents();
+        void fetchIncidents();
     };
 
     if (loading || incidents.length === 0) return null;

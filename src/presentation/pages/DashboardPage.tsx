@@ -17,6 +17,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { EmployeeProfile } from '../../domain/types';
 import SystemIncidentsBanner from '../components/dashboard/SystemIncidentsBanner';
 import { bootstrapRouteShell } from '@/presentation/lib/bootstrapRouteShell';
+import { scheduleIdleTask } from '@/presentation/lib/scheduleIdleTask';
 
 // --- SKELETON COMPONENTS ---
 const FinancialCardSkeleton = () => (
@@ -92,9 +93,24 @@ export const DashboardPageContent: React.FC<DashboardPageContentProps> = ({
 
         // --- LAZY TRIGGER: GC & HEALTH CHECK ---
         if (user?.role === 'ADMIN' || user?.role === 'MANAGER') {
-            import('../../actions/maintenance-v2').then(({ autoCloseGhostSessionsSecure }) => {
-                autoCloseGhostSessionsSecure('').catch(e => console.error('GC Error:', e));
-            });
+            const gcWarmupKey = `dashboard-gc-warmup:${user.id}`;
+            const shouldWarmup = typeof window !== 'undefined' && !window.sessionStorage.getItem(gcWarmupKey);
+
+            if (shouldWarmup) {
+                const cancelGcWarmup = scheduleIdleTask(() => {
+                    window.sessionStorage.setItem(gcWarmupKey, 'done');
+                    import('../../actions/maintenance-v2').then(({ autoCloseGhostSessionsSecure }) => {
+                        autoCloseGhostSessionsSecure('').catch(e => console.error('GC Error:', e));
+                    });
+                }, 2500);
+
+                return () => {
+                    autoBackupService.stop();
+                    window.removeEventListener('online', updateOnlineStatus);
+                    window.removeEventListener('offline', updateOnlineStatus);
+                    cancelGcWarmup();
+                };
+            }
         }
 
         return () => {

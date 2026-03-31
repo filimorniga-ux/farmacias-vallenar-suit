@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useNotificationStore } from '../../store/useNotificationStore';
 import { useLocationStore } from '../../store/useLocationStore';
+import { scheduleIdleTask } from '@/presentation/lib/scheduleIdleTask';
 
 interface NotificationBellProps {
     className?: string;
@@ -38,8 +39,11 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ className }) => {
     useEffect(() => {
         if (!currentLocationId) return;
 
-        // Carga inicial
-        fetchNotifications(currentLocationId);
+        const cancelInitialFetch = scheduleIdleTask(() => {
+            if (!document.hidden) {
+                void fetchNotifications(currentLocationId);
+            }
+        }, 900);
         startPolling();
 
         // FIX B8: Pausar polling cuando la pestaña está oculta (ahorra conexiones)
@@ -47,7 +51,7 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ className }) => {
             if (document.hidden) {
                 stopPolling();
             } else {
-                fetchNotifications(currentLocationId);
+                void fetchNotifications(currentLocationId, { force: true });
                 startPolling();
             }
         };
@@ -55,6 +59,7 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ className }) => {
         document.addEventListener('visibilitychange', handleVisibility);
 
         return () => {
+            cancelInitialFetch();
             document.removeEventListener('visibilitychange', handleVisibility);
             stopPolling();
         };
