@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import type { DashboardStats } from '@/actions/analytics/dashboard-stats';
+import type { ManagerDashboardData } from '@/actions/manager-dashboard-v2';
 import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
 import { autoBackupService } from '../../domain/services/AutoBackupService';
@@ -43,9 +45,15 @@ const ManagerDashboard = React.lazy(() => import('../components/dashboard/Manage
 
 type DashboardPageContentProps = {
     navigateTo: (path: string) => void;
+    initialDashboardStats?: DashboardStats | null;
+    initialManagerData?: ManagerDashboardData | null;
 };
 
-export const DashboardPageContent: React.FC<DashboardPageContentProps> = ({ navigateTo }) => {
+export const DashboardPageContent: React.FC<DashboardPageContentProps> = ({
+    navigateTo,
+    initialDashboardStats,
+    initialManagerData,
+}) => {
     const login = usePharmaStore((state) => state.login);
     const user = usePharmaStore((state) => state.user);
     const employees = usePharmaStore((state) => state.employees);
@@ -63,7 +71,7 @@ export const DashboardPageContent: React.FC<DashboardPageContentProps> = ({ navi
         isRefetching,
         refetch,
         prefetchDashboard
-    } = useDashboardMetrics();
+    } = useDashboardMetrics({ initialData: initialDashboardStats });
 
     const [pin, setPin] = useState('');
     const [error, setError] = useState('');
@@ -317,7 +325,7 @@ export const DashboardPageContent: React.FC<DashboardPageContentProps> = ({ navi
                 {isManager ? (
                     <div className="mb-8">
                         <React.Suspense fallback={<FinancialCardSkeleton />}>
-                            <ManagerDashboard />
+                            <ManagerDashboard initialData={initialManagerData} />
                         </React.Suspense>
                     </div>
                 ) : (

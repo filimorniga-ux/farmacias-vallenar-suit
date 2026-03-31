@@ -1,21 +1,26 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
     Store, CreditCard, Banknote, ArrowRightLeft, TrendingDown,
     Monitor, User, Clock, CheckCircle2, AlertCircle, RefreshCw,
     Wallet, Users, ArrowUpRight
 } from 'lucide-react';
-import { getManagerRealTimeDataSecure, ManagerDashboardData, BranchDetail } from '@/actions/manager-dashboard-v2';
+import { getManagerRealTimeDataSecure, type ManagerDashboardData } from '@/actions/manager-dashboard-v2';
 import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
 
 const REFRESH_INTERVAL = 60000; // 1 minute auto-refresh
 
-export default function ManagerDashboard() {
-    const [data, setData] = useState<ManagerDashboardData | null>(null);
-    const [loading, setLoading] = useState(true);
+type ManagerDashboardProps = {
+    initialData?: ManagerDashboardData | null;
+};
+
+export default function ManagerDashboard({ initialData }: ManagerDashboardProps) {
+    const [data, setData] = useState<ManagerDashboardData | null>(initialData ?? null);
+    const [loading, setLoading] = useState(!initialData);
     const [error, setError] = useState<string | null>(null);
-    const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
+    const [selectedBranchId, setSelectedBranchId] = useState<string | null>(initialData?.selectedBranch?.locationId ?? null);
     const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
     const [isRefetching, setIsRefetching] = useState(false);
 
@@ -46,10 +51,12 @@ export default function ManagerDashboard() {
     };
 
     useEffect(() => {
-        fetchData();
+        if (!initialData) {
+            void fetchData();
+        }
         const interval = setInterval(() => fetchData(undefined, true), REFRESH_INTERVAL);
         return () => clearInterval(interval);
-    }, []);
+    }, [initialData]);
 
     const handleBranchChange = (branchId: string) => {
         setSelectedBranchId(branchId);
@@ -111,6 +118,7 @@ export default function ManagerDashboard() {
                     <button
                         onClick={() => fetchData()}
                         disabled={isRefetching}
+                        aria-label="Actualizar tablero gerencial"
                         className={`p-2 bg-white rounded-full shadow-sm border border-slate-200 hover:bg-slate-50 text-slate-600 transition-all ${isRefetching ? 'animate-spin text-blue-600' : ''}`}
                     >
                         <RefreshCw size={18} />

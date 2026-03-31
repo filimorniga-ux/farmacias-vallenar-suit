@@ -1,31 +1,29 @@
-
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getDashboardStats } from '../../actions/analytics/dashboard-stats';
-import { useLocationStore } from '../store/useLocationStore';
+import { getDashboardStats, type DashboardStats } from '../../actions/analytics/dashboard-stats';
 
-export const useDashboardMetrics = () => {
-    const { currentLocation } = useLocationStore();
+type UseDashboardMetricsOptions = {
+    initialData?: DashboardStats | null;
+};
+
+const DASHBOARD_STATS_QUERY_KEY = ['dashboardStats'] as const;
+
+export const useDashboardMetrics = ({ initialData }: UseDashboardMetricsOptions = {}) => {
     const queryClient = useQueryClient();
 
     const query = useQuery({
-        // Clave única por sucursal para evitar flickering al cambiar
-        queryKey: ['dashboardStats', currentLocation?.id || 'all'],
-
-        // Fetcher function
+        queryKey: DASHBOARD_STATS_QUERY_KEY,
         queryFn: async () => {
-            console.log('🔄 Fetching dashboard stats...');
             return await getDashboardStats();
         },
-
-        // Optimizaciones
+        initialData: initialData ?? undefined,
+        initialDataUpdatedAt: initialData ? Date.now() : undefined,
         staleTime: 1000 * 60 * 2, // 2 minutos de frescura
-        // placeholderData: keepPreviousData // Mantener datos anteriores mientras carga nuevos (transición suave)
+        refetchOnMount: initialData ? false : true,
     });
 
-    // Función para "Boost Mode" (pre-fetch manual)
     const prefetchDashboard = () => {
         queryClient.prefetchQuery({
-            queryKey: ['dashboardStats', currentLocation?.id || 'all'],
+            queryKey: DASHBOARD_STATS_QUERY_KEY,
             queryFn: getDashboardStats,
             staleTime: 1000 * 30 // 30 segundos
         });
