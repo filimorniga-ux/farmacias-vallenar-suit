@@ -209,25 +209,25 @@ describe('WMSPage', () => {
         );
     };
 
-    it('usa inventory desde React Query en las tabs WMS sin volver a copiarlo al store', () => {
+    it('usa inventory desde React Query en las tabs WMS sin volver a copiarlo al store', async () => {
         renderPage();
 
         expect(screen.getByText('Despacho inventory 2')).toBeTruthy();
         expect(mocks.setInventoryMock).not.toHaveBeenCalled();
 
         fireEvent.click(screen.getByRole('button', { name: 'Recepción' }));
-        expect(screen.getByText('Recepcion inventory 2')).toBeTruthy();
+        expect(await screen.findByText('Recepcion inventory 2')).toBeTruthy();
 
         fireEvent.click(screen.getByRole('button', { name: 'Transferencia' }));
-        expect(screen.getByText('Transferencia inventory 2')).toBeTruthy();
+        expect(await screen.findByText('Transferencia inventory 2')).toBeTruthy();
 
         fireEvent.click(screen.getByRole('button', { name: 'Recep. Pedidos' }));
-        expect(screen.getByText('Pedidos inventory 2')).toBeTruthy();
+        expect(await screen.findByText('Pedidos inventory 2')).toBeTruthy();
 
         fireEvent.click(screen.getByRole('button', { name: 'Crear Pedido' }));
-        expect(screen.getByText('Crear pedido inventory 2')).toBeTruthy();
+        expect(await screen.findByText('Crear pedido inventory 2')).toBeTruthy();
 
         fireEvent.click(screen.getByRole('button', { name: 'En Tránsito' }));
-        expect(screen.getByText('Transit shipments 1 purchase-orders 1')).toBeTruthy();
+        expect(await screen.findByText('Transit shipments 1 purchase-orders 1')).toBeTruthy();
     });
 });

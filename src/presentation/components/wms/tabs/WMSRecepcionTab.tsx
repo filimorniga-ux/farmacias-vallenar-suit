@@ -5,6 +5,7 @@
  * Soporta escaneo continuo con cámara o lector USB/BT.
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import {
     Truck, Package, CheckCircle, AlertTriangle, Clock, ChevronRight,
     Loader2, ShieldCheck, ArrowDown, ArrowUp, ArrowRight, FileText, X,
@@ -19,10 +20,24 @@ import { validateSupervisorPin } from '@/actions/auth-v2';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
-import CameraScanner from '../../ui/CameraScanner';
 import { useBarcodeScanner } from '@/presentation/hooks/useBarcodeScanner';
 import ProductFormModal from '../../inventory/ProductFormModal';
 import { InventoryBatch } from '@/domain/types';
+
+const CameraScanner = dynamic(
+    () => import('../../ui/CameraScanner'),
+    {
+        ssr: false,
+        loading: () => (
+            <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 px-6 text-white backdrop-blur-sm">
+                <div className="rounded-3xl border border-slate-700 bg-slate-900 px-6 py-5 text-center shadow-2xl">
+                    <Loader2 size={28} className="mx-auto mb-3 animate-spin text-sky-400" />
+                    <p className="text-sm font-semibold">Abriendo cámara...</p>
+                </div>
+            </div>
+        ),
+    }
+);
 
 interface PendingShipment {
     id: string;

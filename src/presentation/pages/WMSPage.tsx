@@ -11,6 +11,7 @@
  * Skills: estilo-marca, modo-produccion, arquitecto-offline
  */
 import React, { useEffect, useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import {
     Warehouse, Truck, PackageCheck, ArrowLeftRight,
     PackagePlus, MapPin, RefreshCw, Route, History, ClipboardList
@@ -26,17 +27,7 @@ import { useBootstrapWms } from '@/presentation/hooks/useBootstrapWms';
 import { receivePurchaseOrderSecure, finalizePurchaseOrderReviewSecure } from '@/actions/supply-v2';
 import { InventoryBatch, PurchaseOrder, Shipment } from '@/domain/types';
 import { WMSDespachoTab } from '@/presentation/components/wms/tabs/WMSDespachoTab';
-import { WMSRecepcionTab } from '@/presentation/components/wms/tabs/WMSRecepcionTab';
-import { WMSTransferenciaTab } from '@/presentation/components/wms/tabs/WMSTransferenciaTab';
-import { WMSTransitoTab } from '@/presentation/components/wms/tabs/WMSTransitoTab';
-import { WMSPedidosTab } from '@/presentation/components/wms/tabs/WMSPedidosTab';
-import { WMSCrearPedidoTab } from '@/presentation/components/wms/tabs/WMSCrearPedidoTab';
 import { WMSBottomTabBar } from '@/presentation/components/wms/WMSBottomTabBar';
-import { PurchaseOrderReceivingModal } from '@/presentation/components/scm/PurchaseOrderReceivingModal';
-import ManualOrderModal from '@/presentation/components/supply/ManualOrderModal';
-import SupplyKanban from '../components/supply/SupplyKanban';
-import { SupplyChainHistoryTab } from '@/presentation/components/scm/SupplyChainHistoryTab';
-import { MovementDetailModal } from '@/presentation/components/scm/MovementDetailModal';
 import { toast } from 'sonner';
 
 export type WMSTab = 'despacho' | 'recepcion' | 'transferencia' | 'transito' | 'pedidos' | 'suministros' | 'historial' | 'crear-pedido';
@@ -63,6 +54,58 @@ const TAB_COLORS: Record<string, { active: string; ring: string }> = {
     slate: { active: 'bg-slate-700 text-white shadow-slate-700/30', ring: 'ring-slate-300' },
 };
 
+const TabPanelLoader = () => (
+    <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-medium text-slate-500 shadow-sm">
+        Cargando contenido...
+    </div>
+);
+
+const WMSRecepcionTab = dynamic(
+    () => import('@/presentation/components/wms/tabs/WMSRecepcionTab').then((mod) => mod.WMSRecepcionTab),
+    { loading: () => <TabPanelLoader /> }
+);
+
+const WMSTransferenciaTab = dynamic(
+    () => import('@/presentation/components/wms/tabs/WMSTransferenciaTab').then((mod) => mod.WMSTransferenciaTab),
+    { loading: () => <TabPanelLoader /> }
+);
+
+const WMSTransitoTab = dynamic(
+    () => import('@/presentation/components/wms/tabs/WMSTransitoTab').then((mod) => mod.WMSTransitoTab),
+    { loading: () => <TabPanelLoader /> }
+);
+
+const WMSPedidosTab = dynamic(
+    () => import('@/presentation/components/wms/tabs/WMSPedidosTab').then((mod) => mod.WMSPedidosTab),
+    { loading: () => <TabPanelLoader /> }
+);
+
+const WMSCrearPedidoTab = dynamic(
+    () => import('@/presentation/components/wms/tabs/WMSCrearPedidoTab').then((mod) => mod.WMSCrearPedidoTab),
+    { loading: () => <TabPanelLoader /> }
+);
+
+const SupplyKanban = dynamic(
+    () => import('@/presentation/components/supply/SupplyKanban'),
+    { loading: () => <TabPanelLoader /> }
+);
+
+const SupplyChainHistoryTab = dynamic(
+    () => import('@/presentation/components/scm/SupplyChainHistoryTab').then((mod) => mod.SupplyChainHistoryTab),
+    { loading: () => <TabPanelLoader /> }
+);
+
+const PurchaseOrderReceivingModal = dynamic(
+    () => import('@/presentation/components/scm/PurchaseOrderReceivingModal').then((mod) => mod.PurchaseOrderReceivingModal)
+);
+
+const ManualOrderModal = dynamic(
+    () => import('@/presentation/components/supply/ManualOrderModal')
+);
+
+const MovementDetailModal = dynamic(
+    () => import('@/presentation/components/scm/MovementDetailModal').then((mod) => mod.MovementDetailModal)
+);
 
 export const WMSPage: React.FC = () => {
     const [activeTab, setActiveTab] = useState<WMSTab>('despacho');
@@ -373,36 +416,42 @@ export const WMSPage: React.FC = () => {
                 />
 
                 {/* Modals for Supply Integration */}
-                <PurchaseOrderReceivingModal
-                    isOpen={isReceptionModalOpen}
-                    mode={receptionModalMode}
-                    onClose={() => {
-                        setIsReceptionModalOpen(false);
-                        setReceptionModalMode('RECEIVE');
-                        setSelectedOrder(null);
-                    }}
-                    order={selectedOrder}
-                    onReceive={handleReceivePurchaseOrder}
-                    onFinalizeReview={handleFinalizePurchaseOrderReview}
-                />
+                {isReceptionModalOpen ? (
+                    <PurchaseOrderReceivingModal
+                        isOpen={isReceptionModalOpen}
+                        mode={receptionModalMode}
+                        onClose={() => {
+                            setIsReceptionModalOpen(false);
+                            setReceptionModalMode('RECEIVE');
+                            setSelectedOrder(null);
+                        }}
+                        order={selectedOrder}
+                        onReceive={handleReceivePurchaseOrder}
+                        onFinalizeReview={handleFinalizePurchaseOrderReview}
+                    />
+                ) : null}
 
-                <ManualOrderModal
-                    isOpen={isManualOrderModalOpen}
-                    onClose={() => {
-                        setIsManualOrderModalOpen(false);
-                        setSelectedOrder(null);
-                    }}
-                    initialOrder={selectedOrder}
-                />
+                {isManualOrderModalOpen ? (
+                    <ManualOrderModal
+                        isOpen={isManualOrderModalOpen}
+                        onClose={() => {
+                            setIsManualOrderModalOpen(false);
+                            setSelectedOrder(null);
+                        }}
+                        initialOrder={selectedOrder}
+                    />
+                ) : null}
 
-                <MovementDetailModal
-                    isOpen={isMovementDetailOpen}
-                    onClose={() => {
-                        setIsMovementDetailOpen(false);
-                        setSelectedMovement(null);
-                    }}
-                    movement={selectedMovement}
-                />
+                {isMovementDetailOpen ? (
+                    <MovementDetailModal
+                        isOpen={isMovementDetailOpen}
+                        onClose={() => {
+                            setIsMovementDetailOpen(false);
+                            setSelectedMovement(null);
+                        }}
+                        movement={selectedMovement}
+                    />
+                ) : null}
             </div>
         );
     }
@@ -482,36 +531,42 @@ export const WMSPage: React.FC = () => {
             </div>
 
             {/* Modals for Supply Integration (Desktop) */}
-            <PurchaseOrderReceivingModal
-                isOpen={isReceptionModalOpen}
-                mode={receptionModalMode}
-                onClose={() => {
-                    setIsReceptionModalOpen(false);
-                    setReceptionModalMode('RECEIVE');
-                    setSelectedOrder(null);
-                }}
-                order={selectedOrder}
-                onReceive={handleReceivePurchaseOrder}
-                onFinalizeReview={handleFinalizePurchaseOrderReview}
-            />
+            {isReceptionModalOpen ? (
+                <PurchaseOrderReceivingModal
+                    isOpen={isReceptionModalOpen}
+                    mode={receptionModalMode}
+                    onClose={() => {
+                        setIsReceptionModalOpen(false);
+                        setReceptionModalMode('RECEIVE');
+                        setSelectedOrder(null);
+                    }}
+                    order={selectedOrder}
+                    onReceive={handleReceivePurchaseOrder}
+                    onFinalizeReview={handleFinalizePurchaseOrderReview}
+                />
+            ) : null}
 
-            <ManualOrderModal
-                isOpen={isManualOrderModalOpen}
-                onClose={() => {
-                    setIsManualOrderModalOpen(false);
-                    setSelectedOrder(null);
-                }}
-                initialOrder={selectedOrder}
-            />
+            {isManualOrderModalOpen ? (
+                <ManualOrderModal
+                    isOpen={isManualOrderModalOpen}
+                    onClose={() => {
+                        setIsManualOrderModalOpen(false);
+                        setSelectedOrder(null);
+                    }}
+                    initialOrder={selectedOrder}
+                />
+            ) : null}
 
-            <MovementDetailModal
-                isOpen={isMovementDetailOpen}
-                onClose={() => {
-                    setIsMovementDetailOpen(false);
-                    setSelectedMovement(null);
-                }}
-                movement={selectedMovement}
-            />
+            {isMovementDetailOpen ? (
+                <MovementDetailModal
+                    isOpen={isMovementDetailOpen}
+                    onClose={() => {
+                        setIsMovementDetailOpen(false);
+                        setSelectedMovement(null);
+                    }}
+                    movement={selectedMovement}
+                />
+            ) : null}
         </div>
     );
 };
