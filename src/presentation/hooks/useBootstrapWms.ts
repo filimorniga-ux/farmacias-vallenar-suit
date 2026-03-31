@@ -7,13 +7,14 @@ import { shipmentsQueryOptions } from '@/presentation/hooks/useShipmentsQuery';
 
 interface UseBootstrapWmsOptions {
     activeLocationId?: string | null;
+    auto?: boolean;
 }
 
 interface BootstrapWmsOptions {
     force?: boolean;
 }
 
-export function useBootstrapWms({ activeLocationId }: UseBootstrapWmsOptions) {
+export function useBootstrapWms({ activeLocationId, auto = true }: UseBootstrapWmsOptions) {
     const queryClient = useQueryClient();
     const bootstrappedLocationRef = useRef<string | null>(null);
     const inFlightLocationRef = useRef<string | null>(null);
@@ -80,8 +81,9 @@ export function useBootstrapWms({ activeLocationId }: UseBootstrapWmsOptions) {
     }, [activeLocationId, queryClient]);
 
     useEffect(() => {
+        if (!auto) return;
         void bootstrapWms();
-    }, [bootstrapWms]);
+    }, [auto, bootstrapWms]);
 
     return {
         bootstrapWms,

@@ -79,6 +79,22 @@ describe('useBootstrapWms', () => {
         expect(mocks.fetchQueryMock).toHaveBeenCalledTimes(2);
     });
 
+    it('permite desactivar el bootstrap automático y dejarlo manual por tab', async () => {
+        const { result } = renderHook(() => useBootstrapWms({ activeLocationId: 'loc-3', auto: false }));
+
+        await waitFor(() => {
+            expect(result.current.isBootstrappingWms).toBe(false);
+        });
+
+        expect(mocks.ensureQueryDataMock).not.toHaveBeenCalled();
+
+        await act(async () => {
+            await result.current.bootstrapWms();
+        });
+
+        expect(mocks.ensureQueryDataMock).toHaveBeenCalledTimes(2);
+    });
+
     it('reporta error si falla el bootstrap', async () => {
         mocks.ensureQueryDataMock.mockImplementation(async () => {
             throw new Error('Fallo WMS');

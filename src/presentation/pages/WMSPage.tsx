@@ -32,6 +32,8 @@ import { toast } from 'sonner';
 
 export type WMSTab = 'despacho' | 'recepcion' | 'transferencia' | 'transito' | 'pedidos' | 'suministros' | 'historial' | 'crear-pedido';
 
+const INVENTORY_TABS: WMSTab[] = ['despacho', 'transferencia', 'recepcion', 'pedidos', 'crear-pedido'];
+
 const DESKTOP_TABS: { key: WMSTab; label: string; icon: React.ReactNode; color: string }[] = [
     { key: 'despacho', label: 'Despacho', icon: <Truck size={18} />, color: 'sky' },
     { key: 'recepcion', label: 'Recepción', icon: <PackageCheck size={18} />, color: 'emerald' },
@@ -181,8 +183,9 @@ export const WMSPage: React.FC = () => {
 
     // 🚀 Load inventory via React Query (Same pattern as POSMainScreen for consistency)
     const activeLocationId = currentLocationId || locationStoreCurrent?.id;
-    const { bootstrapWms, isBootstrappingWms } = useBootstrapWms({ activeLocationId });
-    const shouldLoadInventory = ['despacho', 'transferencia', 'recepcion', 'pedidos', 'crear-pedido'].includes(activeTab);
+    const shouldBootstrapTransit = activeTab === 'transito';
+    const { bootstrapWms, isBootstrappingWms } = useBootstrapWms({ activeLocationId, auto: false });
+    const shouldLoadInventory = INVENTORY_TABS.includes(activeTab);
     const { data: inventoryData, isLoading: isLoadingInventory } = useInventoryQuery(activeLocationId, {
         mode: 'wms-lite',
         enabled: shouldLoadInventory && !!activeLocationId,
@@ -199,11 +202,28 @@ export const WMSPage: React.FC = () => {
     });
     const purchaseOrders = purchaseOrdersData ?? ([] as PurchaseOrder[]);
 
+    useEffect(() => {
+        if (!shouldBootstrapTransit) return;
+        void bootstrapWms();
+    }, [bootstrapWms, shouldBootstrapTransit]);
+
     const handleRefresh = async () => {
-        if (activeLocationId) {
+        const refreshTasks: Promise<unknown>[] = [];
+
+        if (shouldBootstrapTransit && activeLocationId) {
+            refreshTasks.push(bootstrapWms({ force: true }));
+        }
+
+        if (INVENTORY_TABS.includes(activeTab) && activeLocationId) {
+            refreshTasks.push(queryClient.invalidateQueries({ queryKey: ['inventory', activeLocationId, 'wms-lite'] }));
+        }
+
+        if (refreshTasks.length > 0) {
+            await Promise.all(refreshTasks);
+        } else if (activeLocationId) {
             await bootstrapWms({ force: true });
         }
-        queryClient.invalidateQueries({ queryKey: ['inventory'] });
+
         if ('vibrate' in navigator) navigator.vibrate(10);
     };
 
