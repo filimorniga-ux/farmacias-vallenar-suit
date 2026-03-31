@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * WMSPage - Página principal del módulo WMS
  * 
