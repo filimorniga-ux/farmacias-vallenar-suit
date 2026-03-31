@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePharmaStore } from '../store/useStore';
@@ -39,8 +41,11 @@ const ModuleCardSkeleton = () => (
 // Lazy load Manager Dashboard
 const ManagerDashboard = React.lazy(() => import('../components/dashboard/ManagerDashboard'));
 
-const DashboardPage: React.FC = () => {
-    const navigate = useNavigate();
+type DashboardPageContentProps = {
+    navigateTo: (path: string) => void;
+};
+
+export const DashboardPageContent: React.FC<DashboardPageContentProps> = ({ navigateTo }) => {
     const login = usePharmaStore((state) => state.login);
     const user = usePharmaStore((state) => state.user);
     const employees = usePharmaStore((state) => state.employees);
@@ -151,14 +156,14 @@ const DashboardPage: React.FC = () => {
 
     useEffect(() => {
         if (user && targetRoute) {
-            navigate(targetRoute);
+            navigateTo(targetRoute);
             setTargetRoute('');
         }
-    }, [user, targetRoute, navigate]);
+    }, [user, targetRoute, navigateTo]);
 
     const handleCardClick = (route: string) => {
         if (user) {
-            navigate(route);
+            navigateTo(route);
         } else {
             console.log('🚀 Boost Mode Activated: Prefetching Dashboard data...');
             prefetchDashboard(); // Start fetching early!
@@ -435,7 +440,7 @@ const DashboardPage: React.FC = () => {
                                 <p className="text-sm font-bold text-slate-700">Próximo pago servidor</p>
                                 <p className="text-xs text-slate-500">Vence en 5 días (Vercel)</p>
                             </div>
-                            <button onClick={() => navigate('/settings')} className="text-xs font-bold text-cyan-600 hover:underline">
+                            <button onClick={() => navigateTo('/settings')} className="text-xs font-bold text-cyan-600 hover:underline">
                                 Ver
                             </button>
                         </div>
@@ -557,6 +562,12 @@ const DashboardPage: React.FC = () => {
             </AnimatePresence>
         </div >
     );
+};
+
+const DashboardPage: React.FC = () => {
+    const navigate = useNavigate();
+
+    return <DashboardPageContent navigateTo={navigate} />;
 };
 
 export default DashboardPage;
