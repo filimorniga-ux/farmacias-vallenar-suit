@@ -1,6 +1,6 @@
-import Page from '../page';
+import LegacyClientAppPage from '../LegacyClientAppPage';
 
 // Force Rebuild
 export const dynamic = 'force-dynamic';
 
-export default Page;
+export default LegacyClientAppPage;

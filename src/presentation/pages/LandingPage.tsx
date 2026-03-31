@@ -1,3 +1,4 @@
+'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -15,8 +16,15 @@ import { toast } from 'sonner';
 import { brand } from '@/config/brand.config';
 import { bootstrapRouteShell } from '@/presentation/lib/bootstrapRouteShell';
 
-const LandingPage: React.FC = () => {
-    const navigate = useNavigate();
+type LandingNavigateOptions = {
+    replace?: boolean;
+};
+
+type LandingPageContentProps = {
+    navigateTo: (path: string, options?: LandingNavigateOptions) => void;
+};
+
+export const LandingPageContent: React.FC<LandingPageContentProps> = ({ navigateTo }) => {
     const login = usePharmaStore((state) => state.login);
     const employees = usePharmaStore((state) => state.employees);
     const user = usePharmaStore((state) => state.user);
@@ -125,16 +133,16 @@ const LandingPage: React.FC = () => {
                     : '/dashboard';
 
             void bootstrapRouteShell(restorePath).catch(console.error);
-            navigate(restorePath, { replace: true });
+            navigateTo(restorePath, { replace: true });
         }
-    }, [user, navigate]);
+    }, [user, navigateTo]);
 
     // Initial Check - Location Context
     useEffect(() => {
         if (!context) {
-            navigate('/select-context');
+            navigateTo('/select-context');
         }
-    }, [context, navigate]);
+    }, [context, navigateTo]);
 
     const loadLoginUsers = useCallback(async () => {
         setIsRetryingUsers(true);
@@ -232,7 +240,7 @@ const LandingPage: React.FC = () => {
                 }
                 void bootstrapRouteShell(finalPath).catch(console.error);
                 // Redirect
-                navigate(finalPath, { replace: true });
+                navigateTo(finalPath, { replace: true });
             } else {
                 const baseError = result.error || 'Credenciales inválidas o sin permiso en esta sucursal';
                 const supportRef = result.correlationId ? ` Ref: ${result.correlationId.slice(0, 8)}` : '';
@@ -357,7 +365,7 @@ const LandingPage: React.FC = () => {
                         <Store size={18} className={context.type === 'WAREHOUSE' ? 'text-amber-500' : 'text-sky-500'} />
                         <span className="font-medium tracking-wide">Sucursal: <span className="font-bold text-slate-800">{context.name}</span></span>
                         <button
-                            onClick={() => navigate('/select-context')}
+                            onClick={() => navigateTo('/select-context')}
                             className="ml-3 text-xs bg-sky-100 hover:bg-sky-200 text-sky-700 px-3 py-1.5 rounded-full transition-colors flex items-center border border-sky-200"
                         >
                             <RefreshCw size={10} className="mr-1.5" /> Cambiar
@@ -418,7 +426,7 @@ const LandingPage: React.FC = () => {
                     <motion.div
                         whileHover={{ scale: 1.02, y: -5 }}
                         whileTap={{ scale: 0.98 }}
-                        onClick={() => navigate('/kiosk')}
+                        onClick={() => navigateTo('/kiosk')}
                         className="cursor-pointer bg-white border border-slate-100 rounded-3xl p-8 relative overflow-hidden shadow-lg shadow-slate-900/5 group hover:border-teal-300 transition-all hover:shadow-xl"
                     >
                         <div className="absolute top-0 right-0 p-4 opacity-5 bg-teal-500 blur-3xl w-32 h-32 rounded-full -mr-10 -mt-10 group-hover:opacity-10 transition-opacity" />
@@ -805,7 +813,7 @@ const LandingPage: React.FC = () => {
 
                                 <div className="space-y-4">
                                     <button
-                                        onClick={() => navigate('/totem')}
+                                        onClick={() => navigateTo('/totem')}
                                         className="w-full flex items-center p-4 rounded-2xl bg-slate-50 border border-slate-200 hover:border-sky-500 hover:bg-sky-50 transition-all group"
                                     >
                                         <div className="w-12 h-12 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center">
@@ -909,6 +917,12 @@ const LandingPage: React.FC = () => {
             </div>
         </div>
     );
+};
+
+const LandingPage: React.FC = () => {
+    const navigate = useNavigate();
+
+    return <LandingPageContent navigateTo={navigate} />;
 };
 
 export default LandingPage;

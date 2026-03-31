@@ -34,7 +34,7 @@ export default function RouteGuard({ children, allowedRoles }: RouteGuardProps) 
         if (!isStoreHydrated) return;
 
         if (!user) {
-            router.push('/login');
+            router.replace('/');
             return;
         }
 
@@ -70,7 +70,7 @@ export default function RouteGuard({ children, allowedRoles }: RouteGuardProps) 
                         </div>
                     </div>
                     <button
-                        onClick={() => router.push('/')}
+                        onClick={() => router.replace('/')}
                         className="mt-6 w-full py-2 bg-gray-900 text-white rounded hover:bg-gray-800"
                     >
                         Volver al Inicio
@@ -79,7 +79,7 @@ export default function RouteGuard({ children, allowedRoles }: RouteGuardProps) 
                         onClick={() => {
                             // Force logout for debugging
                             usePharmaStore.getState().logout();
-                            router.push('/login');
+                            router.replace('/');
                         }}
                         className="mt-2 w-full py-2 text-red-600 text-sm hover:underline"
                     >
