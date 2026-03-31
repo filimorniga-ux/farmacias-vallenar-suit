@@ -3,14 +3,13 @@
  */
 
 import React from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SupplyChainPage from '@/presentation/pages/SupplyChainPage';
 import { generateRestockSuggestionSecure } from '@/actions/procurement-v2';
 
 const mocks = vi.hoisted(() => {
-    const addPurchaseOrderMock = vi.fn();
-    const receivePurchaseOrderMock = vi.fn();
     const generateSuggestedPOsMock = vi.fn(() => []);
     const toastSuccessMock = vi.fn();
     const toastErrorMock = vi.fn();
@@ -25,8 +24,6 @@ const mocks = vi.hoisted(() => {
     const bootstrapSupplyProcurementMock = vi.fn();
 
     const pharmaState = {
-        addPurchaseOrder: addPurchaseOrderMock,
-        receivePurchaseOrder: receivePurchaseOrderMock,
         generateSuggestedPOs: generateSuggestedPOsMock,
         currentLocationId: 'loc-1',
         user: { id: '1719073d-9da1-40d7-9dce-28ac3a415a6b' },
@@ -124,6 +121,8 @@ vi.mock('@/actions/procurement-export', () => ({
 
 vi.mock('@/actions/supply-v2', () => ({
     deletePurchaseOrderSecure: vi.fn(),
+    receivePurchaseOrderSecure: vi.fn(),
+    finalizePurchaseOrderReviewSecure: vi.fn(),
 }));
 
 vi.mock('sonner', () => ({
@@ -137,6 +136,18 @@ vi.mock('sonner', () => ({
 const mockGenerateRestockSuggestionSecure = vi.mocked(generateRestockSuggestionSecure);
 
 describe('SupplyChainPage - edición de sugerido', () => {
+    const renderPage = () => {
+        const queryClient = new QueryClient({
+            defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+        });
+
+        return render(
+            <QueryClientProvider client={queryClient}>
+                <SupplyChainPage />
+            </QueryClientProvider>
+        );
+    };
+
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.platformState.isMobile = false;
@@ -176,7 +187,7 @@ describe('SupplyChainPage - edición de sugerido', () => {
     });
 
     it('permite borrar y reescribir el input de Sugerido sin que se pegue en 0', async () => {
-        render(<SupplyChainPage />);
+        renderPage();
 
         fireEvent.click(screen.getByTestId('analyze-stock-btn'));
 
@@ -199,7 +210,7 @@ describe('SupplyChainPage - edición de sugerido', () => {
         mocks.platformState.isDesktopLike = false;
         mocks.platformState.viewportWidth = 390;
 
-        render(<SupplyChainPage />);
+        renderPage();
 
         expect(screen.getByTestId('mobile-filters-toggle')).toBeTruthy();
         expect(screen.getByLabelText('Cambiar vista de abastecimiento')).toBeTruthy();

@@ -1183,6 +1183,10 @@ const ProcessReceptionSchema = z.object({
     notes: z.string().optional()
 });
 
+const CancelShipmentSchema = z.object({
+    shipmentId: UUIDSchema,
+});
+
 /**
  * 🚚 Create Dispatch (Secure)
  * Creates shipment, locks batches, reduces stock, creates movements.
@@ -1586,6 +1590,191 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
         await client.query('ROLLBACK');
         console.error('Reception Error:', error);
         return { success: false, error: (error as Error).message };
+    } finally {
+        client.release();
+    }
+}
+
+/**
+ * 🚫 Cancel Shipment (Secure)
+ * Restores origin stock and marks shipment as cancelled.
+ */
+export async function cancelShipmentSecure(data: z.infer<typeof CancelShipmentSchema>): Promise<{
+    success: boolean;
+    error?: string;
+}> {
+    const { revalidatePath } = await import('next/cache');
+
+    const actorResult = await requireWmsRoleActor(WMS_ALLOWED_ROLES, 'wms-cancel-shipment');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    const validated = CancelShipmentSchema.safeParse(data);
+    if (!validated.success) {
+        return { success: false, error: validated.error.issues[0]?.message || 'Datos inválidos' };
+    }
+
+    const actor = actorResult.actor;
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        const shipmentRes = await client.query(`
+            SELECT *
+            FROM shipments
+            WHERE id = $1
+            FOR UPDATE NOWAIT
+        `, [validated.data.shipmentId]);
+
+        if (shipmentRes.rows.length === 0) {
+            throw new Error('Envío no encontrado');
+        }
+
+        const shipment = shipmentRes.rows[0];
+        if (shipment.status !== 'IN_TRANSIT') {
+            throw new Error('Solo se pueden cancelar envíos en tránsito');
+        }
+
+        const shipmentItemsRes = await client.query(`
+            SELECT *
+            FROM shipment_items
+            WHERE shipment_id = $1
+            ORDER BY id ASC
+        `, [validated.data.shipmentId]);
+
+        let originWarehouseId: string | null = null;
+        if (shipment.origin_location_id) {
+            const originWhRes = await client.query(
+                'SELECT id FROM warehouses WHERE location_id = $1::uuid LIMIT 1',
+                [shipment.origin_location_id]
+            );
+            originWarehouseId = originWhRes.rows[0]?.id || null;
+        }
+
+        for (const [index, item] of shipmentItemsRes.rows.entries()) {
+            const quantity = Number(item.quantity || 0);
+            if (quantity <= 0 || !originWarehouseId) continue;
+
+            let finalBatchId = typeof item.batch_id === 'string' ? item.batch_id : null;
+            let stockBefore = 0;
+            let stockAfter = quantity;
+
+            if (finalBatchId) {
+                const batchRes = await client.query(`
+                    SELECT *
+                    FROM inventory_batches
+                    WHERE id = $1
+                    FOR UPDATE NOWAIT
+                `, [finalBatchId]);
+
+                if (batchRes.rows.length > 0) {
+                    const batch = batchRes.rows[0];
+                    stockBefore = Number(batch.quantity_real || 0);
+                    stockAfter = stockBefore + quantity;
+
+                    await client.query(`
+                        UPDATE inventory_batches
+                        SET quantity_real = $1,
+                            updated_at = NOW()
+                        WHERE id = $2
+                    `, [stockAfter, finalBatchId]);
+                } else {
+                    finalBatchId = null;
+                }
+            }
+
+            if (!finalBatchId) {
+                const canonicalProduct = await resolveCanonicalProductForMovement(client, {
+                    preferredProductId: item.product_id,
+                    sku: item.sku,
+                });
+
+                if (!canonicalProduct) {
+                    throw new Error(`No se pudo restaurar stock para ${item.sku}`);
+                }
+
+                finalBatchId = randomUUID();
+                await client.query(`
+                    INSERT INTO inventory_batches (
+                        id, product_id, warehouse_id, lot_number, expiry_date,
+                        quantity_real, sku, name, unit_cost, sale_price, location_id,
+                        source_system, created_at, updated_at
+                    ) VALUES (
+                        $1, $2, $3, $4, NULL,
+                        $5, $6, $7, $8, $9, $10,
+                        'WMS_CANCEL', NOW(), NOW()
+                    )
+                `, [
+                    finalBatchId,
+                    canonicalProduct.id,
+                    originWarehouseId,
+                    `CANCEL-${validated.data.shipmentId.slice(0, 8)}-${index + 1}`,
+                    quantity,
+                    item.sku,
+                    item.name || canonicalProduct.name,
+                    canonicalProduct.costPrice,
+                    canonicalProduct.salePrice,
+                    shipment.origin_location_id,
+                ]);
+            }
+
+            await client.query(`
+                INSERT INTO stock_movements (
+                    id, sku, product_name, location_id, movement_type,
+                    quantity, stock_before, stock_after, timestamp, user_id,
+                    notes, batch_id, reference_type, reference_id
+                ) VALUES (
+                    $1, $2, $3, $4::uuid, 'TRANSFER_IN',
+                    $5, $6, $7, NOW(), $8::uuid,
+                    $9, $10::uuid, 'SHIPMENT', $11::uuid
+                )
+            `, [
+                randomUUID(),
+                item.sku,
+                item.name || 'Producto',
+                shipment.origin_location_id,
+                quantity,
+                stockBefore,
+                stockAfter,
+                actor.userId,
+                `Cancelación despacho ${validated.data.shipmentId}`,
+                finalBatchId,
+                validated.data.shipmentId,
+            ]);
+        }
+
+        await client.query(`
+            UPDATE shipments
+            SET status = 'CANCELLED',
+                updated_at = NOW(),
+                transport_data = COALESCE(transport_data, '{}'::jsonb) || jsonb_build_object(
+                    'cancelled_by_id', $2::text,
+                    'cancelled_by_name', $3::text,
+                    'cancelled_at', NOW()::text
+                )
+            WHERE id = $1
+        `, [validated.data.shipmentId, actor.userId, actor.userName || 'Usuario']);
+
+        await insertAuditLog(client, {
+            type: 'shipment_cancelled',
+            userId: actor.userId,
+            shipmentId: validated.data.shipmentId,
+            itemsCount: shipmentItemsRes.rows.length,
+        });
+
+        await client.query('COMMIT');
+
+        revalidatePath('/warehouse');
+        revalidatePath('/logistica');
+        revalidatePath('/logistics');
+
+        return { success: true };
+    } catch (error: unknown) {
+        await client.query('ROLLBACK');
+        const message = error instanceof Error ? error.message : 'Error desconocido';
+        return { success: false, error: message };
     } finally {
         client.release();
     }

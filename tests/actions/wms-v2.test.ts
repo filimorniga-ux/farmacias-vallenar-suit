@@ -97,7 +97,8 @@ import {
     getStockHistorySecure,
     getShipmentsSecure,
     getPurchaseOrdersSecure,
-    processReceptionSecure
+    processReceptionSecure,
+    cancelShipmentSecure,
 } from '@/actions/wms-v2';
 
 // =====================================================
@@ -455,6 +456,75 @@ describe('WMS V2 - Database Scenarios', () => {
             return sql.includes("INSERT INTO stock_movements");
         });
         expect(movementCall?.[1]?.[6]).toBe(TEST_USERS.manager.id);
+    });
+
+    it('should cancel shipment with session actor and restore origin stock server-side', async () => {
+        const shipmentId = '550e8400-e29b-41d4-a716-446655440077';
+
+        mockQuery.mockImplementation((sql: string) => {
+            if (sql === 'BEGIN ISOLATION LEVEL SERIALIZABLE') return Promise.resolve({ rows: [] });
+            if (sql.includes('FROM shipments') && sql.includes('FOR UPDATE NOWAIT')) {
+                return Promise.resolve({
+                    rows: [{
+                        id: shipmentId,
+                        status: 'IN_TRANSIT',
+                        origin_location_id: TEST_LOCATION_ID,
+                        transport_data: {},
+                    }]
+                });
+            }
+            if (sql.includes('FROM shipment_items')) {
+                return Promise.resolve({
+                    rows: [{
+                        id: 'item-1',
+                        batch_id: TEST_BATCH_ID,
+                        product_id: TEST_PRODUCT_ID,
+                        sku: 'SKU-001',
+                        name: 'Producto Test',
+                        quantity: 5,
+                    }]
+                });
+            }
+            if (sql.startsWith('SELECT id FROM warehouses WHERE location_id')) {
+                return Promise.resolve({ rows: [{ id: TEST_WAREHOUSE_ID }] });
+            }
+            if (sql.includes('FROM inventory_batches') && sql.includes('FOR UPDATE NOWAIT')) {
+                return Promise.resolve({
+                    rows: [{
+                        id: TEST_BATCH_ID,
+                        quantity_real: 12,
+                    }]
+                });
+            }
+            if (sql.startsWith('SAVEPOINT') || sql.startsWith('ROLLBACK TO SAVEPOINT') || sql.startsWith('RELEASE SAVEPOINT')) {
+                return Promise.resolve({ rows: [] });
+            }
+            if (sql === 'COMMIT' || sql === 'ROLLBACK') {
+                return Promise.resolve({ rows: [] });
+            }
+            return Promise.resolve({ rows: [] });
+        });
+
+        const result = await cancelShipmentSecure({ shipmentId });
+
+        expect(result.success).toBe(true);
+
+        const stockMovementCall = mockQuery.mock.calls.find((call) =>
+            String(call[0]).includes('INSERT INTO stock_movements')
+        );
+        expect(stockMovementCall?.[1]?.[7]).toBe(TEST_USERS.manager.id);
+
+        const shipmentUpdateCall = mockQuery.mock.calls.find((call) =>
+            String(call[0]).includes('UPDATE shipments')
+        );
+        expect(shipmentUpdateCall?.[1]?.[0]).toBe(shipmentId);
+        expect(shipmentUpdateCall?.[1]?.[1]).toBe(TEST_USERS.manager.id);
+
+        const auditCall = mockQuery.mock.calls.find((call) =>
+            String(call[0]).includes('INSERT INTO audit_log')
+        );
+        expect(auditCall?.[1]?.[0]).toBe(TEST_USERS.manager.id);
+        expect(auditCall?.[1]?.[1]).toBe('SHIPMENT_CANCELLED');
     });
 });
 

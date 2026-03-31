@@ -125,6 +125,11 @@ vi.mock('@/presentation/hooks/usePurchaseOrdersQuery', () => ({
     }),
 }));
 
+vi.mock('@/actions/supply-v2', () => ({
+    receivePurchaseOrderSecure: vi.fn(),
+    finalizePurchaseOrderReviewSecure: vi.fn(),
+}));
+
 vi.mock('@/presentation/components/wms/tabs/WMSDespachoTab', () => ({
     WMSDespachoTab: ({ inventory }: { inventory: Array<{ id: string }> }) => (
         <div>Despacho inventory {inventory.length}</div>

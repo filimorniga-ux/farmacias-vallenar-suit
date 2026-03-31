@@ -6,8 +6,9 @@ import { useLocationStore } from '../../store/useLocationStore';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
 import { purchaseOrdersQueryKey } from '@/presentation/hooks/usePurchaseOrdersQuery';
 import { shipmentsQueryKey } from '@/presentation/hooks/useShipmentsQuery';
+import { createPurchaseOrderSecure } from '@/actions/supply-v2';
 import { toast } from 'sonner';
-import { Shipment, PurchaseOrder, InventoryBatch } from '../../../domain/types';
+import { Shipment, InventoryBatch } from '../../../domain/types';
 import CameraScanner from '../ui/CameraScanner';
 
 interface DispatchWizardProps {
@@ -18,7 +19,7 @@ interface DispatchWizardProps {
 
 const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode = 'DISPATCH' }) => {
     const queryClient = useQueryClient();
-    const { inventory, addPurchaseOrder, user, suppliers } = usePharmaStore();
+    const { inventory, user, suppliers } = usePharmaStore();
     const { currentLocation, locations } = useLocationStore();
 
     // Step 1: Route
@@ -236,30 +237,31 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
         }
 
         if (mode === 'PURCHASE') {
-            const newPO: PurchaseOrder = {
-                id: `PO-${Date.now()}`,
-                supplier_id: originId,
-                destination_location_id: destinationId, // Destination warehouse
-                target_warehouse_id: destinationId, // Required FK for stock arrival
-                created_at: Date.now(),
-                status: 'SENT',
+            if (!user?.id) {
+                toast.error('Sesión inválida');
+                return;
+            }
+
+            const result = await createPurchaseOrderSecure({
+                supplierId: originId,
+                targetWarehouseId: destinationId,
                 items: selectedItems.map(i => ({
                     sku: i.sku,
                     name: i.name,
-                    quantity_ordered: i.quantity,
-                    quantity_received: 0,
-                    cost_price: 0, // TODO: Fetch real cost
-                    quantity: i.quantity // Legacy compatibility
+                    quantity: i.quantity,
+                    cost: 0,
+                    productId: undefined,
                 })),
-                total_estimated: 0,
-                is_auto_generated: false,
-                generation_reason: 'MANUAL'
-            };
-            addPurchaseOrder(newPO);
-            queryClient.setQueryData<PurchaseOrder[]>(purchaseOrdersQueryKey(destinationId || currentLocation?.id || undefined), (current = []) => {
-                const withoutDuplicate = current.filter((purchaseOrder) => purchaseOrder.id !== newPO.id);
-                return [newPO, ...withoutDuplicate];
-            });
+                notes: 'Pedido express desde WMS',
+                status: 'SENT',
+            }, user.id);
+
+            if (!result.success) {
+                toast.error(result.error || 'No se pudo crear el pedido');
+                return;
+            }
+
+            await queryClient.invalidateQueries({ queryKey: purchaseOrdersQueryKey(destinationId || currentLocation?.id || undefined) });
             toast.success('Pedido a Proveedor creado exitosamente');
         } else {
             if (!transportData.tracking_number) {

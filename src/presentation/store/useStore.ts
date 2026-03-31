@@ -14,9 +14,6 @@ import {
     GiftCard,
     LoyaltyReward,
     LoyaltyConfig,
-    Shipment,
-    StockTransfer,
-    WarehouseIncident,
     AttendanceStatus,
     AttendanceType,
     Shift,
@@ -69,19 +66,11 @@ interface PharmaState {
     setInventory: (inventory: InventoryBatch[]) => void;
     suppliers: Supplier[];
     supplierDocuments: SupplierDocument[];
-    // Legacy cache for non-WMS-query contexts only. WMS main flow must use usePurchaseOrdersQuery.
-    purchaseOrders: PurchaseOrder[];
     updateStock: (batchId: string, quantity: number) => void;
     addStock: (batchId: string, quantity: number, expiry?: number) => void;
     addNewProduct: (product: InventoryBatch) => void;
     // fetchInventory removed - migrated to React Query
     transferStock: (batchId: string, targetLocation: string, quantity: number) => Promise<void>;
-    addPurchaseOrder: (po: PurchaseOrder) => void;
-    receivePurchaseOrder: (poId: string, receivedItems: { sku: string, receivedQty: number; lotNumber?: string; expiryDate?: number }[], destinationLocationId: string) => Promise<void>;
-    finalizePurchaseOrderReview: (poId: string, reviewNotes?: string, receivedItems?: { sku: string; receivedQty: number; lotNumber?: string; expiryDate?: number }[]) => Promise<void>;
-    cancelPurchaseOrder: (poId: string) => void;
-    removePurchaseOrder: (poId: string) => void;
-    updatePurchaseOrder: (id: string, data: Partial<PurchaseOrder>) => void;
 
     // SRM Actions
 
@@ -171,20 +160,6 @@ interface PharmaState {
     attendanceLogs: AttendanceLog[];
     registerAttendance: (employeeId: string, type: AttendanceType, observation?: string, evidence_photo_url?: string, overtimeMinutes?: number) => Promise<void>;
     updateEmployeeBiometrics: (employeeId: string, credentialId: string) => void;
-
-    // WMS & Logistics
-    stockTransfers: StockTransfer[]; // Legacy
-    // Legacy cache for non-WMS-query contexts only. WMS main flow must use useShipmentsQuery.
-    shipments: Shipment[];
-    warehouseIncidents: WarehouseIncident[];
-    dispatchTransfer: (transfer: Omit<StockTransfer, 'id' | 'status' | 'timeline'>) => void;
-    receiveTransfer: (transferId: string, incidents?: Omit<WarehouseIncident, 'id' | 'transfer_id' | 'reported_at' | 'status'>[]) => void;
-
-    // Logistics
-    createDispatch: (shipmentData: Omit<Shipment, 'id' | 'status' | 'created_at' | 'updated_at'>) => void;
-    confirmReception: (shipmentId: string, data: { photos: string[], notes: string, receivedItems: { batchId: string, quantity: number, condition: 'GOOD' | 'DAMAGED' }[] }) => void;
-    uploadLogisticsDocument: (shipmentId: string, type: 'INVOICE' | 'GUIDE' | 'PHOTO', url: string, observations?: string) => void;
-    cancelShipment: (shipmentId: string) => void;
 
     // Import
     importInventory: (items: InventoryBatch[]) => void;
@@ -768,7 +743,6 @@ export const usePharmaStore = create<PharmaState>()(
             setInventory: (inventory) => set({ inventory }),
             suppliers: [],
             supplierDocuments: [],
-            purchaseOrders: [],
             reorderConfigs: [], // Intelligent ordering configurations
             updateStock: (batchId, quantity) => set((state) => ({
                 inventory: state.inventory.map(item =>
@@ -815,70 +789,6 @@ export const usePharmaStore = create<PharmaState>()(
                     import('sonner').then(({ toast }) => toast.error('Error en traspaso: ' + result.error));
                 }
             },
-            addPurchaseOrder: (po) => set((state) => ({ purchaseOrders: [...state.purchaseOrders, po] })),
-            receivePurchaseOrder: async (poId, receivedItems, destinationLocationId) => {
-                const state = get();
-                const { receivePurchaseOrderSecure: receivePOAction } = await import('../../actions/supply-v2');
-
-                const userId = state.user?.id || 'SYSTEM';
-                const result = await receivePOAction({
-                    purchaseOrderId: poId,
-                    receivedItems: receivedItems.map(i => ({
-                        sku: i.sku,
-                        quantity: i.receivedQty,
-                        lotNumber: i.lotNumber,
-                        expiryDate: i.expiryDate
-                    }))
-                }, userId);
-
-                if (result.success) {
-                    import('sonner').then(({ toast }) => toast.success('Recepción registrada. Orden en revisión'));
-                    // await get().fetchInventory(state.currentLocationId, state.currentWarehouseId);
-
-                    // Update local PO list status optimistically or refetch
-                    set((s) => ({
-                        purchaseOrders: s.purchaseOrders.map(p => p.id === poId ? { ...p, status: 'REVIEW' as any } : p)
-                    }));
-
-                } else {
-                    import('sonner').then(({ toast }) => toast.error('Error al recibir orden: ' + result.error));
-                }
-            },
-            finalizePurchaseOrderReview: async (poId, reviewNotes) => {
-                const state = get();
-                const { finalizePurchaseOrderReviewSecure } = await import('../../actions/supply-v2');
-                const userId = state.user?.id || 'SYSTEM';
-
-                const result = await finalizePurchaseOrderReviewSecure({
-                    purchaseOrderId: poId,
-                    reviewNotes: reviewNotes || undefined,
-                }, userId);
-
-                if (result.success) {
-                    import('sonner').then(({ toast }) => toast.success('Revisión finalizada. Inventario actualizado'));
-                    set((s) => ({
-                        purchaseOrders: s.purchaseOrders.map(p => p.id === poId ? { ...p, status: 'RECEIVED' as any } : p)
-                    }));
-                    return;
-                }
-
-                import('sonner').then(({ toast }) => toast.error('Error finalizando revisión: ' + result.error));
-            },
-
-            cancelPurchaseOrder: (poId) => set((state) => ({
-                purchaseOrders: state.purchaseOrders.map(po =>
-                    po.id === poId ? { ...po, status: 'CANCELLED' as any } : po
-                )
-            })),
-            removePurchaseOrder: (poId) => set((state) => ({
-                purchaseOrders: state.purchaseOrders.filter(po => po.id !== poId)
-            })),
-            updatePurchaseOrder: (id, data) => set((state) => ({
-                purchaseOrders: state.purchaseOrders.map(po =>
-                    po.id === id ? { ...po, ...data } : po
-                )
-            })),
-
             // --- SRM Actions ---
             addSupplier: async (supplierData) => {
                 const data = supplierData as any;
@@ -2157,249 +2067,6 @@ export const usePharmaStore = create<PharmaState>()(
                         : emp
                 )
             })),
-
-            // --- WMS & Logistics ---
-            // Local cache kept only for optimistic legacy mutation flows.
-            // Do not use as source of truth for WMS / supply / procurement reads.
-            stockTransfers: [],
-            shipments: [],
-            warehouseIncidents: [],
-
-            createDispatch: (shipmentData) => {
-                const state = get();
-                const now = Date.now();
-
-                // Enrich items with Batch Data
-                const enrichedItems = shipmentData.items.map(item => {
-                    const batch = state.inventory.find(b => b.id === item.batchId);
-                    return {
-                        ...item,
-                        lot_number: batch?.lot_number,
-                        expiry_date: batch?.expiry_date,
-                        dci: batch?.dci,
-                        unit_price: batch?.price_per_unit || batch?.price
-                    };
-                });
-
-                const newShipment: Shipment = {
-                    ...shipmentData,
-                    items: enrichedItems,
-                    id: `SHP - ${now} `,
-                    status: 'IN_TRANSIT',
-                    created_at: now,
-                    updated_at: now,
-                    documentation: {
-                        evidence_photos: []
-                    }
-                };
-
-                // Deduct stock using registerStockMovement
-                shipmentData.items.forEach(item => {
-                    state.registerStockMovement(item.batchId, -item.quantity, 'TRANSFER_OUT');
-                });
-
-                set((currentState) => ({
-                    shipments: [...currentState.shipments, newShipment]
-                }));
-            },
-            cancelShipment: (shipmentId) => set((state) => {
-                const shipment = state.shipments.find(s => s.id === shipmentId);
-                if (!shipment || shipment.status !== 'IN_TRANSIT') return {};
-
-                const updatedInventory = [...state.inventory];
-
-                // Restore stock to origin
-                // NOTE: Direct manipulation to handle potential batch recreation if it was depleted.
-                shipment.items.forEach(item => {
-                    const originBatchIndex = updatedInventory.findIndex(i => i.sku === item.sku && i.location_id === shipment.origin_location_id);
-
-                    if (originBatchIndex >= 0) {
-                        updatedInventory[originBatchIndex] = {
-                            ...updatedInventory[originBatchIndex],
-                            stock_actual: updatedInventory[originBatchIndex].stock_actual + item.quantity
-                        };
-                    } else {
-                        // Create new batch if missing in origin (unlikely but possible)
-                        const productDef = updatedInventory.find(i => i.sku === item.sku);
-                        if (productDef) {
-                            updatedInventory.push({
-                                ...productDef,
-                                id: `RESTORE-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-                                location_id: shipment.origin_location_id,
-                                stock_actual: item.quantity
-                            });
-                        }
-                    }
-                });
-
-                const updatedShipments = state.shipments.map(s =>
-                    s.id === shipmentId ? { ...s, status: 'CANCELLED' as const } : s
-                );
-
-                import('sonner').then(({ toast }) => {
-                    toast.success('Envío cancelado y stock restaurado');
-                });
-
-                return { shipments: updatedShipments, inventory: updatedInventory };
-            }),
-            confirmReception: (shipmentId, evidenceData) => set((state) => {
-                const shipmentIndex = state.shipments.findIndex(s => s.id === shipmentId);
-                if (shipmentIndex === -1) return {};
-
-                const shipment = state.shipments[shipmentIndex];
-                const now = Date.now();
-                const updatedInventory = [...state.inventory];
-
-                evidenceData.receivedItems.forEach(recItem => {
-                    // 1. Add to Destination (if GOOD)
-                    if (recItem.condition === 'GOOD') {
-                        // Try to find existing batch of same SKU + Lot + Expiry at destination
-                        const originalItem = shipment.items.find(i => i.batchId === recItem.batchId);
-
-                        // Find match by SKU and Location
-                        const destBatchIndex = updatedInventory.findIndex(b =>
-                            b.sku === originalItem?.sku &&
-                            b.location_id === shipment.destination_location_id &&
-                            b.lot_number === originalItem?.lot_number && // Match Lot
-                            b.expiry_date === originalItem?.expiry_date // Match Expiry
-                        );
-
-                        if (destBatchIndex !== -1) {
-                            // Update existing batch
-                            updatedInventory[destBatchIndex] = {
-                                ...updatedInventory[destBatchIndex],
-                                stock_actual: updatedInventory[destBatchIndex].stock_actual + recItem.quantity
-                            };
-                        } else if (originalItem) {
-                            // Create NEW batch with inherited data
-                            // We need a template for other fields (name, format, etc.)
-                            // We can find any batch of this SKU to copy static data, or use what we have
-                            const templateBatch = state.inventory.find(b => b.sku === originalItem.sku);
-
-                            if (templateBatch) {
-                                updatedInventory.push({
-                                    ...templateBatch, // Copy static data (Name, Format, ISP)
-                                    id: `BATCH - ${now} -${Math.random().toString(36).substr(2, 5)} `,
-                                    location_id: shipment.destination_location_id,
-                                    stock_actual: recItem.quantity,
-
-                                    // INHERITED DYNAMIC DATA
-                                    lot_number: originalItem.lot_number || 'S/L',
-                                    expiry_date: originalItem.expiry_date || (now + 31536000000), // Default 1 year if missing
-                                    price: originalItem.unit_price || templateBatch.price,
-
-                                    stock_min: 10, // Default
-                                    stock_max: 100 // Default
-                                });
-                            }
-                        }
-                    } else {
-                        // Handle DAMAGED (Log incident, move to quarantine, etc.)
-                        // Item received DAMAGED
-                    }
-                });
-
-                // Update Shipment Status
-                const updatedShipments = [...state.shipments];
-                updatedShipments[shipmentIndex] = {
-                    ...shipment,
-                    status: 'DELIVERED',
-                    updated_at: now,
-                    documentation: {
-                        ...shipment.documentation,
-                        evidence_photos: [...shipment.documentation.evidence_photos, ...evidenceData.photos],
-                        observations: evidenceData.notes
-                    }
-                };
-
-                return {
-                    shipments: updatedShipments,
-                    inventory: updatedInventory
-                };
-            }),
-            uploadLogisticsDocument: (shipmentId: string, type: 'INVOICE' | 'GUIDE' | 'PHOTO', url: string, observations?: string) => set((state) => {
-                const shipmentIndex = state.shipments.findIndex(s => s.id === shipmentId);
-                if (shipmentIndex === -1) return {};
-
-                const updatedShipments = [...state.shipments];
-                const doc = { ...updatedShipments[shipmentIndex].documentation };
-
-                if (type === 'INVOICE') doc.invoice_url = url;
-                if (type === 'GUIDE') doc.dispatch_guide_url = url;
-                if (type === 'PHOTO') doc.evidence_photos = [...doc.evidence_photos, url];
-                if (observations) doc.observations = observations;
-
-                updatedShipments[shipmentIndex] = {
-                    ...updatedShipments[shipmentIndex],
-                    documentation: doc,
-                    updated_at: Date.now()
-                };
-
-                return { shipments: updatedShipments };
-            }),
-
-            dispatchTransfer: (transferData) => set((state) => {
-                const now = Date.now();
-                // Legacy Support: Create Shipment from Transfer
-                const newShipment: Shipment = {
-                    id: `SHP - LEGACY - ${now} `,
-                    type: 'INTER_BRANCH',
-                    origin_location_id: transferData.origin_location_id,
-                    destination_location_id: transferData.destination_location_id,
-                    status: 'IN_TRANSIT',
-                    transport_data: {
-                        carrier: transferData.shipment_data.carrier_name,
-                        tracking_number: transferData.shipment_data.tracking_number,
-                        package_count: 1,
-                        driver_name: transferData.shipment_data.driver_name
-                    },
-                    documentation: {
-                        evidence_photos: transferData.evidence.photos
-                    },
-                    items: transferData.items.map(i => ({
-                        id: i.batchId,
-                        batchId: i.batchId,
-                        sku: i.sku,
-                        name: i.productName,
-                        quantity: i.quantity,
-                        condition: 'GOOD'
-                    })),
-                    valuation: 0,
-                    created_at: now,
-                    updated_at: now
-                };
-
-                const updatedInventory = [...state.inventory];
-                transferData.items.forEach(item => {
-                    const batchIndex = updatedInventory.findIndex(b => b.id === item.batchId);
-                    if (batchIndex !== -1) {
-                        updatedInventory[batchIndex] = {
-                            ...updatedInventory[batchIndex],
-                            stock_actual: updatedInventory[batchIndex].stock_actual - item.quantity
-                        };
-                    }
-                });
-
-                return {
-                    shipments: [...state.shipments, newShipment],
-                    stockTransfers: [...state.stockTransfers, { ...transferData, id: `TRF - ${now} `, status: 'IN_TRANSIT', timeline: { created_at: now } }],
-                    inventory: updatedInventory
-                };
-            }),
-
-            receiveTransfer: (transferId, incidents) => set((state) => {
-                const transferIndex = state.stockTransfers.findIndex(t => t.id === transferId);
-                if (transferIndex === -1) return {};
-
-                const updatedTransfers = [...state.stockTransfers];
-                updatedTransfers[transferIndex] = {
-                    ...updatedTransfers[transferIndex],
-                    status: 'RECEIVED',
-                    timeline: { ...updatedTransfers[transferIndex].timeline, received_at: Date.now() }
-                };
-
-                return { stockTransfers: updatedTransfers };
-            }),
 
             // --- Queue ---
             tickets: [],

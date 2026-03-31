@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
 import { AutoOrderSuggestion } from '../../domain/types';
@@ -9,7 +10,7 @@ import { MovementDetailModal } from '../components/scm/MovementDetailModal';
 import { useNotificationStore } from '../store/useNotificationStore';
 import { toast } from 'sonner';
 import { generateRestockSuggestionSecure, generateSaleBasedSuggestionSecure, type SuggestionAnalysisHistoryItem } from '../../actions/procurement-v2';
-import { deletePurchaseOrderSecure } from '../../actions/supply-v2';
+import { deletePurchaseOrderSecure, finalizePurchaseOrderReviewSecure, receivePurchaseOrderSecure } from '../../actions/supply-v2';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { CameraScanner } from '../components/ui/CameraScanner';
 import SupplyKanban from '../components/supply/SupplyKanban';
@@ -19,6 +20,7 @@ import { exportSuggestedOrdersSecure } from '../../actions/procurement-export';
 import { FileDown } from 'lucide-react';
 import { usePlatform } from '@/hooks/usePlatform';
 import { useBootstrapSupplyProcurement } from '@/presentation/hooks/useBootstrapSupplyProcurement';
+import { purchaseOrdersQueryKey } from '@/presentation/hooks/usePurchaseOrdersQuery';
 
 // Helper Components
 const SupplierSelector = React.memo(({ item, className, onChangeSupplier }: { item: ExtendedSuggestion, className: string, onChangeSupplier: (sku: string, supplierId: string) => void }) => {
@@ -90,11 +92,10 @@ interface ExtendedSuggestion extends AutoOrderSuggestion {
 
 const SupplyChainPage: React.FC = () => {
     // ... (store hooks remain same)
-    const receivePurchaseOrder = usePharmaStore((state) => state.receivePurchaseOrder);
-    const finalizePurchaseOrderReview = usePharmaStore((state) => state.finalizePurchaseOrderReview);
     const currentLocationId = usePharmaStore((state) => state.currentLocationId);
     const user = usePharmaStore((state) => state.user);
     const locations = useLocationStore((state) => state.locations);
+    const queryClient = useQueryClient();
 
     const [isReceptionModalOpen, setIsReceptionModalOpen] = useState(false);
     const [receptionModalMode, setReceptionModalMode] = useState<'RECEIVE' | 'VIEW' | 'REVIEW'>('RECEIVE');
@@ -347,6 +348,11 @@ const SupplyChainPage: React.FC = () => {
         } finally {
             setIsAnalyzing(false);
         }
+    };
+
+    const refreshSupplyPurchaseOrders = async () => {
+        await queryClient.invalidateQueries({ queryKey: purchaseOrdersQueryKey(selectedLocation || currentLocationId || undefined) });
+        await queryClient.invalidateQueries({ queryKey: ['inventory'] });
     };
 
     const suggestionsDraftSignature = useMemo(
@@ -1394,15 +1400,51 @@ const SupplyChainPage: React.FC = () => {
                             setSelectedOrder(null);
                         }}
                         order={selectedOrder}
-                        onReceive={(orderId, items) => {
-                            const fallbackLocationId = selectedLocation || currentLocationId || locations[0]?.id;
-                            return receivePurchaseOrder(
-                                orderId,
-                                items,
-                                selectedOrder.destination_location_id || fallbackLocationId
-                            );
+                        onReceive={async (orderId, items) => {
+                            if (!user?.id) {
+                                throw new Error('Sesión inválida');
+                            }
+
+                            const result = await receivePurchaseOrderSecure({
+                                purchaseOrderId: orderId,
+                                receivedItems: items.map((item) => ({
+                                    sku: item.sku,
+                                    quantity: item.receivedQty,
+                                    lotNumber: item.lotNumber,
+                                    expiryDate: item.expiryDate,
+                                })),
+                            }, user.id);
+
+                            if (!result.success) {
+                                throw new Error(result.error || 'No se pudo recepcionar la orden');
+                            }
+
+                            await refreshSupplyPurchaseOrders();
+                            toast.success('Recepción registrada. Orden en revisión');
                         }}
-                        onFinalizeReview={(orderId, reviewNotes, items) => finalizePurchaseOrderReview(orderId, reviewNotes, items)}
+                        onFinalizeReview={async (orderId, reviewNotes, items) => {
+                            if (!user?.id) {
+                                throw new Error('Sesión inválida');
+                            }
+
+                            const result = await finalizePurchaseOrderReviewSecure({
+                                purchaseOrderId: orderId,
+                                reviewNotes: reviewNotes || undefined,
+                                receivedItems: items?.map((item) => ({
+                                    sku: item.sku,
+                                    quantity: item.receivedQty,
+                                    lotNumber: item.lotNumber,
+                                    expiryDate: item.expiryDate,
+                                })),
+                            }, user.id);
+
+                            if (!result.success) {
+                                throw new Error(result.error || 'No se pudo finalizar la revisión');
+                            }
+
+                            await refreshSupplyPurchaseOrders();
+                            toast.success('Revisión finalizada. Inventario actualizado');
+                        }}
                     />
                 )
             }

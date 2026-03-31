@@ -21,6 +21,7 @@ import { useInventoryQuery } from '@/presentation/hooks/useInventoryQuery';
 import { usePurchaseOrdersQuery } from '@/presentation/hooks/usePurchaseOrdersQuery';
 import { useShipmentsQuery } from '@/presentation/hooks/useShipmentsQuery';
 import { useBootstrapWms } from '@/presentation/hooks/useBootstrapWms';
+import { receivePurchaseOrderSecure, finalizePurchaseOrderReviewSecure } from '@/actions/supply-v2';
 import { InventoryBatch, PurchaseOrder, Shipment } from '@/domain/types';
 import { WMSDespachoTab } from '@/presentation/components/wms/tabs/WMSDespachoTab';
 import { WMSRecepcionTab } from '@/presentation/components/wms/tabs/WMSRecepcionTab';
@@ -34,6 +35,7 @@ import ManualOrderModal from '@/presentation/components/supply/ManualOrderModal'
 import SupplyKanban from '../components/supply/SupplyKanban';
 import { SupplyChainHistoryTab } from '@/presentation/components/scm/SupplyChainHistoryTab';
 import { MovementDetailModal } from '@/presentation/components/scm/MovementDetailModal';
+import { toast } from 'sonner';
 
 export type WMSTab = 'despacho' | 'recepcion' | 'transferencia' | 'transito' | 'pedidos' | 'suministros' | 'historial' | 'crear-pedido';
 
@@ -77,8 +79,6 @@ export const WMSPage: React.FC = () => {
     const currentTerminalId = usePharmaStore((state) => state.currentTerminalId);
     const setCurrentLocation = usePharmaStore((state) => state.setCurrentLocation);
     const user = usePharmaStore((state) => state.user);
-    const receivePurchaseOrder = usePharmaStore((state) => state.receivePurchaseOrder);
-    const finalizePurchaseOrderReview = usePharmaStore((state) => state.finalizePurchaseOrderReview);
     const locationStoreCurrent = useLocationStore(s => s.currentLocation);
     const locationStoreLocations = useLocationStore(s => s.locations);
 
@@ -164,6 +164,71 @@ export const WMSPage: React.FC = () => {
 
     const handleTabChange = (tab: WMSTab) => {
         setActiveTab(tab);
+    };
+
+    const refreshPostPurchaseOrderMutation = async () => {
+        await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ['inventory'] }),
+            queryClient.invalidateQueries({ queryKey: ['purchaseOrders'] }),
+        ]);
+
+        if (activeLocationId) {
+            await bootstrapWms({ force: true });
+        }
+    };
+
+    const handleReceivePurchaseOrder = async (
+        orderId: string,
+        items: { sku: string; receivedQty: number; lotNumber?: string; expiryDate?: number }[]
+    ) => {
+        if (!user?.id) {
+            throw new Error('Sesión inválida');
+        }
+
+        const result = await receivePurchaseOrderSecure({
+            purchaseOrderId: orderId,
+            receivedItems: items.map((item) => ({
+                sku: item.sku,
+                quantity: item.receivedQty,
+                lotNumber: item.lotNumber,
+                expiryDate: item.expiryDate,
+            })),
+        }, user.id);
+
+        if (!result.success) {
+            throw new Error(result.error || 'No se pudo recepcionar la orden');
+        }
+
+        await refreshPostPurchaseOrderMutation();
+        toast.success('Recepción registrada. Orden en revisión');
+    };
+
+    const handleFinalizePurchaseOrderReview = async (
+        orderId: string,
+        reviewNotes?: string,
+        items?: { sku: string; receivedQty: number; lotNumber?: string; expiryDate?: number }[]
+    ) => {
+        if (!user?.id) {
+            throw new Error('Sesión inválida');
+        }
+
+        const result = await finalizePurchaseOrderReviewSecure({
+            purchaseOrderId: orderId,
+            reviewNotes: reviewNotes || undefined,
+            receivedItems: items?.map((item) => ({
+                sku: item.sku,
+                quantity: item.receivedQty,
+                lotNumber: item.lotNumber,
+                expiryDate: item.expiryDate,
+            })),
+        }, user.id);
+
+        if (!result.success) {
+            throw new Error(result.error || 'No se pudo finalizar la revisión');
+        }
+
+        await refreshPostPurchaseOrderMutation();
+        toast.success('Revisión finalizada. Inventario actualizado');
     };
 
     const renderTabContent = () => {
@@ -315,24 +380,8 @@ export const WMSPage: React.FC = () => {
                         setSelectedOrder(null);
                     }}
                     order={selectedOrder}
-                    onReceive={(orderId, items) => {
-                        return receivePurchaseOrder(
-                            orderId,
-                            items,
-                            selectedOrder?.target_warehouse_id || currentWarehouseId || currentLocationId
-                        ).then(async (result) => {
-                            if (activeLocationId) {
-                                await bootstrapWms({ force: true });
-                            }
-                            return result;
-                        });
-                    }}
-                    onFinalizeReview={async (orderId, reviewNotes, items) => {
-                        await finalizePurchaseOrderReview(orderId, reviewNotes, items);
-                        if (activeLocationId) {
-                            await bootstrapWms({ force: true });
-                        }
-                    }}
+                    onReceive={handleReceivePurchaseOrder}
+                    onFinalizeReview={handleFinalizePurchaseOrderReview}
                 />
 
                 <ManualOrderModal
@@ -440,24 +489,8 @@ export const WMSPage: React.FC = () => {
                     setSelectedOrder(null);
                 }}
                 order={selectedOrder}
-                onReceive={(orderId, items) => {
-                    return receivePurchaseOrder(
-                        orderId,
-                        items,
-                        selectedOrder?.target_warehouse_id || currentWarehouseId || currentLocationId
-                    ).then(async (result) => {
-                        if (activeLocationId) {
-                            await bootstrapWms({ force: true });
-                        }
-                        return result;
-                    });
-                }}
-                onFinalizeReview={async (orderId, reviewNotes, items) => {
-                    await finalizePurchaseOrderReview(orderId, reviewNotes, items);
-                    if (activeLocationId) {
-                        await bootstrapWms({ force: true });
-                    }
-                }}
+                onReceive={handleReceivePurchaseOrder}
+                onFinalizeReview={handleFinalizePurchaseOrderReview}
             />
 
             <ManualOrderModal

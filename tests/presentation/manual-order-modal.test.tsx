@@ -3,6 +3,7 @@
  */
 
 import React from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import ManualOrderModal from '@/presentation/components/supply/ManualOrderModal';
@@ -11,8 +12,6 @@ const mocks = vi.hoisted(() => {
     const pharmaState = {
         inventory: [],
         suppliers: [],
-        addPurchaseOrder: vi.fn(),
-        updatePurchaseOrder: vi.fn(),
         user: { id: '1719073d-9da1-40d7-9dce-28ac3a415a6b' },
         currentWarehouseId: '11111111-1111-4111-8111-111111111111',
         currentLocationId: '22222222-2222-4222-8222-222222222222',
@@ -55,19 +54,25 @@ vi.mock('sonner', () => ({
 
 describe('ManualOrderModal', () => {
     it('no rompe cuando initialOrder llega sin items', () => {
+        const queryClient = new QueryClient({
+            defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+        });
+
         render(
-            <ManualOrderModal
-                isOpen
-                onClose={mocks.onCloseMock}
-                initialOrder={{
-                    id: 'PO-LEGACY',
-                    supplier_id: 'SUP-LEGACY',
-                    destination_location_id: '22222222-2222-4222-8222-222222222222',
-                    target_warehouse_id: '11111111-1111-4111-8111-111111111111',
-                    created_at: Date.now(),
-                    status: 'DRAFT',
-                } as any}
-            />
+            <QueryClientProvider client={queryClient}>
+                <ManualOrderModal
+                    isOpen
+                    onClose={mocks.onCloseMock}
+                    initialOrder={{
+                        id: 'PO-LEGACY',
+                        supplier_id: 'SUP-LEGACY',
+                        destination_location_id: '22222222-2222-4222-8222-222222222222',
+                        target_warehouse_id: '11111111-1111-4111-8111-111111111111',
+                        created_at: Date.now(),
+                        status: 'DRAFT',
+                    } as any}
+                />
+            </QueryClientProvider>
         );
 
         expect(screen.getByText('Editar Orden')).toBeTruthy();
