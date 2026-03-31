@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import ContextSelectionPage from '@/presentation/pages/ContextSelectionPage';
-import { LandingPageContent } from '@/presentation/pages/LandingPage';
+import { LandingPageContent } from '@/presentation/pages/LandingPageContent';
 
 type PublicEntryClientPageProps = {
     forceContextSelection: boolean;
