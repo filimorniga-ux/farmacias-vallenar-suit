@@ -12,6 +12,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { EmployeeProfile } from '../../domain/types';
 import SystemIncidentsBanner from '../components/dashboard/SystemIncidentsBanner';
+import { bootstrapRouteShell } from '@/presentation/lib/bootstrapRouteShell';
 
 // --- SKELETON COMPONENTS ---
 const FinancialCardSkeleton = () => (
@@ -43,7 +44,6 @@ const DashboardPage: React.FC = () => {
     const login = usePharmaStore((state) => state.login);
     const user = usePharmaStore((state) => state.user);
     const employees = usePharmaStore((state) => state.employees);
-    const syncData = usePharmaStore((state) => state.syncData);
     const currentLocation = useLocationStore((state) => state.currentLocation);
     const locations = useLocationStore((state) => state.locations);
     const switchLocation = useLocationStore((state) => state.switchLocation);
@@ -187,8 +187,7 @@ const DashboardPage: React.FC = () => {
 
         if (result.success) {
             setIsLoginModalOpen(false);
-            // Sync critical data immediately after login
-            syncData().catch(console.error);
+            void bootstrapRouteShell(targetRoute || '/dashboard').catch(console.error);
         } else {
             const baseError = result.error || 'PIN Incorrecto';
             const supportRef = result.correlationId ? ` Ref: ${result.correlationId.slice(0, 8)}` : '';

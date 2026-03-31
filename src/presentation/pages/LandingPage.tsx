@@ -13,13 +13,13 @@ import { requestPinReset, applyPinReset } from '@/actions/pin-recovery-v2';
 import { toast } from 'sonner';
 
 import { brand } from '@/config/brand.config';
+import { bootstrapRouteShell } from '@/presentation/lib/bootstrapRouteShell';
 
 const LandingPage: React.FC = () => {
     const navigate = useNavigate();
     const login = usePharmaStore((state) => state.login);
     const employees = usePharmaStore((state) => state.employees);
     const user = usePharmaStore((state) => state.user);
-    const syncData = usePharmaStore((state) => state.syncData);
     const [localEmployees, setLocalEmployees] = useState<EmployeeProfile[]>([]);
 
     // Context State
@@ -118,19 +118,16 @@ const LandingPage: React.FC = () => {
 
         if (user) {
             console.log('🔄 Sesión restaurada, redirigiendo...');
-            // Cargar datos en background después de restaurar sesión
-            syncData().catch(console.error);
+            const restorePath = user.role === 'CASHIER'
+                ? '/pos'
+                : user.role === 'WAREHOUSE' || user.role === 'WAREHOUSE_CHIEF'
+                    ? '/warehouse'
+                    : '/dashboard';
 
-            // Role-based redirection logic
-            if (user.role === 'CASHIER') {
-                navigate('/pos', { replace: true });
-            } else if (user.role === 'WAREHOUSE' || user.role === 'WAREHOUSE_CHIEF') {
-                navigate('/warehouse', { replace: true });
-            } else {
-                navigate('/dashboard', { replace: true });
-            }
+            void bootstrapRouteShell(restorePath).catch(console.error);
+            navigate(restorePath, { replace: true });
         }
-    }, [user, navigate, syncData]);
+    }, [user, navigate]);
 
     // Initial Check - Location Context
     useEffect(() => {
@@ -233,8 +230,7 @@ const LandingPage: React.FC = () => {
                     setIsLoading(false);
                     return;
                 }
-                // Sync data in background
-                syncData().catch(console.error);
+                void bootstrapRouteShell(finalPath).catch(console.error);
                 // Redirect
                 navigate(finalPath, { replace: true });
             } else {
