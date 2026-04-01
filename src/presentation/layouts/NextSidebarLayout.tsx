@@ -12,6 +12,7 @@ import ContextBadge from '@/presentation/components/layout/ContextBadge';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import LocationSwitcher from '@/presentation/components/layout/LocationSwitcher';
 import NotificationBell from '@/presentation/components/notifications/NotificationBell';
+import NotificationBellRuntime from '@/presentation/components/notifications/NotificationBellRuntime';
 // import MobileBottomNav from '@/presentation/components/layout/MobileBottomNav'; // Disable temporarily if it depends on react-router
 import AppIcon, { AppThemeColor } from '@/presentation/components/ui/AppIcon';
 import SyncStatusIndicator from '@/presentation/components/ui/SyncStatusIndicator';
@@ -23,16 +24,18 @@ const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [isLandscape, setIsLandscape] = useState(false);
+    const [isDesktopViewport, setIsDesktopViewport] = useState(false);
 
     useEffect(() => {
-        const checkOrientation = () => {
+        const syncViewportState = () => {
             // Check if width > height and width is small (mobile)
             setIsLandscape(window.innerWidth > window.innerHeight && window.innerWidth < 1024);
+            setIsDesktopViewport(window.innerWidth >= 1024);
         };
 
-        checkOrientation();
-        window.addEventListener('resize', checkOrientation);
-        return () => window.removeEventListener('resize', checkOrientation);
+        syncViewportState();
+        window.addEventListener('resize', syncViewportState);
+        return () => window.removeEventListener('resize', syncViewportState);
     }, []);
 
     if (isLandscape) {
@@ -74,6 +77,8 @@ const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
 
     return (
         <div className="flex h-screen bg-slate-50 overflow-hidden">
+            <NotificationBellRuntime />
+
             {/* Mobile Backdrop */}
             <AnimatePresence>
                 {isMobileMenuOpen && (
@@ -194,7 +199,7 @@ const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
                             <Menu size={24} />
                         </button>
                         <span className="font-bold text-slate-800">Farmacias Vallenar</span>
-                        <NotificationBell userRole={user?.role || 'ALL'} />
+                        {!isDesktopViewport && <NotificationBell userRole={user?.role || 'ALL'} />}
                     </div>
                     <div className="flex items-center gap-2 flex-1 justify-end min-w-0">
                         <div className="overflow-x-auto scrollbar-hide flex items-center gap-2 max-w-full">
@@ -218,7 +223,7 @@ const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
                     <div className="flex items-center gap-4">
                         <SyncStatusIndicator />
                         <ContextBadge />
-                        <NotificationBell userRole={user?.role || 'ALL'} />
+                        {isDesktopViewport && <NotificationBell userRole={user?.role || 'ALL'} />}
                         <LocationSwitcher />
                     </div>
                 </header>
