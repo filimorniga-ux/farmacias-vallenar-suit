@@ -3,6 +3,7 @@
  */
 
 import React from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -57,8 +58,24 @@ describe('ManagerDashboard', () => {
         vi.clearAllMocks();
     });
 
+    function renderWithQueryClient(ui: React.ReactElement) {
+        const queryClient = new QueryClient({
+            defaultOptions: {
+                queries: {
+                    retry: false,
+                },
+            },
+        });
+
+        return render(
+            <QueryClientProvider client={queryClient}>
+                {ui}
+            </QueryClientProvider>
+        );
+    }
+
     it('usa initialData sin hacer fetch inicial al montar', async () => {
-        render(<ManagerDashboard initialData={sampleManagerData} />);
+        renderWithQueryClient(<ManagerDashboard initialData={sampleManagerData} />);
 
         await waitFor(() => {
             expect(screen.getByText('Sucursal Centro')).toBeTruthy();
@@ -73,12 +90,54 @@ describe('ManagerDashboard', () => {
             data: sampleManagerData,
         });
 
-        render(<ManagerDashboard initialData={sampleManagerData} />);
+        renderWithQueryClient(<ManagerDashboard initialData={sampleManagerData} />);
 
         fireEvent.click(screen.getByRole('button', { name: 'Actualizar tablero gerencial' }));
 
         await waitFor(() => {
             expect(mocks.getManagerRealTimeDataSecureMock).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    it('consulta la sucursal seleccionada cuando cambia el branch activo', async () => {
+        mocks.getManagerRealTimeDataSecureMock.mockResolvedValue({
+            success: true,
+            data: {
+                ...sampleManagerData,
+                selectedBranch: {
+                    ...sampleManagerData.selectedBranch,
+                    locationId: 'branch-2',
+                    locationName: 'Sucursal Norte',
+                },
+                branches: [
+                    ...sampleManagerData.branches,
+                    {
+                        id: 'branch-2',
+                        name: 'Sucursal Norte',
+                        totalSales: 120000,
+                        transactionCount: 5,
+                    },
+                ],
+            },
+        });
+
+        renderWithQueryClient(<ManagerDashboard initialData={{
+            ...sampleManagerData,
+            branches: [
+                ...sampleManagerData.branches,
+                {
+                    id: 'branch-2',
+                    name: 'Sucursal Norte',
+                    totalSales: 120000,
+                    transactionCount: 5,
+                },
+            ],
+        }} />);
+
+        fireEvent.click(screen.getByRole('button', { name: /Sucursal Norte/i }));
+
+        await waitFor(() => {
+            expect(mocks.getManagerRealTimeDataSecureMock).toHaveBeenCalledWith('branch-2');
         });
     });
 });
