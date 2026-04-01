@@ -84,6 +84,14 @@ const NetworkPage = () => {
         setPairingCode(code);
     };
 
+    const patchEmployeeInStore = (employeeId: string, patch: Partial<EmployeeProfile>) => {
+        usePharmaStore.setState((state) => ({
+            employees: state.employees.map((emp) =>
+                emp.id === employeeId ? { ...emp, ...patch } : emp
+            )
+        }));
+    };
+
     const handleMoveEmployee = async (employee: EmployeeProfile, targetLocationId: string | null) => {
         if (!currentLocation && targetLocationId) return;
 
@@ -91,13 +99,15 @@ const NetworkPage = () => {
             // V2: updateUserSecure con assigned_location_id
             const res = await updateUserSecure({
                 userId: employee.id,
-                assigned_location_id: targetLocationId || undefined
+                assigned_location_id: targetLocationId ?? null
             });
 
             if (res.success) {
+                patchEmployeeInStore(employee.id, {
+                    ...(res.data as Partial<EmployeeProfile> | undefined),
+                    assigned_location_id: res.data?.assigned_location_id ?? targetLocationId ?? undefined
+                });
                 toast.success('Personal reasignado');
-                // Refresh Employees
-                usePharmaStore.getState().syncData();
             } else {
                 toast.error('Error al mover personal: ' + res.error);
             }
