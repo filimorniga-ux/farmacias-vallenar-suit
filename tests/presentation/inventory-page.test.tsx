@@ -86,11 +86,11 @@ vi.mock('@/presentation/components/inventory/ProductFormModal', () => ({
 }));
 
 vi.mock('@/presentation/components/inventory/BulkImportModal', () => ({
-    default: () => null,
+    default: () => <div data-testid="bulk-import-modal">bulk import</div>,
 }));
 
 vi.mock('@/presentation/components/inventory/InventoryExportModal', () => ({
-    default: () => null,
+    default: () => <div data-testid="inventory-export-modal">inventory export</div>,
 }));
 
 vi.mock('@/presentation/components/inventory/QuickStockModal', () => ({
@@ -150,5 +150,25 @@ describe('InventoryPage', () => {
         fireEvent.click(screen.getByRole('button', { name: /abrir scanner de inventario/i }));
 
         expect(await screen.findByTestId('mobile-scanner')).not.toBeNull();
+    });
+
+    it('carga el modal de importación solo al abrirlo explícitamente', async () => {
+        render(<InventoryPage />);
+
+        expect(screen.queryByTestId('bulk-import-modal')).toBeNull();
+
+        fireEvent.click(screen.getByRole('button', { name: /importar excel/i }));
+
+        expect(await screen.findByTestId('bulk-import-modal')).not.toBeNull();
+    });
+
+    it('carga el modal de exportación solo al abrirlo explícitamente', async () => {
+        render(<InventoryPage />);
+
+        expect(screen.queryByTestId('inventory-export-modal')).toBeNull();
+
+        fireEvent.click(screen.getByRole('button', { name: /exportar kardex/i }));
+
+        expect(await screen.findByTestId('inventory-export-modal')).not.toBeNull();
     });
 });

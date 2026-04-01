@@ -10,8 +10,6 @@ import {
 import StockEntryModal from '../components/inventory/StockEntryModal';
 import StockTransferModal from '../components/inventory/StockTransferModal';
 import ProductFormModal from '../components/inventory/ProductFormModal';
-import BulkImportModal from '../components/inventory/BulkImportModal';
-import InventoryExportModal from '../components/inventory/InventoryExportModal';
 import QuickStockModal from '../components/inventory/QuickStockModal';
 import ProductDeleteConfirm from '../components/inventory/ProductDeleteConfirm';
 import PriceAdjustmentModal from '../components/inventory/PriceAdjustmentModal';
@@ -31,6 +29,16 @@ import { getLastVisibleVirtualIndex, scheduleDeferredTask } from '../utils/virtu
 const MobileScanner = dynamic(
     () => import('../../components/shared/MobileScanner').then((mod) => mod.MobileScanner),
     { ssr: false }
+);
+
+const BulkImportModal = dynamic(
+    () => import('../components/inventory/BulkImportModal'),
+    { loading: () => null }
+);
+
+const InventoryExportModal = dynamic(
+    () => import('../components/inventory/InventoryExportModal'),
+    { loading: () => null }
 );
 
 const getBatchTag = (batch: any): { label: string; className: string } | null => {
@@ -1030,9 +1038,13 @@ const InventoryPage: React.FC = () => {
                     }}
                 />
             )}
-            <BulkImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} />
+            {isImportModalOpen && (
+                <BulkImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} />
+            )}
 
-            <InventoryExportModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} />
+            {isExportModalOpen && (
+                <InventoryExportModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} />
+            )}
 
             <QuickStockModal isOpen={isQuickStockModalOpen} onClose={() => { setIsQuickStockModalOpen(false); setEditingItem(null); }} product={editingItem} />
 
