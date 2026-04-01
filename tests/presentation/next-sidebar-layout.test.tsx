@@ -12,8 +12,13 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('next/link', () => ({
-    default: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
-        <a href={href} {...props}>{children}</a>
+    default: ({
+        children,
+        href,
+        prefetch,
+        ...props
+    }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string; prefetch?: boolean }) => (
+        <a href={href} data-prefetch={prefetch === undefined ? 'default' : String(prefetch)} {...props}>{children}</a>
     ),
 }));
 
@@ -78,5 +83,18 @@ describe('NextSidebarLayout', () => {
 
         expect(screen.getAllByTestId('notification-bell')).toHaveLength(1);
         expect(screen.getAllByTestId('notification-bell-runtime')).toHaveLength(1);
+    });
+
+    it('desactiva prefetch automático en rutas pesadas del sidebar', () => {
+        render(
+            <NextSidebarLayout>
+                <div>contenido</div>
+            </NextSidebarLayout>
+        );
+
+        expect(screen.getByRole('link', { name: /inventario/i }).getAttribute('data-prefetch')).toBe('false');
+        expect(screen.getByRole('link', { name: /punto de venta/i }).getAttribute('data-prefetch')).toBe('false');
+        expect(screen.getByRole('link', { name: /resumen general/i }).getAttribute('data-prefetch')).toBe('default');
+        expect(screen.getByRole('link', { name: /tesorería/i }).getAttribute('data-prefetch')).toBe('default');
     });
 });

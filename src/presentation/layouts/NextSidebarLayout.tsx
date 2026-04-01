@@ -17,6 +17,19 @@ import NotificationBellRuntime from '@/presentation/components/notifications/Not
 import AppIcon, { AppThemeColor } from '@/presentation/components/ui/AppIcon';
 import SyncStatusIndicator from '@/presentation/components/ui/SyncStatusIndicator';
 
+const PREFETCH_DISABLED_ROUTES = [
+    '/pos',
+    '/inventory',
+    '/warehouse',
+    '/reports',
+    '/procurement/smart-invoice',
+    '/supply-chain',
+    '/network',
+];
+
+const shouldPrefetchRoute = (path: string) =>
+    !PREFETCH_DISABLED_ROUTES.some((route) => path === route || path.startsWith(`${route}/`));
+
 const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
     const user = usePharmaStore((state) => state.user);
     const logout = usePharmaStore((state) => state.logout);
@@ -135,6 +148,7 @@ const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
                             <Link
                                 key={item.path}
                                 href={item.path}
+                                prefetch={shouldPrefetchRoute(item.path) ? undefined : false}
                                 onClick={() => setIsMobileMenuOpen(false)}
                                 title={isCollapsed ? item.label : ''}
                                 className={`flex items-center gap-4 px-3 py-3 rounded-2xl transition-all duration-200 group ${isActive
