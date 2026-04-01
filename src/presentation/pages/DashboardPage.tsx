@@ -19,6 +19,8 @@ import SystemIncidentsBanner from '../components/dashboard/SystemIncidentsBanner
 import { bootstrapRouteShell } from '@/presentation/lib/bootstrapRouteShell';
 import { scheduleIdleTask } from '@/presentation/lib/scheduleIdleTask';
 
+const DASHBOARD_MAINTENANCE_WARMUP_DELAY_MS = 10000;
+
 // --- SKELETON COMPONENTS ---
 const FinancialCardSkeleton = () => (
     <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 h-32 animate-pulse flex flex-col justify-between relative overflow-hidden">
@@ -92,17 +94,21 @@ export const DashboardPageContent: React.FC<DashboardPageContentProps> = ({
         setIsOnline(navigator.onLine);
 
         // --- LAZY TRIGGER: GC & HEALTH CHECK ---
-        if (user?.role === 'ADMIN' || user?.role === 'MANAGER') {
+        if (user?.role === 'ADMIN' || user?.role === 'MANAGER' || user?.role === 'GERENTE_GENERAL') {
             const gcWarmupKey = `dashboard-gc-warmup:${user.id}`;
             const shouldWarmup = typeof window !== 'undefined' && !window.sessionStorage.getItem(gcWarmupKey);
 
             if (shouldWarmup) {
                 const cancelGcWarmup = scheduleIdleTask(() => {
+                    if (document.visibilityState !== 'visible' || !navigator.onLine) {
+                        return;
+                    }
+
                     window.sessionStorage.setItem(gcWarmupKey, 'done');
                     import('../../actions/maintenance-v2').then(({ autoCloseGhostSessionsSecure }) => {
                         autoCloseGhostSessionsSecure('').catch(e => console.error('GC Error:', e));
                     });
-                }, 2500);
+                }, DASHBOARD_MAINTENANCE_WARMUP_DELAY_MS);
 
                 return () => {
                     autoBackupService.stop();
@@ -118,7 +124,7 @@ export const DashboardPageContent: React.FC<DashboardPageContentProps> = ({
             window.removeEventListener('online', updateOnlineStatus);
             window.removeEventListener('offline', updateOnlineStatus);
         };
-    }, [user?.role]);
+    }, [user?.id, user?.role]);
 
     // --- DATA TRANSFORMATION ---
     const dashboardData = useMemo(() => {
