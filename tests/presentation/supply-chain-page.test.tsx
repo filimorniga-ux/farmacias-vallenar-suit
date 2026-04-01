@@ -108,7 +108,8 @@ vi.mock('@/presentation/components/supply/SuggestionAnalysisHistoryPanel', () =>
 }));
 
 vi.mock('@/presentation/components/ui/CameraScanner', () => ({
-    CameraScanner: () => null,
+    __esModule: true,
+    default: () => <div data-testid="camera-scanner">camera</div>,
 }));
 
 vi.mock('@/actions/procurement-v2', () => ({
@@ -223,5 +224,15 @@ describe('SupplyChainPage - edición de sugerido', () => {
 
         expect(screen.getByTestId('suggestion-card-SKU-001')).toBeTruthy();
         expect(screen.queryByRole('table')).toBeNull();
+    });
+
+    it('carga el scanner solo cuando el usuario abre el flujo explícito', async () => {
+        renderPage();
+
+        expect(screen.queryByTestId('camera-scanner')).toBeNull();
+
+        fireEvent.click(screen.getByRole('button', { name: /abrir scanner de abastecimiento/i }));
+
+        expect(await screen.findByTestId('camera-scanner')).not.toBeNull();
     });
 });

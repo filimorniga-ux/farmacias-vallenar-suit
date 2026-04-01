@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
+import dynamic from 'next/dynamic';
 import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
 import {
     Filter, AlertTriangle, Search, Plus, FileSpreadsheet,
     ChevronDown, ChevronUp, MoreHorizontal, History, RefreshCcw, Package, ScanBarcode, ArrowRightLeft, Edit, Trash2, Zap, Sparkles, Percent, Scissors, Globe
 } from 'lucide-react';
-import { MobileScanner } from '../../components/shared/MobileScanner';
 import StockEntryModal from '../components/inventory/StockEntryModal';
 import StockTransferModal from '../components/inventory/StockTransferModal';
 import ProductFormModal from '../components/inventory/ProductFormModal';
@@ -27,6 +27,11 @@ import { useInventoryPagedQuery } from '../hooks/useInventoryPagedQuery';
 import { formatSku, getEffectiveUnits } from '../../lib/utils/inventory-utils';
 import { getTransferLotVisualTag } from '../../lib/wms-batch-lot';
 import { getLastVisibleVirtualIndex, scheduleDeferredTask } from '../utils/virtualization';
+
+const MobileScanner = dynamic(
+    () => import('../../components/shared/MobileScanner').then((mod) => mod.MobileScanner),
+    { ssr: false }
+);
 
 const getBatchTag = (batch: any): { label: string; className: string } | null => {
     const sourceSystem = String(batch?.source_system || '').toUpperCase();
@@ -988,6 +993,7 @@ const InventoryPage: React.FC = () => {
             <div className="md:hidden fixed bottom-24 right-4 z-40">
                 <button
                     onClick={() => setIsScannerOpen(true)}
+                    aria-label="Abrir scanner de inventario"
                     className="bg-cyan-600 text-white p-4 rounded-full shadow-lg shadow-cyan-200 hover:bg-cyan-700 transition-colors"
                 >
                     <ScanBarcode size={24} />

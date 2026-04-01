@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import { X, ScanBarcode, Save, Package, Calendar, AlertTriangle, CheckCircle2, Camera, Receipt, Truck } from 'lucide-react';
 import { InventoryBatch } from '../../../domain/types';
 import { usePharmaStore } from '../../store/useStore';
 import { useLocationStore } from '../../store/useLocationStore';
 import { useNetworkStatus } from '../../../hooks/useNetworkStatus';
 import { toast } from 'sonner';
-import CameraScanner from '../ui/CameraScanner';
 
 import { useQueryClient } from '@tanstack/react-query';
 import { calculateRecommendedPrice } from '../../../domain/logic/pricing-rules';
+
+const CameraScanner = dynamic(() => import('../ui/CameraScanner'), { ssr: false });
 
 
 interface StockEntryModalProps {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import dynamic from 'next/dynamic';
 import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
 import { AutoOrderSuggestion } from '../../domain/types';
@@ -12,7 +13,6 @@ import { toast } from 'sonner';
 import { generateRestockSuggestionSecure, generateSaleBasedSuggestionSecure, type SuggestionAnalysisHistoryItem } from '../../actions/procurement-v2';
 import { deletePurchaseOrderSecure, finalizePurchaseOrderReviewSecure, receivePurchaseOrderSecure } from '../../actions/supply-v2';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
-import { CameraScanner } from '../components/ui/CameraScanner';
 import SupplyKanban from '../components/supply/SupplyKanban';
 import TransferSuggestionsPanel from '../components/supply/TransferSuggestionsPanel';
 import SuggestionAnalysisHistoryPanel from '../components/supply/SuggestionAnalysisHistoryPanel';
@@ -21,6 +21,8 @@ import { FileDown } from 'lucide-react';
 import { usePlatform } from '@/hooks/usePlatform';
 import { useBootstrapSupplyProcurement } from '@/presentation/hooks/useBootstrapSupplyProcurement';
 import { purchaseOrdersQueryKey } from '@/presentation/hooks/usePurchaseOrdersQuery';
+
+const CameraScanner = dynamic(() => import('../components/ui/CameraScanner'), { ssr: false });
 
 // Helper Components
 const SupplierSelector = React.memo(({ item, className, onChangeSupplier }: { item: ExtendedSuggestion, className: string, onChangeSupplier: (sku: string, supplierId: string) => void }) => {
@@ -748,6 +750,7 @@ const SupplyChainPage: React.FC = () => {
                                         />
                                         <button
                                             onClick={() => setIsScannerOpen(true)}
+                                            aria-label="Abrir scanner de abastecimiento"
                                             className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 hover:bg-slate-200 rounded-lg text-slate-400 hover:text-purple-600 transition-colors"
                                             title="Escanear código de barras"
                                         >
