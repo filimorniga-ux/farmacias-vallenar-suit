@@ -1,15 +1,30 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import { X, Save, Package, Camera, Info, Sparkles, Search as SearchIcon, AlertTriangle, Globe, Loader2, CheckCircle, Calculator, Percent, Syringe, Tag, Truck, FileText, Barcode, DollarSign } from 'lucide-react';
 import { createProductSecure, updateProductMasterSecure } from '../../../actions/products-v2';
 import { usePharmaStore } from '../../store/useStore';
 import { useLocationStore } from '../../store/useLocationStore';
 import { InventoryBatch } from '../../../domain/types';
 import { toast } from 'sonner';
-import CameraScanner from '../ui/CameraScanner';
 import { lookupBarcode, BarcodeLookupResult } from '../../../infrastructure/services/BarcodeLookupService';
 import { calculateRecommendedPrice, calculateMargin } from '../../../domain/logic/pricing-rules'; // Importar lógica de precios
 
 import { useQueryClient } from '@tanstack/react-query';
+
+const CameraScanner = dynamic(
+    () => import('../ui/CameraScanner'),
+    {
+        ssr: false,
+        loading: () => (
+            <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 px-6 text-white backdrop-blur-sm">
+                <div className="rounded-3xl border border-slate-700 bg-slate-900 px-6 py-5 text-center shadow-2xl">
+                    <Loader2 size={28} className="mx-auto mb-3 animate-spin text-cyan-400" />
+                    <p className="text-sm font-semibold">Abriendo cámara...</p>
+                </div>
+            </div>
+        ),
+    }
+);
 
 interface ProductFormModalProps {
     product?: InventoryBatch;

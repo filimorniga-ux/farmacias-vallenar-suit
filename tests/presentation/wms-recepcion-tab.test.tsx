@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import WMSRecepcionTab from '@/presentation/components/wms/tabs/WMSRecepcionTab';
 
@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => {
         processReceptionSecureMock: vi.fn(),
         validateSupervisorPinMock: vi.fn(),
         exportStockMovementsSecureMock: vi.fn(),
+        barcodeScannerHandler: null as null | ((code: string) => void),
         toastSuccessMock: vi.fn(),
         toastErrorMock: vi.fn(),
         toastWarningMock: vi.fn(),
@@ -68,6 +69,26 @@ vi.mock('@/actions/inventory-export-v2', () => ({
     exportStockMovementsSecure: mocks.exportStockMovementsSecureMock,
 }));
 
+vi.mock('@/presentation/hooks/useBarcodeScanner', () => ({
+    useBarcodeScanner: ({ onScan }: { onScan: (code: string) => void }) => {
+        mocks.barcodeScannerHandler = onScan;
+    },
+}));
+
+vi.mock('@/presentation/components/inventory/ProductFormModal', () => ({
+    default: ({ initialValues }: { initialValues?: { sku?: string } }) => (
+        <div data-testid="product-form-modal">modal:{initialValues?.sku ?? 'sin-sku'}</div>
+    ),
+}));
+
+vi.mock('@/presentation/components/ui/CameraScanner', () => ({
+    default: ({ onClose }: { onClose: () => void }) => (
+        <div data-testid="camera-scanner">
+            <button onClick={onClose}>Cerrar cámara</button>
+        </div>
+    ),
+}));
+
 vi.mock('@sentry/nextjs', () => ({
     captureException: vi.fn(),
 }));
@@ -94,6 +115,7 @@ describe('WMSRecepcionTab', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.barcodeScannerHandler = null;
         mocks.getShipmentsSecureMock.mockResolvedValue({
             success: true,
             data: { shipments: [mocks.shipment] },
@@ -155,5 +177,51 @@ describe('WMSRecepcionTab', () => {
         const payload = mocks.processReceptionSecureMock.mock.calls[0][0];
         const receivedItem = payload.receivedItems.find((item: { itemId: string }) => item.itemId === 'item-1');
         expect(receivedItem.quantity).toBe(12);
+    });
+
+    it('carga el scanner solo cuando el usuario abre el flujo explícito de cámara', async () => {
+        renderWithProviders();
+
+        const shipmentCard = await screen.findByText('Desde: Bodega Central');
+        fireEvent.click(shipmentCard.closest('button') as HTMLButtonElement);
+
+        expect(screen.queryByTestId('camera-scanner')).toBeNull();
+
+        fireEvent.click(screen.getByRole('button', { name: /Escanear/i }));
+
+        expect(await screen.findByTestId('camera-scanner')).not.toBeNull();
+    });
+
+    it('abre el modal de creación tras escaneo desconocido sin romper la carga diferida', async () => {
+        renderWithProviders();
+
+        const shipmentCard = await screen.findByText('Desde: Bodega Central');
+        fireEvent.click(shipmentCard.closest('button') as HTMLButtonElement);
+
+        await waitFor(() => {
+            expect(mocks.barcodeScannerHandler).toBeTypeOf('function');
+        });
+
+        await act(async () => {
+            mocks.barcodeScannerHandler?.('SKU-NUEVO-001');
+        });
+
+        await waitFor(() => {
+            expect(mocks.toastWarningMock).toHaveBeenCalled();
+        });
+
+        const warningCall = mocks.toastWarningMock.mock.calls.at(-1);
+        const warningOptions = warningCall?.[1] as
+            | { action?: { onClick?: () => void } }
+            | undefined;
+
+        expect(warningOptions?.action?.onClick).toBeTypeOf('function');
+
+        await act(async () => {
+            warningOptions?.action?.onClick?.();
+        });
+
+        const productModal = await screen.findByTestId('product-form-modal');
+        expect(productModal.textContent).toContain('modal:SKU-NUEVO-001');
     });
 });

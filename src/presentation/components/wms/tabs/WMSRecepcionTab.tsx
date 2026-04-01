@@ -21,7 +21,6 @@ import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
 import { useBarcodeScanner } from '@/presentation/hooks/useBarcodeScanner';
-import ProductFormModal from '../../inventory/ProductFormModal';
 import { InventoryBatch } from '@/domain/types';
 
 const CameraScanner = dynamic(
@@ -36,6 +35,14 @@ const CameraScanner = dynamic(
                 </div>
             </div>
         ),
+    }
+);
+
+const ProductFormModal = dynamic(
+    () => import('../../inventory/ProductFormModal'),
+    {
+        ssr: false,
+        loading: () => null,
     }
 );
 
